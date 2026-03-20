@@ -12,10 +12,6 @@ type Config struct {
 	DatabaseURL string
 	BaseURL     string
 
-	// Region is the unified region parameter. Individual service regions
-	// (S3_REGION, TURBOPUFFER_REGION) override this if set.
-	Region string
-
 	// S3 configuration
 	S3Bucket    string
 	S3Region    string
@@ -56,22 +52,17 @@ func Load() (*Config, error) {
 		baseURL = fmt.Sprintf("http://localhost:%d", port)
 	}
 
-	// Unified region: REGION env var, defaulting to us-east-1.
-	// S3_REGION and TURBOPUFFER_REGION override it for their respective services.
-	region := getEnv("REGION", "us-east-1")
-
 	return &Config{
 		Port:              port,
 		DatabaseURL:       dbURL,
 		BaseURL:           baseURL,
-		Region:            region,
 		S3Bucket:          os.Getenv("S3_BUCKET"),
-		S3Region:          getEnv("S3_REGION", region),
+		S3Region:          getEnv("S3_REGION", "us-east-1"),
 		S3Endpoint:        os.Getenv("S3_ENDPOINT"),
 		S3AccessKey:       os.Getenv("S3_ACCESS_KEY"),
 		S3SecretKey:       os.Getenv("S3_SECRET_KEY"),
 		QueueS3Key:        getEnv("QUEUE_S3_KEY", "queue/index-queue.json"),
-		TurbopufferRegion: getEnv("TURBOPUFFER_REGION", region),
+		TurbopufferRegion: getEnv("TURBOPUFFER_REGION", "us-east-1"),
 		EncryptionKey:     os.Getenv("ENCRYPTION_KEY"),
 	}, nil
 }
