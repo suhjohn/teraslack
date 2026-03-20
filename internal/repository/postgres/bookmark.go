@@ -44,7 +44,9 @@ func (r *BookmarkRepo) Create(ctx context.Context, params domain.CreateBookmarkP
 		return nil, fmt.Errorf("insert bookmark: %w", err)
 	}
 
-	eventData, _ := json.Marshal(params)
+	bm := bookmarkToDomain(row)
+
+	eventData, _ := json.Marshal(bm)
 	if _, err := qtx.AppendEvent(ctx, sqlcgen.AppendEventParams{
 		AggregateType: domain.AggregateBookmark,
 		AggregateID:   id,
@@ -58,7 +60,7 @@ func (r *BookmarkRepo) Create(ctx context.Context, params domain.CreateBookmarkP
 		return nil, fmt.Errorf("commit tx: %w", err)
 	}
 
-	return bookmarkToDomain(row), nil
+	return bm, nil
 }
 
 func (r *BookmarkRepo) Get(ctx context.Context, id string) (*domain.Bookmark, error) {
@@ -112,7 +114,9 @@ func (r *BookmarkRepo) Update(ctx context.Context, id string, params domain.Upda
 		return nil, fmt.Errorf("update bookmark: %w", err)
 	}
 
-	eventData, _ := json.Marshal(params)
+	updatedBm := bookmarkToDomain(row)
+
+	eventData, _ := json.Marshal(updatedBm)
 	if _, err := qtx.AppendEvent(ctx, sqlcgen.AppendEventParams{
 		AggregateType: domain.AggregateBookmark,
 		AggregateID:   id,
@@ -126,7 +130,7 @@ func (r *BookmarkRepo) Update(ctx context.Context, id string, params domain.Upda
 		return nil, fmt.Errorf("commit tx: %w", err)
 	}
 
-	return bookmarkToDomain(row), nil
+	return updatedBm, nil
 }
 
 func (r *BookmarkRepo) Delete(ctx context.Context, id string) error {
@@ -137,15 +141,23 @@ func (r *BookmarkRepo) Delete(ctx context.Context, id string) error {
 	defer tx.Rollback(ctx)
 	qtx := r.q.WithTx(tx)
 
+	// Fetch full entity before deletion for snapshot
+	bmRow, bmErr := qtx.GetBookmark(ctx, id)
+	if bmErr != nil {
+		return fmt.Errorf("get bookmark before delete: %w", bmErr)
+	}
+	bmSnapshot := bookmarkToDomain(bmRow)
+
 	if err := qtx.DeleteBookmark(ctx, id); err != nil {
 		return fmt.Errorf("delete bookmark: %w", err)
 	}
 
+	eventData, _ := json.Marshal(bmSnapshot)
 	if _, err := qtx.AppendEvent(ctx, sqlcgen.AppendEventParams{
 		AggregateType: domain.AggregateBookmark,
 		AggregateID:   id,
 		EventType:     domain.EventBookmarkDeleted,
-		EventData:     []byte("{}"),
+		EventData:     eventData,
 	}); err != nil {
 		return fmt.Errorf("append event: %w", err)
 	}

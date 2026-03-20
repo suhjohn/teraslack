@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -12,13 +13,18 @@ import (
 
 // AuthService contains business logic for authentication operations.
 type AuthService struct {
-	repo     repository.AuthRepository
-	userRepo repository.UserRepository
+	repo      repository.AuthRepository
+	userRepo  repository.UserRepository
+	publisher EventPublisher
+	logger    *slog.Logger
 }
 
 // NewAuthService creates a new AuthService.
-func NewAuthService(repo repository.AuthRepository, userRepo repository.UserRepository) *AuthService {
-	return &AuthService{repo: repo, userRepo: userRepo}
+func NewAuthService(repo repository.AuthRepository, userRepo repository.UserRepository, publisher EventPublisher, logger *slog.Logger) *AuthService {
+	if publisher == nil {
+		publisher = noopPublisher{}
+	}
+	return &AuthService{repo: repo, userRepo: userRepo, publisher: publisher, logger: logger}
 }
 
 func (s *AuthService) CreateToken(ctx context.Context, params domain.CreateTokenParams) (*domain.Token, error) {
@@ -34,7 +40,14 @@ func (s *AuthService) CreateToken(ctx context.Context, params domain.CreateToken
 		return nil, fmt.Errorf("user: %w", err)
 	}
 
-	return s.repo.CreateToken(ctx, params)
+	token, err := s.repo.CreateToken(ctx, params)
+	if err != nil {
+		return nil, err
+	}
+	if pubErr := s.publisher.Publish(ctx, params.TeamID, domain.EventTokenCreated, token); pubErr != nil {
+		s.logger.Warn("publish token.created event", "error", pubErr)
+	}
+	return token, nil
 }
 
 func (s *AuthService) ValidateToken(ctx context.Context, bearerToken string) (*domain.AuthTestResponse, error) {
@@ -65,5 +78,11 @@ func (s *AuthService) RevokeToken(ctx context.Context, token string) error {
 	if token == "" {
 		return fmt.Errorf("token: %w", domain.ErrInvalidArgument)
 	}
-	return s.repo.RevokeToken(ctx, token)
+	if err := s.repo.RevokeToken(ctx, token); err != nil {
+		return err
+	}
+	if pubErr := s.publisher.Publish(ctx, "", domain.EventTokenRevoked, map[string]string{"token": token}); pubErr != nil {
+		s.logger.Warn("publish token.revoked event", "error", pubErr)
+	}
+	return nil
 }

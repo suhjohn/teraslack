@@ -57,7 +57,10 @@ func (r *UsergroupRepo) Create(ctx context.Context, params domain.CreateUsergrou
 		}
 	}
 
-	eventData, _ := json.Marshal(params)
+	ug := usergroupToDomain(row)
+	ug.UserCount = len(params.Users)
+
+	eventData, _ := json.Marshal(ug)
 	if _, err := qtx.AppendEvent(ctx, sqlcgen.AppendEventParams{
 		AggregateType: domain.AggregateUsergroup,
 		AggregateID:   id,
@@ -71,8 +74,6 @@ func (r *UsergroupRepo) Create(ctx context.Context, params domain.CreateUsergrou
 		return nil, fmt.Errorf("commit tx: %w", err)
 	}
 
-	ug := usergroupToDomain(row)
-	ug.UserCount = len(params.Users)
 	return ug, nil
 }
 
@@ -127,7 +128,9 @@ func (r *UsergroupRepo) Update(ctx context.Context, id string, params domain.Upd
 		return nil, fmt.Errorf("update usergroup: %w", err)
 	}
 
-	eventData, _ := json.Marshal(params)
+	updatedUg := usergroupToDomain(row)
+
+	eventData, _ := json.Marshal(updatedUg)
 	if _, err := qtx.AppendEvent(ctx, sqlcgen.AppendEventParams{
 		AggregateType: domain.AggregateUsergroup,
 		AggregateID:   id,
@@ -141,7 +144,7 @@ func (r *UsergroupRepo) Update(ctx context.Context, id string, params domain.Upd
 		return nil, fmt.Errorf("commit tx: %w", err)
 	}
 
-	return usergroupToDomain(row), nil
+	return updatedUg, nil
 }
 
 func (r *UsergroupRepo) List(ctx context.Context, params domain.ListUsergroupsParams) ([]domain.Usergroup, error) {
@@ -176,11 +179,17 @@ func (r *UsergroupRepo) Enable(ctx context.Context, id string) error {
 		return fmt.Errorf("enable usergroup: %w", err)
 	}
 
+	// Fetch full entity after enable for snapshot
+	ugRow, err := qtx.GetUsergroup(ctx, id)
+	if err != nil {
+		return fmt.Errorf("get enabled usergroup: %w", err)
+	}
+	eventData, _ := json.Marshal(usergroupToDomain(ugRow))
 	if _, err := qtx.AppendEvent(ctx, sqlcgen.AppendEventParams{
 		AggregateType: domain.AggregateUsergroup,
 		AggregateID:   id,
 		EventType:     domain.EventUsergroupEnabled,
-		EventData:     []byte("{}"),
+		EventData:     eventData,
 	}); err != nil {
 		return fmt.Errorf("append event: %w", err)
 	}
@@ -199,11 +208,17 @@ func (r *UsergroupRepo) Disable(ctx context.Context, id string) error {
 		return fmt.Errorf("disable usergroup: %w", err)
 	}
 
+	// Fetch full entity after disable for snapshot
+	ugRow, err := qtx.GetUsergroup(ctx, id)
+	if err != nil {
+		return fmt.Errorf("get disabled usergroup: %w", err)
+	}
+	eventData, _ := json.Marshal(usergroupToDomain(ugRow))
 	if _, err := qtx.AppendEvent(ctx, sqlcgen.AppendEventParams{
 		AggregateType: domain.AggregateUsergroup,
 		AggregateID:   id,
 		EventType:     domain.EventUsergroupDisabled,
-		EventData:     []byte("{}"),
+		EventData:     eventData,
 	}); err != nil {
 		return fmt.Errorf("append event: %w", err)
 	}
@@ -256,7 +271,15 @@ func (r *UsergroupRepo) SetUsers(ctx context.Context, usergroupID string, userID
 		return fmt.Errorf("set user count: %w", err)
 	}
 
-	eventData, _ := json.Marshal(map[string]interface{}{"user_ids": userIDs})
+	// Fetch full entity after user set for snapshot
+	ugRow, ugErr := qtx.GetUsergroup(ctx, usergroupID)
+	if ugErr != nil {
+		return fmt.Errorf("get usergroup after set users: %w", ugErr)
+	}
+	eventData, _ := json.Marshal(map[string]interface{}{
+		"user_ids":  userIDs,
+		"usergroup": usergroupToDomain(ugRow),
+	})
 	if _, err := qtx.AppendEvent(ctx, sqlcgen.AppendEventParams{
 		AggregateType: domain.AggregateUsergroup,
 		AggregateID:   usergroupID,

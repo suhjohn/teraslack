@@ -56,7 +56,9 @@ func (r *EventRepo) CreateSubscription(ctx context.Context, params domain.Create
 		return nil, fmt.Errorf("insert subscription: %w", err)
 	}
 
-	eventData, _ := json.Marshal(params)
+	sub := eventSubToDomain(row)
+
+	eventData, _ := json.Marshal(sub)
 	if _, err := qtx.AppendEvent(ctx, sqlcgen.AppendEventParams{
 		AggregateType: domain.AggregateSubscription,
 		AggregateID:   id,
@@ -70,7 +72,7 @@ func (r *EventRepo) CreateSubscription(ctx context.Context, params domain.Create
 		return nil, fmt.Errorf("commit tx: %w", err)
 	}
 
-	return eventSubToDomain(row), nil
+	return sub, nil
 }
 
 func (r *EventRepo) GetSubscription(ctx context.Context, id string) (*domain.EventSubscription, error) {
@@ -123,7 +125,9 @@ func (r *EventRepo) UpdateSubscription(ctx context.Context, id string, params do
 		return nil, fmt.Errorf("update subscription: %w", err)
 	}
 
-	eventData, _ := json.Marshal(params)
+	updatedSub := eventSubToDomain(row)
+
+	eventData, _ := json.Marshal(updatedSub)
 	if _, err := qtx.AppendEvent(ctx, sqlcgen.AppendEventParams{
 		AggregateType: domain.AggregateSubscription,
 		AggregateID:   id,
@@ -137,7 +141,7 @@ func (r *EventRepo) UpdateSubscription(ctx context.Context, id string, params do
 		return nil, fmt.Errorf("commit tx: %w", err)
 	}
 
-	return eventSubToDomain(row), nil
+	return updatedSub, nil
 }
 
 func (r *EventRepo) DeleteSubscription(ctx context.Context, id string) error {
@@ -148,15 +152,23 @@ func (r *EventRepo) DeleteSubscription(ctx context.Context, id string) error {
 	defer tx.Rollback(ctx)
 	qtx := r.q.WithTx(tx)
 
+	// Fetch full entity before deletion for snapshot
+	subRow, subErr := qtx.GetEventSubscription(ctx, id)
+	if subErr != nil {
+		return fmt.Errorf("get subscription before delete: %w", subErr)
+	}
+	subSnapshot := eventSubToDomain(subRow)
+
 	if err := qtx.DeleteEventSubscription(ctx, id); err != nil {
 		return fmt.Errorf("delete subscription: %w", err)
 	}
 
+	eventData, _ := json.Marshal(subSnapshot)
 	if _, err := qtx.AppendEvent(ctx, sqlcgen.AppendEventParams{
 		AggregateType: domain.AggregateSubscription,
 		AggregateID:   id,
 		EventType:     domain.EventSubscriptionDeleted,
-		EventData:     []byte("{}"),
+		EventData:     eventData,
 	}); err != nil {
 		return fmt.Errorf("append event: %w", err)
 	}

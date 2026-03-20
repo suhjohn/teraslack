@@ -40,7 +40,9 @@ func (r *PinRepo) Add(ctx context.Context, params domain.PinParams) (*domain.Pin
 		return nil, domain.ErrAlreadyPinned
 	}
 
-	eventData, _ := json.Marshal(params)
+	pin := pinToDomain(row)
+
+	eventData, _ := json.Marshal(pin)
 	if _, err := qtx.AppendEvent(ctx, sqlcgen.AppendEventParams{
 		AggregateType: domain.AggregatePin,
 		AggregateID:   params.ChannelID + ":" + params.MessageTS,
@@ -54,7 +56,7 @@ func (r *PinRepo) Add(ctx context.Context, params domain.PinParams) (*domain.Pin
 		return nil, fmt.Errorf("commit tx: %w", err)
 	}
 
-	return pinToDomain(row), nil
+	return pin, nil
 }
 
 func (r *PinRepo) Remove(ctx context.Context, params domain.PinParams) error {
@@ -72,7 +74,11 @@ func (r *PinRepo) Remove(ctx context.Context, params domain.PinParams) error {
 		return fmt.Errorf("remove pin: %w", err)
 	}
 
-	eventData, _ := json.Marshal(params)
+	eventData, _ := json.Marshal(map[string]string{
+		"channel_id": params.ChannelID,
+		"message_ts": params.MessageTS,
+		"user_id":    params.UserID,
+	})
 	if _, err := qtx.AppendEvent(ctx, sqlcgen.AppendEventParams{
 		AggregateType: domain.AggregatePin,
 		AggregateID:   params.ChannelID + ":" + params.MessageTS,

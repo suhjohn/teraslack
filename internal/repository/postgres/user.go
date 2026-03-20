@@ -59,7 +59,12 @@ func (r *UserRepo) Create(ctx context.Context, params domain.CreateUserParams) (
 		return nil, fmt.Errorf("insert user: %w", err)
 	}
 
-	eventData, _ := json.Marshal(params)
+	user, err := userToDomain(row)
+	if err != nil {
+		return nil, fmt.Errorf("convert user: %w", err)
+	}
+
+	eventData, _ := json.Marshal(user)
 	if _, err := qtx.AppendEvent(ctx, sqlcgen.AppendEventParams{
 		AggregateType: domain.AggregateUser,
 		AggregateID:   id,
@@ -73,7 +78,7 @@ func (r *UserRepo) Create(ctx context.Context, params domain.CreateUserParams) (
 		return nil, fmt.Errorf("commit tx: %w", err)
 	}
 
-	return userToDomain(row)
+	return user, nil
 }
 
 func (r *UserRepo) Get(ctx context.Context, id string) (*domain.User, error) {
@@ -163,7 +168,12 @@ func (r *UserRepo) Update(ctx context.Context, id string, params domain.UpdateUs
 		return nil, fmt.Errorf("update user: %w", err)
 	}
 
-	eventData, _ := json.Marshal(params)
+	updatedUser, err := userToDomain(row)
+	if err != nil {
+		return nil, fmt.Errorf("convert user: %w", err)
+	}
+
+	eventData, _ := json.Marshal(updatedUser)
 	if _, err := qtx.AppendEvent(ctx, sqlcgen.AppendEventParams{
 		AggregateType: domain.AggregateUser,
 		AggregateID:   id,
@@ -177,7 +187,7 @@ func (r *UserRepo) Update(ctx context.Context, id string, params domain.UpdateUs
 		return nil, fmt.Errorf("commit tx: %w", err)
 	}
 
-	return userToDomain(row)
+	return updatedUser, nil
 }
 
 func (r *UserRepo) List(ctx context.Context, params domain.ListUsersParams) (*domain.CursorPage[domain.User], error) {

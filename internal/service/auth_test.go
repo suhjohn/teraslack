@@ -46,7 +46,7 @@ func (m *mockAuthRepo) RevokeToken(_ context.Context, token string) error {
 
 func TestAuthService_CreateAndValidate(t *testing.T) {
 	authRepo := newMockAuthRepo()
-	svc := NewAuthService(authRepo, &mockUserRepoForUG{})
+	svc := NewAuthService(authRepo, &mockUserRepoForUG{}, nil, nil)
 
 	// Create token
 	tok, err := svc.CreateToken(context.Background(), domain.CreateTokenParams{
@@ -92,7 +92,7 @@ func TestAuthService_CreateAndValidate(t *testing.T) {
 
 func TestAuthService_RevokeToken(t *testing.T) {
 	authRepo := newMockAuthRepo()
-	svc := NewAuthService(authRepo, &mockUserRepoForUG{})
+	svc := NewAuthService(authRepo, &mockUserRepoForUG{}, nil, nil)
 
 	tok, err := svc.CreateToken(context.Background(), domain.CreateTokenParams{
 		TeamID: "T123",
@@ -123,7 +123,7 @@ func TestAuthService_RevokeToken(t *testing.T) {
 
 func TestAuthService_ValidationErrors(t *testing.T) {
 	authRepo := newMockAuthRepo()
-	svc := NewAuthService(authRepo, &mockUserRepoForUG{})
+	svc := NewAuthService(authRepo, &mockUserRepoForUG{}, nil, nil)
 
 	// Missing team_id
 	_, err := svc.CreateToken(context.Background(), domain.CreateTokenParams{

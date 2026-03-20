@@ -133,7 +133,7 @@ func (m *mockUserRepoForUG) List(_ context.Context, _ domain.ListUsersParams) (*
 
 func TestUsergroupService_Create(t *testing.T) {
 	repo := newMockUsergroupRepo()
-	svc := NewUsergroupService(repo, &mockUserRepoForUG{})
+	svc := NewUsergroupService(repo, &mockUserRepoForUG{}, nil, nil)
 
 	tests := []struct {
 		name    string
@@ -212,7 +212,7 @@ func TestUsergroupService_Create(t *testing.T) {
 
 func TestUsergroupService_SetUsers(t *testing.T) {
 	repo := newMockUsergroupRepo()
-	svc := NewUsergroupService(repo, &mockUserRepoForUG{})
+	svc := NewUsergroupService(repo, &mockUserRepoForUG{}, nil, nil)
 
 	// Create a group first
 	ug, err := svc.Create(context.Background(), domain.CreateUsergroupParams{
@@ -249,7 +249,7 @@ func TestUsergroupService_SetUsers(t *testing.T) {
 
 func TestUsergroupService_EnableDisable(t *testing.T) {
 	repo := newMockUsergroupRepo()
-	svc := NewUsergroupService(repo, &mockUserRepoForUG{})
+	svc := NewUsergroupService(repo, &mockUserRepoForUG{}, nil, nil)
 
 	ug, err := svc.Create(context.Background(), domain.CreateUsergroupParams{
 		TeamID:    "T123",

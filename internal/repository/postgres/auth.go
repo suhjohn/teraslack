@@ -55,7 +55,9 @@ func (r *AuthRepo) CreateToken(ctx context.Context, params domain.CreateTokenPar
 		return nil, fmt.Errorf("insert token: %w", err)
 	}
 
-	eventData, _ := json.Marshal(map[string]string{"token_id": id, "team_id": params.TeamID, "user_id": params.UserID})
+	token := tokenToDomain(row)
+
+	eventData, _ := json.Marshal(token)
 	if _, err := qtx.AppendEvent(ctx, sqlcgen.AppendEventParams{
 		AggregateType: domain.AggregateToken,
 		AggregateID:   id,
@@ -69,7 +71,7 @@ func (r *AuthRepo) CreateToken(ctx context.Context, params domain.CreateTokenPar
 		return nil, fmt.Errorf("commit tx: %w", err)
 	}
 
-	return tokenToDomain(row), nil
+	return token, nil
 }
 
 func (r *AuthRepo) GetByToken(ctx context.Context, token string) (*domain.Token, error) {
@@ -95,7 +97,12 @@ func (r *AuthRepo) RevokeToken(ctx context.Context, token string) error {
 		return fmt.Errorf("revoke token: %w", err)
 	}
 
-	eventData, _ := json.Marshal(map[string]string{"token": token})
+	// Fetch the token after revocation for snapshot
+	tRow, tErr := qtx.GetByToken(ctx, token)
+	if tErr != nil {
+		return fmt.Errorf("get revoked token: %w", tErr)
+	}
+	eventData, _ := json.Marshal(tokenToDomain(tRow))
 	if _, err := qtx.AppendEvent(ctx, sqlcgen.AppendEventParams{
 		AggregateType: domain.AggregateToken,
 		AggregateID:   token,

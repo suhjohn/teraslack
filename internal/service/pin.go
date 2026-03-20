@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"log/slog"
 
 	"github.com/suhjohn/workspace/internal/domain"
 	"github.com/suhjohn/workspace/internal/repository"
@@ -10,14 +11,19 @@ import (
 
 // PinService contains business logic for pin operations.
 type PinService struct {
-	repo     repository.PinRepository
-	convRepo repository.ConversationRepository
-	msgRepo  repository.MessageRepository
+	repo      repository.PinRepository
+	convRepo  repository.ConversationRepository
+	msgRepo   repository.MessageRepository
+	publisher EventPublisher
+	logger    *slog.Logger
 }
 
 // NewPinService creates a new PinService.
-func NewPinService(repo repository.PinRepository, convRepo repository.ConversationRepository, msgRepo repository.MessageRepository) *PinService {
-	return &PinService{repo: repo, convRepo: convRepo, msgRepo: msgRepo}
+func NewPinService(repo repository.PinRepository, convRepo repository.ConversationRepository, msgRepo repository.MessageRepository, publisher EventPublisher, logger *slog.Logger) *PinService {
+	if publisher == nil {
+		publisher = noopPublisher{}
+	}
+	return &PinService{repo: repo, convRepo: convRepo, msgRepo: msgRepo, publisher: publisher, logger: logger}
 }
 
 func (s *PinService) Add(ctx context.Context, params domain.PinParams) (*domain.Pin, error) {
@@ -39,14 +45,27 @@ func (s *PinService) Add(ctx context.Context, params domain.PinParams) (*domain.
 		return nil, fmt.Errorf("message: %w", err)
 	}
 
-	return s.repo.Add(ctx, params)
+	pin, err := s.repo.Add(ctx, params)
+	if err != nil {
+		return nil, err
+	}
+	if pubErr := s.publisher.Publish(ctx, conv.TeamID, domain.EventTypePinAdded, pin); pubErr != nil {
+		s.logger.Warn("publish pin.added event", "error", pubErr)
+	}
+	return pin, nil
 }
 
 func (s *PinService) Remove(ctx context.Context, params domain.PinParams) error {
 	if params.ChannelID == "" || params.MessageTS == "" {
 		return fmt.Errorf("channel and timestamp: %w", domain.ErrInvalidArgument)
 	}
-	return s.repo.Remove(ctx, params)
+	if err := s.repo.Remove(ctx, params); err != nil {
+		return err
+	}
+	if pubErr := s.publisher.Publish(ctx, "", domain.EventTypePinRemoved, params); pubErr != nil {
+		s.logger.Warn("publish pin.removed event", "error", pubErr)
+	}
+	return nil
 }
 
 func (s *PinService) List(ctx context.Context, channelID string) ([]domain.Pin, error) {

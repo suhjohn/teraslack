@@ -59,7 +59,9 @@ func (r *MessageRepo) Create(ctx context.Context, params domain.PostMessageParam
 		}
 	}
 
-	eventData, _ := json.Marshal(params)
+	msg := msgToDomain(row)
+
+	eventData, _ := json.Marshal(msg)
 	if _, err := qtx.AppendEvent(ctx, sqlcgen.AppendEventParams{
 		AggregateType: domain.AggregateMessage,
 		AggregateID:   params.ChannelID + ":" + ts,
@@ -73,7 +75,7 @@ func (r *MessageRepo) Create(ctx context.Context, params domain.PostMessageParam
 		return nil, fmt.Errorf("commit tx: %w", err)
 	}
 
-	return msgToDomain(row), nil
+	return msg, nil
 }
 
 func (r *MessageRepo) Get(ctx context.Context, channelID, ts string) (*domain.Message, error) {
@@ -143,7 +145,9 @@ func (r *MessageRepo) Update(ctx context.Context, channelID, ts string, params d
 		return nil, fmt.Errorf("update message: %w", err)
 	}
 
-	eventData, _ := json.Marshal(params)
+	updatedMsg := msgToDomain(row)
+
+	eventData, _ := json.Marshal(updatedMsg)
 	if _, err := qtx.AppendEvent(ctx, sqlcgen.AppendEventParams{
 		AggregateType: domain.AggregateMessage,
 		AggregateID:   channelID + ":" + ts,
@@ -157,7 +161,7 @@ func (r *MessageRepo) Update(ctx context.Context, channelID, ts string, params d
 		return nil, fmt.Errorf("commit tx: %w", err)
 	}
 
-	return msgToDomain(row), nil
+	return updatedMsg, nil
 }
 
 func (r *MessageRepo) Delete(ctx context.Context, channelID, ts string) error {
@@ -175,7 +179,15 @@ func (r *MessageRepo) Delete(ctx context.Context, channelID, ts string) error {
 		return fmt.Errorf("soft delete message: %w", err)
 	}
 
-	eventData, _ := json.Marshal(map[string]string{"channel_id": channelID, "ts": ts})
+	// Fetch the message state before deletion for the snapshot
+	delRow, delErr := qtx.GetMessage(ctx, sqlcgen.GetMessageParams{
+		ChannelID: channelID,
+		Ts:        ts,
+	})
+	if delErr != nil {
+		return fmt.Errorf("get deleted message: %w", delErr)
+	}
+	eventData, _ := json.Marshal(msgToDomain(delRow))
 	if _, err := qtx.AppendEvent(ctx, sqlcgen.AppendEventParams{
 		AggregateType: domain.AggregateMessage,
 		AggregateID:   channelID + ":" + ts,
@@ -295,7 +307,18 @@ func (r *MessageRepo) AddReaction(ctx context.Context, params domain.AddReaction
 		return fmt.Errorf("add reaction: %w", err)
 	}
 
-	eventData, _ := json.Marshal(params)
+	// Fetch full message state after reaction for snapshot
+	addMsgRow, addMsgErr := qtx.GetMessage(ctx, sqlcgen.GetMessageParams{
+		ChannelID: params.ChannelID,
+		Ts:        params.MessageTS,
+	})
+	if addMsgErr != nil {
+		return fmt.Errorf("get message after reaction: %w", addMsgErr)
+	}
+	eventData, _ := json.Marshal(map[string]interface{}{
+		"reaction": params,
+		"message":  msgToDomain(addMsgRow),
+	})
 	if _, err := qtx.AppendEvent(ctx, sqlcgen.AppendEventParams{
 		AggregateType: domain.AggregateMessage,
 		AggregateID:   params.ChannelID + ":" + params.MessageTS,
@@ -325,7 +348,18 @@ func (r *MessageRepo) RemoveReaction(ctx context.Context, params domain.RemoveRe
 		return fmt.Errorf("remove reaction: %w", err)
 	}
 
-	eventData, _ := json.Marshal(params)
+	// Fetch full message state after reaction removal for snapshot
+	remMsgRow, remMsgErr := qtx.GetMessage(ctx, sqlcgen.GetMessageParams{
+		ChannelID: params.ChannelID,
+		Ts:        params.MessageTS,
+	})
+	if remMsgErr != nil {
+		return fmt.Errorf("get message after reaction removal: %w", remMsgErr)
+	}
+	eventData, _ := json.Marshal(map[string]interface{}{
+		"reaction": params,
+		"message":  msgToDomain(remMsgRow),
+	})
 	if _, err := qtx.AppendEvent(ctx, sqlcgen.AppendEventParams{
 		AggregateType: domain.AggregateMessage,
 		AggregateID:   params.ChannelID + ":" + params.MessageTS,

@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"log/slog"
 
 	"github.com/suhjohn/workspace/internal/domain"
 	"github.com/suhjohn/workspace/internal/repository"
@@ -10,13 +11,18 @@ import (
 
 // UsergroupService contains business logic for usergroup operations.
 type UsergroupService struct {
-	repo     repository.UsergroupRepository
-	userRepo repository.UserRepository
+	repo      repository.UsergroupRepository
+	userRepo  repository.UserRepository
+	publisher EventPublisher
+	logger    *slog.Logger
 }
 
 // NewUsergroupService creates a new UsergroupService.
-func NewUsergroupService(repo repository.UsergroupRepository, userRepo repository.UserRepository) *UsergroupService {
-	return &UsergroupService{repo: repo, userRepo: userRepo}
+func NewUsergroupService(repo repository.UsergroupRepository, userRepo repository.UserRepository, publisher EventPublisher, logger *slog.Logger) *UsergroupService {
+	if publisher == nil {
+		publisher = noopPublisher{}
+	}
+	return &UsergroupService{repo: repo, userRepo: userRepo, publisher: publisher, logger: logger}
 }
 
 func (s *UsergroupService) Create(ctx context.Context, params domain.CreateUsergroupParams) (*domain.Usergroup, error) {
@@ -32,7 +38,14 @@ func (s *UsergroupService) Create(ctx context.Context, params domain.CreateUserg
 	if params.CreatedBy == "" {
 		return nil, fmt.Errorf("created_by: %w", domain.ErrInvalidArgument)
 	}
-	return s.repo.Create(ctx, params)
+	ug, err := s.repo.Create(ctx, params)
+	if err != nil {
+		return nil, err
+	}
+	if pubErr := s.publisher.Publish(ctx, params.TeamID, domain.EventUsergroupCreated, ug); pubErr != nil {
+		s.logger.Warn("publish usergroup.created event", "error", pubErr)
+	}
+	return ug, nil
 }
 
 func (s *UsergroupService) Get(ctx context.Context, id string) (*domain.Usergroup, error) {
@@ -46,7 +59,14 @@ func (s *UsergroupService) Update(ctx context.Context, id string, params domain.
 	if id == "" {
 		return nil, fmt.Errorf("usergroup: %w", domain.ErrInvalidArgument)
 	}
-	return s.repo.Update(ctx, id, params)
+	ug, err := s.repo.Update(ctx, id, params)
+	if err != nil {
+		return nil, err
+	}
+	if pubErr := s.publisher.Publish(ctx, ug.TeamID, domain.EventUsergroupUpdated, ug); pubErr != nil {
+		s.logger.Warn("publish usergroup.updated event", "error", pubErr)
+	}
+	return ug, nil
 }
 
 func (s *UsergroupService) List(ctx context.Context, params domain.ListUsergroupsParams) ([]domain.Usergroup, error) {
@@ -60,14 +80,32 @@ func (s *UsergroupService) Enable(ctx context.Context, id string) error {
 	if id == "" {
 		return fmt.Errorf("usergroup: %w", domain.ErrInvalidArgument)
 	}
-	return s.repo.Enable(ctx, id)
+	if err := s.repo.Enable(ctx, id); err != nil {
+		return err
+	}
+	ug, _ := s.repo.Get(ctx, id)
+	if ug != nil {
+		if pubErr := s.publisher.Publish(ctx, ug.TeamID, domain.EventUsergroupEnabled, ug); pubErr != nil {
+			s.logger.Warn("publish usergroup.enabled event", "error", pubErr)
+		}
+	}
+	return nil
 }
 
 func (s *UsergroupService) Disable(ctx context.Context, id string) error {
 	if id == "" {
 		return fmt.Errorf("usergroup: %w", domain.ErrInvalidArgument)
 	}
-	return s.repo.Disable(ctx, id)
+	if err := s.repo.Disable(ctx, id); err != nil {
+		return err
+	}
+	ug, _ := s.repo.Get(ctx, id)
+	if ug != nil {
+		if pubErr := s.publisher.Publish(ctx, ug.TeamID, domain.EventUsergroupDisabled, ug); pubErr != nil {
+			s.logger.Warn("publish usergroup.disabled event", "error", pubErr)
+		}
+	}
+	return nil
 }
 
 func (s *UsergroupService) ListUsers(ctx context.Context, usergroupID string) ([]string, error) {
@@ -85,5 +123,14 @@ func (s *UsergroupService) SetUsers(ctx context.Context, usergroupID string, use
 	if _, err := s.repo.Get(ctx, usergroupID); err != nil {
 		return err
 	}
-	return s.repo.SetUsers(ctx, usergroupID, userIDs)
+	if err := s.repo.SetUsers(ctx, usergroupID, userIDs); err != nil {
+		return err
+	}
+	ug, _ := s.repo.Get(ctx, usergroupID)
+	if ug != nil {
+		if pubErr := s.publisher.Publish(ctx, ug.TeamID, domain.EventUsergroupUserSet, ug); pubErr != nil {
+			s.logger.Warn("publish usergroup.users_set event", "error", pubErr)
+		}
+	}
+	return nil
 }

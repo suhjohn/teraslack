@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"log/slog"
 
 	"github.com/suhjohn/workspace/internal/domain"
 	"github.com/suhjohn/workspace/internal/repository"
@@ -10,13 +11,18 @@ import (
 
 // ConversationService contains business logic for conversation operations.
 type ConversationService struct {
-	repo     repository.ConversationRepository
-	userRepo repository.UserRepository
+	repo      repository.ConversationRepository
+	userRepo  repository.UserRepository
+	publisher EventPublisher
+	logger    *slog.Logger
 }
 
 // NewConversationService creates a new ConversationService.
-func NewConversationService(repo repository.ConversationRepository, userRepo repository.UserRepository) *ConversationService {
-	return &ConversationService{repo: repo, userRepo: userRepo}
+func NewConversationService(repo repository.ConversationRepository, userRepo repository.UserRepository, publisher EventPublisher, logger *slog.Logger) *ConversationService {
+	if publisher == nil {
+		publisher = noopPublisher{}
+	}
+	return &ConversationService{repo: repo, userRepo: userRepo, publisher: publisher, logger: logger}
 }
 
 func (s *ConversationService) Create(ctx context.Context, params domain.CreateConversationParams) (*domain.Conversation, error) {
@@ -38,7 +44,14 @@ func (s *ConversationService) Create(ctx context.Context, params domain.CreateCo
 		return nil, fmt.Errorf("creator: %w", err)
 	}
 
-	return s.repo.Create(ctx, params)
+	conv, err := s.repo.Create(ctx, params)
+	if err != nil {
+		return nil, err
+	}
+	if pubErr := s.publisher.Publish(ctx, params.TeamID, domain.EventTypeChannelCreated, conv); pubErr != nil {
+		s.logger.Warn("publish conversation.created event", "error", pubErr)
+	}
+	return conv, nil
 }
 
 func (s *ConversationService) Get(ctx context.Context, id string) (*domain.Conversation, error) {
@@ -52,21 +65,48 @@ func (s *ConversationService) Update(ctx context.Context, id string, params doma
 	if id == "" {
 		return nil, fmt.Errorf("id: %w", domain.ErrInvalidArgument)
 	}
-	return s.repo.Update(ctx, id, params)
+	conv, err := s.repo.Update(ctx, id, params)
+	if err != nil {
+		return nil, err
+	}
+	if pubErr := s.publisher.Publish(ctx, conv.TeamID, domain.EventTypeChannelRename, conv); pubErr != nil {
+		s.logger.Warn("publish conversation.updated event", "error", pubErr)
+	}
+	return conv, nil
 }
 
 func (s *ConversationService) Archive(ctx context.Context, id string) error {
 	if id == "" {
 		return fmt.Errorf("id: %w", domain.ErrInvalidArgument)
 	}
-	return s.repo.Archive(ctx, id)
+	conv, err := s.repo.Get(ctx, id)
+	if err != nil {
+		return err
+	}
+	if err := s.repo.Archive(ctx, id); err != nil {
+		return err
+	}
+	if pubErr := s.publisher.Publish(ctx, conv.TeamID, domain.EventTypeChannelArchive, map[string]string{"channel": id}); pubErr != nil {
+		s.logger.Warn("publish conversation.archived event", "error", pubErr)
+	}
+	return nil
 }
 
 func (s *ConversationService) Unarchive(ctx context.Context, id string) error {
 	if id == "" {
 		return fmt.Errorf("id: %w", domain.ErrInvalidArgument)
 	}
-	return s.repo.Unarchive(ctx, id)
+	conv, err := s.repo.Get(ctx, id)
+	if err != nil {
+		return err
+	}
+	if err := s.repo.Unarchive(ctx, id); err != nil {
+		return err
+	}
+	if pubErr := s.publisher.Publish(ctx, conv.TeamID, domain.EventTypeChannelUnarchive, map[string]string{"channel": id}); pubErr != nil {
+		s.logger.Warn("publish conversation.unarchived event", "error", pubErr)
+	}
+	return nil
 }
 
 func (s *ConversationService) SetTopic(ctx context.Context, id string, params domain.SetTopicParams) (*domain.Conversation, error) {
@@ -80,7 +120,14 @@ func (s *ConversationService) SetTopic(ctx context.Context, id string, params do
 	if conv.IsArchived {
 		return nil, domain.ErrChannelArchived
 	}
-	return s.repo.SetTopic(ctx, id, params)
+	result, err := s.repo.SetTopic(ctx, id, params)
+	if err != nil {
+		return nil, err
+	}
+	if pubErr := s.publisher.Publish(ctx, result.TeamID, domain.EventConversationTopicSet, result); pubErr != nil {
+		s.logger.Warn("publish conversation.topic_set event", "error", pubErr)
+	}
+	return result, nil
 }
 
 func (s *ConversationService) SetPurpose(ctx context.Context, id string, params domain.SetPurposeParams) (*domain.Conversation, error) {
@@ -94,7 +141,14 @@ func (s *ConversationService) SetPurpose(ctx context.Context, id string, params 
 	if conv.IsArchived {
 		return nil, domain.ErrChannelArchived
 	}
-	return s.repo.SetPurpose(ctx, id, params)
+	result, err := s.repo.SetPurpose(ctx, id, params)
+	if err != nil {
+		return nil, err
+	}
+	if pubErr := s.publisher.Publish(ctx, result.TeamID, domain.EventConversationPurposeSet, result); pubErr != nil {
+		s.logger.Warn("publish conversation.purpose_set event", "error", pubErr)
+	}
+	return result, nil
 }
 
 func (s *ConversationService) List(ctx context.Context, params domain.ListConversationsParams) (*domain.CursorPage[domain.Conversation], error) {
@@ -125,14 +179,30 @@ func (s *ConversationService) Invite(ctx context.Context, conversationID, userID
 		return domain.ErrAlreadyInChannel
 	}
 
-	return s.repo.AddMember(ctx, conversationID, userID)
+	if err := s.repo.AddMember(ctx, conversationID, userID); err != nil {
+		return err
+	}
+	if pubErr := s.publisher.Publish(ctx, conv.TeamID, domain.EventTypeMemberJoinedChannel, map[string]string{"channel": conversationID, "user": userID}); pubErr != nil {
+		s.logger.Warn("publish member_joined_channel event", "error", pubErr)
+	}
+	return nil
 }
 
 func (s *ConversationService) Kick(ctx context.Context, conversationID, userID string) error {
 	if conversationID == "" || userID == "" {
 		return fmt.Errorf("conversation_id and user_id: %w", domain.ErrInvalidArgument)
 	}
-	return s.repo.RemoveMember(ctx, conversationID, userID)
+	conv, err := s.repo.Get(ctx, conversationID)
+	if err != nil {
+		return err
+	}
+	if err := s.repo.RemoveMember(ctx, conversationID, userID); err != nil {
+		return err
+	}
+	if pubErr := s.publisher.Publish(ctx, conv.TeamID, domain.EventTypeMemberLeftChannel, map[string]string{"channel": conversationID, "user": userID}); pubErr != nil {
+		s.logger.Warn("publish member_left_channel event", "error", pubErr)
+	}
+	return nil
 }
 
 func (s *ConversationService) ListMembers(ctx context.Context, conversationID string, cursor string, limit int) (*domain.CursorPage[domain.ConversationMember], error) {

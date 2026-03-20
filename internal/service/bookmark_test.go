@@ -117,7 +117,7 @@ func (m *mockConvRepoForBookmark) IsMember(_ context.Context, _, _ string) (bool
 
 func TestBookmarkService_Create(t *testing.T) {
 	repo := newMockBookmarkRepo()
-	svc := NewBookmarkService(repo, &mockConvRepoForBookmark{})
+	svc := NewBookmarkService(repo, &mockConvRepoForBookmark{}, nil, nil)
 
 	tests := []struct {
 		name    string
@@ -184,7 +184,7 @@ func TestBookmarkService_Create(t *testing.T) {
 
 func TestBookmarkService_CRUD(t *testing.T) {
 	repo := newMockBookmarkRepo()
-	svc := NewBookmarkService(repo, &mockConvRepoForBookmark{})
+	svc := NewBookmarkService(repo, &mockConvRepoForBookmark{}, nil, nil)
 
 	// Create
 	b, err := svc.Create(context.Background(), domain.CreateBookmarkParams{

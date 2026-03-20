@@ -68,7 +68,10 @@ func (r *ConversationRepo) Create(ctx context.Context, params domain.CreateConve
 		return nil, fmt.Errorf("update member count: %w", err)
 	}
 
-	eventData, _ := json.Marshal(params)
+	c := convToDomain(row)
+	c.NumMembers = 1
+
+	eventData, _ := json.Marshal(c)
 	if _, err := qtx.AppendEvent(ctx, sqlcgen.AppendEventParams{
 		AggregateType: domain.AggregateConversation,
 		AggregateID:   id,
@@ -82,8 +85,6 @@ func (r *ConversationRepo) Create(ctx context.Context, params domain.CreateConve
 		return nil, fmt.Errorf("commit tx: %w", err)
 	}
 
-	c := convToDomain(row)
-	c.NumMembers = 1
 	return c, nil
 }
 
@@ -132,7 +133,9 @@ func (r *ConversationRepo) Update(ctx context.Context, id string, params domain.
 		return nil, fmt.Errorf("update conversation: %w", err)
 	}
 
-	eventData, _ := json.Marshal(params)
+	updatedConv := convToDomain(row)
+
+	eventData, _ := json.Marshal(updatedConv)
 	if _, err := qtx.AppendEvent(ctx, sqlcgen.AppendEventParams{
 		AggregateType: domain.AggregateConversation,
 		AggregateID:   id,
@@ -145,7 +148,7 @@ func (r *ConversationRepo) Update(ctx context.Context, id string, params domain.
 	if err := tx.Commit(ctx); err != nil {
 		return nil, fmt.Errorf("commit tx: %w", err)
 	}
-	return convToDomain(row), nil
+	return updatedConv, nil
 }
 
 func (r *ConversationRepo) SetTopic(ctx context.Context, id string, params domain.SetTopicParams) (*domain.Conversation, error) {
@@ -168,7 +171,9 @@ func (r *ConversationRepo) SetTopic(ctx context.Context, id string, params domai
 		return nil, fmt.Errorf("set topic: %w", err)
 	}
 
-	eventData, _ := json.Marshal(params)
+	updatedConv := convToDomain(row)
+
+	eventData, _ := json.Marshal(updatedConv)
 	if _, err := qtx.AppendEvent(ctx, sqlcgen.AppendEventParams{
 		AggregateType: domain.AggregateConversation,
 		AggregateID:   id,
@@ -181,7 +186,7 @@ func (r *ConversationRepo) SetTopic(ctx context.Context, id string, params domai
 	if err := tx.Commit(ctx); err != nil {
 		return nil, fmt.Errorf("commit tx: %w", err)
 	}
-	return convToDomain(row), nil
+	return updatedConv, nil
 }
 
 func (r *ConversationRepo) SetPurpose(ctx context.Context, id string, params domain.SetPurposeParams) (*domain.Conversation, error) {
@@ -204,7 +209,9 @@ func (r *ConversationRepo) SetPurpose(ctx context.Context, id string, params dom
 		return nil, fmt.Errorf("set purpose: %w", err)
 	}
 
-	eventData, _ := json.Marshal(params)
+	updatedConv := convToDomain(row)
+
+	eventData, _ := json.Marshal(updatedConv)
 	if _, err := qtx.AppendEvent(ctx, sqlcgen.AppendEventParams{
 		AggregateType: domain.AggregateConversation,
 		AggregateID:   id,
@@ -217,7 +224,7 @@ func (r *ConversationRepo) SetPurpose(ctx context.Context, id string, params dom
 	if err := tx.Commit(ctx); err != nil {
 		return nil, fmt.Errorf("commit tx: %w", err)
 	}
-	return convToDomain(row), nil
+	return updatedConv, nil
 }
 
 func (r *ConversationRepo) Archive(ctx context.Context, id string) error {
@@ -232,11 +239,17 @@ func (r *ConversationRepo) Archive(ctx context.Context, id string) error {
 		return fmt.Errorf("archive conversation: %w", err)
 	}
 
+	// Fetch the full entity after archiving for the event snapshot
+	row, err := qtx.GetConversation(ctx, id)
+	if err != nil {
+		return fmt.Errorf("get archived conversation: %w", err)
+	}
+	eventData, _ := json.Marshal(convToDomain(row))
 	if _, err := qtx.AppendEvent(ctx, sqlcgen.AppendEventParams{
 		AggregateType: domain.AggregateConversation,
 		AggregateID:   id,
 		EventType:     domain.EventConversationArchived,
-		EventData:     []byte("{}"),
+		EventData:     eventData,
 	}); err != nil {
 		return fmt.Errorf("append event: %w", err)
 	}
@@ -255,11 +268,17 @@ func (r *ConversationRepo) Unarchive(ctx context.Context, id string) error {
 		return fmt.Errorf("unarchive conversation: %w", err)
 	}
 
+	// Fetch the full entity after unarchiving for the event snapshot
+	row, err := qtx.GetConversation(ctx, id)
+	if err != nil {
+		return fmt.Errorf("get unarchived conversation: %w", err)
+	}
+	eventData, _ := json.Marshal(convToDomain(row))
 	if _, err := qtx.AppendEvent(ctx, sqlcgen.AppendEventParams{
 		AggregateType: domain.AggregateConversation,
 		AggregateID:   id,
 		EventType:     domain.EventConversationUnarchived,
-		EventData:     []byte("{}"),
+		EventData:     eventData,
 	}); err != nil {
 		return fmt.Errorf("append event: %w", err)
 	}
@@ -399,7 +418,16 @@ func (r *ConversationRepo) AddMember(ctx context.Context, conversationID, userID
 		return fmt.Errorf("update member count: %w", err)
 	}
 
-	eventData, _ := json.Marshal(map[string]string{"user_id": userID})
+	// Fetch full conversation state after member addition
+	addRow, err := qtx.GetConversation(ctx, conversationID)
+	if err != nil {
+		return fmt.Errorf("get conversation after add: %w", err)
+	}
+	addSnapshot := convToDomain(addRow)
+	eventData, _ := json.Marshal(map[string]interface{}{
+		"user_id":      userID,
+		"conversation": addSnapshot,
+	})
 	if _, err := qtx.AppendEvent(ctx, sqlcgen.AppendEventParams{
 		AggregateType: domain.AggregateConversation,
 		AggregateID:   conversationID,
@@ -448,7 +476,16 @@ func (r *ConversationRepo) RemoveMember(ctx context.Context, conversationID, use
 		return fmt.Errorf("update member count: %w", err)
 	}
 
-	eventData, _ := json.Marshal(map[string]string{"user_id": userID})
+	// Fetch full conversation state after member removal
+	remRow, err := qtx.GetConversation(ctx, conversationID)
+	if err != nil {
+		return fmt.Errorf("get conversation after remove: %w", err)
+	}
+	remSnapshot := convToDomain(remRow)
+	eventData, _ := json.Marshal(map[string]interface{}{
+		"user_id":      userID,
+		"conversation": remSnapshot,
+	})
 	if _, err := qtx.AppendEvent(ctx, sqlcgen.AppendEventParams{
 		AggregateType: domain.AggregateConversation,
 		AggregateID:   conversationID,

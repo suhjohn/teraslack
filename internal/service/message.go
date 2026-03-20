@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"log/slog"
 
 	"github.com/suhjohn/workspace/internal/domain"
 	"github.com/suhjohn/workspace/internal/repository"
@@ -10,13 +11,18 @@ import (
 
 // MessageService contains business logic for message operations.
 type MessageService struct {
-	repo     repository.MessageRepository
-	convRepo repository.ConversationRepository
+	repo      repository.MessageRepository
+	convRepo  repository.ConversationRepository
+	publisher EventPublisher
+	logger    *slog.Logger
 }
 
 // NewMessageService creates a new MessageService.
-func NewMessageService(repo repository.MessageRepository, convRepo repository.ConversationRepository) *MessageService {
-	return &MessageService{repo: repo, convRepo: convRepo}
+func NewMessageService(repo repository.MessageRepository, convRepo repository.ConversationRepository, publisher EventPublisher, logger *slog.Logger) *MessageService {
+	if publisher == nil {
+		publisher = noopPublisher{}
+	}
+	return &MessageService{repo: repo, convRepo: convRepo, publisher: publisher, logger: logger}
 }
 
 func (s *MessageService) PostMessage(ctx context.Context, params domain.PostMessageParams) (*domain.Message, error) {
@@ -46,7 +52,14 @@ func (s *MessageService) PostMessage(ctx context.Context, params domain.PostMess
 		}
 	}
 
-	return s.repo.Create(ctx, params)
+	msg, err := s.repo.Create(ctx, params)
+	if err != nil {
+		return nil, err
+	}
+	if pubErr := s.publisher.Publish(ctx, conv.TeamID, domain.EventTypeMessage, msg); pubErr != nil {
+		s.logger.Warn("publish message.posted event", "error", pubErr)
+	}
+	return msg, nil
 }
 
 func (s *MessageService) GetMessage(ctx context.Context, channelID, ts string) (*domain.Message, error) {
@@ -60,14 +73,27 @@ func (s *MessageService) UpdateMessage(ctx context.Context, channelID, ts string
 	if channelID == "" || ts == "" {
 		return nil, fmt.Errorf("channel_id and ts: %w", domain.ErrInvalidArgument)
 	}
-	return s.repo.Update(ctx, channelID, ts, params)
+	msg, err := s.repo.Update(ctx, channelID, ts, params)
+	if err != nil {
+		return nil, err
+	}
+	if pubErr := s.publisher.Publish(ctx, "", domain.EventTypeMessage, msg); pubErr != nil {
+		s.logger.Warn("publish message.updated event", "error", pubErr)
+	}
+	return msg, nil
 }
 
 func (s *MessageService) DeleteMessage(ctx context.Context, channelID, ts string) error {
 	if channelID == "" || ts == "" {
 		return fmt.Errorf("channel_id and ts: %w", domain.ErrInvalidArgument)
 	}
-	return s.repo.Delete(ctx, channelID, ts)
+	if err := s.repo.Delete(ctx, channelID, ts); err != nil {
+		return err
+	}
+	if pubErr := s.publisher.Publish(ctx, "", domain.EventTypeMessage, map[string]string{"channel": channelID, "ts": ts, "subtype": "message_deleted"}); pubErr != nil {
+		s.logger.Warn("publish message.deleted event", "error", pubErr)
+	}
+	return nil
 }
 
 func (s *MessageService) History(ctx context.Context, params domain.ListMessagesParams) (*domain.CursorPage[domain.Message], error) {
@@ -92,14 +118,26 @@ func (s *MessageService) AddReaction(ctx context.Context, params domain.AddReact
 	if _, err := s.repo.Get(ctx, params.ChannelID, params.MessageTS); err != nil {
 		return fmt.Errorf("message: %w", err)
 	}
-	return s.repo.AddReaction(ctx, params)
+	if err := s.repo.AddReaction(ctx, params); err != nil {
+		return err
+	}
+	if pubErr := s.publisher.Publish(ctx, "", domain.EventTypeReactionAdded, params); pubErr != nil {
+		s.logger.Warn("publish reaction.added event", "error", pubErr)
+	}
+	return nil
 }
 
 func (s *MessageService) RemoveReaction(ctx context.Context, params domain.RemoveReactionParams) error {
 	if params.ChannelID == "" || params.MessageTS == "" || params.UserID == "" || params.Emoji == "" {
 		return fmt.Errorf("channel_id, message_ts, user_id, and emoji: %w", domain.ErrInvalidArgument)
 	}
-	return s.repo.RemoveReaction(ctx, params)
+	if err := s.repo.RemoveReaction(ctx, params); err != nil {
+		return err
+	}
+	if pubErr := s.publisher.Publish(ctx, "", domain.EventTypeReactionRemoved, params); pubErr != nil {
+		s.logger.Warn("publish reaction.removed event", "error", pubErr)
+	}
+	return nil
 }
 
 func (s *MessageService) GetReactions(ctx context.Context, channelID, messageTS string) ([]domain.Reaction, error) {

@@ -120,15 +120,23 @@ func (r *FileRepo) Delete(ctx context.Context, id string) error {
 	defer tx.Rollback(ctx)
 	qtx := r.q.WithTx(tx)
 
+	// Fetch full entity before deletion for snapshot
+	fileRow, fileErr := qtx.GetFile(ctx, id)
+	if fileErr != nil {
+		return fmt.Errorf("get file before delete: %w", fileErr)
+	}
+	fileSnapshot := fileToDomain(fileRow)
+
 	if err := qtx.DeleteFile(ctx, id); err != nil {
 		return fmt.Errorf("delete file: %w", err)
 	}
 
+	eventData, _ := json.Marshal(fileSnapshot)
 	if _, err := qtx.AppendEvent(ctx, sqlcgen.AppendEventParams{
 		AggregateType: domain.AggregateFile,
 		AggregateID:   id,
 		EventType:     domain.EventFileDeleted,
-		EventData:     []byte("{}"),
+		EventData:     eventData,
 	}); err != nil {
 		return fmt.Errorf("append event: %w", err)
 	}

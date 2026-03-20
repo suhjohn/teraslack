@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"mime"
 	"path/filepath"
 	"time"
@@ -14,14 +15,19 @@ import (
 
 // FileService contains business logic for file operations.
 type FileService struct {
-	repo   repository.FileRepository
-	s3     *s3client.Client
-	baseURL string
+	repo      repository.FileRepository
+	s3        *s3client.Client
+	baseURL   string
+	publisher EventPublisher
+	logger    *slog.Logger
 }
 
 // NewFileService creates a new FileService.
-func NewFileService(repo repository.FileRepository, s3 *s3client.Client, baseURL string) *FileService {
-	return &FileService{repo: repo, s3: s3, baseURL: baseURL}
+func NewFileService(repo repository.FileRepository, s3 *s3client.Client, baseURL string, publisher EventPublisher, logger *slog.Logger) *FileService {
+	if publisher == nil {
+		publisher = noopPublisher{}
+	}
+	return &FileService{repo: repo, s3: s3, baseURL: baseURL, publisher: publisher, logger: logger}
 }
 
 func (s *FileService) GetUploadURL(ctx context.Context, params domain.GetUploadURLParams) (*domain.GetUploadURLResponse, error) {
@@ -62,10 +68,14 @@ func (s *FileService) GetUploadURL(ctx context.Context, params domain.GetUploadU
 		return nil, fmt.Errorf("create file record: %w", err)
 	}
 
-	return &domain.GetUploadURLResponse{
+	resp := &domain.GetUploadURLResponse{
 		UploadURL: uploadURL,
 		FileID:    fileID,
-	}, nil
+	}
+	if pubErr := s.publisher.Publish(ctx, "", domain.EventFileCreated, f); pubErr != nil {
+		s.logger.Warn("publish file.created event", "error", pubErr)
+	}
+	return resp, nil
 }
 
 func (s *FileService) CompleteUpload(ctx context.Context, params domain.CompleteUploadParams) (*domain.File, error) {
@@ -109,6 +119,9 @@ func (s *FileService) CompleteUpload(ctx context.Context, params domain.Complete
 		f.Channels = append(f.Channels, params.ChannelID)
 	}
 
+	if pubErr := s.publisher.Publish(ctx, "", domain.EventTypeFileShared, f); pubErr != nil {
+		s.logger.Warn("publish file.shared event", "error", pubErr)
+	}
 	return f, nil
 }
 
@@ -138,7 +151,13 @@ func (s *FileService) Delete(ctx context.Context, id string) error {
 		}
 	}
 
-	return s.repo.Delete(ctx, id)
+	if err := s.repo.Delete(ctx, id); err != nil {
+		return err
+	}
+	if pubErr := s.publisher.Publish(ctx, "", domain.EventFileDeleted, f); pubErr != nil {
+		s.logger.Warn("publish file.deleted event", "error", pubErr)
+	}
+	return nil
 }
 
 func (s *FileService) List(ctx context.Context, params domain.ListFilesParams) (*domain.CursorPage[domain.File], error) {

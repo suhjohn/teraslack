@@ -101,15 +101,16 @@ func run(logger *slog.Logger) error {
 	authRepo := pgRepo.NewAuthRepo(pool)
 
 	// Initialize services
-	userSvc := service.NewUserService(userRepo)
-	convSvc := service.NewConversationService(convRepo, userRepo)
-	msgSvc := service.NewMessageService(msgRepo, convRepo)
-	ugSvc := service.NewUsergroupService(ugRepo, userRepo)
-	pinSvc := service.NewPinService(pinRepo, convRepo, msgRepo)
-	bookmarkSvc := service.NewBookmarkService(bookmarkRepo, convRepo)
-	fileSvc := service.NewFileService(fileRepo, s3, cfg.BaseURL)
+	// EventService must be created first as it serves as the EventPublisher for all other services
 	eventSvc := service.NewEventService(eventRepo, logger)
-	authSvc := service.NewAuthService(authRepo, userRepo)
+	userSvc := service.NewUserService(userRepo, eventSvc, logger)
+	convSvc := service.NewConversationService(convRepo, userRepo, eventSvc, logger)
+	msgSvc := service.NewMessageService(msgRepo, convRepo, eventSvc, logger)
+	ugSvc := service.NewUsergroupService(ugRepo, userRepo, eventSvc, logger)
+	pinSvc := service.NewPinService(pinRepo, convRepo, msgRepo, eventSvc, logger)
+	bookmarkSvc := service.NewBookmarkService(bookmarkRepo, convRepo, eventSvc, logger)
+	fileSvc := service.NewFileService(fileRepo, s3, cfg.BaseURL, eventSvc, logger)
+	authSvc := service.NewAuthService(authRepo, userRepo, eventSvc, logger)
 	searchSvc := service.NewSearchService(msgRepo, fileRepo, nil, nil) // ClickHouse/Turbopuffer optional
 
 	// Initialize handlers
