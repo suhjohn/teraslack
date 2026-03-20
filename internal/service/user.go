@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/suhjohn/agentslack/internal/domain"
-	"github.com/suhjohn/agentslack/internal/repository"
+	"github.com/suhjohn/workspace/internal/domain"
+	"github.com/suhjohn/workspace/internal/repository"
 )
 
 // UserService contains business logic for user operations.

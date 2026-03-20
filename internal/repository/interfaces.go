@@ -3,7 +3,7 @@ package repository
 import (
 	"context"
 
-	"github.com/suhjohn/agentslack/internal/domain"
+	"github.com/suhjohn/workspace/internal/domain"
 )
 
 // UserRepository defines data access operations for users.

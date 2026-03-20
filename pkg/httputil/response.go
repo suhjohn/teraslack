@@ -6,7 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 
-	"github.com/suhjohn/agentslack/internal/domain"
+	"github.com/suhjohn/workspace/internal/domain"
 )
 
 // SlackResponse mirrors Slack's API response format.
