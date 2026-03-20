@@ -69,6 +69,15 @@ func WriteError(w http.ResponseWriter, err error) {
 	case errors.Is(err, domain.ErrNameTaken):
 		status = http.StatusOK
 		errCode = "name_taken"
+	case errors.Is(err, domain.ErrAlreadyPinned):
+		status = http.StatusOK
+		errCode = "already_pinned"
+	case errors.Is(err, domain.ErrInvalidAuth):
+		status = http.StatusUnauthorized
+		errCode = "invalid_auth"
+	case errors.Is(err, domain.ErrTokenRevoked):
+		status = http.StatusUnauthorized
+		errCode = "token_revoked"
 	}
 
 	if errCode == "internal_error" {

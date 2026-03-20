@@ -18,6 +18,7 @@ import (
 	"github.com/suhjohn/workspace/internal/config"
 	"github.com/suhjohn/workspace/internal/handler"
 	pgRepo "github.com/suhjohn/workspace/internal/repository/postgres"
+	s3client "github.com/suhjohn/workspace/internal/s3"
 	"github.com/suhjohn/workspace/internal/service"
 )
 
@@ -60,23 +61,74 @@ func run(logger *slog.Logger) error {
 	}
 	logger.Info("connected to database")
 
+	// Initialize S3 client (optional - file uploads work only if configured)
+	var s3 *s3client.Client
+	if cfg.S3Bucket != "" {
+		s3, err = s3client.NewClient(ctx, s3client.Config{
+			Bucket:    cfg.S3Bucket,
+			Region:    cfg.S3Region,
+			Endpoint:  cfg.S3Endpoint,
+			AccessKey: cfg.S3AccessKey,
+			SecretKey: cfg.S3SecretKey,
+		})
+		if err != nil {
+			logger.Warn("s3 client init failed, file uploads disabled", "error", err)
+			s3 = nil
+		} else {
+			logger.Info("s3 client initialized", "bucket", cfg.S3Bucket)
+		}
+	}
+
 	// Initialize repositories
 	userRepo := pgRepo.NewUserRepo(pool)
 	convRepo := pgRepo.NewConversationRepo(pool)
 	msgRepo := pgRepo.NewMessageRepo(pool)
+	ugRepo := pgRepo.NewUsergroupRepo(pool)
+	pinRepo := pgRepo.NewPinRepo(pool)
+	bookmarkRepo := pgRepo.NewBookmarkRepo(pool)
+	fileRepo := pgRepo.NewFileRepo(pool)
+	eventRepo := pgRepo.NewEventRepo(pool)
+	authRepo := pgRepo.NewAuthRepo(pool)
 
 	// Initialize services
 	userSvc := service.NewUserService(userRepo)
 	convSvc := service.NewConversationService(convRepo, userRepo)
 	msgSvc := service.NewMessageService(msgRepo, convRepo)
+	ugSvc := service.NewUsergroupService(ugRepo, userRepo)
+	pinSvc := service.NewPinService(pinRepo, convRepo, msgRepo)
+	bookmarkSvc := service.NewBookmarkService(bookmarkRepo, convRepo)
+	fileSvc := service.NewFileService(fileRepo, s3, cfg.BaseURL)
+	eventSvc := service.NewEventService(eventRepo, logger)
+	authSvc := service.NewAuthService(authRepo, userRepo)
+	searchSvc := service.NewSearchService(msgRepo, fileRepo, nil, nil) // ClickHouse/Turbopuffer optional
 
 	// Initialize handlers
 	userHandler := handler.NewUserHandler(userSvc)
 	convHandler := handler.NewConversationHandler(convSvc)
 	msgHandler := handler.NewMessageHandler(msgSvc)
+	ugHandler := handler.NewUsergroupHandler(ugSvc)
+	pinHandler := handler.NewPinHandler(pinSvc)
+	bookmarkHandler := handler.NewBookmarkHandler(bookmarkSvc)
+	fileHandler := handler.NewFileHandler(fileSvc)
+	eventHandler := handler.NewEventHandler(eventSvc)
+	authHandler := handler.NewAuthHandler(authSvc)
+	searchHandler := handler.NewSearchHandler(searchSvc)
 
 	// Set up router
-	router := handler.Router(logger, userHandler, convHandler, msgHandler)
+	router := handler.Router(
+		logger,
+		authSvc,
+		userHandler,
+		convHandler,
+		msgHandler,
+		ugHandler,
+		pinHandler,
+		bookmarkHandler,
+		fileHandler,
+		eventHandler,
+		authHandler,
+		searchHandler,
+	)
 
 	// Start server
 	srv := &http.Server{

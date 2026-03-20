@@ -3,14 +3,24 @@ package handler
 import (
 	"log/slog"
 	"net/http"
+
+	"github.com/suhjohn/workspace/internal/service"
 )
 
 // Router sets up all HTTP routes.
 func Router(
 	logger *slog.Logger,
+	authSvc *service.AuthService,
 	userH *UserHandler,
 	convH *ConversationHandler,
 	msgH *MessageHandler,
+	ugH *UsergroupHandler,
+	pinH *PinHandler,
+	bookmarkH *BookmarkHandler,
+	fileH *FileHandler,
+	eventH *EventHandler,
+	authH *AuthHandler,
+	searchH *SearchHandler,
 ) http.Handler {
 	mux := http.NewServeMux()
 
@@ -52,10 +62,57 @@ func Router(
 	mux.HandleFunc("POST /api/reactions.remove", msgH.RemoveReaction)
 	mux.HandleFunc("GET /api/reactions.get", msgH.GetReactions)
 
-	// Apply middleware
-	var handler http.Handler = mux
-	handler = Logger(logger)(handler)
-	handler = Recovery(logger)(handler)
+	// Usergroups
+	mux.HandleFunc("POST /api/usergroups.create", ugH.Create)
+	mux.HandleFunc("POST /api/usergroups.update", ugH.Update)
+	mux.HandleFunc("GET /api/usergroups.list", ugH.List)
+	mux.HandleFunc("POST /api/usergroups.enable", ugH.Enable)
+	mux.HandleFunc("POST /api/usergroups.disable", ugH.Disable)
+	mux.HandleFunc("GET /api/usergroups.users.list", ugH.ListUsers)
+	mux.HandleFunc("POST /api/usergroups.users.update", ugH.SetUsers)
 
-	return handler
+	// Pins
+	mux.HandleFunc("POST /api/pins.add", pinH.Add)
+	mux.HandleFunc("POST /api/pins.remove", pinH.Remove)
+	mux.HandleFunc("GET /api/pins.list", pinH.List)
+
+	// Bookmarks
+	mux.HandleFunc("POST /api/bookmarks.add", bookmarkH.Create)
+	mux.HandleFunc("POST /api/bookmarks.edit", bookmarkH.Edit)
+	mux.HandleFunc("POST /api/bookmarks.remove", bookmarkH.Remove)
+	mux.HandleFunc("GET /api/bookmarks.list", bookmarkH.List)
+
+	// Files
+	mux.HandleFunc("POST /api/files.getUploadURLExternal", fileH.GetUploadURL)
+	mux.HandleFunc("POST /api/files.completeUploadExternal", fileH.CompleteUpload)
+	mux.HandleFunc("GET /api/files.info", fileH.Info)
+	mux.HandleFunc("POST /api/files.delete", fileH.Delete)
+	mux.HandleFunc("GET /api/files.list", fileH.List)
+	mux.HandleFunc("POST /api/files.remote.add", fileH.AddRemoteFile)
+	mux.HandleFunc("POST /api/files.remote.share", fileH.ShareRemoteFile)
+
+	// Events
+	mux.HandleFunc("POST /api/events.subscriptions.create", eventH.CreateSubscription)
+	mux.HandleFunc("GET /api/events.subscriptions.info", eventH.GetSubscription)
+	mux.HandleFunc("POST /api/events.subscriptions.update", eventH.UpdateSubscription)
+	mux.HandleFunc("POST /api/events.subscriptions.delete", eventH.DeleteSubscription)
+	mux.HandleFunc("GET /api/events.subscriptions.list", eventH.ListSubscriptions)
+
+	// Auth
+	mux.HandleFunc("POST /api/auth.createToken", authH.CreateToken)
+	mux.HandleFunc("POST /api/auth.test", authH.Test)
+	mux.HandleFunc("POST /api/auth.revoke", authH.Revoke)
+
+	// Search
+	mux.HandleFunc("GET /api/search.messages", searchH.SearchMessages)
+	mux.HandleFunc("GET /api/search.files", searchH.SearchFiles)
+	mux.HandleFunc("POST /api/search.semantic", searchH.SemanticSearch)
+
+	// Apply middleware
+	var h http.Handler = mux
+	h = AuthMiddleware(authSvc)(h)
+	h = Logger(logger)(h)
+	h = Recovery(logger)(h)
+
+	return h
 }

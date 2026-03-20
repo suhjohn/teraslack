@@ -14,4 +14,7 @@ var (
 	ErrAlreadyReacted    = errors.New("already reacted")
 	ErrNoReaction        = errors.New("no reaction")
 	ErrNameTaken         = errors.New("name taken")
+	ErrAlreadyPinned     = errors.New("already pinned")
+	ErrInvalidAuth       = errors.New("invalid auth")
+	ErrTokenRevoked      = errors.New("token revoked")
 )

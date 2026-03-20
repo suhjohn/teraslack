@@ -1,0 +1,79 @@
+package handler
+
+import (
+	"net/http"
+
+	"github.com/suhjohn/workspace/internal/domain"
+	"github.com/suhjohn/workspace/internal/service"
+	"github.com/suhjohn/workspace/pkg/httputil"
+)
+
+// PinHandler handles HTTP requests for pin operations.
+type PinHandler struct {
+	svc *service.PinService
+}
+
+// NewPinHandler creates a new PinHandler.
+func NewPinHandler(svc *service.PinService) *PinHandler {
+	return &PinHandler{svc: svc}
+}
+
+// Add handles POST /api/pins.add
+func (h *PinHandler) Add(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Channel   string `json:"channel"`
+		Timestamp string `json:"timestamp"`
+		UserID    string `json:"user_id"`
+	}
+	if err := httputil.DecodeJSON(r, &req); err != nil {
+		httputil.WriteError(w, domain.ErrInvalidArgument)
+		return
+	}
+
+	pin, err := h.svc.Add(r.Context(), domain.PinParams{
+		ChannelID: req.Channel,
+		MessageTS: req.Timestamp,
+		UserID:    req.UserID,
+	})
+	if err != nil {
+		httputil.WriteError(w, err)
+		return
+	}
+
+	httputil.WriteOK(w, map[string]any{"pin": pin})
+}
+
+// Remove handles POST /api/pins.remove
+func (h *PinHandler) Remove(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Channel   string `json:"channel"`
+		Timestamp string `json:"timestamp"`
+	}
+	if err := httputil.DecodeJSON(r, &req); err != nil {
+		httputil.WriteError(w, domain.ErrInvalidArgument)
+		return
+	}
+
+	if err := h.svc.Remove(r.Context(), domain.PinParams{
+		ChannelID: req.Channel,
+		MessageTS: req.Timestamp,
+	}); err != nil {
+		httputil.WriteError(w, err)
+		return
+	}
+
+	httputil.WriteOK(w, nil)
+}
+
+// List handles GET /api/pins.list?channel=C123
+func (h *PinHandler) List(w http.ResponseWriter, r *http.Request) {
+	channelID := r.URL.Query().Get("channel")
+
+	pins, err := h.svc.List(r.Context(), channelID)
+	if err != nil {
+		httputil.WriteError(w, err)
+		return
+	}
+
+	httputil.WriteOK(w, map[string]any{"items": pins})
+}
