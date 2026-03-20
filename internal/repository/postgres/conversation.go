@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -9,16 +10,16 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/suhjohn/workspace/internal/domain"
+	"github.com/suhjohn/workspace/internal/repository/sqlcgen"
 )
 
-// ConversationRepo implements repository.ConversationRepository using Postgres.
 type ConversationRepo struct {
+	q    *sqlcgen.Queries
 	pool *pgxpool.Pool
 }
 
-// NewConversationRepo creates a new ConversationRepo.
 func NewConversationRepo(pool *pgxpool.Pool) *ConversationRepo {
-	return &ConversationRepo{pool: pool}
+	return &ConversationRepo{q: sqlcgen.New(pool), pool: pool}
 }
 
 func (r *ConversationRepo) Create(ctx context.Context, params domain.CreateConversationParams) (*domain.Conversation, error) {
@@ -31,22 +32,23 @@ func (r *ConversationRepo) Create(ctx context.Context, params domain.CreateConve
 	}
 	id := generateID(prefix)
 
-	var c domain.Conversation
-	err := r.pool.QueryRow(ctx, `
-		INSERT INTO conversations (id, team_id, name, type, creator_id, topic_value, topic_creator, purpose_value, purpose_creator)
-		VALUES ($1, $2, $3, $4, $5, $6, $5, $7, $5)
-		RETURNING id, team_id, name, type, creator_id, is_archived,
-		          topic_value, topic_creator, topic_last_set,
-		          purpose_value, purpose_creator, purpose_last_set,
-		          num_members, created_at, updated_at`,
-		id, params.TeamID, params.Name, string(params.Type), params.CreatorID,
-		params.Topic, params.Purpose,
-	).Scan(
-		&c.ID, &c.TeamID, &c.Name, &c.Type, &c.CreatorID, &c.IsArchived,
-		&c.Topic.Value, &c.Topic.Creator, &c.Topic.LastSet,
-		&c.Purpose.Value, &c.Purpose.Creator, &c.Purpose.LastSet,
-		&c.NumMembers, &c.CreatedAt, &c.UpdatedAt,
-	)
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	qtx := r.q.WithTx(tx)
+
+	row, err := qtx.CreateConversation(ctx, sqlcgen.CreateConversationParams{
+		ID:           id,
+		TeamID:       params.TeamID,
+		Name:         params.Name,
+		Type:         string(params.Type),
+		CreatorID:    params.CreatorID,
+		TopicValue:   params.Topic,
+		PurposeValue: params.Purpose,
+	})
 	if err != nil {
 		if strings.Contains(err.Error(), "duplicate key") {
 			return nil, domain.ErrAlreadyExists
@@ -54,22 +56,44 @@ func (r *ConversationRepo) Create(ctx context.Context, params domain.CreateConve
 		return nil, fmt.Errorf("insert conversation: %w", err)
 	}
 
-	// Add creator as first member
-	if err := r.AddMember(ctx, id, params.CreatorID); err != nil {
+	if err := qtx.AddConversationMember(ctx, sqlcgen.AddConversationMemberParams{
+		ConversationID: id,
+		UserID:         params.CreatorID,
+	}); err != nil {
 		return nil, fmt.Errorf("add creator as member: %w", err)
 	}
-	c.NumMembers = 1
+	if err := qtx.UpdateConversationMemberCount(ctx, id); err != nil {
+		return nil, fmt.Errorf("update member count: %w", err)
+	}
 
-	return &c, nil
+	eventData, _ := json.Marshal(params)
+	if _, err := qtx.AppendEvent(ctx, sqlcgen.AppendEventParams{
+		AggregateType: domain.AggregateConversation,
+		AggregateID:   id,
+		EventType:     domain.EventConversationCreated,
+		EventData:     eventData,
+	}); err != nil {
+		return nil, fmt.Errorf("append event: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("commit tx: %w", err)
+	}
+
+	c := convToDomain(row)
+	c.NumMembers = 1
+	return c, nil
 }
 
 func (r *ConversationRepo) Get(ctx context.Context, id string) (*domain.Conversation, error) {
-	return r.scanConversation(ctx, `
-		SELECT id, team_id, name, type, creator_id, is_archived,
-		       topic_value, topic_creator, topic_last_set,
-		       purpose_value, purpose_creator, purpose_last_set,
-		       num_members, created_at, updated_at
-		FROM conversations WHERE id = $1`, id)
+	row, err := r.q.GetConversation(ctx, id)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, domain.ErrNotFound
+		}
+		return nil, fmt.Errorf("get conversation: %w", err)
+	}
+	return convToDomain(row), nil
 }
 
 func (r *ConversationRepo) Update(ctx context.Context, id string, params domain.UpdateConversationParams) (*domain.Conversation, error) {
@@ -87,58 +111,157 @@ func (r *ConversationRepo) Update(ctx context.Context, id string, params domain.
 		isArchived = *params.IsArchived
 	}
 
-	return r.scanConversation(ctx, `
-		UPDATE conversations SET name = $2, is_archived = $3
-		WHERE id = $1
-		RETURNING id, team_id, name, type, creator_id, is_archived,
-		          topic_value, topic_creator, topic_last_set,
-		          purpose_value, purpose_creator, purpose_last_set,
-		          num_members, created_at, updated_at`,
-		id, name, isArchived)
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+	qtx := r.q.WithTx(tx)
+
+	row, err := qtx.UpdateConversation(ctx, sqlcgen.UpdateConversationParams{
+		ID:         id,
+		Name:       name,
+		IsArchived: isArchived,
+	})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, domain.ErrNotFound
+		}
+		return nil, fmt.Errorf("update conversation: %w", err)
+	}
+
+	eventData, _ := json.Marshal(params)
+	if _, err := qtx.AppendEvent(ctx, sqlcgen.AppendEventParams{
+		AggregateType: domain.AggregateConversation,
+		AggregateID:   id,
+		EventType:     domain.EventConversationUpdated,
+		EventData:     eventData,
+	}); err != nil {
+		return nil, fmt.Errorf("append event: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("commit tx: %w", err)
+	}
+	return convToDomain(row), nil
 }
 
 func (r *ConversationRepo) SetTopic(ctx context.Context, id string, params domain.SetTopicParams) (*domain.Conversation, error) {
-	return r.scanConversation(ctx, `
-		UPDATE conversations SET topic_value = $2, topic_creator = $3, topic_last_set = NOW()
-		WHERE id = $1
-		RETURNING id, team_id, name, type, creator_id, is_archived,
-		          topic_value, topic_creator, topic_last_set,
-		          purpose_value, purpose_creator, purpose_last_set,
-		          num_members, created_at, updated_at`,
-		id, params.Topic, params.SetByID)
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+	qtx := r.q.WithTx(tx)
+
+	row, err := qtx.SetConversationTopic(ctx, sqlcgen.SetConversationTopicParams{
+		ID:           id,
+		TopicValue:   params.Topic,
+		TopicCreator: params.SetByID,
+	})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, domain.ErrNotFound
+		}
+		return nil, fmt.Errorf("set topic: %w", err)
+	}
+
+	eventData, _ := json.Marshal(params)
+	if _, err := qtx.AppendEvent(ctx, sqlcgen.AppendEventParams{
+		AggregateType: domain.AggregateConversation,
+		AggregateID:   id,
+		EventType:     domain.EventConversationTopicSet,
+		EventData:     eventData,
+	}); err != nil {
+		return nil, fmt.Errorf("append event: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("commit tx: %w", err)
+	}
+	return convToDomain(row), nil
 }
 
 func (r *ConversationRepo) SetPurpose(ctx context.Context, id string, params domain.SetPurposeParams) (*domain.Conversation, error) {
-	return r.scanConversation(ctx, `
-		UPDATE conversations SET purpose_value = $2, purpose_creator = $3, purpose_last_set = NOW()
-		WHERE id = $1
-		RETURNING id, team_id, name, type, creator_id, is_archived,
-		          topic_value, topic_creator, topic_last_set,
-		          purpose_value, purpose_creator, purpose_last_set,
-		          num_members, created_at, updated_at`,
-		id, params.Purpose, params.SetByID)
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+	qtx := r.q.WithTx(tx)
+
+	row, err := qtx.SetConversationPurpose(ctx, sqlcgen.SetConversationPurposeParams{
+		ID:             id,
+		PurposeValue:   params.Purpose,
+		PurposeCreator: params.SetByID,
+	})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, domain.ErrNotFound
+		}
+		return nil, fmt.Errorf("set purpose: %w", err)
+	}
+
+	eventData, _ := json.Marshal(params)
+	if _, err := qtx.AppendEvent(ctx, sqlcgen.AppendEventParams{
+		AggregateType: domain.AggregateConversation,
+		AggregateID:   id,
+		EventType:     domain.EventConversationPurposeSet,
+		EventData:     eventData,
+	}); err != nil {
+		return nil, fmt.Errorf("append event: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("commit tx: %w", err)
+	}
+	return convToDomain(row), nil
 }
 
 func (r *ConversationRepo) Archive(ctx context.Context, id string) error {
-	tag, err := r.pool.Exec(ctx, `UPDATE conversations SET is_archived = TRUE WHERE id = $1 AND is_archived = FALSE`, id)
+	tx, err := r.pool.Begin(ctx)
 	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+	qtx := r.q.WithTx(tx)
+
+	if err := qtx.ArchiveConversation(ctx, id); err != nil {
 		return fmt.Errorf("archive conversation: %w", err)
 	}
-	if tag.RowsAffected() == 0 {
-		return domain.ErrNotFound
+
+	if _, err := qtx.AppendEvent(ctx, sqlcgen.AppendEventParams{
+		AggregateType: domain.AggregateConversation,
+		AggregateID:   id,
+		EventType:     domain.EventConversationArchived,
+		EventData:     []byte("{}"),
+	}); err != nil {
+		return fmt.Errorf("append event: %w", err)
 	}
-	return nil
+	return tx.Commit(ctx)
 }
 
 func (r *ConversationRepo) Unarchive(ctx context.Context, id string) error {
-	tag, err := r.pool.Exec(ctx, `UPDATE conversations SET is_archived = FALSE WHERE id = $1 AND is_archived = TRUE`, id)
+	tx, err := r.pool.Begin(ctx)
 	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+	qtx := r.q.WithTx(tx)
+
+	if err := qtx.UnarchiveConversation(ctx, id); err != nil {
 		return fmt.Errorf("unarchive conversation: %w", err)
 	}
-	if tag.RowsAffected() == 0 {
-		return domain.ErrNotFound
+
+	if _, err := qtx.AppendEvent(ctx, sqlcgen.AppendEventParams{
+		AggregateType: domain.AggregateConversation,
+		AggregateID:   id,
+		EventType:     domain.EventConversationUnarchived,
+		EventData:     []byte("{}"),
+	}); err != nil {
+		return fmt.Errorf("append event: %w", err)
 	}
-	return nil
+	return tx.Commit(ctx)
 }
 
 func (r *ConversationRepo) List(ctx context.Context, params domain.ListConversationsParams) (*domain.CursorPage[domain.Conversation], error) {
@@ -147,37 +270,75 @@ func (r *ConversationRepo) List(ctx context.Context, params domain.ListConversat
 		limit = 100
 	}
 
-	var args []any
-	query := `
-		SELECT id, team_id, name, type, creator_id, is_archived,
-		       topic_value, topic_creator, topic_last_set,
-		       purpose_value, purpose_creator, purpose_last_set,
-		       num_members, created_at, updated_at
-		FROM conversations
-		WHERE team_id = $1`
-	args = append(args, params.TeamID)
-
 	if len(params.Types) > 0 {
-		typeStrs := make([]string, len(params.Types))
-		for i, t := range params.Types {
-			typeStrs[i] = string(t)
-		}
-		args = append(args, typeStrs)
-		query += fmt.Sprintf(` AND type = ANY($%d)`, len(args))
+		return r.listWithTypes(ctx, params, limit)
 	}
+
+	var conversations []domain.Conversation
 
 	if params.ExcludeArchived {
-		query += ` AND is_archived = FALSE`
+		rows, err := r.q.ListConversationsByTeamExcludeArchived(ctx, sqlcgen.ListConversationsByTeamExcludeArchivedParams{
+			TeamID: params.TeamID,
+			ID:     params.Cursor,
+			Limit:  int32(limit + 1),
+		})
+		if err != nil {
+			return nil, fmt.Errorf("list conversations: %w", err)
+		}
+		for _, row := range rows {
+			conversations = append(conversations, *convToDomain(row))
+		}
+	} else {
+		rows, err := r.q.ListConversationsByTeam(ctx, sqlcgen.ListConversationsByTeamParams{
+			TeamID: params.TeamID,
+			ID:     params.Cursor,
+			Limit:  int32(limit + 1),
+		})
+		if err != nil {
+			return nil, fmt.Errorf("list conversations: %w", err)
+		}
+		for _, row := range rows {
+			conversations = append(conversations, *convToDomain(row))
+		}
 	}
 
+	page := &domain.CursorPage[domain.Conversation]{}
+	if len(conversations) > limit {
+		page.HasMore = true
+		page.NextCursor = conversations[limit-1].ID
+		page.Items = conversations[:limit]
+	} else {
+		page.Items = conversations
+	}
+	if page.Items == nil {
+		page.Items = []domain.Conversation{}
+	}
+	return page, nil
+}
+
+func (r *ConversationRepo) listWithTypes(ctx context.Context, params domain.ListConversationsParams, limit int) (*domain.CursorPage[domain.Conversation], error) {
+	var args []any
+	query := "SELECT id, team_id, name, type, creator_id, is_archived, topic_value, topic_creator, topic_last_set, purpose_value, purpose_creator, purpose_last_set, num_members, created_at, updated_at FROM conversations WHERE team_id = $1"
+	args = append(args, params.TeamID)
+
+	typeStrs := make([]string, len(params.Types))
+	for i, t := range params.Types {
+		typeStrs[i] = string(t)
+	}
+	args = append(args, typeStrs)
+	query += fmt.Sprintf(" AND type = ANY($%d)", len(args))
+
+	if params.ExcludeArchived {
+		query += " AND is_archived = FALSE"
+	}
 	if params.Cursor != "" {
 		args = append(args, params.Cursor)
-		query += fmt.Sprintf(` AND id > $%d`, len(args))
+		query += fmt.Sprintf(" AND id > $%d", len(args))
 	}
 
-	query += ` ORDER BY id ASC`
+	query += " ORDER BY id ASC"
 	args = append(args, limit+1)
-	query += fmt.Sprintf(` LIMIT $%d`, len(args))
+	query += fmt.Sprintf(" LIMIT $%d", len(args))
 
 	rows, err := r.pool.Query(ctx, query, args...)
 	if err != nil {
@@ -187,11 +348,16 @@ func (r *ConversationRepo) List(ctx context.Context, params domain.ListConversat
 
 	var conversations []domain.Conversation
 	for rows.Next() {
-		c, err := scanConversationRow(rows)
-		if err != nil {
-			return nil, err
+		var c domain.Conversation
+		if err := rows.Scan(
+			&c.ID, &c.TeamID, &c.Name, &c.Type, &c.CreatorID, &c.IsArchived,
+			&c.Topic.Value, &c.Topic.Creator, &c.Topic.LastSet,
+			&c.Purpose.Value, &c.Purpose.Creator, &c.Purpose.LastSet,
+			&c.NumMembers, &c.CreatedAt, &c.UpdatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("scan conversation: %w", err)
 		}
-		conversations = append(conversations, *c)
+		conversations = append(conversations, c)
 	}
 
 	page := &domain.CursorPage[domain.Conversation]{}
@@ -209,44 +375,77 @@ func (r *ConversationRepo) List(ctx context.Context, params domain.ListConversat
 }
 
 func (r *ConversationRepo) AddMember(ctx context.Context, conversationID, userID string) error {
-	_, err := r.pool.Exec(ctx, `
-		INSERT INTO conversation_members (conversation_id, user_id)
-		VALUES ($1, $2)
-		ON CONFLICT DO NOTHING`, conversationID, userID)
+	tx, err := r.pool.Begin(ctx)
 	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+	qtx := r.q.WithTx(tx)
+
+	if err := qtx.AddConversationMember(ctx, sqlcgen.AddConversationMemberParams{
+		ConversationID: conversationID,
+		UserID:         userID,
+	}); err != nil {
 		return fmt.Errorf("add member: %w", err)
 	}
-
-	// Update num_members count
-	_, err = r.pool.Exec(ctx, `
-		UPDATE conversations SET num_members = (
-			SELECT COUNT(*) FROM conversation_members WHERE conversation_id = $1
-		) WHERE id = $1`, conversationID)
-	if err != nil {
+	if err := qtx.UpdateConversationMemberCount(ctx, conversationID); err != nil {
 		return fmt.Errorf("update member count: %w", err)
 	}
-	return nil
+
+	eventData, _ := json.Marshal(map[string]string{"user_id": userID})
+	if _, err := qtx.AppendEvent(ctx, sqlcgen.AppendEventParams{
+		AggregateType: domain.AggregateConversation,
+		AggregateID:   conversationID,
+		EventType:     domain.EventMemberJoined,
+		EventData:     eventData,
+	}); err != nil {
+		return fmt.Errorf("append event: %w", err)
+	}
+	return tx.Commit(ctx)
 }
 
 func (r *ConversationRepo) RemoveMember(ctx context.Context, conversationID, userID string) error {
-	tag, err := r.pool.Exec(ctx, `
-		DELETE FROM conversation_members WHERE conversation_id = $1 AND user_id = $2`,
-		conversationID, userID)
+	tx, err := r.pool.Begin(ctx)
 	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+	qtx := r.q.WithTx(tx)
+
+	count, err := qtx.CountConversationMembers(ctx, conversationID)
+	if err != nil {
+		return fmt.Errorf("count members: %w", err)
+	}
+
+	if err := qtx.RemoveConversationMember(ctx, sqlcgen.RemoveConversationMemberParams{
+		ConversationID: conversationID,
+		UserID:         userID,
+	}); err != nil {
 		return fmt.Errorf("remove member: %w", err)
 	}
-	if tag.RowsAffected() == 0 {
+
+	newCount, err := qtx.CountConversationMembers(ctx, conversationID)
+	if err != nil {
+		return fmt.Errorf("count members: %w", err)
+	}
+	if newCount == count {
 		return domain.ErrNotInChannel
 	}
 
-	_, err = r.pool.Exec(ctx, `
-		UPDATE conversations SET num_members = (
-			SELECT COUNT(*) FROM conversation_members WHERE conversation_id = $1
-		) WHERE id = $1`, conversationID)
-	if err != nil {
+	if err := qtx.UpdateConversationMemberCount(ctx, conversationID); err != nil {
 		return fmt.Errorf("update member count: %w", err)
 	}
-	return nil
+
+	eventData, _ := json.Marshal(map[string]string{"user_id": userID})
+	if _, err := qtx.AppendEvent(ctx, sqlcgen.AppendEventParams{
+		AggregateType: domain.AggregateConversation,
+		AggregateID:   conversationID,
+		EventType:     domain.EventMemberLeft,
+		EventData:     eventData,
+	}); err != nil {
+		return fmt.Errorf("append event: %w", err)
+	}
+	return tx.Commit(ctx)
 }
 
 func (r *ConversationRepo) ListMembers(ctx context.Context, conversationID string, cursor string, limit int) (*domain.CursorPage[domain.ConversationMember], error) {
@@ -254,32 +453,22 @@ func (r *ConversationRepo) ListMembers(ctx context.Context, conversationID strin
 		limit = 100
 	}
 
-	var args []any
-	query := `SELECT conversation_id, user_id, joined_at FROM conversation_members WHERE conversation_id = $1`
-	args = append(args, conversationID)
-
-	if cursor != "" {
-		args = append(args, cursor)
-		query += fmt.Sprintf(` AND user_id > $%d`, len(args))
-	}
-
-	query += ` ORDER BY user_id ASC`
-	args = append(args, limit+1)
-	query += fmt.Sprintf(` LIMIT $%d`, len(args))
-
-	rows, err := r.pool.Query(ctx, query, args...)
+	rows, err := r.q.ListConversationMembers(ctx, sqlcgen.ListConversationMembersParams{
+		ConversationID: conversationID,
+		UserID:         cursor,
+		Limit:          int32(limit + 1),
+	})
 	if err != nil {
 		return nil, fmt.Errorf("list members: %w", err)
 	}
-	defer rows.Close()
 
-	var members []domain.ConversationMember
-	for rows.Next() {
-		var m domain.ConversationMember
-		if err := rows.Scan(&m.ConversationID, &m.UserID, &m.JoinedAt); err != nil {
-			return nil, fmt.Errorf("scan member: %w", err)
-		}
-		members = append(members, m)
+	members := make([]domain.ConversationMember, 0, len(rows))
+	for _, row := range rows {
+		members = append(members, domain.ConversationMember{
+			ConversationID: row.ConversationID,
+			UserID:         row.UserID,
+			JoinedAt:       tsToTime(row.JoinedAt),
+		})
 	}
 
 	page := &domain.CursorPage[domain.ConversationMember]{}
@@ -297,48 +486,12 @@ func (r *ConversationRepo) ListMembers(ctx context.Context, conversationID strin
 }
 
 func (r *ConversationRepo) IsMember(ctx context.Context, conversationID, userID string) (bool, error) {
-	var exists bool
-	err := r.pool.QueryRow(ctx, `
-		SELECT EXISTS(SELECT 1 FROM conversation_members WHERE conversation_id = $1 AND user_id = $2)`,
-		conversationID, userID).Scan(&exists)
+	exists, err := r.q.IsConversationMember(ctx, sqlcgen.IsConversationMemberParams{
+		ConversationID: conversationID,
+		UserID:         userID,
+	})
 	if err != nil {
 		return false, fmt.Errorf("check membership: %w", err)
 	}
 	return exists, nil
-}
-
-func (r *ConversationRepo) scanConversation(ctx context.Context, query string, args ...any) (*domain.Conversation, error) {
-	row := r.pool.QueryRow(ctx, query, args...)
-	var c domain.Conversation
-	err := row.Scan(
-		&c.ID, &c.TeamID, &c.Name, &c.Type, &c.CreatorID, &c.IsArchived,
-		&c.Topic.Value, &c.Topic.Creator, &c.Topic.LastSet,
-		&c.Purpose.Value, &c.Purpose.Creator, &c.Purpose.LastSet,
-		&c.NumMembers, &c.CreatedAt, &c.UpdatedAt,
-	)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, domain.ErrNotFound
-		}
-		return nil, fmt.Errorf("scan conversation: %w", err)
-	}
-	return &c, nil
-}
-
-type scannable interface {
-	Scan(dest ...any) error
-}
-
-func scanConversationRow(row scannable) (*domain.Conversation, error) {
-	var c domain.Conversation
-	err := row.Scan(
-		&c.ID, &c.TeamID, &c.Name, &c.Type, &c.CreatorID, &c.IsArchived,
-		&c.Topic.Value, &c.Topic.Creator, &c.Topic.LastSet,
-		&c.Purpose.Value, &c.Purpose.Creator, &c.Purpose.LastSet,
-		&c.NumMembers, &c.CreatedAt, &c.UpdatedAt,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("scan conversation row: %w", err)
-	}
-	return &c, nil
 }

@@ -102,3 +102,12 @@ type AuthRepository interface {
 	GetByToken(ctx context.Context, token string) (*domain.Token, error)
 	RevokeToken(ctx context.Context, token string) error
 }
+
+// EventLogRepository defines data access operations for the append-only event log.
+type EventLogRepository interface {
+	Append(ctx context.Context, entry domain.EventLogEntry) (*domain.EventLogEntry, error)
+	GetByAggregate(ctx context.Context, aggregateType, aggregateID string) ([]domain.EventLogEntry, error)
+	GetByAggregateSince(ctx context.Context, aggregateType, aggregateID string, sinceSequenceID int64) ([]domain.EventLogEntry, error)
+	GetByType(ctx context.Context, eventType string, limit int) ([]domain.EventLogEntry, error)
+	GetAllSince(ctx context.Context, sinceSequenceID int64, limit int) ([]domain.EventLogEntry, error)
+}

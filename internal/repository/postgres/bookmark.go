@@ -2,59 +2,74 @@ package postgres
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/suhjohn/workspace/internal/domain"
+	"github.com/suhjohn/workspace/internal/repository/sqlcgen"
 )
 
-// BookmarkRepo implements repository.BookmarkRepository using Postgres.
 type BookmarkRepo struct {
+	q    *sqlcgen.Queries
 	pool *pgxpool.Pool
 }
 
-// NewBookmarkRepo creates a new BookmarkRepo.
 func NewBookmarkRepo(pool *pgxpool.Pool) *BookmarkRepo {
-	return &BookmarkRepo{pool: pool}
+	return &BookmarkRepo{q: sqlcgen.New(pool), pool: pool}
 }
 
 func (r *BookmarkRepo) Create(ctx context.Context, params domain.CreateBookmarkParams) (*domain.Bookmark, error) {
 	id := generateID("Bk")
 
-	var b domain.Bookmark
-	err := r.pool.QueryRow(ctx, `
-		INSERT INTO bookmarks (id, channel_id, title, type, link, emoji, created_by, updated_by)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $7)
-		RETURNING id, channel_id, title, type, link, emoji, created_by, updated_by, created_at, updated_at`,
-		id, params.ChannelID, params.Title, params.Type, params.Link, params.Emoji, params.CreatedBy,
-	).Scan(
-		&b.ID, &b.ChannelID, &b.Title, &b.Type, &b.Link, &b.Emoji,
-		&b.CreatedBy, &b.UpdatedBy, &b.CreatedAt, &b.UpdatedAt,
-	)
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+	qtx := r.q.WithTx(tx)
+
+	row, err := qtx.CreateBookmark(ctx, sqlcgen.CreateBookmarkParams{
+		ID:        id,
+		ChannelID: params.ChannelID,
+		Title:     params.Title,
+		Type:      params.Type,
+		Link:      params.Link,
+		Emoji:     params.Emoji,
+		CreatedBy: params.CreatedBy,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("insert bookmark: %w", err)
 	}
-	return &b, nil
+
+	eventData, _ := json.Marshal(params)
+	if _, err := qtx.AppendEvent(ctx, sqlcgen.AppendEventParams{
+		AggregateType: domain.AggregateBookmark,
+		AggregateID:   id,
+		EventType:     domain.EventBookmarkCreated,
+		EventData:     eventData,
+	}); err != nil {
+		return nil, fmt.Errorf("append event: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("commit tx: %w", err)
+	}
+
+	return bookmarkToDomain(row), nil
 }
 
 func (r *BookmarkRepo) Get(ctx context.Context, id string) (*domain.Bookmark, error) {
-	var b domain.Bookmark
-	err := r.pool.QueryRow(ctx, `
-		SELECT id, channel_id, title, type, link, emoji, created_by, updated_by, created_at, updated_at
-		FROM bookmarks WHERE id = $1`, id,
-	).Scan(
-		&b.ID, &b.ChannelID, &b.Title, &b.Type, &b.Link, &b.Emoji,
-		&b.CreatedBy, &b.UpdatedBy, &b.CreatedAt, &b.UpdatedAt,
-	)
+	row, err := r.q.GetBookmark(ctx, id)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, domain.ErrNotFound
 		}
 		return nil, fmt.Errorf("get bookmark: %w", err)
 	}
-	return &b, nil
+	return bookmarkToDomain(row), nil
 }
 
 func (r *BookmarkRepo) Update(ctx context.Context, id string, params domain.UpdateBookmarkParams) (*domain.Bookmark, error) {
@@ -76,56 +91,77 @@ func (r *BookmarkRepo) Update(ctx context.Context, id string, params domain.Upda
 		emoji = *params.Emoji
 	}
 
-	var b domain.Bookmark
-	err = r.pool.QueryRow(ctx, `
-		UPDATE bookmarks SET title = $2, link = $3, emoji = $4, updated_by = $5
-		WHERE id = $1
-		RETURNING id, channel_id, title, type, link, emoji, created_by, updated_by, created_at, updated_at`,
-		id, title, link, emoji, params.UpdatedBy,
-	).Scan(
-		&b.ID, &b.ChannelID, &b.Title, &b.Type, &b.Link, &b.Emoji,
-		&b.CreatedBy, &b.UpdatedBy, &b.CreatedAt, &b.UpdatedAt,
-	)
+	tx, err := r.pool.Begin(ctx)
 	if err != nil {
+		return nil, fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+	qtx := r.q.WithTx(tx)
+
+	row, err := qtx.UpdateBookmark(ctx, sqlcgen.UpdateBookmarkParams{
+		ID:        id,
+		Title:     title,
+		Link:      link,
+		Emoji:     emoji,
+		UpdatedBy: params.UpdatedBy,
+	})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, domain.ErrNotFound
+		}
 		return nil, fmt.Errorf("update bookmark: %w", err)
 	}
-	return &b, nil
+
+	eventData, _ := json.Marshal(params)
+	if _, err := qtx.AppendEvent(ctx, sqlcgen.AppendEventParams{
+		AggregateType: domain.AggregateBookmark,
+		AggregateID:   id,
+		EventType:     domain.EventBookmarkUpdated,
+		EventData:     eventData,
+	}); err != nil {
+		return nil, fmt.Errorf("append event: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("commit tx: %w", err)
+	}
+
+	return bookmarkToDomain(row), nil
 }
 
 func (r *BookmarkRepo) Delete(ctx context.Context, id string) error {
-	tag, err := r.pool.Exec(ctx, `DELETE FROM bookmarks WHERE id = $1`, id)
+	tx, err := r.pool.Begin(ctx)
 	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+	qtx := r.q.WithTx(tx)
+
+	if err := qtx.DeleteBookmark(ctx, id); err != nil {
 		return fmt.Errorf("delete bookmark: %w", err)
 	}
-	if tag.RowsAffected() == 0 {
-		return domain.ErrNotFound
+
+	if _, err := qtx.AppendEvent(ctx, sqlcgen.AppendEventParams{
+		AggregateType: domain.AggregateBookmark,
+		AggregateID:   id,
+		EventType:     domain.EventBookmarkDeleted,
+		EventData:     []byte("{}"),
+	}); err != nil {
+		return fmt.Errorf("append event: %w", err)
 	}
-	return nil
+
+	return tx.Commit(ctx)
 }
 
 func (r *BookmarkRepo) List(ctx context.Context, params domain.ListBookmarksParams) ([]domain.Bookmark, error) {
-	rows, err := r.pool.Query(ctx, `
-		SELECT id, channel_id, title, type, link, emoji, created_by, updated_by, created_at, updated_at
-		FROM bookmarks WHERE channel_id = $1
-		ORDER BY created_at ASC`, params.ChannelID)
+	rows, err := r.q.ListBookmarks(ctx, params.ChannelID)
 	if err != nil {
 		return nil, fmt.Errorf("list bookmarks: %w", err)
 	}
-	defer rows.Close()
 
-	var bookmarks []domain.Bookmark
-	for rows.Next() {
-		var b domain.Bookmark
-		if err := rows.Scan(
-			&b.ID, &b.ChannelID, &b.Title, &b.Type, &b.Link, &b.Emoji,
-			&b.CreatedBy, &b.UpdatedBy, &b.CreatedAt, &b.UpdatedAt,
-		); err != nil {
-			return nil, fmt.Errorf("scan bookmark: %w", err)
-		}
-		bookmarks = append(bookmarks, b)
-	}
-	if bookmarks == nil {
-		bookmarks = []domain.Bookmark{}
+	bookmarks := make([]domain.Bookmark, 0, len(rows))
+	for _, row := range rows {
+		bookmarks = append(bookmarks, *bookmarkToDomain(row))
 	}
 	return bookmarks, nil
 }

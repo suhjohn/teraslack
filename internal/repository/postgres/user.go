@@ -10,16 +10,21 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/suhjohn/workspace/internal/domain"
+	"github.com/suhjohn/workspace/internal/repository/sqlcgen"
 )
 
-// UserRepo implements repository.UserRepository using Postgres.
+// timeNow is a package-level variable for testing.
+var timeNow = time.Now
+
+// UserRepo implements repository.UserRepository using sqlc with event sourcing.
 type UserRepo struct {
+	q    *sqlcgen.Queries
 	pool *pgxpool.Pool
 }
 
 // NewUserRepo creates a new UserRepo.
 func NewUserRepo(pool *pgxpool.Pool) *UserRepo {
-	return &UserRepo{pool: pool}
+	return &UserRepo{q: sqlcgen.New(pool), pool: pool}
 }
 
 func (r *UserRepo) Create(ctx context.Context, params domain.CreateUserParams) (*domain.User, error) {
@@ -29,45 +34,69 @@ func (r *UserRepo) Create(ctx context.Context, params domain.CreateUserParams) (
 		return nil, fmt.Errorf("marshal profile: %w", err)
 	}
 
-	var u domain.User
-	var profileBytes []byte
-	err = r.pool.QueryRow(ctx, `
-		INSERT INTO users (id, team_id, name, real_name, display_name, email, is_bot, is_admin, profile)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-		RETURNING id, team_id, name, real_name, display_name, email, is_bot, is_admin, is_owner,
-		          is_restricted, deleted, profile, created_at, updated_at`,
-		id, params.TeamID, params.Name, params.RealName, params.DisplayName,
-		params.Email, params.IsBot, params.IsAdmin, profileJSON,
-	).Scan(
-		&u.ID, &u.TeamID, &u.Name, &u.RealName, &u.DisplayName, &u.Email,
-		&u.IsBot, &u.IsAdmin, &u.IsOwner, &u.IsRestricted, &u.Deleted,
-		&profileBytes, &u.CreatedAt, &u.UpdatedAt,
-	)
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	qtx := r.q.WithTx(tx)
+
+	row, err := qtx.CreateUser(ctx, sqlcgen.CreateUserParams{
+		ID:          id,
+		TeamID:      params.TeamID,
+		Name:        params.Name,
+		RealName:    params.RealName,
+		DisplayName: params.DisplayName,
+		Email:       params.Email,
+		IsBot:       params.IsBot,
+		IsAdmin:     params.IsAdmin,
+		Profile:     profileJSON,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("insert user: %w", err)
 	}
-	if err := json.Unmarshal(profileBytes, &u.Profile); err != nil {
-		return nil, fmt.Errorf("unmarshal profile: %w", err)
+
+	eventData, _ := json.Marshal(params)
+	if _, err := qtx.AppendEvent(ctx, sqlcgen.AppendEventParams{
+		AggregateType: domain.AggregateUser,
+		AggregateID:   id,
+		EventType:     domain.EventUserCreated,
+		EventData:     eventData,
+	}); err != nil {
+		return nil, fmt.Errorf("append event: %w", err)
 	}
-	return &u, nil
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("commit tx: %w", err)
+	}
+
+	return userToDomain(row)
 }
 
 func (r *UserRepo) Get(ctx context.Context, id string) (*domain.User, error) {
-	return r.scanUser(ctx, `
-		SELECT id, team_id, name, real_name, display_name, email, is_bot, is_admin, is_owner,
-		       is_restricted, deleted, profile, created_at, updated_at
-		FROM users WHERE id = $1`, id)
+	row, err := r.q.GetUser(ctx, id)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, domain.ErrNotFound
+		}
+		return nil, fmt.Errorf("get user: %w", err)
+	}
+	return userToDomain(row)
 }
 
 func (r *UserRepo) GetByEmail(ctx context.Context, email string) (*domain.User, error) {
-	return r.scanUser(ctx, `
-		SELECT id, team_id, name, real_name, display_name, email, is_bot, is_admin, is_owner,
-		       is_restricted, deleted, profile, created_at, updated_at
-		FROM users WHERE email = $1`, email)
+	row, err := r.q.GetUserByEmail(ctx, email)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, domain.ErrNotFound
+		}
+		return nil, fmt.Errorf("get user by email: %w", err)
+	}
+	return userToDomain(row)
 }
 
 func (r *UserRepo) Update(ctx context.Context, id string, params domain.UpdateUserParams) (*domain.User, error) {
-	// Build dynamic update
 	existing, err := r.Get(ctx, id)
 	if err != nil {
 		return nil, err
@@ -107,31 +136,46 @@ func (r *UserRepo) Update(ctx context.Context, id string, params domain.UpdateUs
 		return nil, fmt.Errorf("marshal profile: %w", err)
 	}
 
-	var u domain.User
-	var profileBytes []byte
-	err = r.pool.QueryRow(ctx, `
-		UPDATE users
-		SET real_name = $2, display_name = $3, email = $4, is_admin = $5,
-		    is_restricted = $6, deleted = $7, profile = $8
-		WHERE id = $1
-		RETURNING id, team_id, name, real_name, display_name, email, is_bot, is_admin, is_owner,
-		          is_restricted, deleted, profile, created_at, updated_at`,
-		id, realName, displayName, email, isAdmin, isRestricted, deleted, profileJSON,
-	).Scan(
-		&u.ID, &u.TeamID, &u.Name, &u.RealName, &u.DisplayName, &u.Email,
-		&u.IsBot, &u.IsAdmin, &u.IsOwner, &u.IsRestricted, &u.Deleted,
-		&profileBytes, &u.CreatedAt, &u.UpdatedAt,
-	)
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	qtx := r.q.WithTx(tx)
+
+	row, err := qtx.UpdateUser(ctx, sqlcgen.UpdateUserParams{
+		ID:           id,
+		RealName:     realName,
+		DisplayName:  displayName,
+		Email:        email,
+		IsAdmin:      isAdmin,
+		IsRestricted: isRestricted,
+		Deleted:      deleted,
+		Profile:      profileJSON,
+	})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, domain.ErrNotFound
 		}
 		return nil, fmt.Errorf("update user: %w", err)
 	}
-	if err := json.Unmarshal(profileBytes, &u.Profile); err != nil {
-		return nil, fmt.Errorf("unmarshal profile: %w", err)
+
+	eventData, _ := json.Marshal(params)
+	if _, err := qtx.AppendEvent(ctx, sqlcgen.AppendEventParams{
+		AggregateType: domain.AggregateUser,
+		AggregateID:   id,
+		EventType:     domain.EventUserUpdated,
+		EventData:     eventData,
+	}); err != nil {
+		return nil, fmt.Errorf("append event: %w", err)
 	}
-	return &u, nil
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("commit tx: %w", err)
+	}
+
+	return userToDomain(row)
 }
 
 func (r *UserRepo) List(ctx context.Context, params domain.ListUsersParams) (*domain.CursorPage[domain.User], error) {
@@ -140,44 +184,22 @@ func (r *UserRepo) List(ctx context.Context, params domain.ListUsersParams) (*do
 		limit = 100
 	}
 
-	var args []any
-	query := `
-		SELECT id, team_id, name, real_name, display_name, email, is_bot, is_admin, is_owner,
-		       is_restricted, deleted, profile, created_at, updated_at
-		FROM users
-		WHERE team_id = $1`
-	args = append(args, params.TeamID)
-
-	if params.Cursor != "" {
-		query += fmt.Sprintf(` AND id > $%d`, len(args)+1)
-		args = append(args, params.Cursor)
-	}
-
-	query += ` ORDER BY id ASC`
-	query += fmt.Sprintf(` LIMIT $%d`, len(args)+1)
-	args = append(args, limit+1) // fetch one extra to determine has_more
-
-	rows, err := r.pool.Query(ctx, query, args...)
+	rows, err := r.q.ListUsers(ctx, sqlcgen.ListUsersParams{
+		TeamID: params.TeamID,
+		ID:     params.Cursor,
+		Limit:  int32(limit + 1),
+	})
 	if err != nil {
 		return nil, fmt.Errorf("list users: %w", err)
 	}
-	defer rows.Close()
 
-	var users []domain.User
-	for rows.Next() {
-		var u domain.User
-		var profileBytes []byte
-		if err := rows.Scan(
-			&u.ID, &u.TeamID, &u.Name, &u.RealName, &u.DisplayName, &u.Email,
-			&u.IsBot, &u.IsAdmin, &u.IsOwner, &u.IsRestricted, &u.Deleted,
-			&profileBytes, &u.CreatedAt, &u.UpdatedAt,
-		); err != nil {
-			return nil, fmt.Errorf("scan user: %w", err)
+	users := make([]domain.User, 0, len(rows))
+	for _, row := range rows {
+		u, err := userToDomain(row)
+		if err != nil {
+			return nil, fmt.Errorf("convert user: %w", err)
 		}
-		if err := json.Unmarshal(profileBytes, &u.Profile); err != nil {
-			return nil, fmt.Errorf("unmarshal profile: %w", err)
-		}
-		users = append(users, u)
+		users = append(users, *u)
 	}
 
 	page := &domain.CursorPage[domain.User]{}
@@ -194,27 +216,7 @@ func (r *UserRepo) List(ctx context.Context, params domain.ListUsersParams) (*do
 	return page, nil
 }
 
-func (r *UserRepo) scanUser(ctx context.Context, query string, args ...any) (*domain.User, error) {
-	var u domain.User
-	var profileBytes []byte
-	err := r.pool.QueryRow(ctx, query, args...).Scan(
-		&u.ID, &u.TeamID, &u.Name, &u.RealName, &u.DisplayName, &u.Email,
-		&u.IsBot, &u.IsAdmin, &u.IsOwner, &u.IsRestricted, &u.Deleted,
-		&profileBytes, &u.CreatedAt, &u.UpdatedAt,
-	)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, domain.ErrNotFound
-		}
-		return nil, fmt.Errorf("query user: %w", err)
-	}
-	if err := json.Unmarshal(profileBytes, &u.Profile); err != nil {
-		return nil, fmt.Errorf("unmarshal profile: %w", err)
-	}
-	return &u, nil
-}
-
 // generateID creates a Slack-style prefixed ID.
 func generateID(prefix string) string {
-	return fmt.Sprintf("%s%d", prefix, time.Now().UnixNano())
+	return fmt.Sprintf("%s%d", prefix, timeNow().UnixNano())
 }

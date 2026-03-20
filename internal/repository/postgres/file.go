@@ -2,50 +2,67 @@ package postgres
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/suhjohn/workspace/internal/domain"
+	"github.com/suhjohn/workspace/internal/repository/sqlcgen"
 )
 
-// FileRepo implements repository.FileRepository using Postgres.
 type FileRepo struct {
+	q    *sqlcgen.Queries
 	pool *pgxpool.Pool
 }
 
-// NewFileRepo creates a new FileRepo.
 func NewFileRepo(pool *pgxpool.Pool) *FileRepo {
-	return &FileRepo{pool: pool}
+	return &FileRepo{q: sqlcgen.New(pool), pool: pool}
 }
 
 func (r *FileRepo) Create(ctx context.Context, f *domain.File) error {
-	_, err := r.pool.Exec(ctx, `
-		INSERT INTO files (id, name, title, mimetype, filetype, size, user_id, s3_key,
-		                   url_private, url_private_download, permalink, is_external, external_url, upload_complete)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
-		f.ID, f.Name, f.Title, f.Mimetype, f.Filetype, f.Size, f.UserID, "",
-		f.URLPrivate, f.URLPrivateDownload, f.Permalink, f.IsExternal, f.ExternalURL, false,
-	)
+	tx, err := r.pool.Begin(ctx)
 	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+	qtx := r.q.WithTx(tx)
+
+	if err := qtx.CreateFile(ctx, sqlcgen.CreateFileParams{
+		ID:                 f.ID,
+		Name:               f.Name,
+		Title:              f.Title,
+		Mimetype:           f.Mimetype,
+		Filetype:           f.Filetype,
+		Size:               f.Size,
+		UserID:             f.UserID,
+		S3Key:              "",
+		UrlPrivate:         f.URLPrivate,
+		UrlPrivateDownload: f.URLPrivateDownload,
+		Permalink:          f.Permalink,
+		IsExternal:         f.IsExternal,
+		ExternalUrl:        f.ExternalURL,
+		UploadComplete:     false,
+	}); err != nil {
 		return fmt.Errorf("insert file: %w", err)
 	}
-	return nil
+
+	eventData, _ := json.Marshal(f)
+	if _, err := qtx.AppendEvent(ctx, sqlcgen.AppendEventParams{
+		AggregateType: domain.AggregateFile,
+		AggregateID:   f.ID,
+		EventType:     domain.EventFileCreated,
+		EventData:     eventData,
+	}); err != nil {
+		return fmt.Errorf("append event: %w", err)
+	}
+
+	return tx.Commit(ctx)
 }
 
 func (r *FileRepo) Get(ctx context.Context, id string) (*domain.File, error) {
-	var f domain.File
-	err := r.pool.QueryRow(ctx, `
-		SELECT id, name, title, mimetype, filetype, size, user_id,
-		       url_private, url_private_download, permalink, is_external, external_url,
-		       created_at, updated_at
-		FROM files WHERE id = $1`, id,
-	).Scan(
-		&f.ID, &f.Name, &f.Title, &f.Mimetype, &f.Filetype, &f.Size, &f.UserID,
-		&f.URLPrivate, &f.URLPrivateDownload, &f.Permalink, &f.IsExternal, &f.ExternalURL,
-		&f.CreatedAt, &f.UpdatedAt,
-	)
+	row, err := r.q.GetFile(ctx, id)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, domain.ErrNotFound
@@ -53,106 +70,129 @@ func (r *FileRepo) Get(ctx context.Context, id string) (*domain.File, error) {
 		return nil, fmt.Errorf("get file: %w", err)
 	}
 
-	// Get associated channels
-	channels, err := r.getFileChannels(ctx, id)
+	f := fileToDomain(row)
+
+	channels, err := r.q.GetFileChannels(ctx, id)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("get file channels: %w", err)
 	}
 	f.Channels = channels
-	return &f, nil
+
+	return f, nil
 }
 
 func (r *FileRepo) Update(ctx context.Context, f *domain.File) error {
-	_, err := r.pool.Exec(ctx, `
-		UPDATE files SET title = $2, url_private = $3, url_private_download = $4,
-		                 permalink = $5, upload_complete = TRUE
-		WHERE id = $1`,
-		f.ID, f.Title, f.URLPrivate, f.URLPrivateDownload, f.Permalink,
-	)
+	tx, err := r.pool.Begin(ctx)
 	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+	qtx := r.q.WithTx(tx)
+
+	if err := qtx.UpdateFileComplete(ctx, sqlcgen.UpdateFileCompleteParams{
+		ID:                 f.ID,
+		Title:              f.Title,
+		UrlPrivate:         f.URLPrivate,
+		UrlPrivateDownload: f.URLPrivateDownload,
+		Permalink:          f.Permalink,
+	}); err != nil {
 		return fmt.Errorf("update file: %w", err)
 	}
-	return nil
+
+	eventData, _ := json.Marshal(f)
+	if _, err := qtx.AppendEvent(ctx, sqlcgen.AppendEventParams{
+		AggregateType: domain.AggregateFile,
+		AggregateID:   f.ID,
+		EventType:     domain.EventFileUpdated,
+		EventData:     eventData,
+	}); err != nil {
+		return fmt.Errorf("append event: %w", err)
+	}
+
+	return tx.Commit(ctx)
 }
 
 func (r *FileRepo) Delete(ctx context.Context, id string) error {
-	tag, err := r.pool.Exec(ctx, `DELETE FROM files WHERE id = $1`, id)
+	tx, err := r.pool.Begin(ctx)
 	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+	qtx := r.q.WithTx(tx)
+
+	if err := qtx.DeleteFile(ctx, id); err != nil {
 		return fmt.Errorf("delete file: %w", err)
 	}
-	if tag.RowsAffected() == 0 {
-		return domain.ErrNotFound
+
+	if _, err := qtx.AppendEvent(ctx, sqlcgen.AppendEventParams{
+		AggregateType: domain.AggregateFile,
+		AggregateID:   id,
+		EventType:     domain.EventFileDeleted,
+		EventData:     []byte("{}"),
+	}); err != nil {
+		return fmt.Errorf("append event: %w", err)
 	}
-	return nil
+
+	return tx.Commit(ctx)
 }
 
 func (r *FileRepo) List(ctx context.Context, params domain.ListFilesParams) (*domain.CursorPage[domain.File], error) {
 	limit := params.Limit
-	if limit <= 0 || limit > 200 {
-		limit = 100
+	if limit <= 0 || limit > 100 {
+		limit = 20
 	}
-
-	query := `
-		SELECT f.id, f.name, f.title, f.mimetype, f.filetype, f.size, f.user_id,
-		       f.url_private, f.url_private_download, f.permalink, f.is_external, f.external_url,
-		       f.created_at, f.updated_at
-		FROM files f`
-	var args []any
-	var where []string
-
-	if params.ChannelID != "" {
-		args = append(args, params.ChannelID)
-		query = `
-			SELECT f.id, f.name, f.title, f.mimetype, f.filetype, f.size, f.user_id,
-			       f.url_private, f.url_private_download, f.permalink, f.is_external, f.external_url,
-			       f.created_at, f.updated_at
-			FROM files f
-			INNER JOIN file_channels fc ON f.id = fc.file_id
-			WHERE fc.channel_id = $1`
-		where = append(where, "channel")
-	}
-
-	if params.UserID != "" {
-		args = append(args, params.UserID)
-		if len(where) == 0 {
-			query += ` WHERE`
-		} else {
-			query += ` AND`
-		}
-		query += fmt.Sprintf(` f.user_id = $%d`, len(args))
-	}
-
-	if params.Cursor != "" {
-		args = append(args, params.Cursor)
-		if len(where) == 0 && params.UserID == "" {
-			query += ` WHERE`
-		} else {
-			query += ` AND`
-		}
-		query += fmt.Sprintf(` f.id > $%d`, len(args))
-	}
-
-	query += ` ORDER BY f.id ASC`
-	args = append(args, limit+1)
-	query += fmt.Sprintf(` LIMIT $%d`, len(args))
-
-	rows, err := r.pool.Query(ctx, query, args...)
-	if err != nil {
-		return nil, fmt.Errorf("list files: %w", err)
-	}
-	defer rows.Close()
 
 	var files []domain.File
-	for rows.Next() {
-		var f domain.File
-		if err := rows.Scan(
-			&f.ID, &f.Name, &f.Title, &f.Mimetype, &f.Filetype, &f.Size, &f.UserID,
-			&f.URLPrivate, &f.URLPrivateDownload, &f.Permalink, &f.IsExternal, &f.ExternalURL,
-			&f.CreatedAt, &f.UpdatedAt,
-		); err != nil {
-			return nil, fmt.Errorf("scan file: %w", err)
+
+	switch {
+	case params.ChannelID != "" && params.UserID != "":
+		rows, err := r.q.ListFilesByChannelAndUser(ctx, sqlcgen.ListFilesByChannelAndUserParams{
+			ChannelID: params.ChannelID,
+			UserID:    params.UserID,
+			ID:        params.Cursor,
+			Limit:     int32(limit + 1),
+		})
+		if err != nil {
+			return nil, fmt.Errorf("list files: %w", err)
 		}
-		files = append(files, f)
+		for _, row := range rows {
+			files = append(files, *fileByChannelAndUserToDomain(row))
+		}
+	case params.ChannelID != "":
+		rows, err := r.q.ListFilesByChannel(ctx, sqlcgen.ListFilesByChannelParams{
+			ChannelID: params.ChannelID,
+			ID:        params.Cursor,
+			Limit:     int32(limit + 1),
+		})
+		if err != nil {
+			return nil, fmt.Errorf("list files: %w", err)
+		}
+		for _, row := range rows {
+			files = append(files, *fileByChannelToDomain(row))
+		}
+	case params.UserID != "":
+		rows, err := r.q.ListFilesByUser(ctx, sqlcgen.ListFilesByUserParams{
+			UserID: params.UserID,
+			ID:     params.Cursor,
+			Limit:  int32(limit + 1),
+		})
+		if err != nil {
+			return nil, fmt.Errorf("list files: %w", err)
+		}
+		for _, row := range rows {
+			files = append(files, *fileByUserToDomain(row))
+		}
+	default:
+		rows, err := r.q.ListFiles(ctx, sqlcgen.ListFilesParams{
+			ID:    params.Cursor,
+			Limit: int32(limit + 1),
+		})
+		if err != nil {
+			return nil, fmt.Errorf("list files: %w", err)
+		}
+		for _, row := range rows {
+			files = append(files, *fileListToDomain(row))
+		}
 	}
 
 	page := &domain.CursorPage[domain.File]{}
@@ -170,34 +210,29 @@ func (r *FileRepo) List(ctx context.Context, params domain.ListFilesParams) (*do
 }
 
 func (r *FileRepo) ShareToChannel(ctx context.Context, fileID, channelID string) error {
-	_, err := r.pool.Exec(ctx, `
-		INSERT INTO file_channels (file_id, channel_id)
-		VALUES ($1, $2)
-		ON CONFLICT DO NOTHING`, fileID, channelID)
+	tx, err := r.pool.Begin(ctx)
 	if err != nil {
-		return fmt.Errorf("share file to channel: %w", err)
+		return fmt.Errorf("begin tx: %w", err)
 	}
-	return nil
-}
+	defer tx.Rollback(ctx)
+	qtx := r.q.WithTx(tx)
 
-func (r *FileRepo) getFileChannels(ctx context.Context, fileID string) ([]string, error) {
-	rows, err := r.pool.Query(ctx, `
-		SELECT channel_id FROM file_channels WHERE file_id = $1 ORDER BY shared_at ASC`, fileID)
-	if err != nil {
-		return nil, fmt.Errorf("get file channels: %w", err)
+	if err := qtx.ShareFileToChannel(ctx, sqlcgen.ShareFileToChannelParams{
+		FileID:    fileID,
+		ChannelID: channelID,
+	}); err != nil {
+		return fmt.Errorf("share file: %w", err)
 	}
-	defer rows.Close()
 
-	var channels []string
-	for rows.Next() {
-		var ch string
-		if err := rows.Scan(&ch); err != nil {
-			return nil, fmt.Errorf("scan file channel: %w", err)
-		}
-		channels = append(channels, ch)
+	eventData, _ := json.Marshal(map[string]string{"file_id": fileID, "channel_id": channelID})
+	if _, err := qtx.AppendEvent(ctx, sqlcgen.AppendEventParams{
+		AggregateType: domain.AggregateFile,
+		AggregateID:   fileID,
+		EventType:     domain.EventFileShared,
+		EventData:     eventData,
+	}); err != nil {
+		return fmt.Errorf("append event: %w", err)
 	}
-	if channels == nil {
-		channels = []string{}
-	}
-	return channels, nil
+
+	return tx.Commit(ctx)
 }

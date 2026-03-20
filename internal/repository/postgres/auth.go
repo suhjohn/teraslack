@@ -4,79 +4,106 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/suhjohn/workspace/internal/domain"
+	"github.com/suhjohn/workspace/internal/repository/sqlcgen"
 )
 
-// AuthRepo implements repository.AuthRepository using Postgres.
 type AuthRepo struct {
+	q    *sqlcgen.Queries
 	pool *pgxpool.Pool
 }
 
-// NewAuthRepo creates a new AuthRepo.
 func NewAuthRepo(pool *pgxpool.Pool) *AuthRepo {
-	return &AuthRepo{pool: pool}
+	return &AuthRepo{q: sqlcgen.New(pool), pool: pool}
 }
 
 func (r *AuthRepo) CreateToken(ctx context.Context, params domain.CreateTokenParams) (*domain.Token, error) {
 	id := generateID("TK")
-	token := generateBearerToken(params.IsBot)
 
-	var t domain.Token
-	err := r.pool.QueryRow(ctx, `
-		INSERT INTO tokens (id, team_id, user_id, token, scopes, is_bot)
-		VALUES ($1, $2, $3, $4, $5, $6)
-		RETURNING id, team_id, user_id, token, scopes, is_bot, expires_at, created_at`,
-		id, params.TeamID, params.UserID, token, params.Scopes, params.IsBot,
-	).Scan(
-		&t.ID, &t.TeamID, &t.UserID, &t.Token, &t.Scopes, &t.IsBot, &t.ExpiresAt, &t.CreatedAt,
-	)
+	tokenBytes := make([]byte, 32)
+	if _, err := rand.Read(tokenBytes); err != nil {
+		return nil, fmt.Errorf("generate token: %w", err)
+	}
+	prefix := "xoxb-"
+	if !params.IsBot {
+		prefix = "xoxp-"
+	}
+	tokenStr := prefix + hex.EncodeToString(tokenBytes)
+
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+	qtx := r.q.WithTx(tx)
+
+	row, err := qtx.CreateToken(ctx, sqlcgen.CreateTokenParams{
+		ID:     id,
+		TeamID: params.TeamID,
+		UserID: params.UserID,
+		Token:  tokenStr,
+		Scopes: params.Scopes,
+		IsBot:  params.IsBot,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("insert token: %w", err)
 	}
-	return &t, nil
+
+	eventData, _ := json.Marshal(map[string]string{"token_id": id, "team_id": params.TeamID, "user_id": params.UserID})
+	if _, err := qtx.AppendEvent(ctx, sqlcgen.AppendEventParams{
+		AggregateType: domain.AggregateToken,
+		AggregateID:   id,
+		EventType:     domain.EventTokenCreated,
+		EventData:     eventData,
+	}); err != nil {
+		return nil, fmt.Errorf("append event: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("commit tx: %w", err)
+	}
+
+	return tokenToDomain(row), nil
 }
 
 func (r *AuthRepo) GetByToken(ctx context.Context, token string) (*domain.Token, error) {
-	var t domain.Token
-	err := r.pool.QueryRow(ctx, `
-		SELECT id, team_id, user_id, token, scopes, is_bot, expires_at, created_at
-		FROM tokens WHERE token = $1`, token,
-	).Scan(
-		&t.ID, &t.TeamID, &t.UserID, &t.Token, &t.Scopes, &t.IsBot, &t.ExpiresAt, &t.CreatedAt,
-	)
+	row, err := r.q.GetByToken(ctx, token)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, domain.ErrNotFound
+			return nil, domain.ErrInvalidAuth
 		}
 		return nil, fmt.Errorf("get token: %w", err)
 	}
-	return &t, nil
+	return tokenToDomain(row), nil
 }
 
 func (r *AuthRepo) RevokeToken(ctx context.Context, token string) error {
-	tag, err := r.pool.Exec(ctx, `DELETE FROM tokens WHERE token = $1`, token)
+	tx, err := r.pool.Begin(ctx)
 	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+	qtx := r.q.WithTx(tx)
+
+	if err := qtx.RevokeToken(ctx, token); err != nil {
 		return fmt.Errorf("revoke token: %w", err)
 	}
-	if tag.RowsAffected() == 0 {
-		return domain.ErrNotFound
-	}
-	return nil
-}
 
-func generateBearerToken(isBot bool) string {
-	b := make([]byte, 32)
-	if _, err := rand.Read(b); err != nil {
-		panic(fmt.Sprintf("crypto/rand failed: %v", err))
+	eventData, _ := json.Marshal(map[string]string{"token": token})
+	if _, err := qtx.AppendEvent(ctx, sqlcgen.AppendEventParams{
+		AggregateType: domain.AggregateToken,
+		AggregateID:   token,
+		EventType:     domain.EventTokenRevoked,
+		EventData:     eventData,
+	}); err != nil {
+		return fmt.Errorf("append event: %w", err)
 	}
-	prefix := "xoxp-"
-	if isBot {
-		prefix = "xoxb-"
-	}
-	return prefix + hex.EncodeToString(b)
+
+	return tx.Commit(ctx)
 }

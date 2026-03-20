@@ -2,77 +2,89 @@ package postgres
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/suhjohn/workspace/internal/domain"
+	"github.com/suhjohn/workspace/internal/repository/sqlcgen"
 )
 
-// UsergroupRepo implements repository.UsergroupRepository using Postgres.
 type UsergroupRepo struct {
+	q    *sqlcgen.Queries
 	pool *pgxpool.Pool
 }
 
-// NewUsergroupRepo creates a new UsergroupRepo.
 func NewUsergroupRepo(pool *pgxpool.Pool) *UsergroupRepo {
-	return &UsergroupRepo{pool: pool}
+	return &UsergroupRepo{q: sqlcgen.New(pool), pool: pool}
 }
 
 func (r *UsergroupRepo) Create(ctx context.Context, params domain.CreateUsergroupParams) (*domain.Usergroup, error) {
 	id := generateID("S")
 
-	var ug domain.Usergroup
-	err := r.pool.QueryRow(ctx, `
-		INSERT INTO usergroups (id, team_id, name, handle, description, created_by, updated_by)
-		VALUES ($1, $2, $3, $4, $5, $6, $6)
-		RETURNING id, team_id, name, handle, description, is_external, enabled,
-		          user_count, created_by, updated_by, created_at, updated_at`,
-		id, params.TeamID, params.Name, params.Handle, params.Description, params.CreatedBy,
-	).Scan(
-		&ug.ID, &ug.TeamID, &ug.Name, &ug.Handle, &ug.Description,
-		&ug.IsExternal, &ug.Enabled, &ug.UserCount,
-		&ug.CreatedBy, &ug.UpdatedBy, &ug.CreatedAt, &ug.UpdatedAt,
-	)
+	tx, err := r.pool.Begin(ctx)
 	if err != nil {
-		if isDuplicateKey(err) {
-			return nil, domain.ErrNameTaken
-		}
+		return nil, fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+	qtx := r.q.WithTx(tx)
+
+	row, err := qtx.CreateUsergroup(ctx, sqlcgen.CreateUsergroupParams{
+		ID:          id,
+		TeamID:      params.TeamID,
+		Name:        params.Name,
+		Handle:      params.Handle,
+		Description: params.Description,
+		CreatedBy:   params.CreatedBy,
+	})
+	if err != nil {
 		return nil, fmt.Errorf("insert usergroup: %w", err)
 	}
 
-	// Add initial users
 	for _, userID := range params.Users {
-		if err := r.AddUser(ctx, id, userID); err != nil {
-			return nil, fmt.Errorf("add initial user: %w", err)
+		if err := qtx.AddUsergroupMember(ctx, sqlcgen.AddUsergroupMemberParams{
+			UsergroupID: id,
+			UserID:      userID,
+		}); err != nil {
+			return nil, fmt.Errorf("add member: %w", err)
 		}
 	}
 	if len(params.Users) > 0 {
-		ug.UserCount = len(params.Users)
+		if err := qtx.UpdateUsergroupUserCount(ctx, id); err != nil {
+			return nil, fmt.Errorf("update user count: %w", err)
+		}
 	}
 
-	return &ug, nil
+	eventData, _ := json.Marshal(params)
+	if _, err := qtx.AppendEvent(ctx, sqlcgen.AppendEventParams{
+		AggregateType: domain.AggregateUsergroup,
+		AggregateID:   id,
+		EventType:     domain.EventUsergroupCreated,
+		EventData:     eventData,
+	}); err != nil {
+		return nil, fmt.Errorf("append event: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("commit tx: %w", err)
+	}
+
+	ug := usergroupToDomain(row)
+	ug.UserCount = len(params.Users)
+	return ug, nil
 }
 
 func (r *UsergroupRepo) Get(ctx context.Context, id string) (*domain.Usergroup, error) {
-	var ug domain.Usergroup
-	err := r.pool.QueryRow(ctx, `
-		SELECT id, team_id, name, handle, description, is_external, enabled,
-		       user_count, created_by, updated_by, created_at, updated_at
-		FROM usergroups WHERE id = $1`, id,
-	).Scan(
-		&ug.ID, &ug.TeamID, &ug.Name, &ug.Handle, &ug.Description,
-		&ug.IsExternal, &ug.Enabled, &ug.UserCount,
-		&ug.CreatedBy, &ug.UpdatedBy, &ug.CreatedAt, &ug.UpdatedAt,
-	)
+	row, err := r.q.GetUsergroup(ctx, id)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, domain.ErrNotFound
 		}
 		return nil, fmt.Errorf("get usergroup: %w", err)
 	}
-	return &ug, nil
+	return usergroupToDomain(row), nil
 }
 
 func (r *UsergroupRepo) Update(ctx context.Context, id string, params domain.UpdateUsergroupParams) (*domain.Usergroup, error) {
@@ -94,121 +106,124 @@ func (r *UsergroupRepo) Update(ctx context.Context, id string, params domain.Upd
 		description = *params.Description
 	}
 
-	var ug domain.Usergroup
-	err = r.pool.QueryRow(ctx, `
-		UPDATE usergroups SET name = $2, handle = $3, description = $4, updated_by = $5
-		WHERE id = $1
-		RETURNING id, team_id, name, handle, description, is_external, enabled,
-		          user_count, created_by, updated_by, created_at, updated_at`,
-		id, name, handle, description, params.UpdatedBy,
-	).Scan(
-		&ug.ID, &ug.TeamID, &ug.Name, &ug.Handle, &ug.Description,
-		&ug.IsExternal, &ug.Enabled, &ug.UserCount,
-		&ug.CreatedBy, &ug.UpdatedBy, &ug.CreatedAt, &ug.UpdatedAt,
-	)
+	tx, err := r.pool.Begin(ctx)
 	if err != nil {
-		if isDuplicateKey(err) {
-			return nil, domain.ErrNameTaken
+		return nil, fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+	qtx := r.q.WithTx(tx)
+
+	row, err := qtx.UpdateUsergroup(ctx, sqlcgen.UpdateUsergroupParams{
+		ID:          id,
+		Name:        name,
+		Handle:      handle,
+		Description: description,
+		UpdatedBy:   params.UpdatedBy,
+	})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, domain.ErrNotFound
 		}
 		return nil, fmt.Errorf("update usergroup: %w", err)
 	}
-	return &ug, nil
+
+	eventData, _ := json.Marshal(params)
+	if _, err := qtx.AppendEvent(ctx, sqlcgen.AppendEventParams{
+		AggregateType: domain.AggregateUsergroup,
+		AggregateID:   id,
+		EventType:     domain.EventUsergroupUpdated,
+		EventData:     eventData,
+	}); err != nil {
+		return nil, fmt.Errorf("append event: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("commit tx: %w", err)
+	}
+
+	return usergroupToDomain(row), nil
 }
 
 func (r *UsergroupRepo) List(ctx context.Context, params domain.ListUsergroupsParams) ([]domain.Usergroup, error) {
-	query := `
-		SELECT id, team_id, name, handle, description, is_external, enabled,
-		       user_count, created_by, updated_by, created_at, updated_at
-		FROM usergroups WHERE team_id = $1`
-	args := []any{params.TeamID}
+	var rows []sqlcgen.Usergroup
+	var err error
 
-	if !params.IncludeDisabled {
-		query += ` AND enabled = TRUE`
+	if params.IncludeDisabled {
+		rows, err = r.q.ListUsergroups(ctx, params.TeamID)
+	} else {
+		rows, err = r.q.ListUsergroupsIncludeDisabled(ctx, params.TeamID)
 	}
-	query += ` ORDER BY name ASC`
-
-	rows, err := r.pool.Query(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("list usergroups: %w", err)
 	}
-	defer rows.Close()
 
-	var groups []domain.Usergroup
-	for rows.Next() {
-		var ug domain.Usergroup
-		if err := rows.Scan(
-			&ug.ID, &ug.TeamID, &ug.Name, &ug.Handle, &ug.Description,
-			&ug.IsExternal, &ug.Enabled, &ug.UserCount,
-			&ug.CreatedBy, &ug.UpdatedBy, &ug.CreatedAt, &ug.UpdatedAt,
-		); err != nil {
-			return nil, fmt.Errorf("scan usergroup: %w", err)
-		}
-		groups = append(groups, ug)
+	result := make([]domain.Usergroup, 0, len(rows))
+	for _, row := range rows {
+		result = append(result, *usergroupToDomain(row))
 	}
-	if groups == nil {
-		groups = []domain.Usergroup{}
-	}
-	return groups, nil
+	return result, nil
 }
 
 func (r *UsergroupRepo) Enable(ctx context.Context, id string) error {
-	tag, err := r.pool.Exec(ctx, `UPDATE usergroups SET enabled = TRUE WHERE id = $1 AND enabled = FALSE`, id)
+	tx, err := r.pool.Begin(ctx)
 	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+	qtx := r.q.WithTx(tx)
+
+	if err := qtx.EnableUsergroup(ctx, id); err != nil {
 		return fmt.Errorf("enable usergroup: %w", err)
 	}
-	if tag.RowsAffected() == 0 {
-		return domain.ErrNotFound
+
+	if _, err := qtx.AppendEvent(ctx, sqlcgen.AppendEventParams{
+		AggregateType: domain.AggregateUsergroup,
+		AggregateID:   id,
+		EventType:     domain.EventUsergroupEnabled,
+		EventData:     []byte("{}"),
+	}); err != nil {
+		return fmt.Errorf("append event: %w", err)
 	}
-	return nil
+	return tx.Commit(ctx)
 }
 
 func (r *UsergroupRepo) Disable(ctx context.Context, id string) error {
-	tag, err := r.pool.Exec(ctx, `UPDATE usergroups SET enabled = FALSE WHERE id = $1 AND enabled = TRUE`, id)
+	tx, err := r.pool.Begin(ctx)
 	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+	qtx := r.q.WithTx(tx)
+
+	if err := qtx.DisableUsergroup(ctx, id); err != nil {
 		return fmt.Errorf("disable usergroup: %w", err)
 	}
-	if tag.RowsAffected() == 0 {
-		return domain.ErrNotFound
+
+	if _, err := qtx.AppendEvent(ctx, sqlcgen.AppendEventParams{
+		AggregateType: domain.AggregateUsergroup,
+		AggregateID:   id,
+		EventType:     domain.EventUsergroupDisabled,
+		EventData:     []byte("{}"),
+	}); err != nil {
+		return fmt.Errorf("append event: %w", err)
 	}
-	return nil
+	return tx.Commit(ctx)
 }
 
 func (r *UsergroupRepo) AddUser(ctx context.Context, usergroupID, userID string) error {
-	_, err := r.pool.Exec(ctx, `
-		INSERT INTO usergroup_members (usergroup_id, user_id)
-		VALUES ($1, $2)
-		ON CONFLICT DO NOTHING`, usergroupID, userID)
-	if err != nil {
-		return fmt.Errorf("add usergroup member: %w", err)
+	if err := r.q.AddUsergroupMember(ctx, sqlcgen.AddUsergroupMemberParams{
+		UsergroupID: usergroupID,
+		UserID:      userID,
+	}); err != nil {
+		return fmt.Errorf("add member: %w", err)
 	}
-	_, err = r.pool.Exec(ctx, `
-		UPDATE usergroups SET user_count = (
-			SELECT COUNT(*) FROM usergroup_members WHERE usergroup_id = $1
-		) WHERE id = $1`, usergroupID)
-	if err != nil {
-		return fmt.Errorf("update user count: %w", err)
-	}
-	return nil
+	return r.q.UpdateUsergroupUserCount(ctx, usergroupID)
 }
 
 func (r *UsergroupRepo) ListUsers(ctx context.Context, usergroupID string) ([]string, error) {
-	rows, err := r.pool.Query(ctx, `
-		SELECT user_id FROM usergroup_members WHERE usergroup_id = $1 ORDER BY added_at ASC`, usergroupID)
+	users, err := r.q.ListUsergroupMembers(ctx, usergroupID)
 	if err != nil {
-		return nil, fmt.Errorf("list usergroup members: %w", err)
-	}
-	defer rows.Close()
-
-	var users []string
-	for rows.Next() {
-		var uid string
-		if err := rows.Scan(&uid); err != nil {
-			return nil, fmt.Errorf("scan usergroup member: %w", err)
-		}
-		users = append(users, uid)
-	}
-	if users == nil {
-		users = []string{}
+		return nil, fmt.Errorf("list members: %w", err)
 	}
 	return users, nil
 }
@@ -219,39 +234,37 @@ func (r *UsergroupRepo) SetUsers(ctx context.Context, usergroupID string, userID
 		return fmt.Errorf("begin tx: %w", err)
 	}
 	defer tx.Rollback(ctx)
+	qtx := r.q.WithTx(tx)
 
-	_, err = tx.Exec(ctx, `DELETE FROM usergroup_members WHERE usergroup_id = $1`, usergroupID)
-	if err != nil {
-		return fmt.Errorf("clear members: %w", err)
+	if err := qtx.DeleteUsergroupMembers(ctx, usergroupID); err != nil {
+		return fmt.Errorf("delete members: %w", err)
 	}
 
-	for _, uid := range userIDs {
-		_, err = tx.Exec(ctx, `
-			INSERT INTO usergroup_members (usergroup_id, user_id) VALUES ($1, $2)`,
-			usergroupID, uid)
-		if err != nil {
+	for _, userID := range userIDs {
+		if err := qtx.InsertUsergroupMember(ctx, sqlcgen.InsertUsergroupMemberParams{
+			UsergroupID: usergroupID,
+			UserID:      userID,
+		}); err != nil {
 			return fmt.Errorf("insert member: %w", err)
 		}
 	}
 
-	_, err = tx.Exec(ctx, `UPDATE usergroups SET user_count = $2 WHERE id = $1`, usergroupID, len(userIDs))
-	if err != nil {
-		return fmt.Errorf("update user count: %w", err)
+	if err := qtx.SetUsergroupUserCount(ctx, sqlcgen.SetUsergroupUserCountParams{
+		ID:        usergroupID,
+		UserCount: int32(len(userIDs)),
+	}); err != nil {
+		return fmt.Errorf("set user count: %w", err)
+	}
+
+	eventData, _ := json.Marshal(map[string]interface{}{"user_ids": userIDs})
+	if _, err := qtx.AppendEvent(ctx, sqlcgen.AppendEventParams{
+		AggregateType: domain.AggregateUsergroup,
+		AggregateID:   usergroupID,
+		EventType:     domain.EventUsergroupUserSet,
+		EventData:     eventData,
+	}); err != nil {
+		return fmt.Errorf("append event: %w", err)
 	}
 
 	return tx.Commit(ctx)
-}
-
-func isDuplicateKey(err error) bool {
-	return err != nil && (errors.Is(err, pgx.ErrNoRows) == false) &&
-		(fmt.Sprintf("%v", err) != "" && containsDuplicate(err.Error()))
-}
-
-func containsDuplicate(s string) bool {
-	for i := 0; i+len("duplicate key")-1 < len(s); i++ {
-		if s[i:i+len("duplicate key")] == "duplicate key" {
-			return true
-		}
-	}
-	return false
 }
