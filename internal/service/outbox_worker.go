@@ -114,13 +114,13 @@ func (w *OutboxWorker) deliver(ctx context.Context, entry domain.OutboxEntry) {
 }
 
 func (w *OutboxWorker) handleFailure(ctx context.Context, entry domain.OutboxEntry, errMsg string) {
-	newAttempts := entry.Attempts + 1
-	if newAttempts >= entry.MaxAttempts {
+	// entry.Attempts was already incremented by ClaimBatch (UPDATE SET attempts = attempts + 1)
+	if entry.Attempts >= entry.MaxAttempts {
 		w.logger.Warn("outbox entry permanently failed",
 			"outbox_id", entry.ID,
 			"event_id", entry.EventID,
 			"url", entry.URL,
-			"attempts", newAttempts,
+			"attempts", entry.Attempts,
 			"error", errMsg,
 		)
 		if err := w.outboxRepo.MarkFailed(ctx, entry.ID, errMsg); err != nil {
@@ -128,11 +128,11 @@ func (w *OutboxWorker) handleFailure(ctx context.Context, entry domain.OutboxEnt
 		}
 	} else {
 		// Exponential backoff: 2^attempts seconds
-		backoff := time.Duration(math.Pow(2, float64(newAttempts))) * time.Second
+		backoff := time.Duration(math.Pow(2, float64(entry.Attempts))) * time.Second
 		nextAttemptAt := time.Now().Add(backoff)
 		w.logger.Info("scheduling outbox retry",
 			"outbox_id", entry.ID,
-			"attempt", newAttempts,
+			"attempt", entry.Attempts,
 			"next_attempt_at", nextAttemptAt,
 			"error", errMsg,
 		)

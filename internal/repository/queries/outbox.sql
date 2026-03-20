@@ -3,26 +3,29 @@ INSERT INTO outbox (event_id, subscription_id, url, payload, secret, status, max
 VALUES ($1, $2, $3, $4, $5, 'pending', $6, NOW());
 
 -- name: ClaimOutboxBatch :many
-SELECT id, event_id, subscription_id, url, payload, secret, status, attempts, max_attempts, next_attempt_at, last_error, delivered_at, created_at
-FROM outbox
-WHERE status = 'pending' AND next_attempt_at <= NOW()
-ORDER BY next_attempt_at ASC
-LIMIT $1
-FOR UPDATE SKIP LOCKED;
+UPDATE outbox SET status = 'processing', attempts = attempts + 1
+WHERE id IN (
+  SELECT id FROM outbox
+  WHERE status IN ('pending', 'processing') AND next_attempt_at <= NOW()
+  ORDER BY next_attempt_at ASC
+  LIMIT $1
+  FOR UPDATE SKIP LOCKED
+)
+RETURNING id, event_id, subscription_id, url, payload, secret, status, attempts, max_attempts, next_attempt_at, last_error, delivered_at, created_at;
 
 -- name: MarkOutboxDelivered :exec
 UPDATE outbox
-SET status = 'delivered', delivered_at = NOW(), attempts = attempts + 1
+SET status = 'delivered', delivered_at = NOW()
 WHERE id = $1;
 
 -- name: MarkOutboxFailed :exec
 UPDATE outbox
-SET status = 'failed', last_error = $2, attempts = attempts + 1
+SET status = 'failed', last_error = $2
 WHERE id = $1;
 
 -- name: ScheduleOutboxRetry :exec
 UPDATE outbox
-SET next_attempt_at = $2, last_error = $3, attempts = attempts + 1
+SET status = 'pending', next_attempt_at = $2, last_error = $3
 WHERE id = $1;
 
 -- name: CleanupDeliveredOutbox :execresult

@@ -22,17 +22,11 @@ func NewOutboxRepo(pool *pgxpool.Pool) *OutboxRepo {
 	return &OutboxRepo{pool: pool, q: sqlcgen.New(pool)}
 }
 
-// ClaimBatch claims up to `limit` pending outbox entries using FOR UPDATE SKIP LOCKED.
-// This must run inside a transaction so the locks are held until delivery completes.
+// ClaimBatch atomically claims up to `limit` pending outbox entries by setting
+// their status to 'processing' and incrementing attempts. The UPDATE...RETURNING
+// with FOR UPDATE SKIP LOCKED ensures no other worker can re-claim the same rows.
 func (r *OutboxRepo) ClaimBatch(ctx context.Context, limit int) ([]domain.OutboxEntry, error) {
-	tx, err := r.pool.Begin(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("begin tx: %w", err)
-	}
-	defer tx.Rollback(ctx)
-
-	qtx := r.q.WithTx(tx)
-	rows, err := qtx.ClaimOutboxBatch(ctx, int32(limit))
+	rows, err := r.q.ClaimOutboxBatch(ctx, int32(limit))
 	if err != nil {
 		return nil, fmt.Errorf("claim outbox batch: %w", err)
 	}
@@ -40,10 +34,6 @@ func (r *OutboxRepo) ClaimBatch(ctx context.Context, limit int) ([]domain.Outbox
 	entries := make([]domain.OutboxEntry, len(rows))
 	for i, row := range rows {
 		entries[i] = outboxRowToDomain(row)
-	}
-
-	if err := tx.Commit(ctx); err != nil {
-		return nil, fmt.Errorf("commit tx: %w", err)
 	}
 
 	return entries, nil

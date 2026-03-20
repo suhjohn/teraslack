@@ -157,7 +157,10 @@ func (s *UsergroupService) SetUsers(ctx context.Context, usergroupID string, use
 	}
 	ug, _ := s.repo.Get(ctx, usergroupID)
 	if ug != nil {
-		payload, _ := json.Marshal(ug)
+		payload, _ := json.Marshal(struct {
+			UserIDs   []string         `json:"user_ids"`
+			Usergroup *domain.Usergroup `json:"usergroup"`
+		}{UserIDs: userIDs, Usergroup: ug})
 		if recErr := s.recorder.Record(ctx, domain.ServiceEvent{
 			EventType:     domain.EventUsergroupUserSet,
 			AggregateType: domain.AggregateUsergroup,

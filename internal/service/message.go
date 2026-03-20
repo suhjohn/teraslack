@@ -105,7 +105,7 @@ func (s *MessageService) DeleteMessage(ctx context.Context, channelID, ts string
 	if err := s.repo.Delete(ctx, channelID, ts); err != nil {
 		return err
 	}
-	payload, _ := json.Marshal(map[string]string{"channel": channelID, "ts": ts})
+	payload, _ := json.Marshal(map[string]string{"channel_id": channelID, "ts": ts})
 	if recErr := s.recorder.Record(ctx, domain.ServiceEvent{
 		EventType:     domain.EventMessageDeleted,
 		AggregateType: domain.AggregateMessage,
@@ -143,7 +143,9 @@ func (s *MessageService) AddReaction(ctx context.Context, params domain.AddReact
 	if err := s.repo.AddReaction(ctx, params); err != nil {
 		return err
 	}
-	payload, _ := json.Marshal(params)
+	payload, _ := json.Marshal(struct {
+		Reaction domain.AddReactionParams `json:"reaction"`
+	}{Reaction: params})
 	if recErr := s.recorder.Record(ctx, domain.ServiceEvent{
 		EventType:     domain.EventReactionAdded,
 		AggregateType: domain.AggregateMessage,
@@ -163,7 +165,9 @@ func (s *MessageService) RemoveReaction(ctx context.Context, params domain.Remov
 	if err := s.repo.RemoveReaction(ctx, params); err != nil {
 		return err
 	}
-	payload, _ := json.Marshal(params)
+	payload, _ := json.Marshal(struct {
+		Reaction domain.RemoveReactionParams `json:"reaction"`
+	}{Reaction: params})
 	if recErr := s.recorder.Record(ctx, domain.ServiceEvent{
 		EventType:     domain.EventReactionRemoved,
 		AggregateType: domain.AggregateMessage,

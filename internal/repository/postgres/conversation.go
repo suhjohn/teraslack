@@ -226,7 +226,7 @@ func (r *ConversationRepo) listWithTypes(ctx context.Context, params domain.List
 	}
 	if params.Cursor != "" {
 		args = append(args, params.Cursor)
-		query += fmt.Sprintf(" AND id > $%d", len(args))
+		query += fmt.Sprintf(" AND id >= $%d", len(args))
 	}
 
 	query += " ORDER BY id ASC"
