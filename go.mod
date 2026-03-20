@@ -1,4 +1,4 @@
-module github.com/suhjohn/agentslack
+module github.com/suhjohn/workspace
 
 go 1.24.0
 

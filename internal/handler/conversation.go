@@ -5,9 +5,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/suhjohn/agentslack/internal/domain"
-	"github.com/suhjohn/agentslack/internal/service"
-	"github.com/suhjohn/agentslack/pkg/httputil"
+	"github.com/suhjohn/workspace/internal/domain"
+	"github.com/suhjohn/workspace/internal/service"
+	"github.com/suhjohn/workspace/pkg/httputil"
 )
 
 // ConversationHandler handles HTTP requests for conversation operations.

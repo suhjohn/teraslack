@@ -4,9 +4,9 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/suhjohn/agentslack/internal/domain"
-	"github.com/suhjohn/agentslack/internal/service"
-	"github.com/suhjohn/agentslack/pkg/httputil"
+	"github.com/suhjohn/workspace/internal/domain"
+	"github.com/suhjohn/workspace/internal/service"
+	"github.com/suhjohn/workspace/pkg/httputil"
 )
 
 // MessageHandler handles HTTP requests for message operations.

@@ -15,10 +15,10 @@ import (
 	_ "github.com/golang-migrate/migrate/v4/source/file"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/suhjohn/agentslack/internal/config"
-	"github.com/suhjohn/agentslack/internal/handler"
-	pgRepo "github.com/suhjohn/agentslack/internal/repository/postgres"
-	"github.com/suhjohn/agentslack/internal/service"
+	"github.com/suhjohn/workspace/internal/config"
+	"github.com/suhjohn/workspace/internal/handler"
+	pgRepo "github.com/suhjohn/workspace/internal/repository/postgres"
+	"github.com/suhjohn/workspace/internal/service"
 )
 
 func main() {

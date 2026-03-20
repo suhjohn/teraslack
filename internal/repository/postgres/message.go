@@ -10,7 +10,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/suhjohn/agentslack/internal/domain"
+	"github.com/suhjohn/workspace/internal/domain"
 )
 
 // MessageRepo implements repository.MessageRepository using Postgres.
