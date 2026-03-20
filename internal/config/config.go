@@ -18,6 +18,11 @@ type Config struct {
 	S3Endpoint  string
 	S3AccessKey string
 	S3SecretKey string
+
+	// Encryption configuration
+	// Hex-encoded 32-byte key for AES-256-GCM encryption of sensitive data.
+	// Generate with: openssl rand -hex 32
+	EncryptionKey string
 }
 
 // Load reads configuration from environment variables.
@@ -42,14 +47,15 @@ func Load() (*Config, error) {
 	}
 
 	return &Config{
-		Port:        port,
-		DatabaseURL: dbURL,
-		BaseURL:     baseURL,
-		S3Bucket:    os.Getenv("S3_BUCKET"),
-		S3Region:    getEnv("S3_REGION", "us-east-1"),
-		S3Endpoint:  os.Getenv("S3_ENDPOINT"),
-		S3AccessKey: os.Getenv("S3_ACCESS_KEY"),
-		S3SecretKey: os.Getenv("S3_SECRET_KEY"),
+		Port:          port,
+		DatabaseURL:   dbURL,
+		BaseURL:       baseURL,
+		S3Bucket:      os.Getenv("S3_BUCKET"),
+		S3Region:      getEnv("S3_REGION", "us-east-1"),
+		S3Endpoint:    os.Getenv("S3_ENDPOINT"),
+		S3AccessKey:   os.Getenv("S3_ACCESS_KEY"),
+		S3SecretKey:   os.Getenv("S3_SECRET_KEY"),
+		EncryptionKey: os.Getenv("ENCRYPTION_KEY"),
 	}, nil
 }
 

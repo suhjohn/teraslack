@@ -648,10 +648,10 @@ func (p *Projector) applyTokenCreated(ctx context.Context, tx pgx.Tx, entry doma
 	}
 
 	_, err := tx.Exec(ctx, `
-		INSERT INTO tokens (id, team_id, user_id, token, scopes, is_bot, expires_at, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		INSERT INTO tokens (id, team_id, user_id, token, token_hash, scopes, is_bot, expires_at, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 		ON CONFLICT (id) DO NOTHING`,
-		t.ID, t.TeamID, t.UserID, t.Token, t.Scopes, t.IsBot, t.ExpiresAt, t.CreatedAt)
+		t.ID, t.TeamID, t.UserID, t.Token, t.TokenHash, t.Scopes, t.IsBot, t.ExpiresAt, t.CreatedAt)
 	return err
 }
 
@@ -660,7 +660,8 @@ func (p *Projector) applyTokenRevoked(ctx context.Context, tx pgx.Tx, entry doma
 	if err := json.Unmarshal(entry.EventData, &t); err != nil {
 		return fmt.Errorf("unmarshal revoked token: %w", err)
 	}
-	_, err := tx.Exec(ctx, `UPDATE tokens SET expires_at = NOW() WHERE token = $1`, t.Token)
+	// Use token_hash for lookup since raw token is redacted in event_data.
+	_, err := tx.Exec(ctx, `DELETE FROM tokens WHERE token_hash = $1`, t.TokenHash)
 	return err
 }
 
@@ -673,12 +674,13 @@ func (p *Projector) applySubscriptionUpsert(ctx context.Context, tx pgx.Tx, entr
 	}
 
 	_, err := tx.Exec(ctx, `
-		INSERT INTO event_subscriptions (id, team_id, url, event_types, secret, enabled, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		INSERT INTO event_subscriptions (id, team_id, url, event_types, secret, encrypted_secret, enabled, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 		ON CONFLICT (id) DO UPDATE SET
 			team_id = EXCLUDED.team_id, url = EXCLUDED.url, event_types = EXCLUDED.event_types,
-			secret = EXCLUDED.secret, enabled = EXCLUDED.enabled, updated_at = EXCLUDED.updated_at`,
-		s.ID, s.TeamID, s.URL, s.EventTypes, s.Secret, s.Enabled, s.CreatedAt, s.UpdatedAt)
+			secret = EXCLUDED.secret, encrypted_secret = EXCLUDED.encrypted_secret,
+			enabled = EXCLUDED.enabled, updated_at = EXCLUDED.updated_at`,
+		s.ID, s.TeamID, s.URL, s.EventTypes, s.Secret, s.EncryptedSecret, s.Enabled, s.CreatedAt, s.UpdatedAt)
 	return err
 }
 

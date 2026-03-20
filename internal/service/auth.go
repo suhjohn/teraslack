@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/suhjohn/workspace/internal/crypto"
 	"github.com/suhjohn/workspace/internal/domain"
 	"github.com/suhjohn/workspace/internal/repository"
 )
@@ -58,7 +59,9 @@ func (s *AuthService) ValidateToken(ctx context.Context, bearerToken string) (*d
 		return nil, fmt.Errorf("token: %w", domain.ErrInvalidArgument)
 	}
 
-	t, err := s.repo.GetByToken(ctx, token)
+	// Hash the raw token and look up by hash.
+	tokenHash := crypto.HashToken(token)
+	t, err := s.repo.GetByTokenHash(ctx, tokenHash)
 	if err != nil {
 		return nil, err
 	}

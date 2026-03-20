@@ -99,7 +99,7 @@ type EventRepository interface {
 // AuthRepository defines data access operations for authentication tokens.
 type AuthRepository interface {
 	CreateToken(ctx context.Context, params domain.CreateTokenParams) (*domain.Token, error)
-	GetByToken(ctx context.Context, token string) (*domain.Token, error)
+	GetByTokenHash(ctx context.Context, tokenHash string) (*domain.Token, error)
 	RevokeToken(ctx context.Context, token string) error
 }
 

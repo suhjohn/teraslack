@@ -8,17 +8,19 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/suhjohn/workspace/internal/crypto"
 	"github.com/suhjohn/workspace/internal/domain"
 	"github.com/suhjohn/workspace/internal/repository/sqlcgen"
 )
 
 type EventRepo struct {
-	q    *sqlcgen.Queries
-	pool *pgxpool.Pool
+	q         *sqlcgen.Queries
+	pool      *pgxpool.Pool
+	encryptor *crypto.Encryptor
 }
 
-func NewEventRepo(pool *pgxpool.Pool) *EventRepo {
-	return &EventRepo{q: sqlcgen.New(pool), pool: pool}
+func NewEventRepo(pool *pgxpool.Pool, encryptor *crypto.Encryptor) *EventRepo {
+	return &EventRepo{q: sqlcgen.New(pool), pool: pool, encryptor: encryptor}
 }
 
 func (r *EventRepo) CreateEvent(ctx context.Context, event *domain.Event) error {
@@ -45,20 +47,29 @@ func (r *EventRepo) CreateSubscription(ctx context.Context, params domain.Create
 	defer tx.Rollback(ctx)
 	qtx := r.q.WithTx(tx)
 
+	// Encrypt the webhook secret before storing in DB.
+	encryptedSecret, encErr := r.encryptor.Encrypt(params.Secret)
+	if encErr != nil {
+		return nil, fmt.Errorf("encrypt secret: %w", encErr)
+	}
+
 	row, err := qtx.CreateEventSubscription(ctx, sqlcgen.CreateEventSubscriptionParams{
-		ID:         id,
-		TeamID:     params.TeamID,
-		Url:        params.URL,
-		EventTypes: params.EventTypes,
-		Secret:     params.Secret,
+		ID:              id,
+		TeamID:          params.TeamID,
+		Url:             params.URL,
+		EventTypes:      params.EventTypes,
+		Secret:          params.Secret,
+		EncryptedSecret: encryptedSecret,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("insert subscription: %w", err)
 	}
 
-	sub := eventSubToDomain(row)
+	sub := createEventSubRowToDomain(row)
 
-	eventData, _ := json.Marshal(sub)
+	// Redact sensitive fields before writing to event log.
+	redacted := sub.Redacted()
+	eventData, _ := json.Marshal(redacted)
 	if _, err := qtx.AppendEvent(ctx, sqlcgen.AppendEventParams{
 		AggregateType: domain.AggregateSubscription,
 		AggregateID:   id,
@@ -83,7 +94,15 @@ func (r *EventRepo) GetSubscription(ctx context.Context, id string) (*domain.Eve
 		}
 		return nil, fmt.Errorf("get subscription: %w", err)
 	}
-	return eventSubToDomain(row), nil
+	sub := getEventSubRowToDomain(row)
+	// Decrypt the secret for runtime use.
+	if sub.EncryptedSecret != "" {
+		decrypted, decErr := r.encryptor.Decrypt(sub.EncryptedSecret)
+		if decErr == nil {
+			sub.Secret = decrypted
+		}
+	}
+	return sub, nil
 }
 
 func (r *EventRepo) UpdateSubscription(ctx context.Context, id string, params domain.UpdateEventSubscriptionParams) (*domain.EventSubscription, error) {
@@ -125,9 +144,11 @@ func (r *EventRepo) UpdateSubscription(ctx context.Context, id string, params do
 		return nil, fmt.Errorf("update subscription: %w", err)
 	}
 
-	updatedSub := eventSubToDomain(row)
+	updatedSub := updateEventSubRowToDomain(row)
 
-	eventData, _ := json.Marshal(updatedSub)
+	// Redact sensitive fields before writing to event log.
+	redacted := updatedSub.Redacted()
+	eventData, _ := json.Marshal(redacted)
 	if _, err := qtx.AppendEvent(ctx, sqlcgen.AppendEventParams{
 		AggregateType: domain.AggregateSubscription,
 		AggregateID:   id,
@@ -157,13 +178,15 @@ func (r *EventRepo) DeleteSubscription(ctx context.Context, id string) error {
 	if subErr != nil {
 		return fmt.Errorf("get subscription before delete: %w", subErr)
 	}
-	subSnapshot := eventSubToDomain(subRow)
+	subSnapshot := getEventSubRowToDomain(subRow)
 
 	if err := qtx.DeleteEventSubscription(ctx, id); err != nil {
 		return fmt.Errorf("delete subscription: %w", err)
 	}
 
-	eventData, _ := json.Marshal(subSnapshot)
+	// Redact sensitive fields before writing to event log.
+	redacted := subSnapshot.Redacted()
+	eventData, _ := json.Marshal(redacted)
 	if _, err := qtx.AppendEvent(ctx, sqlcgen.AppendEventParams{
 		AggregateType: domain.AggregateSubscription,
 		AggregateID:   id,
@@ -184,7 +207,15 @@ func (r *EventRepo) ListSubscriptions(ctx context.Context, params domain.ListEve
 
 	subs := make([]domain.EventSubscription, 0, len(rows))
 	for _, row := range rows {
-		subs = append(subs, *eventSubToDomain(row))
+		sub := listEventSubRowToDomain(row)
+		// Decrypt secrets for runtime use.
+		if sub.EncryptedSecret != "" {
+			decrypted, decErr := r.encryptor.Decrypt(sub.EncryptedSecret)
+			if decErr == nil {
+				sub.Secret = decrypted
+			}
+		}
+		subs = append(subs, *sub)
 	}
 	return subs, nil
 }
@@ -200,7 +231,15 @@ func (r *EventRepo) ListSubscriptionsByTeamAndEvent(ctx context.Context, teamID,
 
 	subs := make([]domain.EventSubscription, 0, len(rows))
 	for _, row := range rows {
-		subs = append(subs, *eventSubToDomain(row))
+		sub := listEventSubByTeamEventRowToDomain(row)
+		// Decrypt secrets for webhook dispatch.
+		if sub.EncryptedSecret != "" {
+			decrypted, decErr := r.encryptor.Decrypt(sub.EncryptedSecret)
+			if decErr == nil {
+				sub.Secret = decrypted
+			}
+		}
+		subs = append(subs, *sub)
 	}
 	return subs, nil
 }

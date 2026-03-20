@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/suhjohn/workspace/internal/crypto"
 	"github.com/suhjohn/workspace/internal/domain"
 )
 
@@ -16,20 +17,23 @@ func newMockAuthRepo() *mockAuthRepo {
 }
 
 func (m *mockAuthRepo) CreateToken(_ context.Context, params domain.CreateTokenParams) (*domain.Token, error) {
+	rawToken := "xoxb-test-token-123"
+	tokenHash := crypto.HashToken(rawToken)
 	t := &domain.Token{
-		ID:     "TK123",
-		TeamID: params.TeamID,
-		UserID: params.UserID,
-		Token:  "xoxb-test-token-123",
-		Scopes: params.Scopes,
-		IsBot:  params.IsBot,
+		ID:        "TK123",
+		TeamID:    params.TeamID,
+		UserID:    params.UserID,
+		Token:     rawToken,
+		TokenHash: tokenHash,
+		Scopes:    params.Scopes,
+		IsBot:     params.IsBot,
 	}
-	m.tokens[t.Token] = t
+	m.tokens[tokenHash] = t
 	return t, nil
 }
 
-func (m *mockAuthRepo) GetByToken(_ context.Context, token string) (*domain.Token, error) {
-	t, ok := m.tokens[token]
+func (m *mockAuthRepo) GetByTokenHash(_ context.Context, tokenHash string) (*domain.Token, error) {
+	t, ok := m.tokens[tokenHash]
 	if !ok {
 		return nil, domain.ErrNotFound
 	}
@@ -37,10 +41,11 @@ func (m *mockAuthRepo) GetByToken(_ context.Context, token string) (*domain.Toke
 }
 
 func (m *mockAuthRepo) RevokeToken(_ context.Context, token string) error {
-	if _, ok := m.tokens[token]; !ok {
+	tokenHash := crypto.HashToken(token)
+	if _, ok := m.tokens[tokenHash]; !ok {
 		return domain.ErrNotFound
 	}
-	delete(m.tokens, token)
+	delete(m.tokens, tokenHash)
 	return nil
 }
 

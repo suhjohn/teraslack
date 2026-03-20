@@ -64,14 +64,15 @@ type EventLog struct {
 }
 
 type EventSubscription struct {
-	ID         string             `json:"id"`
-	TeamID     string             `json:"team_id"`
-	Url        string             `json:"url"`
-	EventTypes []string           `json:"event_types"`
-	Secret     string             `json:"secret"`
-	Enabled    bool               `json:"enabled"`
-	CreatedAt  pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt  pgtype.Timestamptz `json:"updated_at"`
+	ID              string             `json:"id"`
+	TeamID          string             `json:"team_id"`
+	Url             string             `json:"url"`
+	EventTypes      []string           `json:"event_types"`
+	Secret          string             `json:"secret"`
+	Enabled         bool               `json:"enabled"`
+	CreatedAt       pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt       pgtype.Timestamptz `json:"updated_at"`
+	EncryptedSecret string             `json:"encrypted_secret"`
 }
 
 type File struct {
@@ -144,6 +145,7 @@ type Token struct {
 	IsBot     bool               `json:"is_bot"`
 	ExpiresAt pgtype.Timestamptz `json:"expires_at"`
 	CreatedAt pgtype.Timestamptz `json:"created_at"`
+	TokenHash string             `json:"token_hash"`
 }
 
 type User struct {

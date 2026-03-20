@@ -7,38 +7,55 @@ package sqlcgen
 
 import (
 	"context"
+
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const createToken = `-- name: CreateToken :one
-INSERT INTO tokens (id, team_id, user_id, token, scopes, is_bot)
-VALUES ($1, $2, $3, $4, $5, $6)
-RETURNING id, team_id, user_id, token, scopes, is_bot, expires_at, created_at
+INSERT INTO tokens (id, team_id, user_id, token, token_hash, scopes, is_bot)
+VALUES ($1, $2, $3, $4, $5, $6, $7)
+RETURNING id, team_id, user_id, token, token_hash, scopes, is_bot, expires_at, created_at
 `
 
 type CreateTokenParams struct {
-	ID     string   `json:"id"`
-	TeamID string   `json:"team_id"`
-	UserID string   `json:"user_id"`
-	Token  string   `json:"token"`
-	Scopes []string `json:"scopes"`
-	IsBot  bool     `json:"is_bot"`
+	ID        string   `json:"id"`
+	TeamID    string   `json:"team_id"`
+	UserID    string   `json:"user_id"`
+	Token     string   `json:"token"`
+	TokenHash string   `json:"token_hash"`
+	Scopes    []string `json:"scopes"`
+	IsBot     bool     `json:"is_bot"`
 }
 
-func (q *Queries) CreateToken(ctx context.Context, arg CreateTokenParams) (Token, error) {
+type CreateTokenRow struct {
+	ID        string             `json:"id"`
+	TeamID    string             `json:"team_id"`
+	UserID    string             `json:"user_id"`
+	Token     string             `json:"token"`
+	TokenHash string             `json:"token_hash"`
+	Scopes    []string           `json:"scopes"`
+	IsBot     bool               `json:"is_bot"`
+	ExpiresAt pgtype.Timestamptz `json:"expires_at"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+}
+
+func (q *Queries) CreateToken(ctx context.Context, arg CreateTokenParams) (CreateTokenRow, error) {
 	row := q.db.QueryRow(ctx, createToken,
 		arg.ID,
 		arg.TeamID,
 		arg.UserID,
 		arg.Token,
+		arg.TokenHash,
 		arg.Scopes,
 		arg.IsBot,
 	)
-	var i Token
+	var i CreateTokenRow
 	err := row.Scan(
 		&i.ID,
 		&i.TeamID,
 		&i.UserID,
 		&i.Token,
+		&i.TokenHash,
 		&i.Scopes,
 		&i.IsBot,
 		&i.ExpiresAt,
@@ -47,19 +64,32 @@ func (q *Queries) CreateToken(ctx context.Context, arg CreateTokenParams) (Token
 	return i, err
 }
 
-const getByToken = `-- name: GetByToken :one
-SELECT id, team_id, user_id, token, scopes, is_bot, expires_at, created_at
-FROM tokens WHERE token = $1
+const getByTokenHash = `-- name: GetByTokenHash :one
+SELECT id, team_id, user_id, token, token_hash, scopes, is_bot, expires_at, created_at
+FROM tokens WHERE token_hash = $1
 `
 
-func (q *Queries) GetByToken(ctx context.Context, token string) (Token, error) {
-	row := q.db.QueryRow(ctx, getByToken, token)
-	var i Token
+type GetByTokenHashRow struct {
+	ID        string             `json:"id"`
+	TeamID    string             `json:"team_id"`
+	UserID    string             `json:"user_id"`
+	Token     string             `json:"token"`
+	TokenHash string             `json:"token_hash"`
+	Scopes    []string           `json:"scopes"`
+	IsBot     bool               `json:"is_bot"`
+	ExpiresAt pgtype.Timestamptz `json:"expires_at"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+}
+
+func (q *Queries) GetByTokenHash(ctx context.Context, tokenHash string) (GetByTokenHashRow, error) {
+	row := q.db.QueryRow(ctx, getByTokenHash, tokenHash)
+	var i GetByTokenHashRow
 	err := row.Scan(
 		&i.ID,
 		&i.TeamID,
 		&i.UserID,
 		&i.Token,
+		&i.TokenHash,
 		&i.Scopes,
 		&i.IsBot,
 		&i.ExpiresAt,
@@ -68,11 +98,45 @@ func (q *Queries) GetByToken(ctx context.Context, token string) (Token, error) {
 	return i, err
 }
 
-const revokeToken = `-- name: RevokeToken :exec
-DELETE FROM tokens WHERE token = $1
+const getTokenByID = `-- name: GetTokenByID :one
+SELECT id, team_id, user_id, token, token_hash, scopes, is_bot, expires_at, created_at
+FROM tokens WHERE id = $1
 `
 
-func (q *Queries) RevokeToken(ctx context.Context, token string) error {
-	_, err := q.db.Exec(ctx, revokeToken, token)
+type GetTokenByIDRow struct {
+	ID        string             `json:"id"`
+	TeamID    string             `json:"team_id"`
+	UserID    string             `json:"user_id"`
+	Token     string             `json:"token"`
+	TokenHash string             `json:"token_hash"`
+	Scopes    []string           `json:"scopes"`
+	IsBot     bool               `json:"is_bot"`
+	ExpiresAt pgtype.Timestamptz `json:"expires_at"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+}
+
+func (q *Queries) GetTokenByID(ctx context.Context, id string) (GetTokenByIDRow, error) {
+	row := q.db.QueryRow(ctx, getTokenByID, id)
+	var i GetTokenByIDRow
+	err := row.Scan(
+		&i.ID,
+		&i.TeamID,
+		&i.UserID,
+		&i.Token,
+		&i.TokenHash,
+		&i.Scopes,
+		&i.IsBot,
+		&i.ExpiresAt,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const revokeTokenByHash = `-- name: RevokeTokenByHash :exec
+DELETE FROM tokens WHERE token_hash = $1
+`
+
+func (q *Queries) RevokeTokenByHash(ctx context.Context, tokenHash string) error {
+	_, err := q.db.Exec(ctx, revokeTokenByHash, tokenHash)
 	return err
 }

@@ -16,6 +16,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/suhjohn/workspace/internal/config"
+	"github.com/suhjohn/workspace/internal/crypto"
 	"github.com/suhjohn/workspace/internal/handler"
 	pgRepo "github.com/suhjohn/workspace/internal/repository/postgres"
 	s3client "github.com/suhjohn/workspace/internal/s3"
@@ -89,6 +90,19 @@ func run(logger *slog.Logger) error {
 		}
 	}
 
+	// Initialize encryption (optional — if ENCRYPTION_KEY is set, secrets are encrypted at rest)
+	var encryptor *crypto.Encryptor
+	if cfg.EncryptionKey != "" {
+		keyProvider, keyErr := crypto.NewEnvKeyProvider(cfg.EncryptionKey, nil)
+		if keyErr != nil {
+			return fmt.Errorf("init encryption: %w", keyErr)
+		}
+		encryptor = crypto.NewEncryptor(keyProvider)
+		logger.Info("encryption enabled", "key_id", keyProvider.CurrentKeyID())
+	} else {
+		logger.Warn("ENCRYPTION_KEY not set — webhook secrets will NOT be encrypted at rest")
+	}
+
 	// Initialize repositories
 	userRepo := pgRepo.NewUserRepo(pool)
 	convRepo := pgRepo.NewConversationRepo(pool)
@@ -97,7 +111,7 @@ func run(logger *slog.Logger) error {
 	pinRepo := pgRepo.NewPinRepo(pool)
 	bookmarkRepo := pgRepo.NewBookmarkRepo(pool)
 	fileRepo := pgRepo.NewFileRepo(pool)
-	eventRepo := pgRepo.NewEventRepo(pool)
+	eventRepo := pgRepo.NewEventRepo(pool, encryptor)
 	authRepo := pgRepo.NewAuthRepo(pool)
 
 	// Initialize services

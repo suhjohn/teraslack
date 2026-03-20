@@ -251,25 +251,81 @@ func fileByChannelAndUserToDomain(f sqlcgen.ListFilesByChannelAndUserRow) *domai
 	}
 }
 
-func eventSubToDomain(e sqlcgen.EventSubscription) *domain.EventSubscription {
+func createEventSubRowToDomain(e sqlcgen.CreateEventSubscriptionRow) *domain.EventSubscription {
 	return &domain.EventSubscription{
-		ID:         e.ID,
-		TeamID:     e.TeamID,
-		URL:        e.Url,
-		EventTypes: e.EventTypes,
-		Secret:     e.Secret,
-		Enabled:    e.Enabled,
-		CreatedAt:  tsToTime(e.CreatedAt),
-		UpdatedAt:  tsToTime(e.UpdatedAt),
+		ID: e.ID, TeamID: e.TeamID, URL: e.Url, EventTypes: e.EventTypes,
+		Secret: e.Secret, EncryptedSecret: e.EncryptedSecret, Enabled: e.Enabled,
+		CreatedAt: tsToTime(e.CreatedAt), UpdatedAt: tsToTime(e.UpdatedAt),
 	}
 }
 
-func tokenToDomain(t sqlcgen.Token) *domain.Token {
+func getEventSubRowToDomain(e sqlcgen.GetEventSubscriptionRow) *domain.EventSubscription {
+	return &domain.EventSubscription{
+		ID: e.ID, TeamID: e.TeamID, URL: e.Url, EventTypes: e.EventTypes,
+		Secret: e.Secret, EncryptedSecret: e.EncryptedSecret, Enabled: e.Enabled,
+		CreatedAt: tsToTime(e.CreatedAt), UpdatedAt: tsToTime(e.UpdatedAt),
+	}
+}
+
+func updateEventSubRowToDomain(e sqlcgen.UpdateEventSubscriptionRow) *domain.EventSubscription {
+	return &domain.EventSubscription{
+		ID: e.ID, TeamID: e.TeamID, URL: e.Url, EventTypes: e.EventTypes,
+		Secret: e.Secret, EncryptedSecret: e.EncryptedSecret, Enabled: e.Enabled,
+		CreatedAt: tsToTime(e.CreatedAt), UpdatedAt: tsToTime(e.UpdatedAt),
+	}
+}
+
+func listEventSubRowToDomain(e sqlcgen.ListEventSubscriptionsRow) *domain.EventSubscription {
+	return &domain.EventSubscription{
+		ID: e.ID, TeamID: e.TeamID, URL: e.Url, EventTypes: e.EventTypes,
+		Secret: e.Secret, EncryptedSecret: e.EncryptedSecret, Enabled: e.Enabled,
+		CreatedAt: tsToTime(e.CreatedAt), UpdatedAt: tsToTime(e.UpdatedAt),
+	}
+}
+
+func listEventSubByTeamEventRowToDomain(e sqlcgen.ListEventSubscriptionsByTeamAndEventRow) *domain.EventSubscription {
+	return &domain.EventSubscription{
+		ID: e.ID, TeamID: e.TeamID, URL: e.Url, EventTypes: e.EventTypes,
+		Secret: e.Secret, EncryptedSecret: e.EncryptedSecret, Enabled: e.Enabled,
+		CreatedAt: tsToTime(e.CreatedAt), UpdatedAt: tsToTime(e.UpdatedAt),
+	}
+}
+
+func createTokenRowToDomain(t sqlcgen.CreateTokenRow) *domain.Token {
 	return &domain.Token{
 		ID:        t.ID,
 		TeamID:    t.TeamID,
 		UserID:    t.UserID,
 		Token:     t.Token,
+		TokenHash: t.TokenHash,
+		Scopes:    t.Scopes,
+		IsBot:     t.IsBot,
+		ExpiresAt: tsToTimePtr(t.ExpiresAt),
+		CreatedAt: tsToTime(t.CreatedAt),
+	}
+}
+
+func tokenHashRowToDomain(t sqlcgen.GetByTokenHashRow) *domain.Token {
+	return &domain.Token{
+		ID:        t.ID,
+		TeamID:    t.TeamID,
+		UserID:    t.UserID,
+		Token:     t.Token,
+		TokenHash: t.TokenHash,
+		Scopes:    t.Scopes,
+		IsBot:     t.IsBot,
+		ExpiresAt: tsToTimePtr(t.ExpiresAt),
+		CreatedAt: tsToTime(t.CreatedAt),
+	}
+}
+
+func tokenByIDRowToDomain(t sqlcgen.GetTokenByIDRow) *domain.Token {
+	return &domain.Token{
+		ID:        t.ID,
+		TeamID:    t.TeamID,
+		UserID:    t.UserID,
+		Token:     t.Token,
+		TokenHash: t.TokenHash,
 		Scopes:    t.Scopes,
 		IsBot:     t.IsBot,
 		ExpiresAt: tsToTimePtr(t.ExpiresAt),

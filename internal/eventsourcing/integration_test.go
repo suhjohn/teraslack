@@ -45,6 +45,10 @@ func setupTestDB(t *testing.T) *pgxpool.Pool {
 	if err != nil {
 		t.Fatalf("read migration 3: %v", err)
 	}
+	migration4, err := os.ReadFile(filepath.Join(migrationsDir, "000004_token_hash_encrypted_secret.up.sql"))
+	if err != nil {
+		t.Fatalf("read migration 4: %v", err)
+	}
 
 	pgContainer, err := tcpostgres.Run(ctx,
 		"postgres:16",
@@ -79,7 +83,7 @@ func setupTestDB(t *testing.T) *pgxpool.Pool {
 	t.Cleanup(func() { pool.Close() })
 
 	// Run migrations.
-	for i, m := range [][]byte{migration1, migration2, migration3} {
+	for i, m := range [][]byte{migration1, migration2, migration3, migration4} {
 		if _, err := pool.Exec(ctx, string(m)); err != nil {
 			t.Fatalf("run migration %d: %v", i+1, err)
 		}
