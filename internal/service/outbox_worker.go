@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/suhjohn/workspace/internal/crypto"
 	"github.com/suhjohn/workspace/internal/domain"
 	"github.com/suhjohn/workspace/internal/repository"
 )
@@ -20,6 +21,7 @@ import (
 // It uses FOR UPDATE SKIP LOCKED so multiple instances can run safely.
 type OutboxWorker struct {
 	outboxRepo   repository.OutboxRepository
+	encryptor    *crypto.Encryptor
 	httpClient   *http.Client
 	logger       *slog.Logger
 	pollInterval time.Duration
@@ -29,10 +31,12 @@ type OutboxWorker struct {
 // NewOutboxWorker creates a new OutboxWorker.
 func NewOutboxWorker(
 	outboxRepo repository.OutboxRepository,
+	encryptor *crypto.Encryptor,
 	logger *slog.Logger,
 ) *OutboxWorker {
 	return &OutboxWorker{
 		outboxRepo: outboxRepo,
+		encryptor:  encryptor,
 		httpClient: &http.Client{
 			Timeout: 10 * time.Second,
 		},
@@ -86,11 +90,18 @@ func (w *OutboxWorker) deliver(ctx context.Context, entry domain.OutboxEntry) {
 	}
 	req.Header.Set("Content-Type", "application/json")
 
-	// HMAC-SHA256 signing
+	// HMAC-SHA256 signing — decrypt secret at delivery time (never stored as plaintext in outbox)
 	if entry.Secret != "" {
+		signingKey := entry.Secret
+		if w.encryptor != nil {
+			if decrypted, err := w.encryptor.Decrypt(entry.Secret); err == nil {
+				signingKey = decrypted
+			}
+			// If decryption fails, it may be a plaintext secret (pre-encryption); use as-is
+		}
 		timestamp := fmt.Sprintf("%d", time.Now().Unix())
 		sigBase := fmt.Sprintf("v0:%s:%s", timestamp, string(entry.Payload))
-		mac := hmac.New(sha256.New, []byte(entry.Secret))
+		mac := hmac.New(sha256.New, []byte(signingKey))
 		mac.Write([]byte(sigBase))
 		sig := "v0=" + hex.EncodeToString(mac.Sum(nil))
 		req.Header.Set("X-Slack-Signature", sig)

@@ -37,6 +37,7 @@ func setupTestDB(t *testing.T) *pgxpool.Pool {
 		"000003_event_log.up.sql",
 		"000004_token_hash_encrypted_secret.up.sql",
 		"000005_service_events_outbox.up.sql",
+		"000006_drop_token_unique.up.sql",
 	}
 
 	migrationData := make([][]byte, len(migrations))

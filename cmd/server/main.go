@@ -60,7 +60,8 @@ func run(logger *slog.Logger) error {
 	logger.Info("migrations complete")
 
 	// Connect to database
-	ctx := context.Background()
+	ctx, cancelWorkers := context.WithCancel(context.Background())
+	defer cancelWorkers()
 	pool, err := pgxpool.New(ctx, cfg.DatabaseURL)
 	if err != nil {
 		return fmt.Errorf("connect to database: %w", err)
@@ -120,7 +121,7 @@ func run(logger *slog.Logger) error {
 	recorder := service.NewEventRecorder(eventStoreRepo)
 
 	// Start OutboxWorker for reliable webhook delivery
-	outboxWorker := service.NewOutboxWorker(outboxRepo, logger)
+	outboxWorker := service.NewOutboxWorker(outboxRepo, encryptor, logger)
 	go outboxWorker.Run(ctx)
 
 	// Initialize services
@@ -188,6 +189,9 @@ func run(logger *slog.Logger) error {
 	case err := <-errCh:
 		return fmt.Errorf("server error: %w", err)
 	}
+
+	// Stop background workers before shutting down the server
+	cancelWorkers()
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()

@@ -56,19 +56,18 @@ func (r *EventStoreRepo) Append(ctx context.Context, event domain.ServiceEvent) 
 	}
 
 	for _, sub := range subs {
-		secret := sub.Secret
-		if secret == "" && sub.EncryptedSecret != "" && r.encryptor != nil {
-			decrypted, decErr := r.encryptor.Decrypt(sub.EncryptedSecret)
-			if decErr == nil {
-				secret = decrypted
-			}
+		// Store the encrypted secret in the outbox — the worker decrypts at delivery time.
+		// This avoids persisting plaintext secrets in the outbox table.
+		outboxSecret := sub.EncryptedSecret
+		if outboxSecret == "" {
+			outboxSecret = sub.Secret // fallback for unencrypted subscriptions
 		}
 		if err := qtx.InsertOutboxEntry(ctx, sqlcgen.InsertOutboxEntryParams{
 			EventID:        row.ID,
 			SubscriptionID: sub.ID,
 			Url:            sub.Url,
 			Payload:        event.Payload,
-			Secret:         secret,
+			Secret:         outboxSecret,
 			MaxAttempts:     5,
 		}); err != nil {
 			return nil, fmt.Errorf("insert outbox entry for subscription %s: %w", sub.ID, err)
