@@ -113,7 +113,7 @@ func run(logger *slog.Logger) error {
 	fileRepo := pgRepo.NewFileRepo(pool)
 	eventRepo := pgRepo.NewEventRepo(pool, encryptor)
 	authRepo := pgRepo.NewAuthRepo(pool)
-	eventStoreRepo := pgRepo.NewEventStoreRepo(pool)
+	eventStoreRepo := pgRepo.NewEventStoreRepo(pool, encryptor)
 	outboxRepo := pgRepo.NewOutboxRepo(pool)
 
 	// Initialize EventRecorder (replaces EventPublisher)

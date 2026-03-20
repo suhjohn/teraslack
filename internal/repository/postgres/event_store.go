@@ -5,19 +5,21 @@ import (
 	"fmt"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/suhjohn/workspace/internal/crypto"
 	"github.com/suhjohn/workspace/internal/domain"
 	"github.com/suhjohn/workspace/internal/repository/sqlcgen"
 )
 
 // EventStoreRepo implements repository.EventStoreRepository using Postgres.
 type EventStoreRepo struct {
-	pool *pgxpool.Pool
-	q    *sqlcgen.Queries
+	pool      *pgxpool.Pool
+	q         *sqlcgen.Queries
+	encryptor *crypto.Encryptor
 }
 
 // NewEventStoreRepo creates a new EventStoreRepo.
-func NewEventStoreRepo(pool *pgxpool.Pool) *EventStoreRepo {
-	return &EventStoreRepo{pool: pool, q: sqlcgen.New(pool)}
+func NewEventStoreRepo(pool *pgxpool.Pool, encryptor *crypto.Encryptor) *EventStoreRepo {
+	return &EventStoreRepo{pool: pool, q: sqlcgen.New(pool), encryptor: encryptor}
 }
 
 // Append writes a service event and creates outbox entries for matching subscriptions atomically.
@@ -55,8 +57,11 @@ func (r *EventStoreRepo) Append(ctx context.Context, event domain.ServiceEvent) 
 
 	for _, sub := range subs {
 		secret := sub.Secret
-		if secret == "" {
-			secret = sub.EncryptedSecret
+		if secret == "" && sub.EncryptedSecret != "" && r.encryptor != nil {
+			decrypted, decErr := r.encryptor.Decrypt(sub.EncryptedSecret)
+			if decErr == nil {
+				secret = decrypted
+			}
 		}
 		if err := qtx.InsertOutboxEntry(ctx, sqlcgen.InsertOutboxEntryParams{
 			EventID:        row.ID,

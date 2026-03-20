@@ -36,7 +36,7 @@ func (r *EventRepo) CreateSubscription(ctx context.Context, params domain.Create
 		TeamID:          params.TeamID,
 		Url:             params.URL,
 		EventTypes:      params.EventTypes,
-		Secret:          params.Secret,
+		Secret:          "",
 		EncryptedSecret: encryptedSecret,
 	})
 	if err != nil {

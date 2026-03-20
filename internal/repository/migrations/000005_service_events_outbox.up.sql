@@ -32,7 +32,7 @@ CREATE TABLE outbox (
     url             TEXT NOT NULL,
     payload         JSONB NOT NULL,
     secret          TEXT NOT NULL DEFAULT '',
-    status          TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'delivered', 'failed')),
+    status          TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'processing', 'delivered', 'failed')),
     attempts        INT NOT NULL DEFAULT 0,
     max_attempts    INT NOT NULL DEFAULT 5,
     next_attempt_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -42,4 +42,4 @@ CREATE TABLE outbox (
 );
 
 CREATE INDEX idx_outbox_pending
-    ON outbox (next_attempt_at) WHERE status = 'pending';
+    ON outbox (next_attempt_at) WHERE status IN ('pending', 'processing');
