@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 
@@ -11,18 +12,18 @@ import (
 
 // BookmarkService contains business logic for bookmark operations.
 type BookmarkService struct {
-	repo      repository.BookmarkRepository
-	convRepo  repository.ConversationRepository
-	publisher EventPublisher
-	logger    *slog.Logger
+	repo     repository.BookmarkRepository
+	convRepo repository.ConversationRepository
+	recorder EventRecorder
+	logger   *slog.Logger
 }
 
 // NewBookmarkService creates a new BookmarkService.
-func NewBookmarkService(repo repository.BookmarkRepository, convRepo repository.ConversationRepository, publisher EventPublisher, logger *slog.Logger) *BookmarkService {
-	if publisher == nil {
-		publisher = noopPublisher{}
+func NewBookmarkService(repo repository.BookmarkRepository, convRepo repository.ConversationRepository, recorder EventRecorder, logger *slog.Logger) *BookmarkService {
+	if recorder == nil {
+		recorder = noopRecorder{}
 	}
-	return &BookmarkService{repo: repo, convRepo: convRepo, publisher: publisher, logger: logger}
+	return &BookmarkService{repo: repo, convRepo: convRepo, recorder: recorder, logger: logger}
 }
 
 func (s *BookmarkService) Create(ctx context.Context, params domain.CreateBookmarkParams) (*domain.Bookmark, error) {
@@ -48,8 +49,15 @@ func (s *BookmarkService) Create(ctx context.Context, params domain.CreateBookma
 	if err != nil {
 		return nil, err
 	}
-	if pubErr := s.publisher.Publish(ctx, "", domain.EventBookmarkCreated, bm); pubErr != nil {
-		s.logger.Warn("publish bookmark.created event", "error", pubErr)
+	payload, _ := json.Marshal(bm)
+	if recErr := s.recorder.Record(ctx, domain.ServiceEvent{
+		EventType:     domain.EventBookmarkCreated,
+		AggregateType: domain.AggregateBookmark,
+		AggregateID:   bm.ID,
+		TeamID:        "",
+		Payload:       payload,
+	}); recErr != nil {
+		s.logger.Warn("record bookmark.created event", "error", recErr)
 	}
 	return bm, nil
 }
@@ -62,8 +70,15 @@ func (s *BookmarkService) Update(ctx context.Context, id string, params domain.U
 	if err != nil {
 		return nil, err
 	}
-	if pubErr := s.publisher.Publish(ctx, "", domain.EventBookmarkUpdated, bm); pubErr != nil {
-		s.logger.Warn("publish bookmark.updated event", "error", pubErr)
+	payload, _ := json.Marshal(bm)
+	if recErr := s.recorder.Record(ctx, domain.ServiceEvent{
+		EventType:     domain.EventBookmarkUpdated,
+		AggregateType: domain.AggregateBookmark,
+		AggregateID:   bm.ID,
+		TeamID:        "",
+		Payload:       payload,
+	}); recErr != nil {
+		s.logger.Warn("record bookmark.updated event", "error", recErr)
 	}
 	return bm, nil
 }
@@ -75,8 +90,15 @@ func (s *BookmarkService) Delete(ctx context.Context, id string) error {
 	if err := s.repo.Delete(ctx, id); err != nil {
 		return err
 	}
-	if pubErr := s.publisher.Publish(ctx, "", domain.EventBookmarkDeleted, map[string]string{"bookmark_id": id}); pubErr != nil {
-		s.logger.Warn("publish bookmark.deleted event", "error", pubErr)
+	payload, _ := json.Marshal(map[string]string{"bookmark_id": id})
+	if recErr := s.recorder.Record(ctx, domain.ServiceEvent{
+		EventType:     domain.EventBookmarkDeleted,
+		AggregateType: domain.AggregateBookmark,
+		AggregateID:   id,
+		TeamID:        "",
+		Payload:       payload,
+	}); recErr != nil {
+		s.logger.Warn("record bookmark.deleted event", "error", recErr)
 	}
 	return nil
 }

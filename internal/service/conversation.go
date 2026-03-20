@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 
@@ -11,18 +12,18 @@ import (
 
 // ConversationService contains business logic for conversation operations.
 type ConversationService struct {
-	repo      repository.ConversationRepository
-	userRepo  repository.UserRepository
-	publisher EventPublisher
-	logger    *slog.Logger
+	repo     repository.ConversationRepository
+	userRepo repository.UserRepository
+	recorder EventRecorder
+	logger   *slog.Logger
 }
 
 // NewConversationService creates a new ConversationService.
-func NewConversationService(repo repository.ConversationRepository, userRepo repository.UserRepository, publisher EventPublisher, logger *slog.Logger) *ConversationService {
-	if publisher == nil {
-		publisher = noopPublisher{}
+func NewConversationService(repo repository.ConversationRepository, userRepo repository.UserRepository, recorder EventRecorder, logger *slog.Logger) *ConversationService {
+	if recorder == nil {
+		recorder = noopRecorder{}
 	}
-	return &ConversationService{repo: repo, userRepo: userRepo, publisher: publisher, logger: logger}
+	return &ConversationService{repo: repo, userRepo: userRepo, recorder: recorder, logger: logger}
 }
 
 func (s *ConversationService) Create(ctx context.Context, params domain.CreateConversationParams) (*domain.Conversation, error) {
@@ -48,8 +49,15 @@ func (s *ConversationService) Create(ctx context.Context, params domain.CreateCo
 	if err != nil {
 		return nil, err
 	}
-	if pubErr := s.publisher.Publish(ctx, params.TeamID, domain.EventTypeChannelCreated, conv); pubErr != nil {
-		s.logger.Warn("publish conversation.created event", "error", pubErr)
+	payload, _ := json.Marshal(conv)
+	if recErr := s.recorder.Record(ctx, domain.ServiceEvent{
+		EventType:     domain.EventConversationCreated,
+		AggregateType: domain.AggregateConversation,
+		AggregateID:   conv.ID,
+		TeamID:        conv.TeamID,
+		Payload:       payload,
+	}); recErr != nil {
+		s.logger.Warn("record conversation.created event", "error", recErr)
 	}
 	return conv, nil
 }
@@ -69,8 +77,15 @@ func (s *ConversationService) Update(ctx context.Context, id string, params doma
 	if err != nil {
 		return nil, err
 	}
-	if pubErr := s.publisher.Publish(ctx, conv.TeamID, domain.EventTypeChannelRename, conv); pubErr != nil {
-		s.logger.Warn("publish conversation.updated event", "error", pubErr)
+	payload, _ := json.Marshal(conv)
+	if recErr := s.recorder.Record(ctx, domain.ServiceEvent{
+		EventType:     domain.EventConversationUpdated,
+		AggregateType: domain.AggregateConversation,
+		AggregateID:   conv.ID,
+		TeamID:        conv.TeamID,
+		Payload:       payload,
+	}); recErr != nil {
+		s.logger.Warn("record conversation.updated event", "error", recErr)
 	}
 	return conv, nil
 }
@@ -86,8 +101,17 @@ func (s *ConversationService) Archive(ctx context.Context, id string) error {
 	if err := s.repo.Archive(ctx, id); err != nil {
 		return err
 	}
-	if pubErr := s.publisher.Publish(ctx, conv.TeamID, domain.EventTypeChannelArchive, map[string]string{"channel": id}); pubErr != nil {
-		s.logger.Warn("publish conversation.archived event", "error", pubErr)
+	// Re-fetch to get updated state for projector.
+	updatedConv, _ := s.repo.Get(ctx, id)
+	payload, _ := json.Marshal(updatedConv)
+	if recErr := s.recorder.Record(ctx, domain.ServiceEvent{
+		EventType:     domain.EventConversationArchived,
+		AggregateType: domain.AggregateConversation,
+		AggregateID:   id,
+		TeamID:        conv.TeamID,
+		Payload:       payload,
+	}); recErr != nil {
+		s.logger.Warn("record conversation.archived event", "error", recErr)
 	}
 	return nil
 }
@@ -103,8 +127,17 @@ func (s *ConversationService) Unarchive(ctx context.Context, id string) error {
 	if err := s.repo.Unarchive(ctx, id); err != nil {
 		return err
 	}
-	if pubErr := s.publisher.Publish(ctx, conv.TeamID, domain.EventTypeChannelUnarchive, map[string]string{"channel": id}); pubErr != nil {
-		s.logger.Warn("publish conversation.unarchived event", "error", pubErr)
+	// Re-fetch to get updated state for projector.
+	updatedConv, _ := s.repo.Get(ctx, id)
+	payload, _ := json.Marshal(updatedConv)
+	if recErr := s.recorder.Record(ctx, domain.ServiceEvent{
+		EventType:     domain.EventConversationUnarchived,
+		AggregateType: domain.AggregateConversation,
+		AggregateID:   id,
+		TeamID:        conv.TeamID,
+		Payload:       payload,
+	}); recErr != nil {
+		s.logger.Warn("record conversation.unarchived event", "error", recErr)
 	}
 	return nil
 }
@@ -124,8 +157,15 @@ func (s *ConversationService) SetTopic(ctx context.Context, id string, params do
 	if err != nil {
 		return nil, err
 	}
-	if pubErr := s.publisher.Publish(ctx, result.TeamID, domain.EventConversationTopicSet, result); pubErr != nil {
-		s.logger.Warn("publish conversation.topic_set event", "error", pubErr)
+	payload, _ := json.Marshal(result)
+	if recErr := s.recorder.Record(ctx, domain.ServiceEvent{
+		EventType:     domain.EventConversationTopicSet,
+		AggregateType: domain.AggregateConversation,
+		AggregateID:   id,
+		TeamID:        result.TeamID,
+		Payload:       payload,
+	}); recErr != nil {
+		s.logger.Warn("record conversation.topic_set event", "error", recErr)
 	}
 	return result, nil
 }
@@ -145,8 +185,15 @@ func (s *ConversationService) SetPurpose(ctx context.Context, id string, params 
 	if err != nil {
 		return nil, err
 	}
-	if pubErr := s.publisher.Publish(ctx, result.TeamID, domain.EventConversationPurposeSet, result); pubErr != nil {
-		s.logger.Warn("publish conversation.purpose_set event", "error", pubErr)
+	payload, _ := json.Marshal(result)
+	if recErr := s.recorder.Record(ctx, domain.ServiceEvent{
+		EventType:     domain.EventConversationPurposeSet,
+		AggregateType: domain.AggregateConversation,
+		AggregateID:   id,
+		TeamID:        result.TeamID,
+		Payload:       payload,
+	}); recErr != nil {
+		s.logger.Warn("record conversation.purpose_set event", "error", recErr)
 	}
 	return result, nil
 }
@@ -182,8 +229,20 @@ func (s *ConversationService) Invite(ctx context.Context, conversationID, userID
 	if err := s.repo.AddMember(ctx, conversationID, userID); err != nil {
 		return err
 	}
-	if pubErr := s.publisher.Publish(ctx, conv.TeamID, domain.EventTypeMemberJoinedChannel, map[string]string{"channel": conversationID, "user": userID}); pubErr != nil {
-		s.logger.Warn("publish member_joined_channel event", "error", pubErr)
+	// Re-fetch conversation to get updated num_members for projector replay.
+	updatedConv, _ := s.repo.Get(ctx, conversationID)
+	payload, _ := json.Marshal(struct {
+		UserID       string              `json:"user_id"`
+		Conversation *domain.Conversation `json:"conversation"`
+	}{UserID: userID, Conversation: updatedConv})
+	if recErr := s.recorder.Record(ctx, domain.ServiceEvent{
+		EventType:     domain.EventMemberJoined,
+		AggregateType: domain.AggregateConversation,
+		AggregateID:   conversationID,
+		TeamID:        conv.TeamID,
+		Payload:       payload,
+	}); recErr != nil {
+		s.logger.Warn("record member_joined event", "error", recErr)
 	}
 	return nil
 }
@@ -199,8 +258,20 @@ func (s *ConversationService) Kick(ctx context.Context, conversationID, userID s
 	if err := s.repo.RemoveMember(ctx, conversationID, userID); err != nil {
 		return err
 	}
-	if pubErr := s.publisher.Publish(ctx, conv.TeamID, domain.EventTypeMemberLeftChannel, map[string]string{"channel": conversationID, "user": userID}); pubErr != nil {
-		s.logger.Warn("publish member_left_channel event", "error", pubErr)
+	// Re-fetch conversation to get updated num_members for projector replay.
+	updatedConv, _ := s.repo.Get(ctx, conversationID)
+	payload, _ := json.Marshal(struct {
+		UserID       string              `json:"user_id"`
+		Conversation *domain.Conversation `json:"conversation"`
+	}{UserID: userID, Conversation: updatedConv})
+	if recErr := s.recorder.Record(ctx, domain.ServiceEvent{
+		EventType:     domain.EventMemberLeft,
+		AggregateType: domain.AggregateConversation,
+		AggregateID:   conversationID,
+		TeamID:        conv.TeamID,
+		Payload:       payload,
+	}); recErr != nil {
+		s.logger.Warn("record member_left event", "error", recErr)
 	}
 	return nil
 }

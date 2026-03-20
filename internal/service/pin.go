@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 
@@ -11,19 +12,19 @@ import (
 
 // PinService contains business logic for pin operations.
 type PinService struct {
-	repo      repository.PinRepository
-	convRepo  repository.ConversationRepository
-	msgRepo   repository.MessageRepository
-	publisher EventPublisher
-	logger    *slog.Logger
+	repo     repository.PinRepository
+	convRepo repository.ConversationRepository
+	msgRepo  repository.MessageRepository
+	recorder EventRecorder
+	logger   *slog.Logger
 }
 
 // NewPinService creates a new PinService.
-func NewPinService(repo repository.PinRepository, convRepo repository.ConversationRepository, msgRepo repository.MessageRepository, publisher EventPublisher, logger *slog.Logger) *PinService {
-	if publisher == nil {
-		publisher = noopPublisher{}
+func NewPinService(repo repository.PinRepository, convRepo repository.ConversationRepository, msgRepo repository.MessageRepository, recorder EventRecorder, logger *slog.Logger) *PinService {
+	if recorder == nil {
+		recorder = noopRecorder{}
 	}
-	return &PinService{repo: repo, convRepo: convRepo, msgRepo: msgRepo, publisher: publisher, logger: logger}
+	return &PinService{repo: repo, convRepo: convRepo, msgRepo: msgRepo, recorder: recorder, logger: logger}
 }
 
 func (s *PinService) Add(ctx context.Context, params domain.PinParams) (*domain.Pin, error) {
@@ -49,8 +50,15 @@ func (s *PinService) Add(ctx context.Context, params domain.PinParams) (*domain.
 	if err != nil {
 		return nil, err
 	}
-	if pubErr := s.publisher.Publish(ctx, conv.TeamID, domain.EventTypePinAdded, pin); pubErr != nil {
-		s.logger.Warn("publish pin.added event", "error", pubErr)
+	payload, _ := json.Marshal(pin)
+	if recErr := s.recorder.Record(ctx, domain.ServiceEvent{
+		EventType:     domain.EventPinAdded,
+		AggregateType: domain.AggregatePin,
+		AggregateID:   pin.ChannelID + ":" + pin.MessageTS,
+		TeamID:        conv.TeamID,
+		Payload:       payload,
+	}); recErr != nil {
+		s.logger.Warn("record pin.added event", "error", recErr)
 	}
 	return pin, nil
 }
@@ -62,8 +70,15 @@ func (s *PinService) Remove(ctx context.Context, params domain.PinParams) error 
 	if err := s.repo.Remove(ctx, params); err != nil {
 		return err
 	}
-	if pubErr := s.publisher.Publish(ctx, "", domain.EventTypePinRemoved, params); pubErr != nil {
-		s.logger.Warn("publish pin.removed event", "error", pubErr)
+	payload, _ := json.Marshal(params)
+	if recErr := s.recorder.Record(ctx, domain.ServiceEvent{
+		EventType:     domain.EventPinRemoved,
+		AggregateType: domain.AggregatePin,
+		AggregateID:   params.ChannelID + ":" + params.MessageTS,
+		TeamID:        "",
+		Payload:       payload,
+	}); recErr != nil {
+		s.logger.Warn("record pin.removed event", "error", recErr)
 	}
 	return nil
 }

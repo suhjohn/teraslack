@@ -2,7 +2,6 @@ package postgres
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 
@@ -22,14 +21,7 @@ func NewFileRepo(pool *pgxpool.Pool) *FileRepo {
 }
 
 func (r *FileRepo) Create(ctx context.Context, f *domain.File) error {
-	tx, err := r.pool.Begin(ctx)
-	if err != nil {
-		return fmt.Errorf("begin tx: %w", err)
-	}
-	defer tx.Rollback(ctx)
-	qtx := r.q.WithTx(tx)
-
-	if err := qtx.CreateFile(ctx, sqlcgen.CreateFileParams{
+	return r.q.CreateFile(ctx, sqlcgen.CreateFileParams{
 		ID:                 f.ID,
 		Name:               f.Name,
 		Title:              f.Title,
@@ -44,21 +36,7 @@ func (r *FileRepo) Create(ctx context.Context, f *domain.File) error {
 		IsExternal:         f.IsExternal,
 		ExternalUrl:        f.ExternalURL,
 		UploadComplete:     false,
-	}); err != nil {
-		return fmt.Errorf("insert file: %w", err)
-	}
-
-	eventData, _ := json.Marshal(f)
-	if _, err := qtx.AppendEvent(ctx, sqlcgen.AppendEventParams{
-		AggregateType: domain.AggregateFile,
-		AggregateID:   f.ID,
-		EventType:     domain.EventFileCreated,
-		EventData:     eventData,
-	}); err != nil {
-		return fmt.Errorf("append event: %w", err)
-	}
-
-	return tx.Commit(ctx)
+	})
 }
 
 func (r *FileRepo) Get(ctx context.Context, id string) (*domain.File, error) {
@@ -82,66 +60,17 @@ func (r *FileRepo) Get(ctx context.Context, id string) (*domain.File, error) {
 }
 
 func (r *FileRepo) Update(ctx context.Context, f *domain.File) error {
-	tx, err := r.pool.Begin(ctx)
-	if err != nil {
-		return fmt.Errorf("begin tx: %w", err)
-	}
-	defer tx.Rollback(ctx)
-	qtx := r.q.WithTx(tx)
-
-	if err := qtx.UpdateFileComplete(ctx, sqlcgen.UpdateFileCompleteParams{
+	return r.q.UpdateFileComplete(ctx, sqlcgen.UpdateFileCompleteParams{
 		ID:                 f.ID,
 		Title:              f.Title,
 		UrlPrivate:         f.URLPrivate,
 		UrlPrivateDownload: f.URLPrivateDownload,
 		Permalink:          f.Permalink,
-	}); err != nil {
-		return fmt.Errorf("update file: %w", err)
-	}
-
-	eventData, _ := json.Marshal(f)
-	if _, err := qtx.AppendEvent(ctx, sqlcgen.AppendEventParams{
-		AggregateType: domain.AggregateFile,
-		AggregateID:   f.ID,
-		EventType:     domain.EventFileUpdated,
-		EventData:     eventData,
-	}); err != nil {
-		return fmt.Errorf("append event: %w", err)
-	}
-
-	return tx.Commit(ctx)
+	})
 }
 
 func (r *FileRepo) Delete(ctx context.Context, id string) error {
-	tx, err := r.pool.Begin(ctx)
-	if err != nil {
-		return fmt.Errorf("begin tx: %w", err)
-	}
-	defer tx.Rollback(ctx)
-	qtx := r.q.WithTx(tx)
-
-	// Fetch full entity before deletion for snapshot
-	fileRow, fileErr := qtx.GetFile(ctx, id)
-	if fileErr != nil {
-		return fmt.Errorf("get file before delete: %w", fileErr)
-	}
-	fileSnapshot := fileToDomain(fileRow)
-
-	if err := qtx.DeleteFile(ctx, id); err != nil {
-		return fmt.Errorf("delete file: %w", err)
-	}
-
-	eventData, _ := json.Marshal(fileSnapshot)
-	if _, err := qtx.AppendEvent(ctx, sqlcgen.AppendEventParams{
-		AggregateType: domain.AggregateFile,
-		AggregateID:   id,
-		EventType:     domain.EventFileDeleted,
-		EventData:     eventData,
-	}); err != nil {
-		return fmt.Errorf("append event: %w", err)
-	}
-
-	return tx.Commit(ctx)
+	return r.q.DeleteFile(ctx, id)
 }
 
 func (r *FileRepo) List(ctx context.Context, params domain.ListFilesParams) (*domain.CursorPage[domain.File], error) {
@@ -218,29 +147,8 @@ func (r *FileRepo) List(ctx context.Context, params domain.ListFilesParams) (*do
 }
 
 func (r *FileRepo) ShareToChannel(ctx context.Context, fileID, channelID string) error {
-	tx, err := r.pool.Begin(ctx)
-	if err != nil {
-		return fmt.Errorf("begin tx: %w", err)
-	}
-	defer tx.Rollback(ctx)
-	qtx := r.q.WithTx(tx)
-
-	if err := qtx.ShareFileToChannel(ctx, sqlcgen.ShareFileToChannelParams{
+	return r.q.ShareFileToChannel(ctx, sqlcgen.ShareFileToChannelParams{
 		FileID:    fileID,
 		ChannelID: channelID,
-	}); err != nil {
-		return fmt.Errorf("share file: %w", err)
-	}
-
-	eventData, _ := json.Marshal(map[string]string{"file_id": fileID, "channel_id": channelID})
-	if _, err := qtx.AppendEvent(ctx, sqlcgen.AppendEventParams{
-		AggregateType: domain.AggregateFile,
-		AggregateID:   fileID,
-		EventType:     domain.EventFileShared,
-		EventData:     eventData,
-	}); err != nil {
-		return fmt.Errorf("append event: %w", err)
-	}
-
-	return tx.Commit(ctx)
+	})
 }

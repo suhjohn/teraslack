@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 
@@ -11,17 +12,17 @@ import (
 
 // UserService contains business logic for user operations.
 type UserService struct {
-	repo      repository.UserRepository
-	publisher EventPublisher
-	logger    *slog.Logger
+	repo     repository.UserRepository
+	recorder EventRecorder
+	logger   *slog.Logger
 }
 
 // NewUserService creates a new UserService.
-func NewUserService(repo repository.UserRepository, publisher EventPublisher, logger *slog.Logger) *UserService {
-	if publisher == nil {
-		publisher = noopPublisher{}
+func NewUserService(repo repository.UserRepository, recorder EventRecorder, logger *slog.Logger) *UserService {
+	if recorder == nil {
+		recorder = noopRecorder{}
 	}
-	return &UserService{repo: repo, publisher: publisher, logger: logger}
+	return &UserService{repo: repo, recorder: recorder, logger: logger}
 }
 
 func (s *UserService) Create(ctx context.Context, params domain.CreateUserParams) (*domain.User, error) {
@@ -35,8 +36,15 @@ func (s *UserService) Create(ctx context.Context, params domain.CreateUserParams
 	if err != nil {
 		return nil, err
 	}
-	if pubErr := s.publisher.Publish(ctx, params.TeamID, domain.EventTypeMessage, user); pubErr != nil {
-		s.logger.Warn("publish user.created event", "error", pubErr)
+	payload, _ := json.Marshal(user)
+	if recErr := s.recorder.Record(ctx, domain.ServiceEvent{
+		EventType:     domain.EventUserCreated,
+		AggregateType: domain.AggregateUser,
+		AggregateID:   user.ID,
+		TeamID:        user.TeamID,
+		Payload:       payload,
+	}); recErr != nil {
+		s.logger.Warn("record user.created event", "error", recErr)
 	}
 	return user, nil
 }
@@ -63,8 +71,15 @@ func (s *UserService) Update(ctx context.Context, id string, params domain.Updat
 	if err != nil {
 		return nil, err
 	}
-	if pubErr := s.publisher.Publish(ctx, user.TeamID, domain.EventUserUpdated, user); pubErr != nil {
-		s.logger.Warn("publish user.updated event", "error", pubErr)
+	payload, _ := json.Marshal(user)
+	if recErr := s.recorder.Record(ctx, domain.ServiceEvent{
+		EventType:     domain.EventUserUpdated,
+		AggregateType: domain.AggregateUser,
+		AggregateID:   user.ID,
+		TeamID:        user.TeamID,
+		Payload:       payload,
+	}); recErr != nil {
+		s.logger.Warn("record user.updated event", "error", recErr)
 	}
 	return user, nil
 }

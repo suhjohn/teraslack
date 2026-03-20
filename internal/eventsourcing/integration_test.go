@@ -19,35 +19,33 @@ import (
 	"github.com/suhjohn/workspace/internal/domain"
 	"github.com/suhjohn/workspace/internal/eventsourcing"
 	pgRepo "github.com/suhjohn/workspace/internal/repository/postgres"
+	"github.com/suhjohn/workspace/internal/service"
 )
 
-// setupTestDB spins up a real Postgres container, runs migrations, and returns
-// a pgxpool.Pool connected to it. The container is terminated when the test
-// finishes.
+// setupTestDB spins up a real Postgres container, runs all 5 migrations, and
+// returns a pgxpool.Pool connected to it.
 func setupTestDB(t *testing.T) *pgxpool.Pool {
 	t.Helper()
 	ctx := context.Background()
 
-	// Resolve the migration directory relative to this file.
 	_, thisFile, _, _ := runtime.Caller(0)
 	migrationsDir := filepath.Join(filepath.Dir(thisFile), "..", "repository", "migrations")
 
-	// Read migration files.
-	migration1, err := os.ReadFile(filepath.Join(migrationsDir, "000001_init.up.sql"))
-	if err != nil {
-		t.Fatalf("read migration 1: %v", err)
+	migrations := []string{
+		"000001_init.up.sql",
+		"000002_usergroups_pins_bookmarks_files_events_auth.up.sql",
+		"000003_event_log.up.sql",
+		"000004_token_hash_encrypted_secret.up.sql",
+		"000005_service_events_outbox.up.sql",
 	}
-	migration2, err := os.ReadFile(filepath.Join(migrationsDir, "000002_usergroups_pins_bookmarks_files_events_auth.up.sql"))
-	if err != nil {
-		t.Fatalf("read migration 2: %v", err)
-	}
-	migration3, err := os.ReadFile(filepath.Join(migrationsDir, "000003_event_log.up.sql"))
-	if err != nil {
-		t.Fatalf("read migration 3: %v", err)
-	}
-	migration4, err := os.ReadFile(filepath.Join(migrationsDir, "000004_token_hash_encrypted_secret.up.sql"))
-	if err != nil {
-		t.Fatalf("read migration 4: %v", err)
+
+	migrationData := make([][]byte, len(migrations))
+	for i, name := range migrations {
+		data, err := os.ReadFile(filepath.Join(migrationsDir, name))
+		if err != nil {
+			t.Fatalf("read migration %d (%s): %v", i+1, name, err)
+		}
+		migrationData[i] = data
 	}
 
 	pgContainer, err := tcpostgres.Run(ctx,
@@ -55,7 +53,7 @@ func setupTestDB(t *testing.T) *pgxpool.Pool {
 		tcpostgres.WithDatabase("testdb"),
 		tcpostgres.WithUsername("testuser"),
 		tcpostgres.WithPassword("testpass"),
-		tcpostgres.WithInitScripts(), // no init scripts, we'll run migrations manually
+		tcpostgres.WithInitScripts(),
 		testcontainers.WithWaitStrategy(
 			wait.ForLog("database system is ready to accept connections").
 				WithOccurrence(2).
@@ -82,8 +80,7 @@ func setupTestDB(t *testing.T) *pgxpool.Pool {
 	}
 	t.Cleanup(func() { pool.Close() })
 
-	// Run migrations.
-	for i, m := range [][]byte{migration1, migration2, migration3, migration4} {
+	for i, m := range migrationData {
 		if _, err := pool.Exec(ctx, string(m)); err != nil {
 			t.Fatalf("run migration %d: %v", i+1, err)
 		}
@@ -92,21 +89,27 @@ func setupTestDB(t *testing.T) *pgxpool.Pool {
 	return pool
 }
 
-// ---------- Test: Transactional Atomicity ----------
-// Verifies that creating a user writes BOTH the projection row AND the event_log
-// entry in the same transaction — you never get one without the other.
+func newTestLogger() *slog.Logger {
+	return slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn}))
+}
 
-func TestTransactionalAtomicity_UserCreate(t *testing.T) {
+// ---------- Service-level event recording ----------
+
+func TestServiceEventRecording_UserCreate(t *testing.T) {
 	if testing.Short() {
-		t.Skip("skipping integration test in short mode")
+		t.Skip("skipping integration test")
 	}
 
 	pool := setupTestDB(t)
 	ctx := context.Background()
+	logger := newTestLogger()
 
 	userRepo := pgRepo.NewUserRepo(pool)
+	eventStoreRepo := pgRepo.NewEventStoreRepo(pool)
+	recorder := service.NewEventRecorder(eventStoreRepo)
+	userSvc := service.NewUserService(userRepo, recorder, logger)
 
-	user, err := userRepo.Create(ctx, domain.CreateUserParams{
+	user, err := userSvc.Create(ctx, domain.CreateUserParams{
 		TeamID: "T001",
 		Name:   "alice",
 		Email:  "alice@example.com",
@@ -115,7 +118,7 @@ func TestTransactionalAtomicity_UserCreate(t *testing.T) {
 		t.Fatalf("create user: %v", err)
 	}
 
-	// 1. Verify projection table has the user.
+	// Verify projection table.
 	var projName string
 	err = pool.QueryRow(ctx, "SELECT name FROM users WHERE id = $1", user.ID).Scan(&projName)
 	if err != nil {
@@ -125,27 +128,26 @@ func TestTransactionalAtomicity_UserCreate(t *testing.T) {
 		t.Errorf("projection name = %q, want %q", projName, "alice")
 	}
 
-	// 2. Verify event_log has the event.
+	// Verify service_events.
 	var eventType string
-	var eventData json.RawMessage
+	var payload json.RawMessage
 	err = pool.QueryRow(ctx,
-		"SELECT event_type, event_data FROM event_log WHERE aggregate_type = $1 AND aggregate_id = $2",
+		"SELECT event_type, payload FROM service_events WHERE aggregate_type = $1 AND aggregate_id = $2",
 		domain.AggregateUser, user.ID,
-	).Scan(&eventType, &eventData)
+	).Scan(&eventType, &payload)
 	if err != nil {
-		t.Fatalf("query event_log: %v", err)
+		t.Fatalf("query service_events: %v", err)
 	}
 	if eventType != domain.EventUserCreated {
 		t.Errorf("event_type = %q, want %q", eventType, domain.EventUserCreated)
 	}
 
-	// 3. Verify the event_data contains a full snapshot (not partial params).
 	var snapshot domain.User
-	if err := json.Unmarshal(eventData, &snapshot); err != nil {
+	if err := json.Unmarshal(payload, &snapshot); err != nil {
 		t.Fatalf("unmarshal snapshot: %v", err)
 	}
 	if snapshot.ID == "" {
-		t.Error("snapshot.ID is empty — event_data should contain full entity")
+		t.Error("snapshot.ID is empty")
 	}
 	if snapshot.Name != "alice" {
 		t.Errorf("snapshot.Name = %q, want %q", snapshot.Name, "alice")
@@ -155,17 +157,21 @@ func TestTransactionalAtomicity_UserCreate(t *testing.T) {
 	}
 }
 
-func TestTransactionalAtomicity_UserUpdate(t *testing.T) {
+func TestServiceEventRecording_UserUpdate(t *testing.T) {
 	if testing.Short() {
-		t.Skip("skipping integration test in short mode")
+		t.Skip("skipping integration test")
 	}
 
 	pool := setupTestDB(t)
 	ctx := context.Background()
+	logger := newTestLogger()
 
 	userRepo := pgRepo.NewUserRepo(pool)
+	eventStoreRepo := pgRepo.NewEventStoreRepo(pool)
+	recorder := service.NewEventRecorder(eventStoreRepo)
+	userSvc := service.NewUserService(userRepo, recorder, logger)
 
-	user, err := userRepo.Create(ctx, domain.CreateUserParams{
+	user, err := userSvc.Create(ctx, domain.CreateUserParams{
 		TeamID: "T001",
 		Name:   "bob",
 		Email:  "bob@example.com",
@@ -175,27 +181,17 @@ func TestTransactionalAtomicity_UserUpdate(t *testing.T) {
 	}
 
 	newRealName := "Robert Smith"
-	updated, err := userRepo.Update(ctx, user.ID, domain.UpdateUserParams{
+	_, err = userSvc.Update(ctx, user.ID, domain.UpdateUserParams{
 		RealName: &newRealName,
 	})
 	if err != nil {
 		t.Fatalf("update user: %v", err)
 	}
 
-	// Verify projection has the updated name.
-	var projName string
-	err = pool.QueryRow(ctx, "SELECT name FROM users WHERE id = $1", updated.ID).Scan(&projName)
-	if err != nil {
-		t.Fatalf("query projection: %v", err)
-	}
-	if projName != "bob" {
-		t.Errorf("projection name = %q, want %q", projName, "bob")
-	}
-
-	// Verify there are 2 events: created + updated.
+	// Verify 2 events: created + updated.
 	var count int
 	err = pool.QueryRow(ctx,
-		"SELECT COUNT(*) FROM event_log WHERE aggregate_type = $1 AND aggregate_id = $2",
+		"SELECT COUNT(*) FROM service_events WHERE aggregate_type = $1 AND aggregate_id = $2",
 		domain.AggregateUser, user.ID,
 	).Scan(&count)
 	if err != nil {
@@ -205,17 +201,17 @@ func TestTransactionalAtomicity_UserUpdate(t *testing.T) {
 		t.Errorf("event count = %d, want 2", count)
 	}
 
-	// Verify the update event has full snapshot with updated name.
-	var eventData json.RawMessage
+	// Verify update event has full snapshot.
+	var payload json.RawMessage
 	err = pool.QueryRow(ctx,
-		"SELECT event_data FROM event_log WHERE aggregate_type = $1 AND aggregate_id = $2 AND event_type = $3",
+		"SELECT payload FROM service_events WHERE aggregate_type = $1 AND aggregate_id = $2 AND event_type = $3",
 		domain.AggregateUser, user.ID, domain.EventUserUpdated,
-	).Scan(&eventData)
+	).Scan(&payload)
 	if err != nil {
 		t.Fatalf("query update event: %v", err)
 	}
 	var snapshot domain.User
-	if err := json.Unmarshal(eventData, &snapshot); err != nil {
+	if err := json.Unmarshal(payload, &snapshot); err != nil {
 		t.Fatalf("unmarshal snapshot: %v", err)
 	}
 	if snapshot.RealName != "Robert Smith" {
@@ -223,24 +219,25 @@ func TestTransactionalAtomicity_UserUpdate(t *testing.T) {
 	}
 }
 
-// ---------- Test: Replay Correctness ----------
-// Verifies that the Projector can rebuild projection tables from events alone.
+// ---------- Replay Correctness ----------
 
 func TestReplayCorrectness_Users(t *testing.T) {
 	if testing.Short() {
-		t.Skip("skipping integration test in short mode")
+		t.Skip("skipping integration test")
 	}
 
 	pool := setupTestDB(t)
 	ctx := context.Background()
-	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn}))
+	logger := newTestLogger()
 
 	userRepo := pgRepo.NewUserRepo(pool)
+	eventStoreRepo := pgRepo.NewEventStoreRepo(pool)
+	recorder := service.NewEventRecorder(eventStoreRepo)
+	userSvc := service.NewUserService(userRepo, recorder, logger)
 
-	// Create several users.
 	var userIDs []string
 	for i := 0; i < 5; i++ {
-		u, err := userRepo.Create(ctx, domain.CreateUserParams{
+		u, err := userSvc.Create(ctx, domain.CreateUserParams{
 			TeamID: "T001",
 			Name:   fmt.Sprintf("user%d", i),
 			Email:  fmt.Sprintf("user%d@example.com", i),
@@ -251,21 +248,18 @@ func TestReplayCorrectness_Users(t *testing.T) {
 		userIDs = append(userIDs, u.ID)
 	}
 
-	// Update the third user.
 	newName := "updated-user2"
-	_, err := userRepo.Update(ctx, userIDs[2], domain.UpdateUserParams{RealName: &newName})
+	_, err := userSvc.Update(ctx, userIDs[2], domain.UpdateUserParams{RealName: &newName})
 	if err != nil {
 		t.Fatalf("update user: %v", err)
 	}
 
-	// Verify we have 6 events total (5 created + 1 updated).
 	var eventCount int
-	pool.QueryRow(ctx, "SELECT COUNT(*) FROM event_log WHERE aggregate_type = $1", domain.AggregateUser).Scan(&eventCount)
+	pool.QueryRow(ctx, "SELECT COUNT(*) FROM service_events WHERE aggregate_type = $1", domain.AggregateUser).Scan(&eventCount)
 	if eventCount != 6 {
 		t.Fatalf("expected 6 events, got %d", eventCount)
 	}
 
-	// Record the projection state before rebuild.
 	type userRow struct {
 		ID   string
 		Name string
@@ -289,20 +283,16 @@ func TestReplayCorrectness_Users(t *testing.T) {
 
 	originalUsers := getUsers()
 
-	// Now rebuild the users projection from the event log.
 	projector := eventsourcing.NewProjector(pool, logger)
 	if err := projector.RebuildAggregate(ctx, domain.AggregateUser); err != nil {
 		t.Fatalf("rebuild users: %v", err)
 	}
 
-	// Verify the rebuilt projection matches the original.
 	rebuiltUsers := getUsers()
-
 	if len(rebuiltUsers) != len(originalUsers) {
 		t.Fatalf("rebuilt users count = %d, want %d", len(rebuiltUsers), len(originalUsers))
 	}
 
-	// Build maps for comparison.
 	origMap := map[string]string{}
 	for _, u := range originalUsers {
 		origMap[u.ID] = u.Name
@@ -316,18 +306,21 @@ func TestReplayCorrectness_Users(t *testing.T) {
 
 func TestReplayCorrectness_ConversationWithMembers(t *testing.T) {
 	if testing.Short() {
-		t.Skip("skipping integration test in short mode")
+		t.Skip("skipping integration test")
 	}
 
 	pool := setupTestDB(t)
 	ctx := context.Background()
-	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn}))
+	logger := newTestLogger()
 
 	userRepo := pgRepo.NewUserRepo(pool)
 	convRepo := pgRepo.NewConversationRepo(pool)
+	eventStoreRepo := pgRepo.NewEventStoreRepo(pool)
+	recorder := service.NewEventRecorder(eventStoreRepo)
+	userSvc := service.NewUserService(userRepo, recorder, logger)
+	convSvc := service.NewConversationService(convRepo, userRepo, recorder, logger)
 
-	// Create a user (needed for FK constraint).
-	creator, err := userRepo.Create(ctx, domain.CreateUserParams{
+	creator, err := userSvc.Create(ctx, domain.CreateUserParams{
 		TeamID: "T001",
 		Name:   "creator",
 		Email:  "creator@example.com",
@@ -336,7 +329,7 @@ func TestReplayCorrectness_ConversationWithMembers(t *testing.T) {
 		t.Fatalf("create user: %v", err)
 	}
 
-	member, err := userRepo.Create(ctx, domain.CreateUserParams{
+	member, err := userSvc.Create(ctx, domain.CreateUserParams{
 		TeamID: "T001",
 		Name:   "member",
 		Email:  "member@example.com",
@@ -345,8 +338,7 @@ func TestReplayCorrectness_ConversationWithMembers(t *testing.T) {
 		t.Fatalf("create member: %v", err)
 	}
 
-	// Create a conversation.
-	conv, err := convRepo.Create(ctx, domain.CreateConversationParams{
+	conv, err := convSvc.Create(ctx, domain.CreateConversationParams{
 		TeamID:    "T001",
 		Name:      "general",
 		Type:      domain.ConversationTypePublicChannel,
@@ -356,12 +348,10 @@ func TestReplayCorrectness_ConversationWithMembers(t *testing.T) {
 		t.Fatalf("create conversation: %v", err)
 	}
 
-	// Add a member.
-	if err := convRepo.AddMember(ctx, conv.ID, member.ID); err != nil {
+	if err := convSvc.Invite(ctx, conv.ID, member.ID); err != nil {
 		t.Fatalf("add member: %v", err)
 	}
 
-	// Verify projection state.
 	var convName string
 	err = pool.QueryRow(ctx, "SELECT name FROM conversations WHERE id = $1", conv.ID).Scan(&convName)
 	if err != nil {
@@ -371,21 +361,18 @@ func TestReplayCorrectness_ConversationWithMembers(t *testing.T) {
 		t.Errorf("conv name = %q, want %q", convName, "general")
 	}
 
-	// Verify events exist.
 	var convEventCount int
-	pool.QueryRow(ctx, "SELECT COUNT(*) FROM event_log WHERE aggregate_type = $1",
+	pool.QueryRow(ctx, "SELECT COUNT(*) FROM service_events WHERE aggregate_type = $1",
 		domain.AggregateConversation).Scan(&convEventCount)
 	if convEventCount < 1 {
 		t.Errorf("expected at least 1 conversation event, got %d", convEventCount)
 	}
 
-	// Rebuild all projections (users must be rebuilt before conversations due to FK).
 	projector := eventsourcing.NewProjector(pool, logger)
 	if err := projector.RebuildAll(ctx); err != nil {
 		t.Fatalf("rebuild all: %v", err)
 	}
 
-	// Verify the rebuilt conversation still exists with correct name.
 	var rebuiltName string
 	err = pool.QueryRow(ctx, "SELECT name FROM conversations WHERE id = $1", conv.ID).Scan(&rebuiltName)
 	if err != nil {
@@ -398,19 +385,23 @@ func TestReplayCorrectness_ConversationWithMembers(t *testing.T) {
 
 func TestReplayCorrectness_BookmarkCRUD(t *testing.T) {
 	if testing.Short() {
-		t.Skip("skipping integration test in short mode")
+		t.Skip("skipping integration test")
 	}
 
 	pool := setupTestDB(t)
 	ctx := context.Background()
-	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn}))
+	logger := newTestLogger()
 
 	userRepo := pgRepo.NewUserRepo(pool)
 	convRepo := pgRepo.NewConversationRepo(pool)
 	bookmarkRepo := pgRepo.NewBookmarkRepo(pool)
+	eventStoreRepo := pgRepo.NewEventStoreRepo(pool)
+	recorder := service.NewEventRecorder(eventStoreRepo)
+	userSvc := service.NewUserService(userRepo, recorder, logger)
+	convSvc := service.NewConversationService(convRepo, userRepo, recorder, logger)
+	bookmarkSvc := service.NewBookmarkService(bookmarkRepo, convRepo, recorder, logger)
 
-	// Set up prerequisites.
-	user, err := userRepo.Create(ctx, domain.CreateUserParams{
+	user, err := userSvc.Create(ctx, domain.CreateUserParams{
 		TeamID: "T001",
 		Name:   "alice",
 		Email:  "alice@example.com",
@@ -419,7 +410,7 @@ func TestReplayCorrectness_BookmarkCRUD(t *testing.T) {
 		t.Fatalf("create user: %v", err)
 	}
 
-	conv, err := convRepo.Create(ctx, domain.CreateConversationParams{
+	conv, err := convSvc.Create(ctx, domain.CreateConversationParams{
 		TeamID:    "T001",
 		Name:      "bookmarks-test",
 		Type:      domain.ConversationTypePublicChannel,
@@ -429,8 +420,7 @@ func TestReplayCorrectness_BookmarkCRUD(t *testing.T) {
 		t.Fatalf("create conversation: %v", err)
 	}
 
-	// Create a bookmark.
-	bm, err := bookmarkRepo.Create(ctx, domain.CreateBookmarkParams{
+	bm, err := bookmarkSvc.Create(ctx, domain.CreateBookmarkParams{
 		ChannelID: conv.ID,
 		Title:     "Go Docs",
 		Type:      "link",
@@ -441,9 +431,8 @@ func TestReplayCorrectness_BookmarkCRUD(t *testing.T) {
 		t.Fatalf("create bookmark: %v", err)
 	}
 
-	// Update the bookmark.
 	newTitle := "Updated Go Docs"
-	_, err = bookmarkRepo.Update(ctx, bm.ID, domain.UpdateBookmarkParams{
+	_, err = bookmarkSvc.Update(ctx, bm.ID, domain.UpdateBookmarkParams{
 		Title:     &newTitle,
 		UpdatedBy: user.ID,
 	})
@@ -451,35 +440,31 @@ func TestReplayCorrectness_BookmarkCRUD(t *testing.T) {
 		t.Fatalf("update bookmark: %v", err)
 	}
 
-	// Verify 2 bookmark events exist (created + updated).
 	var bmEventCount int
-	pool.QueryRow(ctx, "SELECT COUNT(*) FROM event_log WHERE aggregate_type = $1",
+	pool.QueryRow(ctx, "SELECT COUNT(*) FROM service_events WHERE aggregate_type = $1",
 		domain.AggregateBookmark).Scan(&bmEventCount)
 	if bmEventCount != 2 {
 		t.Errorf("expected 2 bookmark events, got %d", bmEventCount)
 	}
 
-	// Verify the update event has the updated title in its snapshot.
-	var eventData json.RawMessage
+	var payload json.RawMessage
 	pool.QueryRow(ctx,
-		"SELECT event_data FROM event_log WHERE aggregate_type = $1 AND event_type = $2 ORDER BY sequence_id DESC LIMIT 1",
+		"SELECT payload FROM service_events WHERE aggregate_type = $1 AND event_type = $2 ORDER BY id DESC LIMIT 1",
 		domain.AggregateBookmark, domain.EventBookmarkUpdated,
-	).Scan(&eventData)
+	).Scan(&payload)
 	var bmSnapshot domain.Bookmark
-	if err := json.Unmarshal(eventData, &bmSnapshot); err != nil {
+	if err := json.Unmarshal(payload, &bmSnapshot); err != nil {
 		t.Fatalf("unmarshal bookmark snapshot: %v", err)
 	}
 	if bmSnapshot.Title != "Updated Go Docs" {
 		t.Errorf("bookmark snapshot title = %q, want %q", bmSnapshot.Title, "Updated Go Docs")
 	}
 
-	// Rebuild all projections (respects FK ordering).
 	projector := eventsourcing.NewProjector(pool, logger)
 	if err := projector.RebuildAll(ctx); err != nil {
 		t.Fatalf("rebuild all: %v", err)
 	}
 
-	// Verify rebuilt bookmark has the updated title.
 	var rebuiltTitle string
 	err = pool.QueryRow(ctx, "SELECT title FROM bookmarks WHERE id = $1", bm.ID).Scan(&rebuiltTitle)
 	if err != nil {
@@ -490,20 +475,23 @@ func TestReplayCorrectness_BookmarkCRUD(t *testing.T) {
 	}
 }
 
-// ---------- Test: Event log stores full snapshots ----------
+// ---------- Payload full snapshots ----------
 
-func TestEventDataIsFullSnapshot(t *testing.T) {
+func TestPayloadIsFullSnapshot(t *testing.T) {
 	if testing.Short() {
-		t.Skip("skipping integration test in short mode")
+		t.Skip("skipping integration test")
 	}
 
 	pool := setupTestDB(t)
 	ctx := context.Background()
+	logger := newTestLogger()
 
 	userRepo := pgRepo.NewUserRepo(pool)
+	eventStoreRepo := pgRepo.NewEventStoreRepo(pool)
+	recorder := service.NewEventRecorder(eventStoreRepo)
+	userSvc := service.NewUserService(userRepo, recorder, logger)
 
-	// Create a user with specific fields.
-	user, err := userRepo.Create(ctx, domain.CreateUserParams{
+	user, err := userSvc.Create(ctx, domain.CreateUserParams{
 		TeamID:      "T001",
 		Name:        "snapshot-test",
 		Email:       "snap@example.com",
@@ -515,22 +503,20 @@ func TestEventDataIsFullSnapshot(t *testing.T) {
 		t.Fatalf("create user: %v", err)
 	}
 
-	// Read the event_data and verify it contains ALL fields.
-	var eventData json.RawMessage
+	var payload json.RawMessage
 	err = pool.QueryRow(ctx,
-		"SELECT event_data FROM event_log WHERE aggregate_type = $1 AND aggregate_id = $2 AND event_type = $3",
+		"SELECT payload FROM service_events WHERE aggregate_type = $1 AND aggregate_id = $2 AND event_type = $3",
 		domain.AggregateUser, user.ID, domain.EventUserCreated,
-	).Scan(&eventData)
+	).Scan(&payload)
 	if err != nil {
 		t.Fatalf("query event: %v", err)
 	}
 
 	var snapshot domain.User
-	if err := json.Unmarshal(eventData, &snapshot); err != nil {
+	if err := json.Unmarshal(payload, &snapshot); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
 
-	// Verify ALL fields are present in the snapshot.
 	if snapshot.ID != user.ID {
 		t.Errorf("ID = %q, want %q", snapshot.ID, user.ID)
 	}
@@ -557,22 +543,27 @@ func TestEventDataIsFullSnapshot(t *testing.T) {
 	}
 }
 
-// ---------- Test: Delete events store pre-deletion snapshot ----------
+// ---------- Delete events ----------
 
-func TestDeleteEventStoresSnapshot(t *testing.T) {
+func TestDeleteEventIsRecorded(t *testing.T) {
 	if testing.Short() {
-		t.Skip("skipping integration test in short mode")
+		t.Skip("skipping integration test")
 	}
 
 	pool := setupTestDB(t)
 	ctx := context.Background()
+	logger := newTestLogger()
 
 	userRepo := pgRepo.NewUserRepo(pool)
 	convRepo := pgRepo.NewConversationRepo(pool)
 	bookmarkRepo := pgRepo.NewBookmarkRepo(pool)
+	eventStoreRepo := pgRepo.NewEventStoreRepo(pool)
+	recorder := service.NewEventRecorder(eventStoreRepo)
+	userSvc := service.NewUserService(userRepo, recorder, logger)
+	convSvc := service.NewConversationService(convRepo, userRepo, recorder, logger)
+	bookmarkSvc := service.NewBookmarkService(bookmarkRepo, convRepo, recorder, logger)
 
-	// Set up prerequisites.
-	user, err := userRepo.Create(ctx, domain.CreateUserParams{
+	user, err := userSvc.Create(ctx, domain.CreateUserParams{
 		TeamID: "T001",
 		Name:   "deleter",
 		Email:  "deleter@example.com",
@@ -581,7 +572,7 @@ func TestDeleteEventStoresSnapshot(t *testing.T) {
 		t.Fatalf("create user: %v", err)
 	}
 
-	conv, err := convRepo.Create(ctx, domain.CreateConversationParams{
+	conv, err := convSvc.Create(ctx, domain.CreateConversationParams{
 		TeamID:    "T001",
 		Name:      "delete-test",
 		Type:      domain.ConversationTypePublicChannel,
@@ -591,7 +582,7 @@ func TestDeleteEventStoresSnapshot(t *testing.T) {
 		t.Fatalf("create conversation: %v", err)
 	}
 
-	bm, err := bookmarkRepo.Create(ctx, domain.CreateBookmarkParams{
+	bm, err := bookmarkSvc.Create(ctx, domain.CreateBookmarkParams{
 		ChannelID: conv.ID,
 		Title:     "To Be Deleted",
 		Type:      "link",
@@ -602,47 +593,45 @@ func TestDeleteEventStoresSnapshot(t *testing.T) {
 		t.Fatalf("create bookmark: %v", err)
 	}
 
-	// Delete the bookmark.
-	if err := bookmarkRepo.Delete(ctx, bm.ID); err != nil {
+	if err := bookmarkSvc.Delete(ctx, bm.ID); err != nil {
 		t.Fatalf("delete bookmark: %v", err)
 	}
 
-	// Verify the delete event contains the pre-deletion snapshot.
-	var eventData json.RawMessage
+	var payload json.RawMessage
 	err = pool.QueryRow(ctx,
-		"SELECT event_data FROM event_log WHERE aggregate_type = $1 AND event_type = $2 AND aggregate_id = $3",
+		"SELECT payload FROM service_events WHERE aggregate_type = $1 AND event_type = $2 AND aggregate_id = $3",
 		domain.AggregateBookmark, domain.EventBookmarkDeleted, bm.ID,
-	).Scan(&eventData)
+	).Scan(&payload)
 	if err != nil {
 		t.Fatalf("query delete event: %v", err)
 	}
 
-	var snapshot domain.Bookmark
-	if err := json.Unmarshal(eventData, &snapshot); err != nil {
-		t.Fatalf("unmarshal delete snapshot: %v", err)
+	var deletePayload map[string]string
+	if err := json.Unmarshal(payload, &deletePayload); err != nil {
+		t.Fatalf("unmarshal delete payload: %v", err)
 	}
-	if snapshot.ID != bm.ID {
-		t.Errorf("delete snapshot ID = %q, want %q", snapshot.ID, bm.ID)
-	}
-	if snapshot.Title != "To Be Deleted" {
-		t.Errorf("delete snapshot Title = %q, want %q", snapshot.Title, "To Be Deleted")
+	if deletePayload["bookmark_id"] != bm.ID {
+		t.Errorf("delete payload bookmark_id = %q, want %q", deletePayload["bookmark_id"], bm.ID)
 	}
 }
 
-// ---------- Test: Event count consistency ----------
+// ---------- Event count consistency ----------
 
 func TestEventCountConsistency(t *testing.T) {
 	if testing.Short() {
-		t.Skip("skipping integration test in short mode")
+		t.Skip("skipping integration test")
 	}
 
 	pool := setupTestDB(t)
 	ctx := context.Background()
+	logger := newTestLogger()
 
 	userRepo := pgRepo.NewUserRepo(pool)
+	eventStoreRepo := pgRepo.NewEventStoreRepo(pool)
+	recorder := service.NewEventRecorder(eventStoreRepo)
+	userSvc := service.NewUserService(userRepo, recorder, logger)
 
-	// Perform a known sequence of operations.
-	u, err := userRepo.Create(ctx, domain.CreateUserParams{
+	u, err := userSvc.Create(ctx, domain.CreateUserParams{
 		TeamID: "T001",
 		Name:   "counter",
 		Email:  "counter@example.com",
@@ -652,21 +641,20 @@ func TestEventCountConsistency(t *testing.T) {
 	}
 
 	n1 := "updated1"
-	_, err = userRepo.Update(ctx, u.ID, domain.UpdateUserParams{RealName: &n1})
+	_, err = userSvc.Update(ctx, u.ID, domain.UpdateUserParams{RealName: &n1})
 	if err != nil {
 		t.Fatalf("update 1: %v", err)
 	}
 
 	n2 := "updated2"
-	_, err = userRepo.Update(ctx, u.ID, domain.UpdateUserParams{RealName: &n2})
+	_, err = userSvc.Update(ctx, u.ID, domain.UpdateUserParams{RealName: &n2})
 	if err != nil {
 		t.Fatalf("update 2: %v", err)
 	}
 
-	// We should have exactly 3 events: 1 created + 2 updated.
 	var count int
 	err = pool.QueryRow(ctx,
-		"SELECT COUNT(*) FROM event_log WHERE aggregate_type = $1 AND aggregate_id = $2",
+		"SELECT COUNT(*) FROM service_events WHERE aggregate_type = $1 AND aggregate_id = $2",
 		domain.AggregateUser, u.ID,
 	).Scan(&count)
 	if err != nil {
@@ -676,25 +664,24 @@ func TestEventCountConsistency(t *testing.T) {
 		t.Errorf("event count = %d, want 3 (1 created + 2 updated)", count)
 	}
 
-	// Verify sequence IDs are strictly increasing.
 	rows, err := pool.Query(ctx,
-		"SELECT sequence_id FROM event_log WHERE aggregate_type = $1 AND aggregate_id = $2 ORDER BY sequence_id ASC",
+		"SELECT id FROM service_events WHERE aggregate_type = $1 AND aggregate_id = $2 ORDER BY id ASC",
 		domain.AggregateUser, u.ID,
 	)
 	if err != nil {
-		t.Fatalf("query sequence IDs: %v", err)
+		t.Fatalf("query IDs: %v", err)
 	}
 	defer rows.Close()
 
-	var prevSeq int64
+	var prevID int64
 	for rows.Next() {
-		var seq int64
-		if err := rows.Scan(&seq); err != nil {
-			t.Fatalf("scan seq: %v", err)
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			t.Fatalf("scan id: %v", err)
 		}
-		if seq <= prevSeq {
-			t.Errorf("sequence_id %d not strictly greater than %d", seq, prevSeq)
+		if id <= prevID {
+			t.Errorf("id %d not strictly greater than %d", id, prevID)
 		}
-		prevSeq = seq
+		prevID = id
 	}
 }

@@ -113,18 +113,26 @@ func run(logger *slog.Logger) error {
 	fileRepo := pgRepo.NewFileRepo(pool)
 	eventRepo := pgRepo.NewEventRepo(pool, encryptor)
 	authRepo := pgRepo.NewAuthRepo(pool)
+	eventStoreRepo := pgRepo.NewEventStoreRepo(pool)
+	outboxRepo := pgRepo.NewOutboxRepo(pool)
+
+	// Initialize EventRecorder (replaces EventPublisher)
+	recorder := service.NewEventRecorder(eventStoreRepo)
+
+	// Start OutboxWorker for reliable webhook delivery
+	outboxWorker := service.NewOutboxWorker(outboxRepo, logger)
+	go outboxWorker.Run(ctx)
 
 	// Initialize services
-	// EventService must be created first as it serves as the EventPublisher for all other services
-	eventSvc := service.NewEventService(eventRepo, logger)
-	userSvc := service.NewUserService(userRepo, eventSvc, logger)
-	convSvc := service.NewConversationService(convRepo, userRepo, eventSvc, logger)
-	msgSvc := service.NewMessageService(msgRepo, convRepo, eventSvc, logger)
-	ugSvc := service.NewUsergroupService(ugRepo, userRepo, eventSvc, logger)
-	pinSvc := service.NewPinService(pinRepo, convRepo, msgRepo, eventSvc, logger)
-	bookmarkSvc := service.NewBookmarkService(bookmarkRepo, convRepo, eventSvc, logger)
-	fileSvc := service.NewFileService(fileRepo, s3, cfg.BaseURL, eventSvc, logger)
-	authSvc := service.NewAuthService(authRepo, userRepo, eventSvc, logger)
+	eventSvc := service.NewEventService(eventRepo, recorder, logger)
+	userSvc := service.NewUserService(userRepo, recorder, logger)
+	convSvc := service.NewConversationService(convRepo, userRepo, recorder, logger)
+	msgSvc := service.NewMessageService(msgRepo, convRepo, recorder, logger)
+	ugSvc := service.NewUsergroupService(ugRepo, userRepo, recorder, logger)
+	pinSvc := service.NewPinService(pinRepo, convRepo, msgRepo, recorder, logger)
+	bookmarkSvc := service.NewBookmarkService(bookmarkRepo, convRepo, recorder, logger)
+	fileSvc := service.NewFileService(fileRepo, s3, cfg.BaseURL, recorder, logger)
+	authSvc := service.NewAuthService(authRepo, userRepo, recorder, logger)
 	searchSvc := service.NewSearchService(msgRepo, fileRepo, nil, nil) // ClickHouse/Turbopuffer optional
 
 	// Initialize handlers

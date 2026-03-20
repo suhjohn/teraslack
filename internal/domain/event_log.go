@@ -5,16 +5,43 @@ import (
 	"time"
 )
 
-// EventLogEntry represents a single entry in the append-only event log.
-type EventLogEntry struct {
-	SequenceID    int64           `json:"sequence_id"`
+// ServiceEvent represents a single event in the service-level event store.
+// This replaces the old EventLogEntry and Event types.
+type ServiceEvent struct {
+	ID            int64           `json:"id"`
+	EventType     string          `json:"event_type"`
 	AggregateType string          `json:"aggregate_type"`
 	AggregateID   string          `json:"aggregate_id"`
-	EventType     string          `json:"event_type"`
-	EventData     json.RawMessage `json:"event_data"`
+	TeamID        string          `json:"team_id"`
+	ActorID       string          `json:"actor_id"`
+	Payload       json.RawMessage `json:"payload"`
 	Metadata      json.RawMessage `json:"metadata,omitempty"`
 	CreatedAt     time.Time       `json:"created_at"`
 }
+
+// OutboxEntry represents a pending webhook delivery in the outbox table.
+type OutboxEntry struct {
+	ID             int64           `json:"id"`
+	EventID        int64           `json:"event_id"`
+	SubscriptionID string          `json:"subscription_id"`
+	URL            string          `json:"url"`
+	Payload        json.RawMessage `json:"payload"`
+	Secret         string          `json:"secret"`
+	Status         string          `json:"status"`
+	Attempts       int             `json:"attempts"`
+	MaxAttempts    int             `json:"max_attempts"`
+	NextAttemptAt  time.Time       `json:"next_attempt_at"`
+	LastError      string          `json:"last_error"`
+	DeliveredAt    *time.Time      `json:"delivered_at,omitempty"`
+	CreatedAt      time.Time       `json:"created_at"`
+}
+
+// Outbox status constants.
+const (
+	OutboxStatusPending   = "pending"
+	OutboxStatusDelivered = "delivered"
+	OutboxStatusFailed    = "failed"
+)
 
 // Aggregate type constants.
 const (
@@ -31,9 +58,9 @@ const (
 
 // Event type constants for event sourcing.
 const (
-	EventUserCreated   = "user.created"
-	EventUserUpdated   = "user.updated"
-	EventUserDeleted   = "user.deleted"
+	EventUserCreated = "user.created"
+	EventUserUpdated = "user.updated"
+	EventUserDeleted = "user.deleted"
 
 	EventConversationCreated    = "conversation.created"
 	EventConversationUpdated    = "conversation.updated"

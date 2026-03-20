@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"mime"
@@ -15,19 +16,19 @@ import (
 
 // FileService contains business logic for file operations.
 type FileService struct {
-	repo      repository.FileRepository
-	s3        *s3client.Client
-	baseURL   string
-	publisher EventPublisher
-	logger    *slog.Logger
+	repo     repository.FileRepository
+	s3       *s3client.Client
+	baseURL  string
+	recorder EventRecorder
+	logger   *slog.Logger
 }
 
 // NewFileService creates a new FileService.
-func NewFileService(repo repository.FileRepository, s3 *s3client.Client, baseURL string, publisher EventPublisher, logger *slog.Logger) *FileService {
-	if publisher == nil {
-		publisher = noopPublisher{}
+func NewFileService(repo repository.FileRepository, s3 *s3client.Client, baseURL string, recorder EventRecorder, logger *slog.Logger) *FileService {
+	if recorder == nil {
+		recorder = noopRecorder{}
 	}
-	return &FileService{repo: repo, s3: s3, baseURL: baseURL, publisher: publisher, logger: logger}
+	return &FileService{repo: repo, s3: s3, baseURL: baseURL, recorder: recorder, logger: logger}
 }
 
 func (s *FileService) GetUploadURL(ctx context.Context, params domain.GetUploadURLParams) (*domain.GetUploadURLResponse, error) {
@@ -72,8 +73,15 @@ func (s *FileService) GetUploadURL(ctx context.Context, params domain.GetUploadU
 		UploadURL: uploadURL,
 		FileID:    fileID,
 	}
-	if pubErr := s.publisher.Publish(ctx, "", domain.EventFileCreated, f); pubErr != nil {
-		s.logger.Warn("publish file.created event", "error", pubErr)
+	payload, _ := json.Marshal(f)
+	if recErr := s.recorder.Record(ctx, domain.ServiceEvent{
+		EventType:     domain.EventFileCreated,
+		AggregateType: domain.AggregateFile,
+		AggregateID:   f.ID,
+		TeamID:        "",
+		Payload:       payload,
+	}); recErr != nil {
+		s.logger.Warn("record file.created event", "error", recErr)
 	}
 	return resp, nil
 }
@@ -119,8 +127,15 @@ func (s *FileService) CompleteUpload(ctx context.Context, params domain.Complete
 		f.Channels = append(f.Channels, params.ChannelID)
 	}
 
-	if pubErr := s.publisher.Publish(ctx, "", domain.EventTypeFileShared, f); pubErr != nil {
-		s.logger.Warn("publish file.shared event", "error", pubErr)
+	payload, _ := json.Marshal(f)
+	if recErr := s.recorder.Record(ctx, domain.ServiceEvent{
+		EventType:     domain.EventFileShared,
+		AggregateType: domain.AggregateFile,
+		AggregateID:   f.ID,
+		TeamID:        "",
+		Payload:       payload,
+	}); recErr != nil {
+		s.logger.Warn("record file.shared event", "error", recErr)
 	}
 	return f, nil
 }
@@ -154,8 +169,15 @@ func (s *FileService) Delete(ctx context.Context, id string) error {
 	if err := s.repo.Delete(ctx, id); err != nil {
 		return err
 	}
-	if pubErr := s.publisher.Publish(ctx, "", domain.EventFileDeleted, f); pubErr != nil {
-		s.logger.Warn("publish file.deleted event", "error", pubErr)
+	payload, _ := json.Marshal(f)
+	if recErr := s.recorder.Record(ctx, domain.ServiceEvent{
+		EventType:     domain.EventFileDeleted,
+		AggregateType: domain.AggregateFile,
+		AggregateID:   f.ID,
+		TeamID:        "",
+		Payload:       payload,
+	}); recErr != nil {
+		s.logger.Warn("record file.deleted event", "error", recErr)
 	}
 	return nil
 }

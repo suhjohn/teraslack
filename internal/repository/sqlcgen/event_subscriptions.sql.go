@@ -11,28 +11,6 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-const createEventRecord = `-- name: CreateEventRecord :exec
-INSERT INTO events (id, type, team_id, payload)
-VALUES ($1, $2, $3, $4)
-`
-
-type CreateEventRecordParams struct {
-	ID      string `json:"id"`
-	Type    string `json:"type"`
-	TeamID  string `json:"team_id"`
-	Payload []byte `json:"payload"`
-}
-
-func (q *Queries) CreateEventRecord(ctx context.Context, arg CreateEventRecordParams) error {
-	_, err := q.db.Exec(ctx, createEventRecord,
-		arg.ID,
-		arg.Type,
-		arg.TeamID,
-		arg.Payload,
-	)
-	return err
-}
-
 const createEventSubscription = `-- name: CreateEventSubscription :one
 INSERT INTO event_subscriptions (id, team_id, url, event_types, secret, encrypted_secret)
 VALUES ($1, $2, $3, $4, $5, $6)

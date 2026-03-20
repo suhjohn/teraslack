@@ -2,7 +2,6 @@ package postgres
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strconv"
@@ -28,14 +27,46 @@ func (r *MessageRepo) Create(ctx context.Context, params domain.PostMessageParam
 	now := timeNow()
 	ts := fmt.Sprintf("%d.%06d", now.Unix(), now.Nanosecond()/1000)
 
-	tx, err := r.pool.Begin(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("begin tx: %w", err)
-	}
-	defer tx.Rollback(ctx)
-	qtx := r.q.WithTx(tx)
+	if params.ThreadTS != "" {
+		// Thread reply requires updating parent stats in same tx
+		tx, err := r.pool.Begin(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("begin tx: %w", err)
+		}
+		defer tx.Rollback(ctx)
+		qtx := r.q.WithTx(tx)
 
-	row, err := qtx.CreateMessage(ctx, sqlcgen.CreateMessageParams{
+		row, err := qtx.CreateMessage(ctx, sqlcgen.CreateMessageParams{
+			Ts:        ts,
+			ChannelID: params.ChannelID,
+			UserID:    params.UserID,
+			Text:      params.Text,
+			ThreadTs:  stringToText(params.ThreadTS),
+			Type:      "message",
+			Blocks:    params.Blocks,
+			Metadata:  params.Metadata,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("insert message: %w", err)
+		}
+
+		if err := qtx.UpdateParentReplyStats(ctx, sqlcgen.UpdateParentReplyStatsParams{
+			ChannelID:   params.ChannelID,
+			ThreadTs:    stringToText(params.ThreadTS),
+			LatestReply: stringToText(ts),
+		}); err != nil {
+			return nil, fmt.Errorf("update parent reply stats: %w", err)
+		}
+
+		if err := tx.Commit(ctx); err != nil {
+			return nil, fmt.Errorf("commit tx: %w", err)
+		}
+
+		return msgToDomain(row), nil
+	}
+
+	// Non-threaded message: single statement, no tx needed
+	row, err := r.q.CreateMessage(ctx, sqlcgen.CreateMessageParams{
 		Ts:        ts,
 		ChannelID: params.ChannelID,
 		UserID:    params.UserID,
@@ -49,33 +80,7 @@ func (r *MessageRepo) Create(ctx context.Context, params domain.PostMessageParam
 		return nil, fmt.Errorf("insert message: %w", err)
 	}
 
-	if params.ThreadTS != "" {
-		if err := qtx.UpdateParentReplyStats(ctx, sqlcgen.UpdateParentReplyStatsParams{
-			ChannelID:   params.ChannelID,
-			ThreadTs:    stringToText(params.ThreadTS),
-			LatestReply: stringToText(ts),
-		}); err != nil {
-			return nil, fmt.Errorf("update parent reply stats: %w", err)
-		}
-	}
-
-	msg := msgToDomain(row)
-
-	eventData, _ := json.Marshal(msg)
-	if _, err := qtx.AppendEvent(ctx, sqlcgen.AppendEventParams{
-		AggregateType: domain.AggregateMessage,
-		AggregateID:   params.ChannelID + ":" + ts,
-		EventType:     domain.EventMessagePosted,
-		EventData:     eventData,
-	}); err != nil {
-		return nil, fmt.Errorf("append event: %w", err)
-	}
-
-	if err := tx.Commit(ctx); err != nil {
-		return nil, fmt.Errorf("commit tx: %w", err)
-	}
-
-	return msg, nil
+	return msgToDomain(row), nil
 }
 
 func (r *MessageRepo) Get(ctx context.Context, channelID, ts string) (*domain.Message, error) {
@@ -122,14 +127,7 @@ func (r *MessageRepo) Update(ctx context.Context, channelID, ts string, params d
 
 	editedAt := strconv.FormatFloat(float64(timeNow().UnixNano())/1e9, 'f', 6, 64)
 
-	tx, err := r.pool.Begin(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("begin tx: %w", err)
-	}
-	defer tx.Rollback(ctx)
-	qtx := r.q.WithTx(tx)
-
-	row, err := qtx.UpdateMessage(ctx, sqlcgen.UpdateMessageParams{
+	row, err := r.q.UpdateMessage(ctx, sqlcgen.UpdateMessageParams{
 		ChannelID: channelID,
 		Ts:        ts,
 		Text:      text,
@@ -145,59 +143,14 @@ func (r *MessageRepo) Update(ctx context.Context, channelID, ts string, params d
 		return nil, fmt.Errorf("update message: %w", err)
 	}
 
-	updatedMsg := msgToDomain(row)
-
-	eventData, _ := json.Marshal(updatedMsg)
-	if _, err := qtx.AppendEvent(ctx, sqlcgen.AppendEventParams{
-		AggregateType: domain.AggregateMessage,
-		AggregateID:   channelID + ":" + ts,
-		EventType:     domain.EventMessageUpdated,
-		EventData:     eventData,
-	}); err != nil {
-		return nil, fmt.Errorf("append event: %w", err)
-	}
-
-	if err := tx.Commit(ctx); err != nil {
-		return nil, fmt.Errorf("commit tx: %w", err)
-	}
-
-	return updatedMsg, nil
+	return msgToDomain(row), nil
 }
 
 func (r *MessageRepo) Delete(ctx context.Context, channelID, ts string) error {
-	tx, err := r.pool.Begin(ctx)
-	if err != nil {
-		return fmt.Errorf("begin tx: %w", err)
-	}
-	defer tx.Rollback(ctx)
-	qtx := r.q.WithTx(tx)
-
-	if err := qtx.SoftDeleteMessage(ctx, sqlcgen.SoftDeleteMessageParams{
-		ChannelID: channelID,
-		Ts:        ts,
-	}); err != nil {
-		return fmt.Errorf("soft delete message: %w", err)
-	}
-
-	// Fetch the message state before deletion for the snapshot
-	delRow, delErr := qtx.GetMessage(ctx, sqlcgen.GetMessageParams{
+	return r.q.SoftDeleteMessage(ctx, sqlcgen.SoftDeleteMessageParams{
 		ChannelID: channelID,
 		Ts:        ts,
 	})
-	if delErr != nil {
-		return fmt.Errorf("get deleted message: %w", delErr)
-	}
-	eventData, _ := json.Marshal(msgToDomain(delRow))
-	if _, err := qtx.AppendEvent(ctx, sqlcgen.AppendEventParams{
-		AggregateType: domain.AggregateMessage,
-		AggregateID:   channelID + ":" + ts,
-		EventType:     domain.EventMessageDeleted,
-		EventData:     eventData,
-	}); err != nil {
-		return fmt.Errorf("append event: %w", err)
-	}
-
-	return tx.Commit(ctx)
 }
 
 func (r *MessageRepo) ListHistory(ctx context.Context, params domain.ListMessagesParams) (*domain.CursorPage[domain.Message], error) {
@@ -291,85 +244,21 @@ func (r *MessageRepo) ListReplies(ctx context.Context, params domain.ListReplies
 }
 
 func (r *MessageRepo) AddReaction(ctx context.Context, params domain.AddReactionParams) error {
-	tx, err := r.pool.Begin(ctx)
-	if err != nil {
-		return fmt.Errorf("begin tx: %w", err)
-	}
-	defer tx.Rollback(ctx)
-	qtx := r.q.WithTx(tx)
-
-	if err := qtx.AddReaction(ctx, sqlcgen.AddReactionParams{
+	return r.q.AddReaction(ctx, sqlcgen.AddReactionParams{
 		ChannelID: params.ChannelID,
 		MessageTs: params.MessageTS,
 		UserID:    params.UserID,
 		Emoji:     params.Emoji,
-	}); err != nil {
-		return fmt.Errorf("add reaction: %w", err)
-	}
-
-	// Fetch full message state after reaction for snapshot
-	addMsgRow, addMsgErr := qtx.GetMessage(ctx, sqlcgen.GetMessageParams{
-		ChannelID: params.ChannelID,
-		Ts:        params.MessageTS,
 	})
-	if addMsgErr != nil {
-		return fmt.Errorf("get message after reaction: %w", addMsgErr)
-	}
-	eventData, _ := json.Marshal(map[string]interface{}{
-		"reaction": params,
-		"message":  msgToDomain(addMsgRow),
-	})
-	if _, err := qtx.AppendEvent(ctx, sqlcgen.AppendEventParams{
-		AggregateType: domain.AggregateMessage,
-		AggregateID:   params.ChannelID + ":" + params.MessageTS,
-		EventType:     domain.EventReactionAdded,
-		EventData:     eventData,
-	}); err != nil {
-		return fmt.Errorf("append event: %w", err)
-	}
-
-	return tx.Commit(ctx)
 }
 
 func (r *MessageRepo) RemoveReaction(ctx context.Context, params domain.RemoveReactionParams) error {
-	tx, err := r.pool.Begin(ctx)
-	if err != nil {
-		return fmt.Errorf("begin tx: %w", err)
-	}
-	defer tx.Rollback(ctx)
-	qtx := r.q.WithTx(tx)
-
-	if err := qtx.RemoveReaction(ctx, sqlcgen.RemoveReactionParams{
+	return r.q.RemoveReaction(ctx, sqlcgen.RemoveReactionParams{
 		ChannelID: params.ChannelID,
 		MessageTs: params.MessageTS,
 		UserID:    params.UserID,
 		Emoji:     params.Emoji,
-	}); err != nil {
-		return fmt.Errorf("remove reaction: %w", err)
-	}
-
-	// Fetch full message state after reaction removal for snapshot
-	remMsgRow, remMsgErr := qtx.GetMessage(ctx, sqlcgen.GetMessageParams{
-		ChannelID: params.ChannelID,
-		Ts:        params.MessageTS,
 	})
-	if remMsgErr != nil {
-		return fmt.Errorf("get message after reaction removal: %w", remMsgErr)
-	}
-	eventData, _ := json.Marshal(map[string]interface{}{
-		"reaction": params,
-		"message":  msgToDomain(remMsgRow),
-	})
-	if _, err := qtx.AppendEvent(ctx, sqlcgen.AppendEventParams{
-		AggregateType: domain.AggregateMessage,
-		AggregateID:   params.ChannelID + ":" + params.MessageTS,
-		EventType:     domain.EventReactionRemoved,
-		EventData:     eventData,
-	}); err != nil {
-		return fmt.Errorf("append event: %w", err)
-	}
-
-	return tx.Commit(ctx)
 }
 
 func (r *MessageRepo) GetReactions(ctx context.Context, channelID, messageTS string) ([]domain.Reaction, error) {

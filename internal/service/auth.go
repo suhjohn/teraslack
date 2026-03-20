@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -14,18 +15,18 @@ import (
 
 // AuthService contains business logic for authentication operations.
 type AuthService struct {
-	repo      repository.AuthRepository
-	userRepo  repository.UserRepository
-	publisher EventPublisher
-	logger    *slog.Logger
+	repo     repository.AuthRepository
+	userRepo repository.UserRepository
+	recorder EventRecorder
+	logger   *slog.Logger
 }
 
 // NewAuthService creates a new AuthService.
-func NewAuthService(repo repository.AuthRepository, userRepo repository.UserRepository, publisher EventPublisher, logger *slog.Logger) *AuthService {
-	if publisher == nil {
-		publisher = noopPublisher{}
+func NewAuthService(repo repository.AuthRepository, userRepo repository.UserRepository, recorder EventRecorder, logger *slog.Logger) *AuthService {
+	if recorder == nil {
+		recorder = noopRecorder{}
 	}
-	return &AuthService{repo: repo, userRepo: userRepo, publisher: publisher, logger: logger}
+	return &AuthService{repo: repo, userRepo: userRepo, recorder: recorder, logger: logger}
 }
 
 func (s *AuthService) CreateToken(ctx context.Context, params domain.CreateTokenParams) (*domain.Token, error) {
@@ -45,8 +46,16 @@ func (s *AuthService) CreateToken(ctx context.Context, params domain.CreateToken
 	if err != nil {
 		return nil, err
 	}
-	if pubErr := s.publisher.Publish(ctx, params.TeamID, domain.EventTokenCreated, token); pubErr != nil {
-		s.logger.Warn("publish token.created event", "error", pubErr)
+	// Redact: omit raw Token field, include only token_id, team_id, user_id, is_bot, scopes
+	payload, _ := json.Marshal(token.Redacted())
+	if recErr := s.recorder.Record(ctx, domain.ServiceEvent{
+		EventType:     domain.EventTokenCreated,
+		AggregateType: domain.AggregateToken,
+		AggregateID:   token.ID,
+		TeamID:        token.TeamID,
+		Payload:       payload,
+	}); recErr != nil {
+		s.logger.Warn("record token.created event", "error", recErr)
 	}
 	return token, nil
 }
@@ -81,11 +90,21 @@ func (s *AuthService) RevokeToken(ctx context.Context, token string) error {
 	if token == "" {
 		return fmt.Errorf("token: %w", domain.ErrInvalidArgument)
 	}
+	// Hash the token to get the token_id for the event before revoking
+	tokenHash := crypto.HashToken(token)
 	if err := s.repo.RevokeToken(ctx, token); err != nil {
 		return err
 	}
-	if pubErr := s.publisher.Publish(ctx, "", domain.EventTokenRevoked, map[string]string{"token": token}); pubErr != nil {
-		s.logger.Warn("publish token.revoked event", "error", pubErr)
+	// Redact: omit raw token value, include only token_hash
+	payload, _ := json.Marshal(map[string]string{"token_hash": tokenHash})
+	if recErr := s.recorder.Record(ctx, domain.ServiceEvent{
+		EventType:     domain.EventTokenRevoked,
+		AggregateType: domain.AggregateToken,
+		AggregateID:   tokenHash,
+		TeamID:        "",
+		Payload:       payload,
+	}); recErr != nil {
+		s.logger.Warn("record token.revoked event", "error", recErr)
 	}
 	return nil
 }

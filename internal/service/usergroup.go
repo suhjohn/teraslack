@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 
@@ -11,18 +12,18 @@ import (
 
 // UsergroupService contains business logic for usergroup operations.
 type UsergroupService struct {
-	repo      repository.UsergroupRepository
-	userRepo  repository.UserRepository
-	publisher EventPublisher
-	logger    *slog.Logger
+	repo     repository.UsergroupRepository
+	userRepo repository.UserRepository
+	recorder EventRecorder
+	logger   *slog.Logger
 }
 
 // NewUsergroupService creates a new UsergroupService.
-func NewUsergroupService(repo repository.UsergroupRepository, userRepo repository.UserRepository, publisher EventPublisher, logger *slog.Logger) *UsergroupService {
-	if publisher == nil {
-		publisher = noopPublisher{}
+func NewUsergroupService(repo repository.UsergroupRepository, userRepo repository.UserRepository, recorder EventRecorder, logger *slog.Logger) *UsergroupService {
+	if recorder == nil {
+		recorder = noopRecorder{}
 	}
-	return &UsergroupService{repo: repo, userRepo: userRepo, publisher: publisher, logger: logger}
+	return &UsergroupService{repo: repo, userRepo: userRepo, recorder: recorder, logger: logger}
 }
 
 func (s *UsergroupService) Create(ctx context.Context, params domain.CreateUsergroupParams) (*domain.Usergroup, error) {
@@ -42,8 +43,15 @@ func (s *UsergroupService) Create(ctx context.Context, params domain.CreateUserg
 	if err != nil {
 		return nil, err
 	}
-	if pubErr := s.publisher.Publish(ctx, params.TeamID, domain.EventUsergroupCreated, ug); pubErr != nil {
-		s.logger.Warn("publish usergroup.created event", "error", pubErr)
+	payload, _ := json.Marshal(ug)
+	if recErr := s.recorder.Record(ctx, domain.ServiceEvent{
+		EventType:     domain.EventUsergroupCreated,
+		AggregateType: domain.AggregateUsergroup,
+		AggregateID:   ug.ID,
+		TeamID:        ug.TeamID,
+		Payload:       payload,
+	}); recErr != nil {
+		s.logger.Warn("record usergroup.created event", "error", recErr)
 	}
 	return ug, nil
 }
@@ -63,8 +71,15 @@ func (s *UsergroupService) Update(ctx context.Context, id string, params domain.
 	if err != nil {
 		return nil, err
 	}
-	if pubErr := s.publisher.Publish(ctx, ug.TeamID, domain.EventUsergroupUpdated, ug); pubErr != nil {
-		s.logger.Warn("publish usergroup.updated event", "error", pubErr)
+	payload, _ := json.Marshal(ug)
+	if recErr := s.recorder.Record(ctx, domain.ServiceEvent{
+		EventType:     domain.EventUsergroupUpdated,
+		AggregateType: domain.AggregateUsergroup,
+		AggregateID:   ug.ID,
+		TeamID:        ug.TeamID,
+		Payload:       payload,
+	}); recErr != nil {
+		s.logger.Warn("record usergroup.updated event", "error", recErr)
 	}
 	return ug, nil
 }
@@ -85,8 +100,15 @@ func (s *UsergroupService) Enable(ctx context.Context, id string) error {
 	}
 	ug, _ := s.repo.Get(ctx, id)
 	if ug != nil {
-		if pubErr := s.publisher.Publish(ctx, ug.TeamID, domain.EventUsergroupEnabled, ug); pubErr != nil {
-			s.logger.Warn("publish usergroup.enabled event", "error", pubErr)
+		payload, _ := json.Marshal(ug)
+		if recErr := s.recorder.Record(ctx, domain.ServiceEvent{
+			EventType:     domain.EventUsergroupEnabled,
+			AggregateType: domain.AggregateUsergroup,
+			AggregateID:   id,
+			TeamID:        ug.TeamID,
+			Payload:       payload,
+		}); recErr != nil {
+			s.logger.Warn("record usergroup.enabled event", "error", recErr)
 		}
 	}
 	return nil
@@ -101,8 +123,15 @@ func (s *UsergroupService) Disable(ctx context.Context, id string) error {
 	}
 	ug, _ := s.repo.Get(ctx, id)
 	if ug != nil {
-		if pubErr := s.publisher.Publish(ctx, ug.TeamID, domain.EventUsergroupDisabled, ug); pubErr != nil {
-			s.logger.Warn("publish usergroup.disabled event", "error", pubErr)
+		payload, _ := json.Marshal(ug)
+		if recErr := s.recorder.Record(ctx, domain.ServiceEvent{
+			EventType:     domain.EventUsergroupDisabled,
+			AggregateType: domain.AggregateUsergroup,
+			AggregateID:   id,
+			TeamID:        ug.TeamID,
+			Payload:       payload,
+		}); recErr != nil {
+			s.logger.Warn("record usergroup.disabled event", "error", recErr)
 		}
 	}
 	return nil
@@ -128,8 +157,15 @@ func (s *UsergroupService) SetUsers(ctx context.Context, usergroupID string, use
 	}
 	ug, _ := s.repo.Get(ctx, usergroupID)
 	if ug != nil {
-		if pubErr := s.publisher.Publish(ctx, ug.TeamID, domain.EventUsergroupUserSet, ug); pubErr != nil {
-			s.logger.Warn("publish usergroup.users_set event", "error", pubErr)
+		payload, _ := json.Marshal(ug)
+		if recErr := s.recorder.Record(ctx, domain.ServiceEvent{
+			EventType:     domain.EventUsergroupUserSet,
+			AggregateType: domain.AggregateUsergroup,
+			AggregateID:   usergroupID,
+			TeamID:        ug.TeamID,
+			Payload:       payload,
+		}); recErr != nil {
+			s.logger.Warn("record usergroup.users_set event", "error", recErr)
 		}
 	}
 	return nil

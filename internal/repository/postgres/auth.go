@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 
@@ -38,14 +37,7 @@ func (r *AuthRepo) CreateToken(ctx context.Context, params domain.CreateTokenPar
 	rawToken := prefix + hex.EncodeToString(tokenBytes)
 	tokenHash := crypto.HashToken(rawToken)
 
-	tx, err := r.pool.Begin(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("begin tx: %w", err)
-	}
-	defer tx.Rollback(ctx)
-	qtx := r.q.WithTx(tx)
-
-	row, err := qtx.CreateToken(ctx, sqlcgen.CreateTokenParams{
+	row, err := r.q.CreateToken(ctx, sqlcgen.CreateTokenParams{
 		ID:        id,
 		TeamID:    params.TeamID,
 		UserID:    params.UserID,
@@ -58,28 +50,9 @@ func (r *AuthRepo) CreateToken(ctx context.Context, params domain.CreateTokenPar
 		return nil, fmt.Errorf("insert token: %w", err)
 	}
 
-	token := createTokenRowToDomain(row)
-
-	// Redact sensitive fields before writing to event log.
-	// The raw token is NEVER stored in event_data.
-	redacted := token.Redacted()
-	eventData, _ := json.Marshal(redacted)
-	if _, err := qtx.AppendEvent(ctx, sqlcgen.AppendEventParams{
-		AggregateType: domain.AggregateToken,
-		AggregateID:   id,
-		EventType:     domain.EventTokenCreated,
-		EventData:     eventData,
-	}); err != nil {
-		return nil, fmt.Errorf("append event: %w", err)
-	}
-
-	if err := tx.Commit(ctx); err != nil {
-		return nil, fmt.Errorf("commit tx: %w", err)
-	}
-
 	// Return the token with the raw value so the caller can give it to the user.
 	// This is the ONLY time the raw token is available.
-	return token, nil
+	return createTokenRowToDomain(row), nil
 }
 
 func (r *AuthRepo) GetByTokenHash(ctx context.Context, tokenHash string) (*domain.Token, error) {
@@ -95,41 +68,5 @@ func (r *AuthRepo) GetByTokenHash(ctx context.Context, tokenHash string) (*domai
 
 func (r *AuthRepo) RevokeToken(ctx context.Context, token string) error {
 	tokenHash := crypto.HashToken(token)
-
-	tx, err := r.pool.Begin(ctx)
-	if err != nil {
-		return fmt.Errorf("begin tx: %w", err)
-	}
-	defer tx.Rollback(ctx)
-	qtx := r.q.WithTx(tx)
-
-	// FIX: Fetch the token BEFORE deletion so we can snapshot it in the event log.
-	// Previously, the code deleted first and then tried to fetch — which always failed.
-	tRow, tErr := qtx.GetByTokenHash(ctx, tokenHash)
-	if tErr != nil {
-		if errors.Is(tErr, pgx.ErrNoRows) {
-			return domain.ErrNotFound
-		}
-		return fmt.Errorf("get token before revoke: %w", tErr)
-	}
-
-	// Now delete the token.
-	if err := qtx.RevokeTokenByHash(ctx, tokenHash); err != nil {
-		return fmt.Errorf("revoke token: %w", err)
-	}
-
-	// Append revoke event with redacted snapshot (no raw token in event_data).
-	revokedToken := tokenHashRowToDomain(tRow)
-	redacted := revokedToken.Redacted()
-	eventData, _ := json.Marshal(redacted)
-	if _, err := qtx.AppendEvent(ctx, sqlcgen.AppendEventParams{
-		AggregateType: domain.AggregateToken,
-		AggregateID:   revokedToken.ID,
-		EventType:     domain.EventTokenRevoked,
-		EventData:     eventData,
-	}); err != nil {
-		return fmt.Errorf("append event: %w", err)
-	}
-
-	return tx.Commit(ctx)
+	return r.q.RevokeTokenByHash(ctx, tokenHash)
 }

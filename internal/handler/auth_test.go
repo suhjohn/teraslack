@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/suhjohn/workspace/internal/ctxutil"
 )
 
 func TestGetTeamID(t *testing.T) {
@@ -13,7 +15,7 @@ func TestGetTeamID(t *testing.T) {
 		t.Errorf("expected empty, got %q", got)
 	}
 
-	ctx = context.WithValue(ctx, contextKeyTeamID, "T123")
+	ctx = context.WithValue(ctx, ctxutil.ContextKeyTeamID, "T123")
 	if got := GetTeamID(ctx); got != "T123" {
 		t.Errorf("expected T123, got %q", got)
 	}
@@ -25,7 +27,7 @@ func TestGetUserID(t *testing.T) {
 		t.Errorf("expected empty, got %q", got)
 	}
 
-	ctx = context.WithValue(ctx, contextKeyUserID, "U456")
+	ctx = context.WithValue(ctx, ctxutil.ContextKeyUserID, "U456")
 	if got := GetUserID(ctx); got != "U456" {
 		t.Errorf("expected U456, got %q", got)
 	}

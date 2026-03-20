@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 
@@ -11,18 +12,18 @@ import (
 
 // MessageService contains business logic for message operations.
 type MessageService struct {
-	repo      repository.MessageRepository
-	convRepo  repository.ConversationRepository
-	publisher EventPublisher
-	logger    *slog.Logger
+	repo     repository.MessageRepository
+	convRepo repository.ConversationRepository
+	recorder EventRecorder
+	logger   *slog.Logger
 }
 
 // NewMessageService creates a new MessageService.
-func NewMessageService(repo repository.MessageRepository, convRepo repository.ConversationRepository, publisher EventPublisher, logger *slog.Logger) *MessageService {
-	if publisher == nil {
-		publisher = noopPublisher{}
+func NewMessageService(repo repository.MessageRepository, convRepo repository.ConversationRepository, recorder EventRecorder, logger *slog.Logger) *MessageService {
+	if recorder == nil {
+		recorder = noopRecorder{}
 	}
-	return &MessageService{repo: repo, convRepo: convRepo, publisher: publisher, logger: logger}
+	return &MessageService{repo: repo, convRepo: convRepo, recorder: recorder, logger: logger}
 }
 
 func (s *MessageService) PostMessage(ctx context.Context, params domain.PostMessageParams) (*domain.Message, error) {
@@ -56,8 +57,15 @@ func (s *MessageService) PostMessage(ctx context.Context, params domain.PostMess
 	if err != nil {
 		return nil, err
 	}
-	if pubErr := s.publisher.Publish(ctx, conv.TeamID, domain.EventTypeMessage, msg); pubErr != nil {
-		s.logger.Warn("publish message.posted event", "error", pubErr)
+	payload, _ := json.Marshal(msg)
+	if recErr := s.recorder.Record(ctx, domain.ServiceEvent{
+		EventType:     domain.EventMessagePosted,
+		AggregateType: domain.AggregateMessage,
+		AggregateID:   msg.TS,
+		TeamID:        conv.TeamID,
+		Payload:       payload,
+	}); recErr != nil {
+		s.logger.Warn("record message.posted event", "error", recErr)
 	}
 	return msg, nil
 }
@@ -77,8 +85,15 @@ func (s *MessageService) UpdateMessage(ctx context.Context, channelID, ts string
 	if err != nil {
 		return nil, err
 	}
-	if pubErr := s.publisher.Publish(ctx, "", domain.EventTypeMessage, msg); pubErr != nil {
-		s.logger.Warn("publish message.updated event", "error", pubErr)
+	payload, _ := json.Marshal(msg)
+	if recErr := s.recorder.Record(ctx, domain.ServiceEvent{
+		EventType:     domain.EventMessageUpdated,
+		AggregateType: domain.AggregateMessage,
+		AggregateID:   msg.TS,
+		TeamID:        "",
+		Payload:       payload,
+	}); recErr != nil {
+		s.logger.Warn("record message.updated event", "error", recErr)
 	}
 	return msg, nil
 }
@@ -90,8 +105,15 @@ func (s *MessageService) DeleteMessage(ctx context.Context, channelID, ts string
 	if err := s.repo.Delete(ctx, channelID, ts); err != nil {
 		return err
 	}
-	if pubErr := s.publisher.Publish(ctx, "", domain.EventTypeMessage, map[string]string{"channel": channelID, "ts": ts, "subtype": "message_deleted"}); pubErr != nil {
-		s.logger.Warn("publish message.deleted event", "error", pubErr)
+	payload, _ := json.Marshal(map[string]string{"channel": channelID, "ts": ts})
+	if recErr := s.recorder.Record(ctx, domain.ServiceEvent{
+		EventType:     domain.EventMessageDeleted,
+		AggregateType: domain.AggregateMessage,
+		AggregateID:   ts,
+		TeamID:        "",
+		Payload:       payload,
+	}); recErr != nil {
+		s.logger.Warn("record message.deleted event", "error", recErr)
 	}
 	return nil
 }
@@ -121,8 +143,15 @@ func (s *MessageService) AddReaction(ctx context.Context, params domain.AddReact
 	if err := s.repo.AddReaction(ctx, params); err != nil {
 		return err
 	}
-	if pubErr := s.publisher.Publish(ctx, "", domain.EventTypeReactionAdded, params); pubErr != nil {
-		s.logger.Warn("publish reaction.added event", "error", pubErr)
+	payload, _ := json.Marshal(params)
+	if recErr := s.recorder.Record(ctx, domain.ServiceEvent{
+		EventType:     domain.EventReactionAdded,
+		AggregateType: domain.AggregateMessage,
+		AggregateID:   params.MessageTS,
+		TeamID:        "",
+		Payload:       payload,
+	}); recErr != nil {
+		s.logger.Warn("record reaction.added event", "error", recErr)
 	}
 	return nil
 }
@@ -134,8 +163,15 @@ func (s *MessageService) RemoveReaction(ctx context.Context, params domain.Remov
 	if err := s.repo.RemoveReaction(ctx, params); err != nil {
 		return err
 	}
-	if pubErr := s.publisher.Publish(ctx, "", domain.EventTypeReactionRemoved, params); pubErr != nil {
-		s.logger.Warn("publish reaction.removed event", "error", pubErr)
+	payload, _ := json.Marshal(params)
+	if recErr := s.recorder.Record(ctx, domain.ServiceEvent{
+		EventType:     domain.EventReactionRemoved,
+		AggregateType: domain.AggregateMessage,
+		AggregateID:   params.MessageTS,
+		TeamID:        "",
+		Payload:       payload,
+	}); recErr != nil {
+		s.logger.Warn("record reaction.removed event", "error", recErr)
 	}
 	return nil
 }

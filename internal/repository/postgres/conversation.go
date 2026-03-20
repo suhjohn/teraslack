@@ -2,7 +2,6 @@ package postgres
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -68,23 +67,12 @@ func (r *ConversationRepo) Create(ctx context.Context, params domain.CreateConve
 		return nil, fmt.Errorf("update member count: %w", err)
 	}
 
-	c := convToDomain(row)
-	c.NumMembers = 1
-
-	eventData, _ := json.Marshal(c)
-	if _, err := qtx.AppendEvent(ctx, sqlcgen.AppendEventParams{
-		AggregateType: domain.AggregateConversation,
-		AggregateID:   id,
-		EventType:     domain.EventConversationCreated,
-		EventData:     eventData,
-	}); err != nil {
-		return nil, fmt.Errorf("append event: %w", err)
-	}
-
 	if err := tx.Commit(ctx); err != nil {
 		return nil, fmt.Errorf("commit tx: %w", err)
 	}
 
+	c := convToDomain(row)
+	c.NumMembers = 1
 	return c, nil
 }
 
@@ -114,14 +102,7 @@ func (r *ConversationRepo) Update(ctx context.Context, id string, params domain.
 		isArchived = *params.IsArchived
 	}
 
-	tx, err := r.pool.Begin(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("begin tx: %w", err)
-	}
-	defer tx.Rollback(ctx)
-	qtx := r.q.WithTx(tx)
-
-	row, err := qtx.UpdateConversation(ctx, sqlcgen.UpdateConversationParams{
+	row, err := r.q.UpdateConversation(ctx, sqlcgen.UpdateConversationParams{
 		ID:         id,
 		Name:       name,
 		IsArchived: isArchived,
@@ -133,33 +114,11 @@ func (r *ConversationRepo) Update(ctx context.Context, id string, params domain.
 		return nil, fmt.Errorf("update conversation: %w", err)
 	}
 
-	updatedConv := convToDomain(row)
-
-	eventData, _ := json.Marshal(updatedConv)
-	if _, err := qtx.AppendEvent(ctx, sqlcgen.AppendEventParams{
-		AggregateType: domain.AggregateConversation,
-		AggregateID:   id,
-		EventType:     domain.EventConversationUpdated,
-		EventData:     eventData,
-	}); err != nil {
-		return nil, fmt.Errorf("append event: %w", err)
-	}
-
-	if err := tx.Commit(ctx); err != nil {
-		return nil, fmt.Errorf("commit tx: %w", err)
-	}
-	return updatedConv, nil
+	return convToDomain(row), nil
 }
 
 func (r *ConversationRepo) SetTopic(ctx context.Context, id string, params domain.SetTopicParams) (*domain.Conversation, error) {
-	tx, err := r.pool.Begin(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("begin tx: %w", err)
-	}
-	defer tx.Rollback(ctx)
-	qtx := r.q.WithTx(tx)
-
-	row, err := qtx.SetConversationTopic(ctx, sqlcgen.SetConversationTopicParams{
+	row, err := r.q.SetConversationTopic(ctx, sqlcgen.SetConversationTopicParams{
 		ID:           id,
 		TopicValue:   params.Topic,
 		TopicCreator: params.SetByID,
@@ -171,33 +130,11 @@ func (r *ConversationRepo) SetTopic(ctx context.Context, id string, params domai
 		return nil, fmt.Errorf("set topic: %w", err)
 	}
 
-	updatedConv := convToDomain(row)
-
-	eventData, _ := json.Marshal(updatedConv)
-	if _, err := qtx.AppendEvent(ctx, sqlcgen.AppendEventParams{
-		AggregateType: domain.AggregateConversation,
-		AggregateID:   id,
-		EventType:     domain.EventConversationTopicSet,
-		EventData:     eventData,
-	}); err != nil {
-		return nil, fmt.Errorf("append event: %w", err)
-	}
-
-	if err := tx.Commit(ctx); err != nil {
-		return nil, fmt.Errorf("commit tx: %w", err)
-	}
-	return updatedConv, nil
+	return convToDomain(row), nil
 }
 
 func (r *ConversationRepo) SetPurpose(ctx context.Context, id string, params domain.SetPurposeParams) (*domain.Conversation, error) {
-	tx, err := r.pool.Begin(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("begin tx: %w", err)
-	}
-	defer tx.Rollback(ctx)
-	qtx := r.q.WithTx(tx)
-
-	row, err := qtx.SetConversationPurpose(ctx, sqlcgen.SetConversationPurposeParams{
+	row, err := r.q.SetConversationPurpose(ctx, sqlcgen.SetConversationPurposeParams{
 		ID:             id,
 		PurposeValue:   params.Purpose,
 		PurposeCreator: params.SetByID,
@@ -209,80 +146,15 @@ func (r *ConversationRepo) SetPurpose(ctx context.Context, id string, params dom
 		return nil, fmt.Errorf("set purpose: %w", err)
 	}
 
-	updatedConv := convToDomain(row)
-
-	eventData, _ := json.Marshal(updatedConv)
-	if _, err := qtx.AppendEvent(ctx, sqlcgen.AppendEventParams{
-		AggregateType: domain.AggregateConversation,
-		AggregateID:   id,
-		EventType:     domain.EventConversationPurposeSet,
-		EventData:     eventData,
-	}); err != nil {
-		return nil, fmt.Errorf("append event: %w", err)
-	}
-
-	if err := tx.Commit(ctx); err != nil {
-		return nil, fmt.Errorf("commit tx: %w", err)
-	}
-	return updatedConv, nil
+	return convToDomain(row), nil
 }
 
 func (r *ConversationRepo) Archive(ctx context.Context, id string) error {
-	tx, err := r.pool.Begin(ctx)
-	if err != nil {
-		return fmt.Errorf("begin tx: %w", err)
-	}
-	defer tx.Rollback(ctx)
-	qtx := r.q.WithTx(tx)
-
-	if err := qtx.ArchiveConversation(ctx, id); err != nil {
-		return fmt.Errorf("archive conversation: %w", err)
-	}
-
-	// Fetch the full entity after archiving for the event snapshot
-	row, err := qtx.GetConversation(ctx, id)
-	if err != nil {
-		return fmt.Errorf("get archived conversation: %w", err)
-	}
-	eventData, _ := json.Marshal(convToDomain(row))
-	if _, err := qtx.AppendEvent(ctx, sqlcgen.AppendEventParams{
-		AggregateType: domain.AggregateConversation,
-		AggregateID:   id,
-		EventType:     domain.EventConversationArchived,
-		EventData:     eventData,
-	}); err != nil {
-		return fmt.Errorf("append event: %w", err)
-	}
-	return tx.Commit(ctx)
+	return r.q.ArchiveConversation(ctx, id)
 }
 
 func (r *ConversationRepo) Unarchive(ctx context.Context, id string) error {
-	tx, err := r.pool.Begin(ctx)
-	if err != nil {
-		return fmt.Errorf("begin tx: %w", err)
-	}
-	defer tx.Rollback(ctx)
-	qtx := r.q.WithTx(tx)
-
-	if err := qtx.UnarchiveConversation(ctx, id); err != nil {
-		return fmt.Errorf("unarchive conversation: %w", err)
-	}
-
-	// Fetch the full entity after unarchiving for the event snapshot
-	row, err := qtx.GetConversation(ctx, id)
-	if err != nil {
-		return fmt.Errorf("get unarchived conversation: %w", err)
-	}
-	eventData, _ := json.Marshal(convToDomain(row))
-	if _, err := qtx.AppendEvent(ctx, sqlcgen.AppendEventParams{
-		AggregateType: domain.AggregateConversation,
-		AggregateID:   id,
-		EventType:     domain.EventConversationUnarchived,
-		EventData:     eventData,
-	}); err != nil {
-		return fmt.Errorf("append event: %w", err)
-	}
-	return tx.Commit(ctx)
+	return r.q.UnarchiveConversation(ctx, id)
 }
 
 func (r *ConversationRepo) List(ctx context.Context, params domain.ListConversationsParams) (*domain.CursorPage[domain.Conversation], error) {
@@ -418,24 +290,6 @@ func (r *ConversationRepo) AddMember(ctx context.Context, conversationID, userID
 		return fmt.Errorf("update member count: %w", err)
 	}
 
-	// Fetch full conversation state after member addition
-	addRow, err := qtx.GetConversation(ctx, conversationID)
-	if err != nil {
-		return fmt.Errorf("get conversation after add: %w", err)
-	}
-	addSnapshot := convToDomain(addRow)
-	eventData, _ := json.Marshal(map[string]interface{}{
-		"user_id":      userID,
-		"conversation": addSnapshot,
-	})
-	if _, err := qtx.AppendEvent(ctx, sqlcgen.AppendEventParams{
-		AggregateType: domain.AggregateConversation,
-		AggregateID:   conversationID,
-		EventType:     domain.EventMemberJoined,
-		EventData:     eventData,
-	}); err != nil {
-		return fmt.Errorf("append event: %w", err)
-	}
 	return tx.Commit(ctx)
 }
 
@@ -476,24 +330,6 @@ func (r *ConversationRepo) RemoveMember(ctx context.Context, conversationID, use
 		return fmt.Errorf("update member count: %w", err)
 	}
 
-	// Fetch full conversation state after member removal
-	remRow, err := qtx.GetConversation(ctx, conversationID)
-	if err != nil {
-		return fmt.Errorf("get conversation after remove: %w", err)
-	}
-	remSnapshot := convToDomain(remRow)
-	eventData, _ := json.Marshal(map[string]interface{}{
-		"user_id":      userID,
-		"conversation": remSnapshot,
-	})
-	if _, err := qtx.AppendEvent(ctx, sqlcgen.AppendEventParams{
-		AggregateType: domain.AggregateConversation,
-		AggregateID:   conversationID,
-		EventType:     domain.EventMemberLeft,
-		EventData:     eventData,
-	}); err != nil {
-		return fmt.Errorf("append event: %w", err)
-	}
 	return tx.Commit(ctx)
 }
 

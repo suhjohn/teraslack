@@ -5,18 +5,12 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/suhjohn/workspace/internal/ctxutil"
 	"github.com/suhjohn/workspace/internal/domain"
 	"github.com/suhjohn/workspace/internal/service"
 	"github.com/suhjohn/workspace/pkg/httputil"
 )
 
-type contextKey string
-
-const (
-	contextKeyTeamID contextKey = "team_id"
-	contextKeyUserID contextKey = "user_id"
-	contextKeyIsBot  contextKey = "is_bot"
-)
 
 // AuthHandler handles HTTP requests for authentication operations.
 type AuthHandler struct {
@@ -125,9 +119,9 @@ func AuthMiddleware(authSvc *service.AuthService) func(http.Handler) http.Handle
 			}
 
 			ctx := r.Context()
-			ctx = context.WithValue(ctx, contextKeyTeamID, resp.TeamID)
-			ctx = context.WithValue(ctx, contextKeyUserID, resp.UserID)
-			ctx = context.WithValue(ctx, contextKeyIsBot, resp.IsBot)
+			ctx = context.WithValue(ctx, ctxutil.ContextKeyTeamID, resp.TeamID)
+			ctx = context.WithValue(ctx, ctxutil.ContextKeyUserID, resp.UserID)
+			ctx = context.WithValue(ctx, ctxutil.ContextKeyIsBot, resp.IsBot)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
@@ -135,12 +129,10 @@ func AuthMiddleware(authSvc *service.AuthService) func(http.Handler) http.Handle
 
 // GetTeamID extracts team_id from context (set by AuthMiddleware).
 func GetTeamID(ctx context.Context) string {
-	v, _ := ctx.Value(contextKeyTeamID).(string)
-	return v
+	return ctxutil.GetTeamID(ctx)
 }
 
 // GetUserID extracts user_id from context (set by AuthMiddleware).
 func GetUserID(ctx context.Context) string {
-	v, _ := ctx.Value(contextKeyUserID).(string)
-	return v
+	return ctxutil.GetUserID(ctx)
 }

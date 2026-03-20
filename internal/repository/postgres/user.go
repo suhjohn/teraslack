@@ -36,15 +36,7 @@ func (r *UserRepo) Create(ctx context.Context, params domain.CreateUserParams) (
 		return nil, fmt.Errorf("marshal profile: %w", err)
 	}
 
-	tx, err := r.pool.Begin(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("begin tx: %w", err)
-	}
-	defer tx.Rollback(ctx)
-
-	qtx := r.q.WithTx(tx)
-
-	row, err := qtx.CreateUser(ctx, sqlcgen.CreateUserParams{
+	row, err := r.q.CreateUser(ctx, sqlcgen.CreateUserParams{
 		ID:          id,
 		TeamID:      params.TeamID,
 		Name:        params.Name,
@@ -59,26 +51,7 @@ func (r *UserRepo) Create(ctx context.Context, params domain.CreateUserParams) (
 		return nil, fmt.Errorf("insert user: %w", err)
 	}
 
-	user, err := userToDomain(row)
-	if err != nil {
-		return nil, fmt.Errorf("convert user: %w", err)
-	}
-
-	eventData, _ := json.Marshal(user)
-	if _, err := qtx.AppendEvent(ctx, sqlcgen.AppendEventParams{
-		AggregateType: domain.AggregateUser,
-		AggregateID:   id,
-		EventType:     domain.EventUserCreated,
-		EventData:     eventData,
-	}); err != nil {
-		return nil, fmt.Errorf("append event: %w", err)
-	}
-
-	if err := tx.Commit(ctx); err != nil {
-		return nil, fmt.Errorf("commit tx: %w", err)
-	}
-
-	return user, nil
+	return userToDomain(row)
 }
 
 func (r *UserRepo) Get(ctx context.Context, id string) (*domain.User, error) {
@@ -143,15 +116,7 @@ func (r *UserRepo) Update(ctx context.Context, id string, params domain.UpdateUs
 		return nil, fmt.Errorf("marshal profile: %w", err)
 	}
 
-	tx, err := r.pool.Begin(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("begin tx: %w", err)
-	}
-	defer tx.Rollback(ctx)
-
-	qtx := r.q.WithTx(tx)
-
-	row, err := qtx.UpdateUser(ctx, sqlcgen.UpdateUserParams{
+	row, err := r.q.UpdateUser(ctx, sqlcgen.UpdateUserParams{
 		ID:           id,
 		RealName:     realName,
 		DisplayName:  displayName,
@@ -168,26 +133,7 @@ func (r *UserRepo) Update(ctx context.Context, id string, params domain.UpdateUs
 		return nil, fmt.Errorf("update user: %w", err)
 	}
 
-	updatedUser, err := userToDomain(row)
-	if err != nil {
-		return nil, fmt.Errorf("convert user: %w", err)
-	}
-
-	eventData, _ := json.Marshal(updatedUser)
-	if _, err := qtx.AppendEvent(ctx, sqlcgen.AppendEventParams{
-		AggregateType: domain.AggregateUser,
-		AggregateID:   id,
-		EventType:     domain.EventUserUpdated,
-		EventData:     eventData,
-	}); err != nil {
-		return nil, fmt.Errorf("append event: %w", err)
-	}
-
-	if err := tx.Commit(ctx); err != nil {
-		return nil, fmt.Errorf("commit tx: %w", err)
-	}
-
-	return updatedUser, nil
+	return userToDomain(row)
 }
 
 func (r *UserRepo) List(ctx context.Context, params domain.ListUsersParams) (*domain.CursorPage[domain.User], error) {

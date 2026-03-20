@@ -45,24 +45,6 @@ type ConversationMember struct {
 	JoinedAt       pgtype.Timestamptz `json:"joined_at"`
 }
 
-type Event struct {
-	ID        string             `json:"id"`
-	Type      string             `json:"type"`
-	TeamID    string             `json:"team_id"`
-	Payload   []byte             `json:"payload"`
-	CreatedAt pgtype.Timestamptz `json:"created_at"`
-}
-
-type EventLog struct {
-	SequenceID    int64              `json:"sequence_id"`
-	AggregateType string             `json:"aggregate_type"`
-	AggregateID   string             `json:"aggregate_id"`
-	EventType     string             `json:"event_type"`
-	EventData     []byte             `json:"event_data"`
-	Metadata      []byte             `json:"metadata"`
-	CreatedAt     pgtype.Timestamptz `json:"created_at"`
-}
-
 type EventSubscription struct {
 	ID              string             `json:"id"`
 	TeamID          string             `json:"team_id"`
@@ -120,6 +102,22 @@ type Message struct {
 	UpdatedAt       pgtype.Timestamptz `json:"updated_at"`
 }
 
+type Outbox struct {
+	ID             int64              `json:"id"`
+	EventID        int64              `json:"event_id"`
+	SubscriptionID string             `json:"subscription_id"`
+	Url            string             `json:"url"`
+	Payload        []byte             `json:"payload"`
+	Secret         string             `json:"secret"`
+	Status         string             `json:"status"`
+	Attempts       int32              `json:"attempts"`
+	MaxAttempts    int32              `json:"max_attempts"`
+	NextAttemptAt  pgtype.Timestamptz `json:"next_attempt_at"`
+	LastError      string             `json:"last_error"`
+	DeliveredAt    pgtype.Timestamptz `json:"delivered_at"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+}
+
 type Pin struct {
 	ChannelID string             `json:"channel_id"`
 	MessageTs string             `json:"message_ts"`
@@ -134,6 +132,18 @@ type Reaction struct {
 	UserID    string             `json:"user_id"`
 	Emoji     string             `json:"emoji"`
 	CreatedAt pgtype.Timestamptz `json:"created_at"`
+}
+
+type ServiceEvent struct {
+	ID            int64              `json:"id"`
+	EventType     string             `json:"event_type"`
+	AggregateType string             `json:"aggregate_type"`
+	AggregateID   string             `json:"aggregate_id"`
+	TeamID        string             `json:"team_id"`
+	ActorID       string             `json:"actor_id"`
+	Payload       []byte             `json:"payload"`
+	Metadata      []byte             `json:"metadata"`
+	CreatedAt     pgtype.Timestamptz `json:"created_at"`
 }
 
 type Token struct {

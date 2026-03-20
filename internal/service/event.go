@@ -1,125 +1,32 @@
 package service
 
 import (
-	"bytes"
 	"context"
-	"crypto/hmac"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log/slog"
-	"net/http"
-	"time"
 
 	"github.com/suhjohn/workspace/internal/domain"
 	"github.com/suhjohn/workspace/internal/repository"
 )
 
-// EventService contains business logic for event operations.
+// EventService contains business logic for event subscription operations.
+// Webhook dispatch is now handled by OutboxWorker, not by this service.
 type EventService struct {
-	repo       repository.EventRepository
-	httpClient *http.Client
-	logger     *slog.Logger
+	repo     repository.EventRepository
+	recorder EventRecorder
+	logger   *slog.Logger
 }
 
 // NewEventService creates a new EventService.
-func NewEventService(repo repository.EventRepository, logger *slog.Logger) *EventService {
+func NewEventService(repo repository.EventRepository, recorder EventRecorder, logger *slog.Logger) *EventService {
+	if recorder == nil {
+		recorder = noopRecorder{}
+	}
 	return &EventService{
-		repo: repo,
-		httpClient: &http.Client{
-			Timeout: 5 * time.Second,
-		},
-		logger: logger,
-	}
-}
-
-// Publish creates an event and dispatches it to all matching subscriptions.
-func (s *EventService) Publish(ctx context.Context, teamID, eventType string, payload any) error {
-	payloadBytes, err := json.Marshal(payload)
-	if err != nil {
-		return fmt.Errorf("marshal payload: %w", err)
-	}
-
-	eventID := fmt.Sprintf("Ev%d", time.Now().UnixNano())
-	event := &domain.Event{
-		ID:        eventID,
-		Type:      eventType,
-		TeamID:    teamID,
-		Payload:   json.RawMessage(payloadBytes),
-		CreatedAt: time.Now(),
-	}
-
-	if err := s.repo.CreateEvent(ctx, event); err != nil {
-		return fmt.Errorf("create event: %w", err)
-	}
-
-	// Dispatch to subscribers asynchronously
-	go s.dispatch(teamID, eventType, event)
-
-	return nil
-}
-
-func (s *EventService) dispatch(teamID, eventType string, event *domain.Event) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	subs, err := s.repo.ListSubscriptionsByTeamAndEvent(ctx, teamID, eventType)
-	if err != nil {
-		s.logger.Error("list subscribers", "error", err, "team_id", teamID, "event_type", eventType)
-		return
-	}
-
-	for _, sub := range subs {
-		s.deliverWebhook(ctx, sub, event)
-	}
-}
-
-func (s *EventService) deliverWebhook(ctx context.Context, sub domain.EventSubscription, event *domain.Event) {
-	wrapper := map[string]any{
-		"type":       "event_callback",
-		"team_id":    event.TeamID,
-		"event_id":   event.ID,
-		"event_time": event.CreatedAt.Unix(),
-		"event": map[string]any{
-			"type":    event.Type,
-			"payload": json.RawMessage(event.Payload),
-		},
-	}
-
-	body, err := json.Marshal(wrapper)
-	if err != nil {
-		s.logger.Error("marshal webhook", "error", err)
-		return
-	}
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, sub.URL, bytes.NewReader(body))
-	if err != nil {
-		s.logger.Error("create webhook request", "error", err, "url", sub.URL)
-		return
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	// Sign the request if a secret is configured
-	if sub.Secret != "" {
-		timestamp := fmt.Sprintf("%d", time.Now().Unix())
-		sigBase := fmt.Sprintf("v0:%s:%s", timestamp, string(body))
-		mac := hmac.New(sha256.New, []byte(sub.Secret))
-		mac.Write([]byte(sigBase))
-		sig := "v0=" + hex.EncodeToString(mac.Sum(nil))
-		req.Header.Set("X-Slack-Signature", sig)
-		req.Header.Set("X-Slack-Request-Timestamp", timestamp)
-	}
-
-	resp, err := s.httpClient.Do(req)
-	if err != nil {
-		s.logger.Error("deliver webhook", "error", err, "url", sub.URL)
-		return
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		s.logger.Warn("webhook non-200", "status", resp.StatusCode, "url", sub.URL)
+		repo:     repo,
+		recorder: recorder,
+		logger:   logger,
 	}
 }
 
@@ -133,7 +40,22 @@ func (s *EventService) CreateSubscription(ctx context.Context, params domain.Cre
 	if len(params.EventTypes) == 0 {
 		return nil, fmt.Errorf("event_types: %w", domain.ErrInvalidArgument)
 	}
-	return s.repo.CreateSubscription(ctx, params)
+	sub, err := s.repo.CreateSubscription(ctx, params)
+	if err != nil {
+		return nil, err
+	}
+	// Redact: omit Secret field
+	payload, _ := json.Marshal(sub.Redacted())
+	if recErr := s.recorder.Record(ctx, domain.ServiceEvent{
+		EventType:     domain.EventSubscriptionCreated,
+		AggregateType: domain.AggregateSubscription,
+		AggregateID:   sub.ID,
+		TeamID:        sub.TeamID,
+		Payload:       payload,
+	}); recErr != nil {
+		s.logger.Warn("record subscription.created event", "error", recErr)
+	}
+	return sub, nil
 }
 
 func (s *EventService) GetSubscription(ctx context.Context, id string) (*domain.EventSubscription, error) {
@@ -147,14 +69,47 @@ func (s *EventService) UpdateSubscription(ctx context.Context, id string, params
 	if id == "" {
 		return nil, fmt.Errorf("id: %w", domain.ErrInvalidArgument)
 	}
-	return s.repo.UpdateSubscription(ctx, id, params)
+	sub, err := s.repo.UpdateSubscription(ctx, id, params)
+	if err != nil {
+		return nil, err
+	}
+	payload, _ := json.Marshal(sub.Redacted())
+	if recErr := s.recorder.Record(ctx, domain.ServiceEvent{
+		EventType:     domain.EventSubscriptionUpdated,
+		AggregateType: domain.AggregateSubscription,
+		AggregateID:   sub.ID,
+		TeamID:        sub.TeamID,
+		Payload:       payload,
+	}); recErr != nil {
+		s.logger.Warn("record subscription.updated event", "error", recErr)
+	}
+	return sub, nil
 }
 
 func (s *EventService) DeleteSubscription(ctx context.Context, id string) error {
 	if id == "" {
 		return fmt.Errorf("id: %w", domain.ErrInvalidArgument)
 	}
-	return s.repo.DeleteSubscription(ctx, id)
+	// Get subscription before deleting to capture team_id for event
+	sub, _ := s.repo.GetSubscription(ctx, id)
+	if err := s.repo.DeleteSubscription(ctx, id); err != nil {
+		return err
+	}
+	teamID := ""
+	if sub != nil {
+		teamID = sub.TeamID
+	}
+	payload, _ := json.Marshal(map[string]string{"subscription_id": id})
+	if recErr := s.recorder.Record(ctx, domain.ServiceEvent{
+		EventType:     domain.EventSubscriptionDeleted,
+		AggregateType: domain.AggregateSubscription,
+		AggregateID:   id,
+		TeamID:        teamID,
+		Payload:       payload,
+	}); recErr != nil {
+		s.logger.Warn("record subscription.deleted event", "error", recErr)
+	}
+	return nil
 }
 
 func (s *EventService) ListSubscriptions(ctx context.Context, params domain.ListEventSubscriptionsParams) ([]domain.EventSubscription, error) {

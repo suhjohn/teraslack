@@ -332,15 +332,3 @@ func tokenByIDRowToDomain(t sqlcgen.GetTokenByIDRow) *domain.Token {
 		CreatedAt: tsToTime(t.CreatedAt),
 	}
 }
-
-func eventLogToDomain(e sqlcgen.EventLog) *domain.EventLogEntry {
-	return &domain.EventLogEntry{
-		SequenceID:    e.SequenceID,
-		AggregateType: e.AggregateType,
-		AggregateID:   e.AggregateID,
-		EventType:     e.EventType,
-		EventData:     json.RawMessage(e.EventData),
-		Metadata:      json.RawMessage(e.Metadata),
-		CreatedAt:     tsToTime(e.CreatedAt),
-	}
-}

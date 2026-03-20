@@ -1,18 +1,8 @@
 package domain
 
 import (
-	"encoding/json"
 	"time"
 )
-
-// Event represents a Slack-style event.
-type Event struct {
-	ID        string          `json:"id"`
-	Type      string          `json:"type"`
-	TeamID    string          `json:"team_id"`
-	Payload   json.RawMessage `json:"payload"`
-	CreatedAt time.Time       `json:"created_at"`
-}
 
 // EventSubscription represents a webhook subscription for events.
 type EventSubscription struct {

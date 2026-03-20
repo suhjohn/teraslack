@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"time"
 
 	"github.com/suhjohn/workspace/internal/domain"
 )
@@ -85,9 +86,8 @@ type FileRepository interface {
 	ShareToChannel(ctx context.Context, fileID, channelID string) error
 }
 
-// EventRepository defines data access operations for events and subscriptions.
+// EventRepository defines data access operations for event subscriptions.
 type EventRepository interface {
-	CreateEvent(ctx context.Context, event *domain.Event) error
 	CreateSubscription(ctx context.Context, params domain.CreateEventSubscriptionParams) (*domain.EventSubscription, error)
 	GetSubscription(ctx context.Context, id string) (*domain.EventSubscription, error)
 	UpdateSubscription(ctx context.Context, id string, params domain.UpdateEventSubscriptionParams) (*domain.EventSubscription, error)
@@ -103,11 +103,26 @@ type AuthRepository interface {
 	RevokeToken(ctx context.Context, token string) error
 }
 
-// EventLogRepository defines data access operations for the append-only event log.
-type EventLogRepository interface {
-	Append(ctx context.Context, entry domain.EventLogEntry) (*domain.EventLogEntry, error)
-	GetByAggregate(ctx context.Context, aggregateType, aggregateID string) ([]domain.EventLogEntry, error)
-	GetByAggregateSince(ctx context.Context, aggregateType, aggregateID string, sinceSequenceID int64) ([]domain.EventLogEntry, error)
-	GetByType(ctx context.Context, eventType string, limit int) ([]domain.EventLogEntry, error)
-	GetAllSince(ctx context.Context, sinceSequenceID int64, limit int) ([]domain.EventLogEntry, error)
+// EventStoreRepository defines data access for the service-level event store.
+type EventStoreRepository interface {
+	// Append writes a service event and creates outbox entries for matching subscriptions atomically.
+	Append(ctx context.Context, event domain.ServiceEvent) (*domain.ServiceEvent, error)
+	// GetByAggregate returns all events for an aggregate ordered by ID.
+	GetByAggregate(ctx context.Context, aggregateType, aggregateID string) ([]domain.ServiceEvent, error)
+	// GetAllSince returns events since a given ID for incremental projection rebuilds.
+	GetAllSince(ctx context.Context, sinceID int64, limit int) ([]domain.ServiceEvent, error)
+}
+
+// OutboxRepository defines data access for the transactional outbox.
+type OutboxRepository interface {
+	// ClaimBatch claims up to `limit` pending outbox entries using FOR UPDATE SKIP LOCKED.
+	ClaimBatch(ctx context.Context, limit int) ([]domain.OutboxEntry, error)
+	// MarkDelivered marks an outbox entry as successfully delivered.
+	MarkDelivered(ctx context.Context, id int64) error
+	// MarkFailed marks an outbox entry as permanently failed.
+	MarkFailed(ctx context.Context, id int64, lastError string) error
+	// ScheduleRetry schedules an outbox entry for retry at a future time.
+	ScheduleRetry(ctx context.Context, id int64, nextAttemptAt time.Time, lastError string) error
+	// CleanupDelivered removes delivered outbox entries older than the given duration.
+	CleanupDelivered(ctx context.Context, olderThan time.Duration) (int64, error)
 }

@@ -66,7 +66,7 @@ func (p *Projector) RebuildAggregate(ctx context.Context, aggregateType string) 
 
 	for i, entry := range entries {
 		if err := p.applyEvent(ctx, tx, entry); err != nil {
-			return fmt.Errorf("apply event seq=%d type=%s: %w", entry.SequenceID, entry.EventType, err)
+			return fmt.Errorf("apply event id=%d type=%s: %w", entry.ID, entry.EventType, err)
 		}
 		_ = i
 	}
@@ -80,26 +80,28 @@ func (p *Projector) RebuildAggregate(ctx context.Context, aggregateType string) 
 }
 
 // collectEvents reads all events for an aggregate type into memory.
-func (p *Projector) collectEvents(ctx context.Context, aggregateType string) ([]domain.EventLogEntry, error) {
+func (p *Projector) collectEvents(ctx context.Context, aggregateType string) ([]domain.ServiceEvent, error) {
 	rows, err := p.pool.Query(ctx,
-		`SELECT sequence_id, aggregate_type, aggregate_id, event_type, event_data, metadata, created_at
-		 FROM event_log
+		`SELECT id, event_type, aggregate_type, aggregate_id, team_id, actor_id, payload, metadata, created_at
+		 FROM service_events
 		 WHERE aggregate_type = $1
-		 ORDER BY sequence_id ASC`, aggregateType)
+		 ORDER BY id ASC`, aggregateType)
 	if err != nil {
 		return nil, fmt.Errorf("query events: %w", err)
 	}
 	defer rows.Close()
 
-	var entries []domain.EventLogEntry
+	var entries []domain.ServiceEvent
 	for rows.Next() {
-		var entry domain.EventLogEntry
+		var entry domain.ServiceEvent
 		if err := rows.Scan(
-			&entry.SequenceID,
+			&entry.ID,
+			&entry.EventType,
 			&entry.AggregateType,
 			&entry.AggregateID,
-			&entry.EventType,
-			&entry.EventData,
+			&entry.TeamID,
+			&entry.ActorID,
+			&entry.Payload,
 			&entry.Metadata,
 			&entry.CreatedAt,
 		); err != nil {
@@ -113,27 +115,29 @@ func (p *Projector) collectEvents(ctx context.Context, aggregateType string) ([]
 	return entries, nil
 }
 
-// RebuildSince replays events since a given sequence_id across all aggregate types.
+// RebuildSince replays events since a given event ID across all aggregate types.
 // This is useful for incremental rebuilds.
-func (p *Projector) RebuildSince(ctx context.Context, sinceSequenceID int64) error {
+func (p *Projector) RebuildSince(ctx context.Context, sinceID int64) error {
 	// Collect events first to avoid conn busy.
 	rows, err := p.pool.Query(ctx,
-		`SELECT sequence_id, aggregate_type, aggregate_id, event_type, event_data, metadata, created_at
-		 FROM event_log
-		 WHERE sequence_id > $1
-		 ORDER BY sequence_id ASC`, sinceSequenceID)
+		`SELECT id, event_type, aggregate_type, aggregate_id, team_id, actor_id, payload, metadata, created_at
+		 FROM service_events
+		 WHERE id > $1
+		 ORDER BY id ASC`, sinceID)
 	if err != nil {
 		return fmt.Errorf("query events: %w", err)
 	}
-	var entries []domain.EventLogEntry
+	var entries []domain.ServiceEvent
 	for rows.Next() {
-		var entry domain.EventLogEntry
+		var entry domain.ServiceEvent
 		if err := rows.Scan(
-			&entry.SequenceID,
+			&entry.ID,
+			&entry.EventType,
 			&entry.AggregateType,
 			&entry.AggregateID,
-			&entry.EventType,
-			&entry.EventData,
+			&entry.TeamID,
+			&entry.ActorID,
+			&entry.Payload,
 			&entry.Metadata,
 			&entry.CreatedAt,
 		); err != nil {
@@ -155,7 +159,7 @@ func (p *Projector) RebuildSince(ctx context.Context, sinceSequenceID int64) err
 
 	for _, entry := range entries {
 		if err := p.applyEvent(ctx, tx, entry); err != nil {
-			return fmt.Errorf("apply event seq=%d type=%s: %w", entry.SequenceID, entry.EventType, err)
+			return fmt.Errorf("apply event id=%d type=%s: %w", entry.ID, entry.EventType, err)
 		}
 	}
 
@@ -163,7 +167,7 @@ func (p *Projector) RebuildSince(ctx context.Context, sinceSequenceID int64) err
 		return fmt.Errorf("commit tx: %w", err)
 	}
 
-	p.logger.Info("incremental rebuild complete", "since_sequence_id", sinceSequenceID, "events_applied", len(entries))
+	p.logger.Info("incremental rebuild complete", "since_id", sinceID, "events_applied", len(entries))
 	return nil
 }
 
@@ -202,7 +206,7 @@ func (p *Projector) truncateProjection(ctx context.Context, tx pgx.Tx, aggregate
 	}
 }
 
-func (p *Projector) applyEvent(ctx context.Context, tx pgx.Tx, entry domain.EventLogEntry) error {
+func (p *Projector) applyEvent(ctx context.Context, tx pgx.Tx, entry domain.ServiceEvent) error {
 	switch entry.EventType {
 	// User events
 	case domain.EventUserCreated, domain.EventUserUpdated:
@@ -270,16 +274,16 @@ func (p *Projector) applyEvent(ctx context.Context, tx pgx.Tx, entry domain.Even
 		return p.applySubscriptionDeleted(ctx, tx, entry)
 
 	default:
-		p.logger.Warn("unknown event type", "event_type", entry.EventType, "sequence_id", entry.SequenceID)
+		p.logger.Warn("unknown event type", "event_type", entry.EventType, "id", entry.ID)
 		return nil
 	}
 }
 
 // --- User projections ---
 
-func (p *Projector) applyUserUpsert(ctx context.Context, tx pgx.Tx, entry domain.EventLogEntry) error {
+func (p *Projector) applyUserUpsert(ctx context.Context, tx pgx.Tx, entry domain.ServiceEvent) error {
 	var u domain.User
-	if err := json.Unmarshal(entry.EventData, &u); err != nil {
+	if err := json.Unmarshal(entry.Payload, &u); err != nil {
 		return fmt.Errorf("unmarshal user: %w", err)
 	}
 
@@ -299,9 +303,9 @@ func (p *Projector) applyUserUpsert(ctx context.Context, tx pgx.Tx, entry domain
 	return err
 }
 
-func (p *Projector) applyUserDeleted(ctx context.Context, tx pgx.Tx, entry domain.EventLogEntry) error {
+func (p *Projector) applyUserDeleted(ctx context.Context, tx pgx.Tx, entry domain.ServiceEvent) error {
 	var u domain.User
-	if err := json.Unmarshal(entry.EventData, &u); err != nil {
+	if err := json.Unmarshal(entry.Payload, &u); err != nil {
 		return fmt.Errorf("unmarshal user: %w", err)
 	}
 	_, err := tx.Exec(ctx, `UPDATE users SET deleted = TRUE, updated_at = $2 WHERE id = $1`, u.ID, entry.CreatedAt)
@@ -310,9 +314,9 @@ func (p *Projector) applyUserDeleted(ctx context.Context, tx pgx.Tx, entry domai
 
 // --- Conversation projections ---
 
-func (p *Projector) applyConversationUpsert(ctx context.Context, tx pgx.Tx, entry domain.EventLogEntry) error {
+func (p *Projector) applyConversationUpsert(ctx context.Context, tx pgx.Tx, entry domain.ServiceEvent) error {
 	var c domain.Conversation
-	if err := json.Unmarshal(entry.EventData, &c); err != nil {
+	if err := json.Unmarshal(entry.Payload, &c); err != nil {
 		return fmt.Errorf("unmarshal conversation: %w", err)
 	}
 
@@ -337,12 +341,12 @@ func (p *Projector) applyConversationUpsert(ctx context.Context, tx pgx.Tx, entr
 	return err
 }
 
-func (p *Projector) applyMemberJoined(ctx context.Context, tx pgx.Tx, entry domain.EventLogEntry) error {
+func (p *Projector) applyMemberJoined(ctx context.Context, tx pgx.Tx, entry domain.ServiceEvent) error {
 	var data struct {
 		UserID       string              `json:"user_id"`
 		Conversation *domain.Conversation `json:"conversation"`
 	}
-	if err := json.Unmarshal(entry.EventData, &data); err != nil {
+	if err := json.Unmarshal(entry.Payload, &data); err != nil {
 		return fmt.Errorf("unmarshal member joined: %w", err)
 	}
 
@@ -350,7 +354,7 @@ func (p *Projector) applyMemberJoined(ctx context.Context, tx pgx.Tx, entry doma
 	if data.Conversation != nil {
 		convEntry := entry
 		convData, _ := json.Marshal(data.Conversation)
-		convEntry.EventData = convData
+		convEntry.Payload = convData
 		if err := p.applyConversationUpsert(ctx, tx, convEntry); err != nil {
 			return err
 		}
@@ -365,12 +369,12 @@ func (p *Projector) applyMemberJoined(ctx context.Context, tx pgx.Tx, entry doma
 	return err
 }
 
-func (p *Projector) applyMemberLeft(ctx context.Context, tx pgx.Tx, entry domain.EventLogEntry) error {
+func (p *Projector) applyMemberLeft(ctx context.Context, tx pgx.Tx, entry domain.ServiceEvent) error {
 	var data struct {
 		UserID       string              `json:"user_id"`
 		Conversation *domain.Conversation `json:"conversation"`
 	}
-	if err := json.Unmarshal(entry.EventData, &data); err != nil {
+	if err := json.Unmarshal(entry.Payload, &data); err != nil {
 		return fmt.Errorf("unmarshal member left: %w", err)
 	}
 
@@ -378,7 +382,7 @@ func (p *Projector) applyMemberLeft(ctx context.Context, tx pgx.Tx, entry domain
 	if data.Conversation != nil {
 		convEntry := entry
 		convData, _ := json.Marshal(data.Conversation)
-		convEntry.EventData = convData
+		convEntry.Payload = convData
 		if err := p.applyConversationUpsert(ctx, tx, convEntry); err != nil {
 			return err
 		}
@@ -393,9 +397,9 @@ func (p *Projector) applyMemberLeft(ctx context.Context, tx pgx.Tx, entry domain
 
 // --- Message projections ---
 
-func (p *Projector) applyMessageUpsert(ctx context.Context, tx pgx.Tx, entry domain.EventLogEntry) error {
+func (p *Projector) applyMessageUpsert(ctx context.Context, tx pgx.Tx, entry domain.ServiceEvent) error {
 	var m domain.Message
-	if err := json.Unmarshal(entry.EventData, &m); err != nil {
+	if err := json.Unmarshal(entry.Payload, &m); err != nil {
 		return fmt.Errorf("unmarshal message: %w", err)
 	}
 
@@ -427,9 +431,9 @@ func (p *Projector) applyMessageUpsert(ctx context.Context, tx pgx.Tx, entry dom
 	return err
 }
 
-func (p *Projector) applyMessageDeleted(ctx context.Context, tx pgx.Tx, entry domain.EventLogEntry) error {
+func (p *Projector) applyMessageDeleted(ctx context.Context, tx pgx.Tx, entry domain.ServiceEvent) error {
 	var m domain.Message
-	if err := json.Unmarshal(entry.EventData, &m); err != nil {
+	if err := json.Unmarshal(entry.Payload, &m); err != nil {
 		return fmt.Errorf("unmarshal deleted message: %w", err)
 	}
 	_, err := tx.Exec(ctx, `UPDATE messages SET is_deleted = TRUE, updated_at = $3 WHERE channel_id = $1 AND ts = $2`,
@@ -437,12 +441,12 @@ func (p *Projector) applyMessageDeleted(ctx context.Context, tx pgx.Tx, entry do
 	return err
 }
 
-func (p *Projector) applyReactionAdded(ctx context.Context, tx pgx.Tx, entry domain.EventLogEntry) error {
+func (p *Projector) applyReactionAdded(ctx context.Context, tx pgx.Tx, entry domain.ServiceEvent) error {
 	var data struct {
 		Reaction domain.AddReactionParams `json:"reaction"`
 		Message  *domain.Message          `json:"message"`
 	}
-	if err := json.Unmarshal(entry.EventData, &data); err != nil {
+	if err := json.Unmarshal(entry.Payload, &data); err != nil {
 		return fmt.Errorf("unmarshal reaction added: %w", err)
 	}
 
@@ -455,12 +459,12 @@ func (p *Projector) applyReactionAdded(ctx context.Context, tx pgx.Tx, entry dom
 	return err
 }
 
-func (p *Projector) applyReactionRemoved(ctx context.Context, tx pgx.Tx, entry domain.EventLogEntry) error {
+func (p *Projector) applyReactionRemoved(ctx context.Context, tx pgx.Tx, entry domain.ServiceEvent) error {
 	var data struct {
 		Reaction domain.RemoveReactionParams `json:"reaction"`
 		Message  *domain.Message             `json:"message"`
 	}
-	if err := json.Unmarshal(entry.EventData, &data); err != nil {
+	if err := json.Unmarshal(entry.Payload, &data); err != nil {
 		return fmt.Errorf("unmarshal reaction removed: %w", err)
 	}
 
@@ -473,9 +477,9 @@ func (p *Projector) applyReactionRemoved(ctx context.Context, tx pgx.Tx, entry d
 
 // --- Usergroup projections ---
 
-func (p *Projector) applyUsergroupUpsert(ctx context.Context, tx pgx.Tx, entry domain.EventLogEntry) error {
+func (p *Projector) applyUsergroupUpsert(ctx context.Context, tx pgx.Tx, entry domain.ServiceEvent) error {
 	var ug domain.Usergroup
-	if err := json.Unmarshal(entry.EventData, &ug); err != nil {
+	if err := json.Unmarshal(entry.Payload, &ug); err != nil {
 		return fmt.Errorf("unmarshal usergroup: %w", err)
 	}
 
@@ -493,12 +497,12 @@ func (p *Projector) applyUsergroupUpsert(ctx context.Context, tx pgx.Tx, entry d
 	return err
 }
 
-func (p *Projector) applyUsergroupUsersSet(ctx context.Context, tx pgx.Tx, entry domain.EventLogEntry) error {
+func (p *Projector) applyUsergroupUsersSet(ctx context.Context, tx pgx.Tx, entry domain.ServiceEvent) error {
 	var data struct {
 		UserIDs   []string         `json:"user_ids"`
 		Usergroup *domain.Usergroup `json:"usergroup"`
 	}
-	if err := json.Unmarshal(entry.EventData, &data); err != nil {
+	if err := json.Unmarshal(entry.Payload, &data); err != nil {
 		return fmt.Errorf("unmarshal usergroup users set: %w", err)
 	}
 
@@ -506,7 +510,7 @@ func (p *Projector) applyUsergroupUsersSet(ctx context.Context, tx pgx.Tx, entry
 	if data.Usergroup != nil {
 		ugEntry := entry
 		ugData, _ := json.Marshal(data.Usergroup)
-		ugEntry.EventData = ugData
+		ugEntry.Payload = ugData
 		if err := p.applyUsergroupUpsert(ctx, tx, ugEntry); err != nil {
 			return err
 		}
@@ -532,9 +536,9 @@ func (p *Projector) applyUsergroupUsersSet(ctx context.Context, tx pgx.Tx, entry
 
 // --- Pin projections ---
 
-func (p *Projector) applyPinAdded(ctx context.Context, tx pgx.Tx, entry domain.EventLogEntry) error {
+func (p *Projector) applyPinAdded(ctx context.Context, tx pgx.Tx, entry domain.ServiceEvent) error {
 	var pin domain.Pin
-	if err := json.Unmarshal(entry.EventData, &pin); err != nil {
+	if err := json.Unmarshal(entry.Payload, &pin); err != nil {
 		return fmt.Errorf("unmarshal pin: %w", err)
 	}
 
@@ -546,12 +550,12 @@ func (p *Projector) applyPinAdded(ctx context.Context, tx pgx.Tx, entry domain.E
 	return err
 }
 
-func (p *Projector) applyPinRemoved(ctx context.Context, tx pgx.Tx, entry domain.EventLogEntry) error {
+func (p *Projector) applyPinRemoved(ctx context.Context, tx pgx.Tx, entry domain.ServiceEvent) error {
 	var data struct {
 		ChannelID string `json:"channel_id"`
 		MessageTS string `json:"message_ts"`
 	}
-	if err := json.Unmarshal(entry.EventData, &data); err != nil {
+	if err := json.Unmarshal(entry.Payload, &data); err != nil {
 		return fmt.Errorf("unmarshal pin removed: %w", err)
 	}
 
@@ -562,9 +566,9 @@ func (p *Projector) applyPinRemoved(ctx context.Context, tx pgx.Tx, entry domain
 
 // --- Bookmark projections ---
 
-func (p *Projector) applyBookmarkUpsert(ctx context.Context, tx pgx.Tx, entry domain.EventLogEntry) error {
+func (p *Projector) applyBookmarkUpsert(ctx context.Context, tx pgx.Tx, entry domain.ServiceEvent) error {
 	var b domain.Bookmark
-	if err := json.Unmarshal(entry.EventData, &b); err != nil {
+	if err := json.Unmarshal(entry.Payload, &b); err != nil {
 		return fmt.Errorf("unmarshal bookmark: %w", err)
 	}
 
@@ -580,20 +584,32 @@ func (p *Projector) applyBookmarkUpsert(ctx context.Context, tx pgx.Tx, entry do
 	return err
 }
 
-func (p *Projector) applyBookmarkDeleted(ctx context.Context, tx pgx.Tx, entry domain.EventLogEntry) error {
+func (p *Projector) applyBookmarkDeleted(ctx context.Context, tx pgx.Tx, entry domain.ServiceEvent) error {
+	// The delete payload may be either a full Bookmark snapshot or {"bookmark_id": "..."}.
 	var b domain.Bookmark
-	if err := json.Unmarshal(entry.EventData, &b); err != nil {
+	if err := json.Unmarshal(entry.Payload, &b); err != nil {
 		return fmt.Errorf("unmarshal deleted bookmark: %w", err)
 	}
-	_, err := tx.Exec(ctx, `DELETE FROM bookmarks WHERE id = $1`, b.ID)
+	id := b.ID
+	if id == "" {
+		// Fall back to aggregate_id or bookmark_id field.
+		var m map[string]string
+		if err := json.Unmarshal(entry.Payload, &m); err == nil {
+			id = m["bookmark_id"]
+		}
+	}
+	if id == "" {
+		id = entry.AggregateID
+	}
+	_, err := tx.Exec(ctx, `DELETE FROM bookmarks WHERE id = $1`, id)
 	return err
 }
 
 // --- File projections ---
 
-func (p *Projector) applyFileUpsert(ctx context.Context, tx pgx.Tx, entry domain.EventLogEntry) error {
+func (p *Projector) applyFileUpsert(ctx context.Context, tx pgx.Tx, entry domain.ServiceEvent) error {
 	var f domain.File
-	if err := json.Unmarshal(entry.EventData, &f); err != nil {
+	if err := json.Unmarshal(entry.Payload, &f); err != nil {
 		return fmt.Errorf("unmarshal file: %w", err)
 	}
 
@@ -613,21 +629,21 @@ func (p *Projector) applyFileUpsert(ctx context.Context, tx pgx.Tx, entry domain
 	return err
 }
 
-func (p *Projector) applyFileDeleted(ctx context.Context, tx pgx.Tx, entry domain.EventLogEntry) error {
+func (p *Projector) applyFileDeleted(ctx context.Context, tx pgx.Tx, entry domain.ServiceEvent) error {
 	var f domain.File
-	if err := json.Unmarshal(entry.EventData, &f); err != nil {
+	if err := json.Unmarshal(entry.Payload, &f); err != nil {
 		return fmt.Errorf("unmarshal deleted file: %w", err)
 	}
 	_, err := tx.Exec(ctx, `DELETE FROM files WHERE id = $1`, f.ID)
 	return err
 }
 
-func (p *Projector) applyFileShared(ctx context.Context, tx pgx.Tx, entry domain.EventLogEntry) error {
+func (p *Projector) applyFileShared(ctx context.Context, tx pgx.Tx, entry domain.ServiceEvent) error {
 	var data struct {
 		FileID    string `json:"file_id"`
 		ChannelID string `json:"channel_id"`
 	}
-	if err := json.Unmarshal(entry.EventData, &data); err != nil {
+	if err := json.Unmarshal(entry.Payload, &data); err != nil {
 		return fmt.Errorf("unmarshal file shared: %w", err)
 	}
 
@@ -641,9 +657,9 @@ func (p *Projector) applyFileShared(ctx context.Context, tx pgx.Tx, entry domain
 
 // --- Token projections ---
 
-func (p *Projector) applyTokenCreated(ctx context.Context, tx pgx.Tx, entry domain.EventLogEntry) error {
+func (p *Projector) applyTokenCreated(ctx context.Context, tx pgx.Tx, entry domain.ServiceEvent) error {
 	var t domain.Token
-	if err := json.Unmarshal(entry.EventData, &t); err != nil {
+	if err := json.Unmarshal(entry.Payload, &t); err != nil {
 		return fmt.Errorf("unmarshal token: %w", err)
 	}
 
@@ -655,9 +671,9 @@ func (p *Projector) applyTokenCreated(ctx context.Context, tx pgx.Tx, entry doma
 	return err
 }
 
-func (p *Projector) applyTokenRevoked(ctx context.Context, tx pgx.Tx, entry domain.EventLogEntry) error {
+func (p *Projector) applyTokenRevoked(ctx context.Context, tx pgx.Tx, entry domain.ServiceEvent) error {
 	var t domain.Token
-	if err := json.Unmarshal(entry.EventData, &t); err != nil {
+	if err := json.Unmarshal(entry.Payload, &t); err != nil {
 		return fmt.Errorf("unmarshal revoked token: %w", err)
 	}
 	// Use token_hash for lookup since raw token is redacted in event_data.
@@ -667,9 +683,9 @@ func (p *Projector) applyTokenRevoked(ctx context.Context, tx pgx.Tx, entry doma
 
 // --- Subscription projections ---
 
-func (p *Projector) applySubscriptionUpsert(ctx context.Context, tx pgx.Tx, entry domain.EventLogEntry) error {
+func (p *Projector) applySubscriptionUpsert(ctx context.Context, tx pgx.Tx, entry domain.ServiceEvent) error {
 	var s domain.EventSubscription
-	if err := json.Unmarshal(entry.EventData, &s); err != nil {
+	if err := json.Unmarshal(entry.Payload, &s); err != nil {
 		return fmt.Errorf("unmarshal subscription: %w", err)
 	}
 
@@ -684,9 +700,9 @@ func (p *Projector) applySubscriptionUpsert(ctx context.Context, tx pgx.Tx, entr
 	return err
 }
 
-func (p *Projector) applySubscriptionDeleted(ctx context.Context, tx pgx.Tx, entry domain.EventLogEntry) error {
+func (p *Projector) applySubscriptionDeleted(ctx context.Context, tx pgx.Tx, entry domain.ServiceEvent) error {
 	var s domain.EventSubscription
-	if err := json.Unmarshal(entry.EventData, &s); err != nil {
+	if err := json.Unmarshal(entry.Payload, &s); err != nil {
 		return fmt.Errorf("unmarshal deleted subscription: %w", err)
 	}
 	_, err := tx.Exec(ctx, `DELETE FROM event_subscriptions WHERE id = $1`, s.ID)

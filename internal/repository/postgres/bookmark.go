@@ -2,7 +2,6 @@ package postgres
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 
@@ -24,14 +23,7 @@ func NewBookmarkRepo(pool *pgxpool.Pool) *BookmarkRepo {
 func (r *BookmarkRepo) Create(ctx context.Context, params domain.CreateBookmarkParams) (*domain.Bookmark, error) {
 	id := generateID("Bk")
 
-	tx, err := r.pool.Begin(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("begin tx: %w", err)
-	}
-	defer tx.Rollback(ctx)
-	qtx := r.q.WithTx(tx)
-
-	row, err := qtx.CreateBookmark(ctx, sqlcgen.CreateBookmarkParams{
+	row, err := r.q.CreateBookmark(ctx, sqlcgen.CreateBookmarkParams{
 		ID:        id,
 		ChannelID: params.ChannelID,
 		Title:     params.Title,
@@ -44,23 +36,7 @@ func (r *BookmarkRepo) Create(ctx context.Context, params domain.CreateBookmarkP
 		return nil, fmt.Errorf("insert bookmark: %w", err)
 	}
 
-	bm := bookmarkToDomain(row)
-
-	eventData, _ := json.Marshal(bm)
-	if _, err := qtx.AppendEvent(ctx, sqlcgen.AppendEventParams{
-		AggregateType: domain.AggregateBookmark,
-		AggregateID:   id,
-		EventType:     domain.EventBookmarkCreated,
-		EventData:     eventData,
-	}); err != nil {
-		return nil, fmt.Errorf("append event: %w", err)
-	}
-
-	if err := tx.Commit(ctx); err != nil {
-		return nil, fmt.Errorf("commit tx: %w", err)
-	}
-
-	return bm, nil
+	return bookmarkToDomain(row), nil
 }
 
 func (r *BookmarkRepo) Get(ctx context.Context, id string) (*domain.Bookmark, error) {
@@ -93,14 +69,7 @@ func (r *BookmarkRepo) Update(ctx context.Context, id string, params domain.Upda
 		emoji = *params.Emoji
 	}
 
-	tx, err := r.pool.Begin(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("begin tx: %w", err)
-	}
-	defer tx.Rollback(ctx)
-	qtx := r.q.WithTx(tx)
-
-	row, err := qtx.UpdateBookmark(ctx, sqlcgen.UpdateBookmarkParams{
+	row, err := r.q.UpdateBookmark(ctx, sqlcgen.UpdateBookmarkParams{
 		ID:        id,
 		Title:     title,
 		Link:      link,
@@ -114,55 +83,11 @@ func (r *BookmarkRepo) Update(ctx context.Context, id string, params domain.Upda
 		return nil, fmt.Errorf("update bookmark: %w", err)
 	}
 
-	updatedBm := bookmarkToDomain(row)
-
-	eventData, _ := json.Marshal(updatedBm)
-	if _, err := qtx.AppendEvent(ctx, sqlcgen.AppendEventParams{
-		AggregateType: domain.AggregateBookmark,
-		AggregateID:   id,
-		EventType:     domain.EventBookmarkUpdated,
-		EventData:     eventData,
-	}); err != nil {
-		return nil, fmt.Errorf("append event: %w", err)
-	}
-
-	if err := tx.Commit(ctx); err != nil {
-		return nil, fmt.Errorf("commit tx: %w", err)
-	}
-
-	return updatedBm, nil
+	return bookmarkToDomain(row), nil
 }
 
 func (r *BookmarkRepo) Delete(ctx context.Context, id string) error {
-	tx, err := r.pool.Begin(ctx)
-	if err != nil {
-		return fmt.Errorf("begin tx: %w", err)
-	}
-	defer tx.Rollback(ctx)
-	qtx := r.q.WithTx(tx)
-
-	// Fetch full entity before deletion for snapshot
-	bmRow, bmErr := qtx.GetBookmark(ctx, id)
-	if bmErr != nil {
-		return fmt.Errorf("get bookmark before delete: %w", bmErr)
-	}
-	bmSnapshot := bookmarkToDomain(bmRow)
-
-	if err := qtx.DeleteBookmark(ctx, id); err != nil {
-		return fmt.Errorf("delete bookmark: %w", err)
-	}
-
-	eventData, _ := json.Marshal(bmSnapshot)
-	if _, err := qtx.AppendEvent(ctx, sqlcgen.AppendEventParams{
-		AggregateType: domain.AggregateBookmark,
-		AggregateID:   id,
-		EventType:     domain.EventBookmarkDeleted,
-		EventData:     eventData,
-	}); err != nil {
-		return fmt.Errorf("append event: %w", err)
-	}
-
-	return tx.Commit(ctx)
+	return r.q.DeleteBookmark(ctx, id)
 }
 
 func (r *BookmarkRepo) List(ctx context.Context, params domain.ListBookmarksParams) ([]domain.Bookmark, error) {

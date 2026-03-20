@@ -25,7 +25,3 @@ SELECT id, team_id, url, event_types, secret, encrypted_secret, enabled, created
 FROM event_subscriptions
 WHERE team_id = $1 AND enabled = TRUE AND $2::TEXT = ANY(event_types)
 ORDER BY created_at ASC;
-
--- name: CreateEventRecord :exec
-INSERT INTO events (id, type, team_id, payload)
-VALUES ($1, $2, $3, $4);
