@@ -8,7 +8,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/suhjohn/slackbackend/internal/domain"
+	"github.com/suhjohn/agentslack/internal/domain"
 )
 
 // ConversationRepo implements repository.ConversationRepository using Postgres.

@@ -4,9 +4,9 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/suhjohn/slackbackend/internal/domain"
-	"github.com/suhjohn/slackbackend/internal/service"
-	"github.com/suhjohn/slackbackend/pkg/httputil"
+	"github.com/suhjohn/agentslack/internal/domain"
+	"github.com/suhjohn/agentslack/internal/service"
+	"github.com/suhjohn/agentslack/pkg/httputil"
 )
 
 // UserHandler handles HTTP requests for user operations.

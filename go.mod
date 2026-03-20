@@ -1,4 +1,4 @@
-module github.com/suhjohn/slackbackend
+module github.com/suhjohn/agentslack
 
 go 1.24.0
 
