@@ -19,6 +19,9 @@ type Config struct {
 	S3AccessKey string
 	S3SecretKey string
 
+	// Queue configuration
+	QueueS3Key string // S3 object key for the index queue file
+
 	// Encryption configuration
 	// Hex-encoded 32-byte key for AES-256-GCM encryption of sensitive data.
 	// Generate with: openssl rand -hex 32
@@ -55,6 +58,7 @@ func Load() (*Config, error) {
 		S3Endpoint:    os.Getenv("S3_ENDPOINT"),
 		S3AccessKey:   os.Getenv("S3_ACCESS_KEY"),
 		S3SecretKey:   os.Getenv("S3_SECRET_KEY"),
+		QueueS3Key:    getEnv("QUEUE_S3_KEY", "queue/index-queue.json"),
 		EncryptionKey: os.Getenv("ENCRYPTION_KEY"),
 	}, nil
 }

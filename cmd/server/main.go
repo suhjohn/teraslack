@@ -18,6 +18,7 @@ import (
 	"github.com/suhjohn/workspace/internal/config"
 	"github.com/suhjohn/workspace/internal/crypto"
 	"github.com/suhjohn/workspace/internal/handler"
+	"github.com/suhjohn/workspace/internal/queue"
 	pgRepo "github.com/suhjohn/workspace/internal/repository/postgres"
 	s3client "github.com/suhjohn/workspace/internal/s3"
 	"github.com/suhjohn/workspace/internal/service"
@@ -123,6 +124,27 @@ func run(logger *slog.Logger) error {
 	// Start OutboxWorker for reliable webhook delivery
 	outboxWorker := service.NewOutboxWorker(outboxRepo, encryptor, logger)
 	go outboxWorker.Run(ctx)
+
+	// Start IndexProducer (S3 queue) if S3 is configured
+	if cfg.S3Bucket != "" {
+		s3Queue, qErr := queue.NewS3Queue(ctx, queue.S3Config{
+			Bucket:    cfg.S3Bucket,
+			Region:    cfg.S3Region,
+			Endpoint:  cfg.S3Endpoint,
+			AccessKey: cfg.S3AccessKey,
+			SecretKey: cfg.S3SecretKey,
+			QueueKey:  cfg.QueueS3Key,
+		})
+		if qErr != nil {
+			logger.Warn("index producer disabled: s3 queue init failed", "error", qErr)
+		} else {
+			producer := queue.NewIndexProducer(pool, s3Queue, logger, queue.ProducerConfig{})
+			go producer.Run(ctx)
+			logger.Info("index producer started", "queue_key", cfg.QueueS3Key)
+		}
+	} else {
+		logger.Info("index producer disabled: S3_BUCKET not set")
+	}
 
 	// Initialize services
 	eventSvc := service.NewEventService(eventRepo, recorder, logger)

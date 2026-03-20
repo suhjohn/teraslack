@@ -127,15 +127,30 @@ func (s *FileService) CompleteUpload(ctx context.Context, params domain.Complete
 		f.Channels = append(f.Channels, params.ChannelID)
 	}
 
+	// Record file update event with full snapshot
 	payload, _ := json.Marshal(f)
 	if recErr := s.recorder.Record(ctx, domain.ServiceEvent{
-		EventType:     domain.EventFileShared,
+		EventType:     domain.EventFileUpdated,
 		AggregateType: domain.AggregateFile,
 		AggregateID:   f.ID,
 		TeamID:        "",
 		Payload:       payload,
 	}); recErr != nil {
-		s.logger.Warn("record file.shared event", "error", recErr)
+		s.logger.Warn("record file.updated event", "error", recErr)
+	}
+
+	// Record file.shared event with the {file_id, channel_id} format the projector expects
+	if params.ChannelID != "" {
+		sharePayload, _ := json.Marshal(map[string]string{"file_id": f.ID, "channel_id": params.ChannelID})
+		if recErr := s.recorder.Record(ctx, domain.ServiceEvent{
+			EventType:     domain.EventFileShared,
+			AggregateType: domain.AggregateFile,
+			AggregateID:   f.ID,
+			TeamID:        "",
+			Payload:       sharePayload,
+		}); recErr != nil {
+			s.logger.Warn("record file.shared event", "error", recErr)
+		}
 	}
 	return f, nil
 }
