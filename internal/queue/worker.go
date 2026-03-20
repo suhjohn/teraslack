@@ -373,6 +373,7 @@ func (w *IndexWorker) markResults(ctx context.Context, completed, failed []strin
 
 		// Garbage collect completed jobs older than 1 hour
 		gcCutoff := now.Add(-1 * time.Hour)
+		originalJobCount := len(snap.State.Jobs)
 		filtered := make([]Job, 0, len(snap.State.Jobs))
 		for _, job := range snap.State.Jobs {
 			if job.Status == StatusCompleted && job.CompletedAt != nil && job.CompletedAt.Before(gcCutoff) {
@@ -393,7 +394,7 @@ func (w *IndexWorker) markResults(ctx context.Context, completed, failed []strin
 
 		w.logger.Info("marked job results",
 			"completed", len(completed), "failed", len(failed),
-			"gc_removed", len(snap.State.Jobs)-len(filtered)+len(completed)+len(failed))
+			"gc_removed", originalJobCount-len(filtered))
 		return nil
 	}
 
