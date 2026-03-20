@@ -18,7 +18,7 @@ func NewBookmarkHandler(svc *service.BookmarkService) *BookmarkHandler {
 	return &BookmarkHandler{svc: svc}
 }
 
-// Create handles POST /api/bookmarks.add
+// Create handles POST /v1/bookmarks
 func (h *BookmarkHandler) Create(w http.ResponseWriter, r *http.Request) {
 	var params domain.CreateBookmarkParams
 	if err := httputil.DecodeJSON(r, &params); err != nil {
@@ -35,21 +35,26 @@ func (h *BookmarkHandler) Create(w http.ResponseWriter, r *http.Request) {
 	httputil.WriteOK(w, map[string]any{"bookmark": bookmark})
 }
 
-// Edit handles POST /api/bookmarks.edit
+// Edit handles POST /v1/bookmarks/{id}
 func (h *BookmarkHandler) Edit(w http.ResponseWriter, r *http.Request) {
+	bookmarkID := r.PathValue("id")
+	if bookmarkID == "" {
+		httputil.WriteError(w, domain.ErrInvalidArgument)
+		return
+	}
+
 	var req struct {
-		BookmarkID string  `json:"bookmark_id"`
-		Title      *string `json:"title,omitempty"`
-		Link       *string `json:"link,omitempty"`
-		Emoji      *string `json:"emoji,omitempty"`
-		UpdatedBy  string  `json:"updated_by"`
+		Title     *string `json:"title,omitempty"`
+		Link      *string `json:"link,omitempty"`
+		Emoji     *string `json:"emoji,omitempty"`
+		UpdatedBy string  `json:"updated_by"`
 	}
 	if err := httputil.DecodeJSON(r, &req); err != nil {
 		httputil.WriteError(w, domain.ErrInvalidArgument)
 		return
 	}
 
-	bookmark, err := h.svc.Update(r.Context(), req.BookmarkID, domain.UpdateBookmarkParams{
+	bookmark, err := h.svc.Update(r.Context(), bookmarkID, domain.UpdateBookmarkParams{
 		Title:     req.Title,
 		Link:      req.Link,
 		Emoji:     req.Emoji,
@@ -63,17 +68,15 @@ func (h *BookmarkHandler) Edit(w http.ResponseWriter, r *http.Request) {
 	httputil.WriteOK(w, map[string]any{"bookmark": bookmark})
 }
 
-// Remove handles POST /api/bookmarks.remove
+// Remove handles DELETE /v1/bookmarks/{id}
 func (h *BookmarkHandler) Remove(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		BookmarkID string `json:"bookmark_id"`
-	}
-	if err := httputil.DecodeJSON(r, &req); err != nil {
+	bookmarkID := r.PathValue("id")
+	if bookmarkID == "" {
 		httputil.WriteError(w, domain.ErrInvalidArgument)
 		return
 	}
 
-	if err := h.svc.Delete(r.Context(), req.BookmarkID); err != nil {
+	if err := h.svc.Delete(r.Context(), bookmarkID); err != nil {
 		httputil.WriteError(w, err)
 		return
 	}
@@ -81,7 +84,7 @@ func (h *BookmarkHandler) Remove(w http.ResponseWriter, r *http.Request) {
 	httputil.WriteOK(w, nil)
 }
 
-// List handles GET /api/bookmarks.list?channel_id=C123
+// List handles GET /v1/bookmarks?channel_id=C123
 func (h *BookmarkHandler) List(w http.ResponseWriter, r *http.Request) {
 	channelID := r.URL.Query().Get("channel_id")
 

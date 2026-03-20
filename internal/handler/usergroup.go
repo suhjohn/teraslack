@@ -19,7 +19,7 @@ func NewUsergroupHandler(svc *service.UsergroupService) *UsergroupHandler {
 	return &UsergroupHandler{svc: svc}
 }
 
-// Create handles POST /api/usergroups.create
+// Create handles POST /v1/usergroups
 func (h *UsergroupHandler) Create(w http.ResponseWriter, r *http.Request) {
 	var params domain.CreateUsergroupParams
 	if err := httputil.DecodeJSON(r, &params); err != nil {
@@ -36,10 +36,15 @@ func (h *UsergroupHandler) Create(w http.ResponseWriter, r *http.Request) {
 	httputil.WriteOK(w, map[string]any{"usergroup": ug})
 }
 
-// Update handles POST /api/usergroups.update
+// Update handles POST /v1/usergroups/{id}
 func (h *UsergroupHandler) Update(w http.ResponseWriter, r *http.Request) {
+	ugID := r.PathValue("id")
+	if ugID == "" {
+		httputil.WriteError(w, domain.ErrInvalidArgument)
+		return
+	}
+
 	var req struct {
-		Usergroup   string  `json:"usergroup"`
 		Name        *string `json:"name,omitempty"`
 		Handle      *string `json:"handle,omitempty"`
 		Description *string `json:"description,omitempty"`
@@ -50,7 +55,7 @@ func (h *UsergroupHandler) Update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ug, err := h.svc.Update(r.Context(), req.Usergroup, domain.UpdateUsergroupParams{
+	ug, err := h.svc.Update(r.Context(), ugID, domain.UpdateUsergroupParams{
 		Name:        req.Name,
 		Handle:      req.Handle,
 		Description: req.Description,
@@ -64,7 +69,7 @@ func (h *UsergroupHandler) Update(w http.ResponseWriter, r *http.Request) {
 	httputil.WriteOK(w, map[string]any{"usergroup": ug})
 }
 
-// List handles GET /api/usergroups.list?team_id=T123&include_disabled=true
+// List handles GET /v1/usergroups?team_id=T123&include_disabled=true
 func (h *UsergroupHandler) List(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	includeDisabled, _ := strconv.ParseBool(q.Get("include_disabled"))
@@ -81,17 +86,15 @@ func (h *UsergroupHandler) List(w http.ResponseWriter, r *http.Request) {
 	httputil.WriteOK(w, map[string]any{"usergroups": groups})
 }
 
-// Enable handles POST /api/usergroups.enable
+// Enable handles POST /v1/usergroups/{id}/enable
 func (h *UsergroupHandler) Enable(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Usergroup string `json:"usergroup"`
-	}
-	if err := httputil.DecodeJSON(r, &req); err != nil {
+	ugID := r.PathValue("id")
+	if ugID == "" {
 		httputil.WriteError(w, domain.ErrInvalidArgument)
 		return
 	}
 
-	if err := h.svc.Enable(r.Context(), req.Usergroup); err != nil {
+	if err := h.svc.Enable(r.Context(), ugID); err != nil {
 		httputil.WriteError(w, err)
 		return
 	}
@@ -99,17 +102,15 @@ func (h *UsergroupHandler) Enable(w http.ResponseWriter, r *http.Request) {
 	httputil.WriteOK(w, nil)
 }
 
-// Disable handles POST /api/usergroups.disable
+// Disable handles POST /v1/usergroups/{id}/disable
 func (h *UsergroupHandler) Disable(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Usergroup string `json:"usergroup"`
-	}
-	if err := httputil.DecodeJSON(r, &req); err != nil {
+	ugID := r.PathValue("id")
+	if ugID == "" {
 		httputil.WriteError(w, domain.ErrInvalidArgument)
 		return
 	}
 
-	if err := h.svc.Disable(r.Context(), req.Usergroup); err != nil {
+	if err := h.svc.Disable(r.Context(), ugID); err != nil {
 		httputil.WriteError(w, err)
 		return
 	}
@@ -117,11 +118,15 @@ func (h *UsergroupHandler) Disable(w http.ResponseWriter, r *http.Request) {
 	httputil.WriteOK(w, nil)
 }
 
-// ListUsers handles GET /api/usergroups.users.list?usergroup=S123
+// ListUsers handles GET /v1/usergroups/{id}/users
 func (h *UsergroupHandler) ListUsers(w http.ResponseWriter, r *http.Request) {
-	usergroupID := r.URL.Query().Get("usergroup")
+	ugID := r.PathValue("id")
+	if ugID == "" {
+		httputil.WriteError(w, domain.ErrInvalidArgument)
+		return
+	}
 
-	users, err := h.svc.ListUsers(r.Context(), usergroupID)
+	users, err := h.svc.ListUsers(r.Context(), ugID)
 	if err != nil {
 		httputil.WriteError(w, err)
 		return
@@ -130,21 +135,43 @@ func (h *UsergroupHandler) ListUsers(w http.ResponseWriter, r *http.Request) {
 	httputil.WriteOK(w, map[string]any{"users": users})
 }
 
-// SetUsers handles POST /api/usergroups.users.update
+// Info handles GET /v1/usergroups/{id}
+func (h *UsergroupHandler) Info(w http.ResponseWriter, r *http.Request) {
+	ugID := r.PathValue("id")
+	if ugID == "" {
+		httputil.WriteError(w, domain.ErrInvalidArgument)
+		return
+	}
+
+	ug, err := h.svc.Get(r.Context(), ugID)
+	if err != nil {
+		httputil.WriteError(w, err)
+		return
+	}
+
+	httputil.WriteOK(w, map[string]any{"usergroup": ug})
+}
+
+// SetUsers handles POST /v1/usergroups/{id}/users
 func (h *UsergroupHandler) SetUsers(w http.ResponseWriter, r *http.Request) {
+	ugID := r.PathValue("id")
+	if ugID == "" {
+		httputil.WriteError(w, domain.ErrInvalidArgument)
+		return
+	}
+
 	var req struct {
-		Usergroup string   `json:"usergroup"`
-		Users     []string `json:"users"`
+		Users []string `json:"users"`
 	}
 	if err := httputil.DecodeJSON(r, &req); err != nil {
 		httputil.WriteError(w, domain.ErrInvalidArgument)
 		return
 	}
 
-	if err := h.svc.SetUsers(r.Context(), req.Usergroup, req.Users); err != nil {
+	if err := h.svc.SetUsers(r.Context(), ugID, req.Users); err != nil {
 		httputil.WriteError(w, err)
 		return
 	}
 
-	httputil.WriteOK(w, map[string]any{"usergroup_id": req.Usergroup, "users": req.Users})
+	httputil.WriteOK(w, map[string]any{"usergroup_id": ugID, "users": req.Users})
 }

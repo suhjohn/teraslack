@@ -19,7 +19,7 @@ func NewMessageHandler(svc *service.MessageService) *MessageHandler {
 	return &MessageHandler{svc: svc}
 }
 
-// PostMessage handles POST /api/chat.postMessage
+// PostMessage handles POST /v1/messages
 func (h *MessageHandler) PostMessage(w http.ResponseWriter, r *http.Request) {
 	var params domain.PostMessageParams
 	if err := httputil.DecodeJSON(r, &params); err != nil {
@@ -40,26 +40,22 @@ func (h *MessageHandler) PostMessage(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// UpdateMessage handles POST /api/chat.update
+// UpdateMessage handles POST /v1/messages/{channel_id}/{ts}
 func (h *MessageHandler) UpdateMessage(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Channel string                   `json:"channel"`
-		TS      string                   `json:"ts"`
-		Params  domain.UpdateMessageParams `json:"message"`
-		Text    *string                  `json:"text,omitempty"`
-	}
-	if err := httputil.DecodeJSON(r, &req); err != nil {
+	channelID := r.PathValue("channel_id")
+	ts := r.PathValue("ts")
+	if channelID == "" || ts == "" {
 		httputil.WriteError(w, domain.ErrInvalidArgument)
 		return
 	}
 
-	// Allow top-level text field
-	params := req.Params
-	if req.Text != nil {
-		params.Text = req.Text
+	var params domain.UpdateMessageParams
+	if err := httputil.DecodeJSON(r, &params); err != nil {
+		httputil.WriteError(w, domain.ErrInvalidArgument)
+		return
 	}
 
-	msg, err := h.svc.UpdateMessage(r.Context(), req.Channel, req.TS, params)
+	msg, err := h.svc.UpdateMessage(r.Context(), channelID, ts, params)
 	if err != nil {
 		httputil.WriteError(w, err)
 		return
@@ -72,32 +68,60 @@ func (h *MessageHandler) UpdateMessage(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// DeleteMessage handles POST /api/chat.delete
+// DeleteMessage handles DELETE /v1/messages/{channel_id}/{ts}
 func (h *MessageHandler) DeleteMessage(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Channel string `json:"channel"`
-		TS      string `json:"ts"`
-	}
-	if err := httputil.DecodeJSON(r, &req); err != nil {
+	channelID := r.PathValue("channel_id")
+	ts := r.PathValue("ts")
+	if channelID == "" || ts == "" {
 		httputil.WriteError(w, domain.ErrInvalidArgument)
 		return
 	}
 
-	if err := h.svc.DeleteMessage(r.Context(), req.Channel, req.TS); err != nil {
+	if err := h.svc.DeleteMessage(r.Context(), channelID, ts); err != nil {
 		httputil.WriteError(w, err)
 		return
 	}
 
 	httputil.WriteOK(w, map[string]any{
-		"channel": req.Channel,
-		"ts":      req.TS,
+		"channel": channelID,
+		"ts":      ts,
 	})
 }
 
-// History handles GET /api/conversations.history?channel=C123&latest=...&oldest=...
+// History handles GET /v1/messages?channel=C123&latest=...&oldest=...
+// When thread_ts is provided, returns thread replies instead of channel history.
 func (h *MessageHandler) History(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	limit, _ := strconv.Atoi(q.Get("limit"))
+
+	// If thread_ts is provided, return thread replies
+	if threadTS := q.Get("thread_ts"); threadTS != "" {
+		params := domain.ListRepliesParams{
+			ChannelID: q.Get("channel"),
+			ThreadTS:  threadTS,
+			Cursor:    q.Get("cursor"),
+			Limit:     limit,
+		}
+
+		page, err := h.svc.Replies(r.Context(), params)
+		if err != nil {
+			httputil.WriteError(w, err)
+			return
+		}
+
+		resp := map[string]any{
+			"messages": page.Items,
+			"has_more": page.HasMore,
+		}
+		if page.HasMore {
+			resp["response_metadata"] = map[string]any{
+				"next_cursor": page.NextCursor,
+			}
+		}
+		httputil.WriteOK(w, resp)
+		return
+	}
+
 	inclusive, _ := strconv.ParseBool(q.Get("inclusive"))
 	includeAllMetadata, _ := strconv.ParseBool(q.Get("include_all_metadata"))
 
@@ -129,37 +153,8 @@ func (h *MessageHandler) History(w http.ResponseWriter, r *http.Request) {
 	httputil.WriteOK(w, resp)
 }
 
-// Replies handles GET /api/conversations.replies?channel=C123&ts=...
-func (h *MessageHandler) Replies(w http.ResponseWriter, r *http.Request) {
-	q := r.URL.Query()
-	limit, _ := strconv.Atoi(q.Get("limit"))
 
-	params := domain.ListRepliesParams{
-		ChannelID: q.Get("channel"),
-		ThreadTS:  q.Get("ts"),
-		Cursor:    q.Get("cursor"),
-		Limit:     limit,
-	}
-
-	page, err := h.svc.Replies(r.Context(), params)
-	if err != nil {
-		httputil.WriteError(w, err)
-		return
-	}
-
-	resp := map[string]any{
-		"messages": page.Items,
-		"has_more": page.HasMore,
-	}
-	if page.HasMore {
-		resp["response_metadata"] = map[string]any{
-			"next_cursor": page.NextCursor,
-		}
-	}
-	httputil.WriteOK(w, resp)
-}
-
-// AddReaction handles POST /api/reactions.add
+// AddReaction handles POST /v1/reactions
 func (h *MessageHandler) AddReaction(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Channel   string `json:"channel"`
@@ -186,7 +181,7 @@ func (h *MessageHandler) AddReaction(w http.ResponseWriter, r *http.Request) {
 	httputil.WriteOK(w, nil)
 }
 
-// RemoveReaction handles POST /api/reactions.remove
+// RemoveReaction handles DELETE /v1/reactions
 func (h *MessageHandler) RemoveReaction(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Channel   string `json:"channel"`
@@ -213,7 +208,7 @@ func (h *MessageHandler) RemoveReaction(w http.ResponseWriter, r *http.Request) 
 	httputil.WriteOK(w, nil)
 }
 
-// GetReactions handles GET /api/reactions.get?channel=C123&timestamp=...
+// GetReactions handles GET /v1/reactions?channel=C123&timestamp=...
 func (h *MessageHandler) GetReactions(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	channelID := q.Get("channel")

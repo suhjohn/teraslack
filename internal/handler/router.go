@@ -31,82 +31,82 @@ func Router(
 	})
 
 	// Users
-	mux.HandleFunc("POST /api/users.create", userH.Create)
-	mux.HandleFunc("GET /api/users.info", userH.Info)
-	mux.HandleFunc("GET /api/users.lookupByEmail", userH.LookupByEmail)
-	mux.HandleFunc("POST /api/users.profile.set", userH.Update)
-	mux.HandleFunc("GET /api/users.list", userH.List)
+	mux.HandleFunc("POST /v1/users", userH.Create)
+	mux.HandleFunc("GET /v1/users/search", userH.LookupByEmail)
+	mux.HandleFunc("GET /v1/users/{id}", userH.Info)
+	mux.HandleFunc("POST /v1/users/{id}", userH.Update)
+	mux.HandleFunc("GET /v1/users", userH.List)
 
 	// Conversations
-	mux.HandleFunc("POST /api/conversations.create", convH.Create)
-	mux.HandleFunc("GET /api/conversations.info", convH.Info)
-	mux.HandleFunc("POST /api/conversations.rename", convH.Rename)
-	mux.HandleFunc("POST /api/conversations.archive", convH.Archive)
-	mux.HandleFunc("POST /api/conversations.unarchive", convH.Unarchive)
-	mux.HandleFunc("POST /api/conversations.setTopic", convH.SetTopic)
-	mux.HandleFunc("POST /api/conversations.setPurpose", convH.SetPurpose)
-	mux.HandleFunc("GET /api/conversations.list", convH.List)
-	mux.HandleFunc("POST /api/conversations.invite", convH.Invite)
-	mux.HandleFunc("POST /api/conversations.kick", convH.Kick)
-	mux.HandleFunc("GET /api/conversations.members", convH.Members)
+	mux.HandleFunc("POST /v1/conversations", convH.Create)
+	mux.HandleFunc("GET /v1/conversations/{id}/members", convH.Members)
+	mux.HandleFunc("POST /v1/conversations/{id}/members", convH.Invite)
+	mux.HandleFunc("DELETE /v1/conversations/{id}/members/{user_id}", convH.Kick)
+	mux.HandleFunc("POST /v1/conversations/{id}/archive", convH.Archive)
+	mux.HandleFunc("POST /v1/conversations/{id}/unarchive", convH.Unarchive)
+	mux.HandleFunc("POST /v1/conversations/{id}/topic", convH.SetTopic)
+	mux.HandleFunc("POST /v1/conversations/{id}/purpose", convH.SetPurpose)
+	mux.HandleFunc("GET /v1/conversations/{id}", convH.Info)
+	mux.HandleFunc("POST /v1/conversations/{id}", convH.Update)
+	mux.HandleFunc("GET /v1/conversations", convH.List)
 
 	// Messages
-	mux.HandleFunc("POST /api/chat.postMessage", msgH.PostMessage)
-	mux.HandleFunc("POST /api/chat.update", msgH.UpdateMessage)
-	mux.HandleFunc("POST /api/chat.delete", msgH.DeleteMessage)
-	mux.HandleFunc("GET /api/conversations.history", msgH.History)
-	mux.HandleFunc("GET /api/conversations.replies", msgH.Replies)
+	mux.HandleFunc("POST /v1/messages", msgH.PostMessage)
+	mux.HandleFunc("POST /v1/messages/{channel_id}/{ts}", msgH.UpdateMessage)
+	mux.HandleFunc("DELETE /v1/messages/{channel_id}/{ts}", msgH.DeleteMessage)
+	mux.HandleFunc("GET /v1/messages", msgH.History)
 
 	// Reactions
-	mux.HandleFunc("POST /api/reactions.add", msgH.AddReaction)
-	mux.HandleFunc("POST /api/reactions.remove", msgH.RemoveReaction)
-	mux.HandleFunc("GET /api/reactions.get", msgH.GetReactions)
+	mux.HandleFunc("POST /v1/reactions", msgH.AddReaction)
+	mux.HandleFunc("DELETE /v1/reactions", msgH.RemoveReaction)
+	mux.HandleFunc("GET /v1/reactions", msgH.GetReactions)
 
 	// Usergroups
-	mux.HandleFunc("POST /api/usergroups.create", ugH.Create)
-	mux.HandleFunc("POST /api/usergroups.update", ugH.Update)
-	mux.HandleFunc("GET /api/usergroups.list", ugH.List)
-	mux.HandleFunc("POST /api/usergroups.enable", ugH.Enable)
-	mux.HandleFunc("POST /api/usergroups.disable", ugH.Disable)
-	mux.HandleFunc("GET /api/usergroups.users.list", ugH.ListUsers)
-	mux.HandleFunc("POST /api/usergroups.users.update", ugH.SetUsers)
+	mux.HandleFunc("POST /v1/usergroups", ugH.Create)
+	mux.HandleFunc("POST /v1/usergroups/{id}/enable", ugH.Enable)
+	mux.HandleFunc("POST /v1/usergroups/{id}/disable", ugH.Disable)
+	mux.HandleFunc("GET /v1/usergroups/{id}/users", ugH.ListUsers)
+	mux.HandleFunc("POST /v1/usergroups/{id}/users", ugH.SetUsers)
+	mux.HandleFunc("GET /v1/usergroups/{id}", ugH.Info)
+	mux.HandleFunc("POST /v1/usergroups/{id}", ugH.Update)
+	mux.HandleFunc("GET /v1/usergroups", ugH.List)
 
 	// Pins
-	mux.HandleFunc("POST /api/pins.add", pinH.Add)
-	mux.HandleFunc("POST /api/pins.remove", pinH.Remove)
-	mux.HandleFunc("GET /api/pins.list", pinH.List)
+	mux.HandleFunc("POST /v1/pins", pinH.Add)
+	mux.HandleFunc("DELETE /v1/pins", pinH.Remove)
+	mux.HandleFunc("GET /v1/pins", pinH.List)
 
 	// Bookmarks
-	mux.HandleFunc("POST /api/bookmarks.add", bookmarkH.Create)
-	mux.HandleFunc("POST /api/bookmarks.edit", bookmarkH.Edit)
-	mux.HandleFunc("POST /api/bookmarks.remove", bookmarkH.Remove)
-	mux.HandleFunc("GET /api/bookmarks.list", bookmarkH.List)
+	mux.HandleFunc("POST /v1/bookmarks", bookmarkH.Create)
+	mux.HandleFunc("POST /v1/bookmarks/{id}", bookmarkH.Edit)
+	mux.HandleFunc("DELETE /v1/bookmarks/{id}", bookmarkH.Remove)
+	mux.HandleFunc("GET /v1/bookmarks", bookmarkH.List)
 
 	// Files
-	mux.HandleFunc("POST /api/files.getUploadURLExternal", fileH.GetUploadURL)
-	mux.HandleFunc("POST /api/files.completeUploadExternal", fileH.CompleteUpload)
-	mux.HandleFunc("GET /api/files.info", fileH.Info)
-	mux.HandleFunc("POST /api/files.delete", fileH.Delete)
-	mux.HandleFunc("GET /api/files.list", fileH.List)
-	mux.HandleFunc("POST /api/files.remote.add", fileH.AddRemoteFile)
-	mux.HandleFunc("POST /api/files.remote.share", fileH.ShareRemoteFile)
+	mux.HandleFunc("POST /v1/files/upload_url", fileH.GetUploadURL)
+	mux.HandleFunc("POST /v1/files/remote", fileH.AddRemoteFile)
+	mux.HandleFunc("POST /v1/files/{id}/complete", fileH.CompleteUpload)
+	mux.HandleFunc("POST /v1/files/{id}/share", fileH.ShareRemoteFile)
+	mux.HandleFunc("GET /v1/files/{id}", fileH.Info)
+	mux.HandleFunc("DELETE /v1/files/{id}", fileH.Delete)
+	mux.HandleFunc("GET /v1/files", fileH.List)
 
-	// Events
-	mux.HandleFunc("POST /api/events.subscriptions.create", eventH.CreateSubscription)
-	mux.HandleFunc("GET /api/events.subscriptions.info", eventH.GetSubscription)
-	mux.HandleFunc("POST /api/events.subscriptions.update", eventH.UpdateSubscription)
-	mux.HandleFunc("POST /api/events.subscriptions.delete", eventH.DeleteSubscription)
-	mux.HandleFunc("GET /api/events.subscriptions.list", eventH.ListSubscriptions)
+	// Event subscriptions
+	mux.HandleFunc("POST /v1/event_subscriptions", eventH.CreateSubscription)
+	mux.HandleFunc("GET /v1/event_subscriptions/{id}", eventH.GetSubscription)
+	mux.HandleFunc("POST /v1/event_subscriptions/{id}", eventH.UpdateSubscription)
+	mux.HandleFunc("DELETE /v1/event_subscriptions/{id}", eventH.DeleteSubscription)
+	mux.HandleFunc("GET /v1/event_subscriptions", eventH.ListSubscriptions)
 
-	// Auth
-	mux.HandleFunc("POST /api/auth.createToken", authH.CreateToken)
-	mux.HandleFunc("POST /api/auth.test", authH.Test)
-	mux.HandleFunc("POST /api/auth.revoke", authH.Revoke)
+	// Auth / Tokens
+	mux.HandleFunc("POST /v1/tokens", authH.CreateToken)
+	mux.HandleFunc("DELETE /v1/tokens", authH.Revoke)
+	mux.HandleFunc("GET /v1/auth/test", authH.Test)
 
 	// Search
-	mux.HandleFunc("GET /api/search.messages", searchH.SearchMessages)
-	mux.HandleFunc("GET /api/search.files", searchH.SearchFiles)
-	mux.HandleFunc("POST /api/search.semantic", searchH.SemanticSearch)
+	mux.HandleFunc("GET /v1/search/messages", searchH.SearchMessages)
+	mux.HandleFunc("GET /v1/search/files", searchH.SearchFiles)
+	mux.HandleFunc("POST /v1/search/semantic", searchH.SemanticSearch)
 
 	// Apply middleware
 	var h http.Handler = mux

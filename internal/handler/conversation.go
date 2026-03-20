@@ -20,7 +20,7 @@ func NewConversationHandler(svc *service.ConversationService) *ConversationHandl
 	return &ConversationHandler{svc: svc}
 }
 
-// Create handles POST /api/conversations.create
+// Create handles POST /v1/conversations
 func (h *ConversationHandler) Create(w http.ResponseWriter, r *http.Request) {
 	var params domain.CreateConversationParams
 	if err := httputil.DecodeJSON(r, &params); err != nil {
@@ -37,9 +37,9 @@ func (h *ConversationHandler) Create(w http.ResponseWriter, r *http.Request) {
 	httputil.WriteOK(w, map[string]any{"channel": conv})
 }
 
-// Info handles GET /api/conversations.info?channel=C123
+// Info handles GET /v1/conversations/{id}
 func (h *ConversationHandler) Info(w http.ResponseWriter, r *http.Request) {
-	channelID := r.URL.Query().Get("channel")
+	channelID := r.PathValue("id")
 	if channelID == "" {
 		httputil.WriteError(w, domain.ErrInvalidArgument)
 		return
@@ -54,18 +54,21 @@ func (h *ConversationHandler) Info(w http.ResponseWriter, r *http.Request) {
 	httputil.WriteOK(w, map[string]any{"channel": conv})
 }
 
-// Rename handles POST /api/conversations.rename
-func (h *ConversationHandler) Rename(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Channel string `json:"channel"`
-		Name    string `json:"name"`
-	}
-	if err := httputil.DecodeJSON(r, &req); err != nil {
+// Update handles POST /v1/conversations/{id}
+func (h *ConversationHandler) Update(w http.ResponseWriter, r *http.Request) {
+	channelID := r.PathValue("id")
+	if channelID == "" {
 		httputil.WriteError(w, domain.ErrInvalidArgument)
 		return
 	}
 
-	conv, err := h.svc.Update(r.Context(), req.Channel, domain.UpdateConversationParams{Name: &req.Name})
+	var params domain.UpdateConversationParams
+	if err := httputil.DecodeJSON(r, &params); err != nil {
+		httputil.WriteError(w, domain.ErrInvalidArgument)
+		return
+	}
+
+	conv, err := h.svc.Update(r.Context(), channelID, params)
 	if err != nil {
 		httputil.WriteError(w, err)
 		return
@@ -74,17 +77,15 @@ func (h *ConversationHandler) Rename(w http.ResponseWriter, r *http.Request) {
 	httputil.WriteOK(w, map[string]any{"channel": conv})
 }
 
-// Archive handles POST /api/conversations.archive
+// Archive handles POST /v1/conversations/{id}/archive
 func (h *ConversationHandler) Archive(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Channel string `json:"channel"`
-	}
-	if err := httputil.DecodeJSON(r, &req); err != nil {
+	channelID := r.PathValue("id")
+	if channelID == "" {
 		httputil.WriteError(w, domain.ErrInvalidArgument)
 		return
 	}
 
-	if err := h.svc.Archive(r.Context(), req.Channel); err != nil {
+	if err := h.svc.Archive(r.Context(), channelID); err != nil {
 		httputil.WriteError(w, err)
 		return
 	}
@@ -92,17 +93,15 @@ func (h *ConversationHandler) Archive(w http.ResponseWriter, r *http.Request) {
 	httputil.WriteOK(w, nil)
 }
 
-// Unarchive handles POST /api/conversations.unarchive
+// Unarchive handles POST /v1/conversations/{id}/unarchive
 func (h *ConversationHandler) Unarchive(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Channel string `json:"channel"`
-	}
-	if err := httputil.DecodeJSON(r, &req); err != nil {
+	channelID := r.PathValue("id")
+	if channelID == "" {
 		httputil.WriteError(w, domain.ErrInvalidArgument)
 		return
 	}
 
-	if err := h.svc.Unarchive(r.Context(), req.Channel); err != nil {
+	if err := h.svc.Unarchive(r.Context(), channelID); err != nil {
 		httputil.WriteError(w, err)
 		return
 	}
@@ -110,19 +109,24 @@ func (h *ConversationHandler) Unarchive(w http.ResponseWriter, r *http.Request) 
 	httputil.WriteOK(w, nil)
 }
 
-// SetTopic handles POST /api/conversations.setTopic
+// SetTopic handles POST /v1/conversations/{id}/topic
 func (h *ConversationHandler) SetTopic(w http.ResponseWriter, r *http.Request) {
+	channelID := r.PathValue("id")
+	if channelID == "" {
+		httputil.WriteError(w, domain.ErrInvalidArgument)
+		return
+	}
+
 	var req struct {
-		Channel string `json:"channel"`
-		Topic   string `json:"topic"`
-		UserID  string `json:"user_id"`
+		Topic  string `json:"topic"`
+		UserID string `json:"user_id"`
 	}
 	if err := httputil.DecodeJSON(r, &req); err != nil {
 		httputil.WriteError(w, domain.ErrInvalidArgument)
 		return
 	}
 
-	conv, err := h.svc.SetTopic(r.Context(), req.Channel, domain.SetTopicParams{
+	conv, err := h.svc.SetTopic(r.Context(), channelID, domain.SetTopicParams{
 		Topic:   req.Topic,
 		SetByID: req.UserID,
 	})
@@ -134,10 +138,15 @@ func (h *ConversationHandler) SetTopic(w http.ResponseWriter, r *http.Request) {
 	httputil.WriteOK(w, map[string]any{"channel": conv})
 }
 
-// SetPurpose handles POST /api/conversations.setPurpose
+// SetPurpose handles POST /v1/conversations/{id}/purpose
 func (h *ConversationHandler) SetPurpose(w http.ResponseWriter, r *http.Request) {
+	channelID := r.PathValue("id")
+	if channelID == "" {
+		httputil.WriteError(w, domain.ErrInvalidArgument)
+		return
+	}
+
 	var req struct {
-		Channel string `json:"channel"`
 		Purpose string `json:"purpose"`
 		UserID  string `json:"user_id"`
 	}
@@ -146,7 +155,7 @@ func (h *ConversationHandler) SetPurpose(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	conv, err := h.svc.SetPurpose(r.Context(), req.Channel, domain.SetPurposeParams{
+	conv, err := h.svc.SetPurpose(r.Context(), channelID, domain.SetPurposeParams{
 		Purpose: req.Purpose,
 		SetByID: req.UserID,
 	})
@@ -158,7 +167,7 @@ func (h *ConversationHandler) SetPurpose(w http.ResponseWriter, r *http.Request)
 	httputil.WriteOK(w, map[string]any{"channel": conv})
 }
 
-// List handles GET /api/conversations.list?team_id=T123&types=public_channel,private_channel&...
+// List handles GET /v1/conversations?team_id=T123&types=public_channel,private_channel&...
 func (h *ConversationHandler) List(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	limit, _ := strconv.Atoi(q.Get("limit"))
@@ -197,11 +206,16 @@ func (h *ConversationHandler) List(w http.ResponseWriter, r *http.Request) {
 	httputil.WriteOK(w, resp)
 }
 
-// Invite handles POST /api/conversations.invite
+// Invite handles POST /v1/conversations/{id}/members
 func (h *ConversationHandler) Invite(w http.ResponseWriter, r *http.Request) {
+	channelID := r.PathValue("id")
+	if channelID == "" {
+		httputil.WriteError(w, domain.ErrInvalidArgument)
+		return
+	}
+
 	var req struct {
-		Channel string `json:"channel"`
-		Users   string `json:"users"` // comma-separated user IDs
+		Users string `json:"users"` // comma-separated user IDs
 	}
 	if err := httputil.DecodeJSON(r, &req); err != nil {
 		httputil.WriteError(w, domain.ErrInvalidArgument)
@@ -213,13 +227,13 @@ func (h *ConversationHandler) Invite(w http.ResponseWriter, r *http.Request) {
 		if uid == "" {
 			continue
 		}
-		if err := h.svc.Invite(r.Context(), req.Channel, uid); err != nil {
+		if err := h.svc.Invite(r.Context(), channelID, uid); err != nil {
 			httputil.WriteError(w, err)
 			return
 		}
 	}
 
-	conv, err := h.svc.Get(r.Context(), req.Channel)
+	conv, err := h.svc.Get(r.Context(), channelID)
 	if err != nil {
 		httputil.WriteError(w, err)
 		return
@@ -228,18 +242,16 @@ func (h *ConversationHandler) Invite(w http.ResponseWriter, r *http.Request) {
 	httputil.WriteOK(w, map[string]any{"channel": conv})
 }
 
-// Kick handles POST /api/conversations.kick
+// Kick handles DELETE /v1/conversations/{id}/members/{user_id}
 func (h *ConversationHandler) Kick(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Channel string `json:"channel"`
-		User    string `json:"user"`
-	}
-	if err := httputil.DecodeJSON(r, &req); err != nil {
+	channelID := r.PathValue("id")
+	userID := r.PathValue("user_id")
+	if channelID == "" || userID == "" {
 		httputil.WriteError(w, domain.ErrInvalidArgument)
 		return
 	}
 
-	if err := h.svc.Kick(r.Context(), req.Channel, req.User); err != nil {
+	if err := h.svc.Kick(r.Context(), channelID, userID); err != nil {
 		httputil.WriteError(w, err)
 		return
 	}
@@ -247,12 +259,18 @@ func (h *ConversationHandler) Kick(w http.ResponseWriter, r *http.Request) {
 	httputil.WriteOK(w, nil)
 }
 
-// Members handles GET /api/conversations.members?channel=C123&cursor=...&limit=100
+// Members handles GET /v1/conversations/{id}/members?cursor=...&limit=100
 func (h *ConversationHandler) Members(w http.ResponseWriter, r *http.Request) {
+	channelID := r.PathValue("id")
+	if channelID == "" {
+		httputil.WriteError(w, domain.ErrInvalidArgument)
+		return
+	}
+
 	q := r.URL.Query()
 	limit, _ := strconv.Atoi(q.Get("limit"))
 
-	page, err := h.svc.ListMembers(r.Context(), q.Get("channel"), q.Get("cursor"), limit)
+	page, err := h.svc.ListMembers(r.Context(), channelID, q.Get("cursor"), limit)
 	if err != nil {
 		httputil.WriteError(w, err)
 		return

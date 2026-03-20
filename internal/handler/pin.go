@@ -18,7 +18,7 @@ func NewPinHandler(svc *service.PinService) *PinHandler {
 	return &PinHandler{svc: svc}
 }
 
-// Add handles POST /api/pins.add
+// Add handles POST /v1/pins
 func (h *PinHandler) Add(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Channel   string `json:"channel"`
@@ -43,7 +43,7 @@ func (h *PinHandler) Add(w http.ResponseWriter, r *http.Request) {
 	httputil.WriteOK(w, map[string]any{"pin": pin})
 }
 
-// Remove handles POST /api/pins.remove
+// Remove handles DELETE /v1/pins
 func (h *PinHandler) Remove(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Channel   string `json:"channel"`
@@ -65,7 +65,7 @@ func (h *PinHandler) Remove(w http.ResponseWriter, r *http.Request) {
 	httputil.WriteOK(w, nil)
 }
 
-// List handles GET /api/pins.list?channel=C123
+// List handles GET /v1/pins?channel=C123
 func (h *PinHandler) List(w http.ResponseWriter, r *http.Request) {
 	channelID := r.URL.Query().Get("channel")
 

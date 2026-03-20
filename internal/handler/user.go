@@ -19,7 +19,7 @@ func NewUserHandler(svc *service.UserService) *UserHandler {
 	return &UserHandler{svc: svc}
 }
 
-// Create handles POST /api/users.create
+// Create handles POST /v1/users
 func (h *UserHandler) Create(w http.ResponseWriter, r *http.Request) {
 	var params domain.CreateUserParams
 	if err := httputil.DecodeJSON(r, &params); err != nil {
@@ -36,9 +36,9 @@ func (h *UserHandler) Create(w http.ResponseWriter, r *http.Request) {
 	httputil.WriteOK(w, map[string]any{"user": user})
 }
 
-// Info handles GET /api/users.info?user=U123
+// Info handles GET /v1/users/{id}
 func (h *UserHandler) Info(w http.ResponseWriter, r *http.Request) {
-	userID := r.URL.Query().Get("user")
+	userID := r.PathValue("id")
 	if userID == "" {
 		httputil.WriteError(w, domain.ErrInvalidArgument)
 		return
@@ -53,7 +53,7 @@ func (h *UserHandler) Info(w http.ResponseWriter, r *http.Request) {
 	httputil.WriteOK(w, map[string]any{"user": user})
 }
 
-// LookupByEmail handles GET /api/users.lookupByEmail?email=...
+// LookupByEmail handles GET /v1/users/search?email=...
 func (h *UserHandler) LookupByEmail(w http.ResponseWriter, r *http.Request) {
 	email := r.URL.Query().Get("email")
 	if email == "" {
@@ -70,22 +70,21 @@ func (h *UserHandler) LookupByEmail(w http.ResponseWriter, r *http.Request) {
 	httputil.WriteOK(w, map[string]any{"user": user})
 }
 
-// Update handles POST /api/users.profile.set
+// Update handles POST /v1/users/{id}
 func (h *UserHandler) Update(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		UserID string                `json:"user"`
-		Params domain.UpdateUserParams `json:"profile"`
-	}
-	if err := httputil.DecodeJSON(r, &req); err != nil {
-		httputil.WriteError(w, domain.ErrInvalidArgument)
-		return
-	}
-	if req.UserID == "" {
+	userID := r.PathValue("id")
+	if userID == "" {
 		httputil.WriteError(w, domain.ErrInvalidArgument)
 		return
 	}
 
-	user, err := h.svc.Update(r.Context(), req.UserID, req.Params)
+	var params domain.UpdateUserParams
+	if err := httputil.DecodeJSON(r, &params); err != nil {
+		httputil.WriteError(w, domain.ErrInvalidArgument)
+		return
+	}
+
+	user, err := h.svc.Update(r.Context(), userID, params)
 	if err != nil {
 		httputil.WriteError(w, err)
 		return
@@ -94,7 +93,7 @@ func (h *UserHandler) Update(w http.ResponseWriter, r *http.Request) {
 	httputil.WriteOK(w, map[string]any{"user": user})
 }
 
-// List handles GET /api/users.list?team_id=T123&cursor=...&limit=100
+// List handles GET /v1/users?team_id=T123&cursor=...&limit=100
 func (h *UserHandler) List(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	limit, _ := strconv.Atoi(q.Get("limit"))
