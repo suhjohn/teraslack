@@ -17,12 +17,14 @@ type EventSubscription struct {
 	UpdatedAt       time.Time `json:"updated_at"`
 }
 
-// Redacted returns a copy with sensitive fields cleared
-// for safe serialization into event_data.
+// Redacted returns a copy with the plaintext secret cleared
+// for safe serialization into event_data. EncryptedSecret is preserved
+// so the projector can restore it during replay/rebuild.
 func (s *EventSubscription) Redacted() *EventSubscription {
 	copy := *s
-	copy.Secret = ""          // never store plaintext secret in event log
-	copy.EncryptedSecret = "" // don't leak encrypted form either
+	copy.Secret = "" // never store plaintext secret in event log
+	// EncryptedSecret is kept — it's already AES-256-GCM ciphertext,
+	// safe for the event log and required for projection rebuilds.
 	return &copy
 }
 
