@@ -2,60 +2,47 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 
 	"github.com/suhjohn/workspace/internal/domain"
-	"github.com/suhjohn/workspace/internal/repository"
 )
 
-// SearchService contains business logic for search operations.
-// Uses Postgres full-text search as a baseline. ClickHouse and Turbopuffer
-// integrations extend this with analytics and semantic search.
+// SearchService contains business logic for unified search across all resource types.
+// Uses Turbopuffer as the single search index backing all resource types.
 type SearchService struct {
-	msgRepo      repository.MessageRepository
-	fileRepo     repository.FileRepository
-	clickhouse   ClickHouseClient
-	turbopuffer  TurbopufferClient
-}
-
-// ClickHouseClient defines the interface for ClickHouse search operations.
-type ClickHouseClient interface {
-	SearchMessages(ctx context.Context, teamID, query string, limit int) ([]domain.Message, error)
-	SearchFiles(ctx context.Context, teamID, query string, limit int) ([]domain.File, error)
-	IndexMessage(ctx context.Context, msg *domain.Message) error
+	turbopuffer TurbopufferClient
 }
 
 // TurbopufferClient defines the interface for vector search operations.
+// A single Turbopuffer namespace indexes all resource types (users, messages,
+// conversations, files, etc.) with a "type" attribute for filtering.
 type TurbopufferClient interface {
-	Upsert(ctx context.Context, id string, embedding []float32, metadata map[string]string) error
-	Query(ctx context.Context, embedding []float32, limit int, filters map[string]string) ([]VectorResult, error)
+	// Upsert inserts or updates a document in the search index.
+	Upsert(ctx context.Context, id string, embedding []float32, metadata map[string]any) error
+	// Query performs a vector similarity search with optional attribute filters.
+	Query(ctx context.Context, embedding []float32, limit int, filters map[string]any) ([]VectorResult, error)
+	// GetEmbedding generates an embedding vector for the given text.
 	GetEmbedding(ctx context.Context, text string) ([]float32, error)
 }
 
-// VectorResult represents a single vector search result.
+// VectorResult represents a single vector search result from Turbopuffer.
 type VectorResult struct {
 	ID       string
 	Score    float64
-	Metadata map[string]string
+	Metadata map[string]any
 }
 
 // NewSearchService creates a new SearchService.
-func NewSearchService(
-	msgRepo repository.MessageRepository,
-	fileRepo repository.FileRepository,
-	clickhouse ClickHouseClient,
-	turbopuffer TurbopufferClient,
-) *SearchService {
+func NewSearchService(turbopuffer TurbopufferClient) *SearchService {
 	return &SearchService{
-		msgRepo:     msgRepo,
-		fileRepo:    fileRepo,
-		clickhouse:  clickhouse,
 		turbopuffer: turbopuffer,
 	}
 }
 
-// SearchMessages searches messages using ClickHouse if available, falls back to listing.
-func (s *SearchService) SearchMessages(ctx context.Context, params domain.SearchMessagesParams) (*domain.CursorPage[domain.Message], error) {
+// Search performs a unified search across all resource types using Turbopuffer.
+// Results are ranked by relevance and optionally filtered by type.
+func (s *SearchService) Search(ctx context.Context, params domain.SearchParams) ([]domain.SearchResult, error) {
 	if params.Query == "" {
 		return nil, fmt.Errorf("query: %w", domain.ErrInvalidArgument)
 	}
@@ -63,65 +50,10 @@ func (s *SearchService) SearchMessages(ctx context.Context, params domain.Search
 	limit := params.Limit
 	if limit <= 0 || limit > 100 {
 		limit = 20
-	}
-
-	if s.clickhouse != nil {
-		msgs, err := s.clickhouse.SearchMessages(ctx, params.TeamID, params.Query, limit)
-		if err != nil {
-			return nil, fmt.Errorf("clickhouse search: %w", err)
-		}
-		return &domain.CursorPage[domain.Message]{
-			Items:   msgs,
-			HasMore: len(msgs) >= limit,
-		}, nil
-	}
-
-	// Fallback: no ClickHouse configured - return empty results with a message
-	return &domain.CursorPage[domain.Message]{
-		Items: []domain.Message{},
-	}, nil
-}
-
-// SearchFiles searches files using ClickHouse if available.
-func (s *SearchService) SearchFiles(ctx context.Context, params domain.SearchFilesParams) (*domain.CursorPage[domain.File], error) {
-	if params.Query == "" {
-		return nil, fmt.Errorf("query: %w", domain.ErrInvalidArgument)
-	}
-
-	limit := params.Limit
-	if limit <= 0 || limit > 100 {
-		limit = 20
-	}
-
-	if s.clickhouse != nil {
-		files, err := s.clickhouse.SearchFiles(ctx, params.TeamID, params.Query, limit)
-		if err != nil {
-			return nil, fmt.Errorf("clickhouse search files: %w", err)
-		}
-		return &domain.CursorPage[domain.File]{
-			Items:   files,
-			HasMore: len(files) >= limit,
-		}, nil
-	}
-
-	return &domain.CursorPage[domain.File]{
-		Items: []domain.File{},
-	}, nil
-}
-
-// SemanticSearch performs vector similarity search using Turbopuffer.
-func (s *SearchService) SemanticSearch(ctx context.Context, params domain.SemanticSearchParams) ([]domain.SemanticSearchResult, error) {
-	if params.Query == "" {
-		return nil, fmt.Errorf("query: %w", domain.ErrInvalidArgument)
-	}
-
-	limit := params.Limit
-	if limit <= 0 || limit > 50 {
-		limit = 10
 	}
 
 	if s.turbopuffer == nil {
-		return []domain.SemanticSearchResult{}, nil
+		return []domain.SearchResult{}, nil
 	}
 
 	// Get embedding for query text
@@ -130,68 +62,63 @@ func (s *SearchService) SemanticSearch(ctx context.Context, params domain.Semant
 		return nil, fmt.Errorf("get embedding: %w", err)
 	}
 
-	filters := map[string]string{
+	// Build filters
+	filters := map[string]any{
 		"team_id": params.TeamID,
 	}
-	if params.ChannelID != "" {
-		filters["channel_id"] = params.ChannelID
+	if len(params.Types) > 0 {
+		filters["type"] = params.Types
 	}
 
 	results, err := s.turbopuffer.Query(ctx, embedding, limit, filters)
 	if err != nil {
-		return nil, fmt.Errorf("vector query: %w", err)
+		return nil, fmt.Errorf("search query: %w", err)
 	}
 
-	// Hydrate results with full messages
-	var searchResults []domain.SemanticSearchResult
+	// Convert to domain search results
+	searchResults := make([]domain.SearchResult, 0, len(results))
 	for _, r := range results {
-		channelID := r.Metadata["channel_id"]
-		ts := r.Metadata["ts"]
-		if channelID == "" || ts == "" {
+		resultType, _ := r.Metadata["type"].(string)
+		data, _ := r.Metadata["data"]
+
+		dataJSON, err := json.Marshal(data)
+		if err != nil {
 			continue
 		}
 
-		msg, err := s.msgRepo.Get(ctx, channelID, ts)
-		if err != nil {
-			continue // Skip if message was deleted
-		}
-
-		searchResults = append(searchResults, domain.SemanticSearchResult{
-			Message: *msg,
-			Score:   r.Score,
+		searchResults = append(searchResults, domain.SearchResult{
+			Type:  resultType,
+			Score: r.Score,
+			Data:  dataJSON,
 		})
 	}
 
-	if searchResults == nil {
-		searchResults = []domain.SemanticSearchResult{}
-	}
 	return searchResults, nil
 }
 
-// IndexMessage indexes a message for both ClickHouse and Turbopuffer.
-func (s *SearchService) IndexMessage(ctx context.Context, msg *domain.Message) error {
-	if s.clickhouse != nil {
-		if err := s.clickhouse.IndexMessage(ctx, msg); err != nil {
-			return fmt.Errorf("clickhouse index: %w", err)
-		}
+// Index indexes any resource into the unified Turbopuffer search index.
+func (s *SearchService) Index(ctx context.Context, resourceType, id, teamID, content string, data any) error {
+	if s.turbopuffer == nil {
+		return nil
 	}
 
-	if s.turbopuffer != nil && msg.Text != "" {
-		embedding, err := s.turbopuffer.GetEmbedding(ctx, msg.Text)
-		if err != nil {
-			return fmt.Errorf("get embedding: %w", err)
-		}
+	if content == "" {
+		return nil
+	}
 
-		metadata := map[string]string{
-			"channel_id": msg.ChannelID,
-			"ts":         msg.TS,
-			"user_id":    msg.UserID,
-		}
+	embedding, err := s.turbopuffer.GetEmbedding(ctx, content)
+	if err != nil {
+		return fmt.Errorf("get embedding: %w", err)
+	}
 
-		id := fmt.Sprintf("%s:%s", msg.ChannelID, msg.TS)
-		if err := s.turbopuffer.Upsert(ctx, id, embedding, metadata); err != nil {
-			return fmt.Errorf("turbopuffer upsert: %w", err)
-		}
+	metadata := map[string]any{
+		"type":    resourceType,
+		"team_id": teamID,
+		"data":    data,
+	}
+
+	if err := s.turbopuffer.Upsert(ctx, fmt.Sprintf("%s:%s", resourceType, id), embedding, metadata); err != nil {
+		return fmt.Errorf("turbopuffer upsert: %w", err)
 	}
 
 	return nil

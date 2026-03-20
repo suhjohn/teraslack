@@ -103,10 +103,8 @@ func Router(
 	mux.HandleFunc("DELETE /tokens", authH.Revoke)
 	mux.HandleFunc("GET /auth/test", authH.Test)
 
-	// Search
-	mux.HandleFunc("GET /search/messages", searchH.SearchMessages)
-	mux.HandleFunc("GET /search/files", searchH.SearchFiles)
-	mux.HandleFunc("POST /search/semantic", searchH.SemanticSearch)
+	// Search (unified — Turbopuffer-backed)
+	mux.HandleFunc("POST /search", searchH.Search)
 
 	// Apply middleware
 	var h http.Handler = mux

@@ -1,31 +1,19 @@
 package domain
 
-// SearchMessagesParams holds the parameters for searching messages.
-type SearchMessagesParams struct {
-	TeamID string `json:"team_id"`
-	Query  string `json:"query"`
-	Cursor string `json:"cursor"`
-	Limit  int    `json:"limit"`
+import "encoding/json"
+
+// SearchParams holds the parameters for unified search across all resource types.
+type SearchParams struct {
+	TeamID string   `json:"team_id"`
+	Query  string   `json:"query"`
+	Types  []string `json:"types,omitempty"` // optional filter: "user", "message", "conversation", "file", etc.
+	Limit  int      `json:"limit,omitempty"`
+	Cursor string   `json:"cursor,omitempty"`
 }
 
-// SearchFilesParams holds the parameters for searching files.
-type SearchFilesParams struct {
-	TeamID string `json:"team_id"`
-	Query  string `json:"query"`
-	Cursor string `json:"cursor"`
-	Limit  int    `json:"limit"`
-}
-
-// SemanticSearchParams holds the parameters for semantic vector search.
-type SemanticSearchParams struct {
-	TeamID    string `json:"team_id"`
-	Query     string `json:"query"`
-	ChannelID string `json:"channel_id,omitempty"`
-	Limit     int    `json:"limit"`
-}
-
-// SemanticSearchResult represents a single semantic search result.
-type SemanticSearchResult struct {
-	Message  Message `json:"message"`
-	Score    float64 `json:"score"`
+// SearchResult represents a single search result from any resource type.
+type SearchResult struct {
+	Type  string          `json:"type"`  // "user", "message", "conversation", "file", etc.
+	Score float64         `json:"score"` // relevance score from Turbopuffer
+	Data  json.RawMessage `json:"data"`  // full entity snapshot
 }

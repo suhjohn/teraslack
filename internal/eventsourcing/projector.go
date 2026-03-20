@@ -705,6 +705,17 @@ func (p *Projector) applySubscriptionDeleted(ctx context.Context, tx pgx.Tx, ent
 	if err := json.Unmarshal(entry.Payload, &s); err != nil {
 		return fmt.Errorf("unmarshal deleted subscription: %w", err)
 	}
-	_, err := tx.Exec(ctx, `DELETE FROM event_subscriptions WHERE id = $1`, s.ID)
+	id := s.ID
+	if id == "" {
+		// Fall back to subscription_id field or aggregate_id.
+		var m map[string]string
+		if err := json.Unmarshal(entry.Payload, &m); err == nil {
+			id = m["subscription_id"]
+		}
+	}
+	if id == "" {
+		id = entry.AggregateID
+	}
+	_, err := tx.Exec(ctx, `DELETE FROM event_subscriptions WHERE id = $1`, id)
 	return err
 }

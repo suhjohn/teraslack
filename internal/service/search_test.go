@@ -7,70 +7,65 @@ import (
 	"github.com/suhjohn/workspace/internal/domain"
 )
 
-func TestSearchService_SearchMessages_NoClickHouse(t *testing.T) {
-	svc := NewSearchService(nil, nil, nil, nil)
+func TestSearchService_Search_EmptyQuery(t *testing.T) {
+	svc := NewSearchService(nil)
 
-	// Empty query should error
-	_, err := svc.SearchMessages(context.Background(), domain.SearchMessagesParams{
+	_, err := svc.Search(context.Background(), domain.SearchParams{
 		Query: "",
 	})
 	if err == nil {
 		t.Fatal("expected error for empty query")
 	}
+}
 
-	// Valid query with no ClickHouse returns empty
-	page, err := svc.SearchMessages(context.Background(), domain.SearchMessagesParams{
+func TestSearchService_Search_NoTurbopuffer(t *testing.T) {
+	svc := NewSearchService(nil)
+
+	results, err := svc.Search(context.Background(), domain.SearchParams{
 		TeamID: "T123",
 		Query:  "hello",
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(page.Items) != 0 {
-		t.Errorf("expected 0 items, got %d", len(page.Items))
+	if len(results) != 0 {
+		t.Errorf("expected 0 results, got %d", len(results))
 	}
 }
 
-func TestSearchService_SearchFiles_NoClickHouse(t *testing.T) {
-	svc := NewSearchService(nil, nil, nil, nil)
+func TestSearchService_Search_WithTypes(t *testing.T) {
+	svc := NewSearchService(nil)
 
-	_, err := svc.SearchFiles(context.Background(), domain.SearchFilesParams{
-		Query: "",
-	})
-	if err == nil {
-		t.Fatal("expected error for empty query")
-	}
-
-	page, err := svc.SearchFiles(context.Background(), domain.SearchFilesParams{
+	// With type filter, still returns empty when no Turbopuffer configured
+	results, err := svc.Search(context.Background(), domain.SearchParams{
 		TeamID: "T123",
-		Query:  "report",
-	})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(page.Items) != 0 {
-		t.Errorf("expected 0 items, got %d", len(page.Items))
-	}
-}
-
-func TestSearchService_SemanticSearch_NoTurbopuffer(t *testing.T) {
-	svc := NewSearchService(nil, nil, nil, nil)
-
-	_, err := svc.SemanticSearch(context.Background(), domain.SemanticSearchParams{
-		Query: "",
-	})
-	if err == nil {
-		t.Fatal("expected error for empty query")
-	}
-
-	results, err := svc.SemanticSearch(context.Background(), domain.SemanticSearchParams{
-		TeamID: "T123",
-		Query:  "how to deploy",
+		Query:  "alice",
+		Types:  []string{"user", "conversation"},
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if len(results) != 0 {
 		t.Errorf("expected 0 results, got %d", len(results))
+	}
+}
+
+func TestSearchService_Index_NoTurbopuffer(t *testing.T) {
+	svc := NewSearchService(nil)
+
+	// Index should be a no-op when Turbopuffer is not configured
+	err := svc.Index(context.Background(), "user", "U123", "T123", "alice", map[string]string{"name": "alice"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestSearchService_Index_EmptyContent(t *testing.T) {
+	svc := NewSearchService(nil)
+
+	// Empty content should be a no-op
+	err := svc.Index(context.Background(), "user", "U123", "T123", "", nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }

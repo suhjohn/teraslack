@@ -134,7 +134,7 @@ func run(logger *slog.Logger) error {
 	bookmarkSvc := service.NewBookmarkService(bookmarkRepo, convRepo, recorder, logger)
 	fileSvc := service.NewFileService(fileRepo, s3, cfg.BaseURL, recorder, logger)
 	authSvc := service.NewAuthService(authRepo, userRepo, recorder, logger)
-	searchSvc := service.NewSearchService(msgRepo, fileRepo, nil, nil) // ClickHouse/Turbopuffer optional
+	searchSvc := service.NewSearchService(nil) // Turbopuffer optional — pass client when configured
 
 	// Initialize handlers
 	userHandler := handler.NewUserHandler(userSvc)
