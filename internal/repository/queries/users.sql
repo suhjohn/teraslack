@@ -26,6 +26,6 @@ RETURNING id, team_id, name, real_name, display_name, email, is_bot, is_admin, i
 SELECT id, team_id, name, real_name, display_name, email, is_bot, is_admin, is_owner,
        is_restricted, deleted, profile, created_at, updated_at
 FROM users
-WHERE team_id = $1 AND id > $2
+WHERE team_id = $1 AND id >= $2
 ORDER BY id ASC
 LIMIT $3;

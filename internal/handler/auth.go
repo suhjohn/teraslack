@@ -93,6 +93,7 @@ func (h *AuthHandler) Revoke(w http.ResponseWriter, r *http.Request) {
 var authBypassPaths = map[string]bool{
 	"/api/auth.test":        true,
 	"/api/auth.createToken": true,
+	"/healthz":              true,
 }
 
 // AuthMiddleware validates Bearer token and injects user context.
@@ -107,8 +108,10 @@ func AuthMiddleware(authSvc *service.AuthService) func(http.Handler) http.Handle
 
 			authHeader := r.Header.Get("Authorization")
 			if authHeader == "" || !strings.HasPrefix(authHeader, "Bearer ") {
-				// Allow unauthenticated access for backwards compatibility
-				next.ServeHTTP(w, r)
+				httputil.WriteJSON(w, http.StatusUnauthorized, httputil.SlackResponse{
+					OK:    false,
+					Error: "not_authed",
+				})
 				return
 			}
 

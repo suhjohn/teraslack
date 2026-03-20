@@ -25,7 +25,8 @@ func NewMessageRepo(pool *pgxpool.Pool) *MessageRepo {
 }
 
 func (r *MessageRepo) Create(ctx context.Context, params domain.PostMessageParams) (*domain.Message, error) {
-	ts := fmt.Sprintf("%d.%06d", timeNow().Unix(), timeNow().Nanosecond()/1000)
+	now := timeNow()
+	ts := fmt.Sprintf("%d.%06d", now.Unix(), now.Nanosecond()/1000)
 
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
@@ -218,7 +219,7 @@ func (r *MessageRepo) ListHistory(ctx context.Context, params domain.ListMessage
 	page := &domain.CursorPage[domain.Message]{}
 	if len(messages) > limit {
 		page.HasMore = true
-		page.NextCursor = messages[limit-1].TS
+		page.NextCursor = messages[limit].TS
 		page.Items = messages[:limit]
 	} else {
 		page.Items = messages
@@ -266,7 +267,7 @@ func (r *MessageRepo) ListReplies(ctx context.Context, params domain.ListReplies
 	page := &domain.CursorPage[domain.Message]{}
 	if len(messages) > limit {
 		page.HasMore = true
-		page.NextCursor = messages[limit-1].TS
+		page.NextCursor = messages[limit].TS
 		page.Items = messages[:limit]
 	} else {
 		page.Items = messages

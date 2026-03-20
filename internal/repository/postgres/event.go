@@ -179,8 +179,8 @@ func (r *EventRepo) ListSubscriptions(ctx context.Context, params domain.ListEve
 
 func (r *EventRepo) ListSubscriptionsByTeamAndEvent(ctx context.Context, teamID, eventType string) ([]domain.EventSubscription, error) {
 	rows, err := r.q.ListEventSubscriptionsByTeamAndEvent(ctx, sqlcgen.ListEventSubscriptionsByTeamAndEventParams{
-		TeamID:     teamID,
-		EventTypes: []string{eventType},
+		TeamID:  teamID,
+		Column2: eventType,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("list subscriptions by event: %w", err)

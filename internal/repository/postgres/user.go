@@ -2,6 +2,8 @@ package postgres
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -205,7 +207,7 @@ func (r *UserRepo) List(ctx context.Context, params domain.ListUsersParams) (*do
 	page := &domain.CursorPage[domain.User]{}
 	if len(users) > limit {
 		page.HasMore = true
-		page.NextCursor = users[limit-1].ID
+		page.NextCursor = users[limit].ID
 		page.Items = users[:limit]
 	} else {
 		page.Items = users
@@ -216,7 +218,9 @@ func (r *UserRepo) List(ctx context.Context, params domain.ListUsersParams) (*do
 	return page, nil
 }
 
-// generateID creates a Slack-style prefixed ID.
+// generateID creates a Slack-style prefixed ID with random suffix for uniqueness.
 func generateID(prefix string) string {
-	return fmt.Sprintf("%s%d", prefix, timeNow().UnixNano())
+	b := make([]byte, 4)
+	_, _ = rand.Read(b)
+	return fmt.Sprintf("%s%d%s", prefix, timeNow().UnixNano(), hex.EncodeToString(b))
 }

@@ -307,7 +307,7 @@ func (r *ConversationRepo) List(ctx context.Context, params domain.ListConversat
 	page := &domain.CursorPage[domain.Conversation]{}
 	if len(conversations) > limit {
 		page.HasMore = true
-		page.NextCursor = conversations[limit-1].ID
+		page.NextCursor = conversations[limit].ID
 		page.Items = conversations[:limit]
 	} else {
 		page.Items = conversations
@@ -365,7 +365,7 @@ func (r *ConversationRepo) listWithTypes(ctx context.Context, params domain.List
 	page := &domain.CursorPage[domain.Conversation]{}
 	if len(conversations) > limit {
 		page.HasMore = true
-		page.NextCursor = conversations[limit-1].ID
+		page.NextCursor = conversations[limit].ID
 		page.Items = conversations[:limit]
 	} else {
 		page.Items = conversations
@@ -486,7 +486,7 @@ func (r *ConversationRepo) ListMembers(ctx context.Context, conversationID strin
 	page := &domain.CursorPage[domain.ConversationMember]{}
 	if len(members) > limit {
 		page.HasMore = true
-		page.NextCursor = members[limit-1].UserID
+		page.NextCursor = members[limit].UserID
 		page.Items = members[:limit]
 	} else {
 		page.Items = members

@@ -23,7 +23,7 @@ ORDER BY created_at ASC;
 -- name: ListEventSubscriptionsByTeamAndEvent :many
 SELECT id, team_id, url, event_types, secret, enabled, created_at, updated_at
 FROM event_subscriptions
-WHERE team_id = $1 AND enabled = TRUE AND $2 = ANY(event_types)
+WHERE team_id = $1 AND enabled = TRUE AND $2::TEXT = ANY(event_types)
 ORDER BY created_at ASC;
 
 -- name: CreateEventRecord :exec

@@ -149,7 +149,7 @@ func (q *Queries) IsConversationMember(ctx context.Context, arg IsConversationMe
 const listConversationMembers = `-- name: ListConversationMembers :many
 SELECT conversation_id, user_id, joined_at
 FROM conversation_members
-WHERE conversation_id = $1 AND user_id > $2
+WHERE conversation_id = $1 AND user_id >= $2
 ORDER BY user_id ASC
 LIMIT $3
 `
@@ -186,7 +186,7 @@ SELECT id, team_id, name, type, creator_id, is_archived,
        purpose_value, purpose_creator, purpose_last_set,
        num_members, created_at, updated_at
 FROM conversations
-WHERE team_id = $1 AND id > $2
+WHERE team_id = $1 AND id >= $2
 ORDER BY id ASC
 LIMIT $3
 `
@@ -239,7 +239,7 @@ SELECT id, team_id, name, type, creator_id, is_archived,
        purpose_value, purpose_creator, purpose_last_set,
        num_members, created_at, updated_at
 FROM conversations
-WHERE team_id = $1 AND is_archived = FALSE AND id > $2
+WHERE team_id = $1 AND is_archived = FALSE AND id >= $2
 ORDER BY id ASC
 LIMIT $3
 `

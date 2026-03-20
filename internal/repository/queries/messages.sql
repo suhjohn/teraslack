@@ -31,7 +31,7 @@ SELECT ts, channel_id, user_id, text, thread_ts, type, subtype,
        reply_count, reply_users_count, latest_reply,
        is_deleted, created_at, updated_at
 FROM messages
-WHERE channel_id = $1 AND is_deleted = FALSE AND thread_ts IS NULL AND ts < $2
+WHERE channel_id = $1 AND is_deleted = FALSE AND thread_ts IS NULL AND ts <= $2
 ORDER BY ts DESC
 LIMIT $3;
 
@@ -51,7 +51,7 @@ SELECT ts, channel_id, user_id, text, thread_ts, type, subtype,
        reply_count, reply_users_count, latest_reply,
        is_deleted, created_at, updated_at
 FROM messages
-WHERE channel_id = $1 AND (thread_ts = $2 OR ts = $2) AND is_deleted = FALSE AND ts > $3
+WHERE channel_id = $1 AND (thread_ts = $2 OR ts = $2) AND is_deleted = FALSE AND ts >= $3
 ORDER BY ts ASC
 LIMIT $4;
 

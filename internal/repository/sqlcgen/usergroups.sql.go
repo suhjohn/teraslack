@@ -162,7 +162,7 @@ func (q *Queries) ListUsergroupMembers(ctx context.Context, usergroupID string) 
 const listUsergroups = `-- name: ListUsergroups :many
 SELECT id, team_id, name, handle, description, is_external, enabled,
        user_count, created_by, updated_by, created_at, updated_at
-FROM usergroups WHERE team_id = $1
+FROM usergroups WHERE team_id = $1 AND enabled = TRUE
 ORDER BY name ASC
 `
 
@@ -202,7 +202,7 @@ func (q *Queries) ListUsergroups(ctx context.Context, teamID string) ([]Usergrou
 const listUsergroupsIncludeDisabled = `-- name: ListUsergroupsIncludeDisabled :many
 SELECT id, team_id, name, handle, description, is_external, enabled,
        user_count, created_by, updated_by, created_at, updated_at
-FROM usergroups WHERE team_id = $1 AND enabled = TRUE
+FROM usergroups WHERE team_id = $1
 ORDER BY name ASC
 `
 

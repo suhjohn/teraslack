@@ -32,7 +32,7 @@ func TestGetUserID(t *testing.T) {
 }
 
 func TestAuthMiddleware_NoHeader(t *testing.T) {
-	// AuthMiddleware should pass through requests without Authorization header
+	// AuthMiddleware should reject requests without Authorization header with 401
 	called := false
 	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		called = true
@@ -46,10 +46,35 @@ func TestAuthMiddleware_NoHeader(t *testing.T) {
 
 	middleware.ServeHTTP(w, req)
 
-	if !called {
-		t.Fatal("expected next handler to be called")
+	if called {
+		t.Fatal("expected next handler NOT to be called for unauthenticated request")
 	}
-	if w.Code != http.StatusOK {
-		t.Errorf("expected 200, got %d", w.Code)
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401, got %d", w.Code)
+	}
+}
+
+func TestAuthMiddleware_BypassPaths(t *testing.T) {
+	// Bypass paths should pass through without auth
+	for _, path := range []string{"/api/auth.test", "/api/auth.createToken", "/healthz"} {
+		called := false
+		next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			called = true
+			w.WriteHeader(http.StatusOK)
+		})
+
+		middleware := AuthMiddleware(nil)(next)
+
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		w := httptest.NewRecorder()
+
+		middleware.ServeHTTP(w, req)
+
+		if !called {
+			t.Fatalf("expected next handler to be called for bypass path %s", path)
+		}
+		if w.Code != http.StatusOK {
+			t.Errorf("expected 200 for %s, got %d", path, w.Code)
+		}
 	}
 }

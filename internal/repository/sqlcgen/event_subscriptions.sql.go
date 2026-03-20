@@ -135,17 +135,17 @@ func (q *Queries) ListEventSubscriptions(ctx context.Context, teamID string) ([]
 const listEventSubscriptionsByTeamAndEvent = `-- name: ListEventSubscriptionsByTeamAndEvent :many
 SELECT id, team_id, url, event_types, secret, enabled, created_at, updated_at
 FROM event_subscriptions
-WHERE team_id = $1 AND enabled = TRUE AND $2 = ANY(event_types)
+WHERE team_id = $1 AND enabled = TRUE AND $2::TEXT = ANY(event_types)
 ORDER BY created_at ASC
 `
 
 type ListEventSubscriptionsByTeamAndEventParams struct {
-	TeamID     string   `json:"team_id"`
-	EventTypes []string `json:"event_types"`
+	TeamID  string `json:"team_id"`
+	Column2 string `json:"column_2"`
 }
 
 func (q *Queries) ListEventSubscriptionsByTeamAndEvent(ctx context.Context, arg ListEventSubscriptionsByTeamAndEventParams) ([]EventSubscription, error) {
-	rows, err := q.db.Query(ctx, listEventSubscriptionsByTeamAndEvent, arg.TeamID, arg.EventTypes)
+	rows, err := q.db.Query(ctx, listEventSubscriptionsByTeamAndEvent, arg.TeamID, arg.Column2)
 	if err != nil {
 		return nil, err
 	}

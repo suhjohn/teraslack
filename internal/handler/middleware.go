@@ -3,6 +3,7 @@ package handler
 import (
 	"log/slog"
 	"net/http"
+	"runtime/debug"
 	"time"
 )
 
@@ -29,7 +30,11 @@ func Recovery(logger *slog.Logger) func(http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			defer func() {
 				if rec := recover(); rec != nil {
-					logger.Error("panic recovered", "error", rec, "path", r.URL.Path)
+					logger.Error("panic recovered",
+						"error", rec,
+						"path", r.URL.Path,
+						"stack", string(debug.Stack()),
+					)
 					http.Error(w, `{"ok":false,"error":"internal_error"}`, http.StatusInternalServerError)
 				}
 			}()
