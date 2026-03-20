@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/suhjohn/slackbackend/internal/domain"
-	"github.com/suhjohn/slackbackend/internal/repository"
+	"github.com/suhjohn/agentslack/internal/domain"
+	"github.com/suhjohn/agentslack/internal/repository"
 )
 
 // ConversationService contains business logic for conversation operations.
