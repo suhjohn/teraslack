@@ -22,7 +22,7 @@ func NewAuthHandler(svc *service.AuthService) *AuthHandler {
 	return &AuthHandler{svc: svc}
 }
 
-// CreateToken handles POST /v1/tokens
+// CreateToken handles POST /tokens
 func (h *AuthHandler) CreateToken(w http.ResponseWriter, r *http.Request) {
 	var params domain.CreateTokenParams
 	if err := httputil.DecodeJSON(r, &params); err != nil {
@@ -44,7 +44,7 @@ func (h *AuthHandler) CreateToken(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// Test handles GET /v1/auth/test
+// Test handles GET /auth/test
 func (h *AuthHandler) Test(w http.ResponseWriter, r *http.Request) {
 	authHeader := r.Header.Get("Authorization")
 	if authHeader == "" {
@@ -65,7 +65,7 @@ func (h *AuthHandler) Test(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// Revoke handles DELETE /v1/tokens
+// Revoke handles DELETE /tokens
 func (h *AuthHandler) Revoke(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Token string `json:"token"`
@@ -85,8 +85,8 @@ func (h *AuthHandler) Revoke(w http.ResponseWriter, r *http.Request) {
 
 // authBypassPaths are endpoints that handle token validation themselves.
 var authBypassPaths = map[string]bool{
-	"/v1/auth/test": true,
-	"/v1/tokens":    true,
+	"/auth/test": true,
+	"/tokens":    true,
 	"/healthz":      true,
 }
 

@@ -19,7 +19,7 @@ func NewSearchHandler(svc *service.SearchService) *SearchHandler {
 	return &SearchHandler{svc: svc}
 }
 
-// SearchMessages handles GET /v1/search/messages?team_id=T123&query=hello&limit=20
+// SearchMessages handles GET /search/messages?team_id=T123&query=hello&limit=20
 func (h *SearchHandler) SearchMessages(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	limit, _ := strconv.Atoi(q.Get("limit"))
@@ -50,7 +50,7 @@ func (h *SearchHandler) SearchMessages(w http.ResponseWriter, r *http.Request) {
 	httputil.WriteOK(w, resp)
 }
 
-// SearchFiles handles GET /v1/search/files?team_id=T123&query=hello&limit=20
+// SearchFiles handles GET /search/files?team_id=T123&query=hello&limit=20
 func (h *SearchHandler) SearchFiles(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	limit, _ := strconv.Atoi(q.Get("limit"))
@@ -81,7 +81,7 @@ func (h *SearchHandler) SearchFiles(w http.ResponseWriter, r *http.Request) {
 	httputil.WriteOK(w, resp)
 }
 
-// SemanticSearch handles POST /v1/search/semantic
+// SemanticSearch handles POST /search/semantic
 func (h *SearchHandler) SemanticSearch(w http.ResponseWriter, r *http.Request) {
 	var params domain.SemanticSearchParams
 	if err := httputil.DecodeJSON(r, &params); err != nil {

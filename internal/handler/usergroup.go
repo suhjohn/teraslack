@@ -19,7 +19,7 @@ func NewUsergroupHandler(svc *service.UsergroupService) *UsergroupHandler {
 	return &UsergroupHandler{svc: svc}
 }
 
-// Create handles POST /v1/usergroups
+// Create handles POST /usergroups
 func (h *UsergroupHandler) Create(w http.ResponseWriter, r *http.Request) {
 	var params domain.CreateUsergroupParams
 	if err := httputil.DecodeJSON(r, &params); err != nil {
@@ -36,7 +36,7 @@ func (h *UsergroupHandler) Create(w http.ResponseWriter, r *http.Request) {
 	httputil.WriteOK(w, map[string]any{"usergroup": ug})
 }
 
-// Update handles POST /v1/usergroups/{id}
+// Update handles POST /usergroups/{id}
 func (h *UsergroupHandler) Update(w http.ResponseWriter, r *http.Request) {
 	ugID := r.PathValue("id")
 	if ugID == "" {
@@ -69,7 +69,7 @@ func (h *UsergroupHandler) Update(w http.ResponseWriter, r *http.Request) {
 	httputil.WriteOK(w, map[string]any{"usergroup": ug})
 }
 
-// List handles GET /v1/usergroups?team_id=T123&include_disabled=true
+// List handles GET /usergroups?team_id=T123&include_disabled=true
 func (h *UsergroupHandler) List(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	includeDisabled, _ := strconv.ParseBool(q.Get("include_disabled"))
@@ -86,7 +86,7 @@ func (h *UsergroupHandler) List(w http.ResponseWriter, r *http.Request) {
 	httputil.WriteOK(w, map[string]any{"usergroups": groups})
 }
 
-// Enable handles POST /v1/usergroups/{id}/enable
+// Enable handles POST /usergroups/{id}/enable
 func (h *UsergroupHandler) Enable(w http.ResponseWriter, r *http.Request) {
 	ugID := r.PathValue("id")
 	if ugID == "" {
@@ -102,7 +102,7 @@ func (h *UsergroupHandler) Enable(w http.ResponseWriter, r *http.Request) {
 	httputil.WriteOK(w, nil)
 }
 
-// Disable handles POST /v1/usergroups/{id}/disable
+// Disable handles POST /usergroups/{id}/disable
 func (h *UsergroupHandler) Disable(w http.ResponseWriter, r *http.Request) {
 	ugID := r.PathValue("id")
 	if ugID == "" {
@@ -118,7 +118,7 @@ func (h *UsergroupHandler) Disable(w http.ResponseWriter, r *http.Request) {
 	httputil.WriteOK(w, nil)
 }
 
-// ListUsers handles GET /v1/usergroups/{id}/users
+// ListUsers handles GET /usergroups/{id}/users
 func (h *UsergroupHandler) ListUsers(w http.ResponseWriter, r *http.Request) {
 	ugID := r.PathValue("id")
 	if ugID == "" {
@@ -135,7 +135,7 @@ func (h *UsergroupHandler) ListUsers(w http.ResponseWriter, r *http.Request) {
 	httputil.WriteOK(w, map[string]any{"users": users})
 }
 
-// Info handles GET /v1/usergroups/{id}
+// Info handles GET /usergroups/{id}
 func (h *UsergroupHandler) Info(w http.ResponseWriter, r *http.Request) {
 	ugID := r.PathValue("id")
 	if ugID == "" {
@@ -152,7 +152,7 @@ func (h *UsergroupHandler) Info(w http.ResponseWriter, r *http.Request) {
 	httputil.WriteOK(w, map[string]any{"usergroup": ug})
 }
 
-// SetUsers handles POST /v1/usergroups/{id}/users
+// SetUsers handles POST /usergroups/{id}/users
 func (h *UsergroupHandler) SetUsers(w http.ResponseWriter, r *http.Request) {
 	ugID := r.PathValue("id")
 	if ugID == "" {

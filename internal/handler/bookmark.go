@@ -18,7 +18,7 @@ func NewBookmarkHandler(svc *service.BookmarkService) *BookmarkHandler {
 	return &BookmarkHandler{svc: svc}
 }
 
-// Create handles POST /v1/bookmarks
+// Create handles POST /bookmarks
 func (h *BookmarkHandler) Create(w http.ResponseWriter, r *http.Request) {
 	var params domain.CreateBookmarkParams
 	if err := httputil.DecodeJSON(r, &params); err != nil {
@@ -35,7 +35,7 @@ func (h *BookmarkHandler) Create(w http.ResponseWriter, r *http.Request) {
 	httputil.WriteOK(w, map[string]any{"bookmark": bookmark})
 }
 
-// Edit handles POST /v1/bookmarks/{id}
+// Edit handles POST /bookmarks/{id}
 func (h *BookmarkHandler) Edit(w http.ResponseWriter, r *http.Request) {
 	bookmarkID := r.PathValue("id")
 	if bookmarkID == "" {
@@ -68,7 +68,7 @@ func (h *BookmarkHandler) Edit(w http.ResponseWriter, r *http.Request) {
 	httputil.WriteOK(w, map[string]any{"bookmark": bookmark})
 }
 
-// Remove handles DELETE /v1/bookmarks/{id}
+// Remove handles DELETE /bookmarks/{id}
 func (h *BookmarkHandler) Remove(w http.ResponseWriter, r *http.Request) {
 	bookmarkID := r.PathValue("id")
 	if bookmarkID == "" {
@@ -84,7 +84,7 @@ func (h *BookmarkHandler) Remove(w http.ResponseWriter, r *http.Request) {
 	httputil.WriteOK(w, nil)
 }
 
-// List handles GET /v1/bookmarks?channel_id=C123
+// List handles GET /bookmarks?channel_id=C123
 func (h *BookmarkHandler) List(w http.ResponseWriter, r *http.Request) {
 	channelID := r.URL.Query().Get("channel_id")
 

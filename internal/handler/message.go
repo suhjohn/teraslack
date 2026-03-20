@@ -19,7 +19,7 @@ func NewMessageHandler(svc *service.MessageService) *MessageHandler {
 	return &MessageHandler{svc: svc}
 }
 
-// PostMessage handles POST /v1/messages
+// PostMessage handles POST /messages
 func (h *MessageHandler) PostMessage(w http.ResponseWriter, r *http.Request) {
 	var params domain.PostMessageParams
 	if err := httputil.DecodeJSON(r, &params); err != nil {
@@ -40,7 +40,7 @@ func (h *MessageHandler) PostMessage(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// UpdateMessage handles POST /v1/messages/{channel_id}/{ts}
+// UpdateMessage handles POST /messages/{channel_id}/{ts}
 func (h *MessageHandler) UpdateMessage(w http.ResponseWriter, r *http.Request) {
 	channelID := r.PathValue("channel_id")
 	ts := r.PathValue("ts")
@@ -68,7 +68,7 @@ func (h *MessageHandler) UpdateMessage(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// DeleteMessage handles DELETE /v1/messages/{channel_id}/{ts}
+// DeleteMessage handles DELETE /messages/{channel_id}/{ts}
 func (h *MessageHandler) DeleteMessage(w http.ResponseWriter, r *http.Request) {
 	channelID := r.PathValue("channel_id")
 	ts := r.PathValue("ts")
@@ -88,7 +88,7 @@ func (h *MessageHandler) DeleteMessage(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// History handles GET /v1/messages?channel=C123&latest=...&oldest=...
+// History handles GET /messages?channel=C123&latest=...&oldest=...
 // When thread_ts is provided, returns thread replies instead of channel history.
 func (h *MessageHandler) History(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
@@ -154,7 +154,7 @@ func (h *MessageHandler) History(w http.ResponseWriter, r *http.Request) {
 }
 
 
-// AddReaction handles POST /v1/reactions
+// AddReaction handles POST /reactions
 func (h *MessageHandler) AddReaction(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Channel   string `json:"channel"`
@@ -181,7 +181,7 @@ func (h *MessageHandler) AddReaction(w http.ResponseWriter, r *http.Request) {
 	httputil.WriteOK(w, nil)
 }
 
-// RemoveReaction handles DELETE /v1/reactions
+// RemoveReaction handles DELETE /reactions
 func (h *MessageHandler) RemoveReaction(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Channel   string `json:"channel"`
@@ -208,7 +208,7 @@ func (h *MessageHandler) RemoveReaction(w http.ResponseWriter, r *http.Request) 
 	httputil.WriteOK(w, nil)
 }
 
-// GetReactions handles GET /v1/reactions?channel=C123&timestamp=...
+// GetReactions handles GET /reactions?channel=C123&timestamp=...
 func (h *MessageHandler) GetReactions(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	channelID := q.Get("channel")

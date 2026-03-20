@@ -19,7 +19,7 @@ func NewFileHandler(svc *service.FileService) *FileHandler {
 	return &FileHandler{svc: svc}
 }
 
-// GetUploadURL handles POST /v1/files/upload_url
+// GetUploadURL handles POST /files/upload_url
 func (h *FileHandler) GetUploadURL(w http.ResponseWriter, r *http.Request) {
 	var params domain.GetUploadURLParams
 	if err := httputil.DecodeJSON(r, &params); err != nil {
@@ -39,7 +39,7 @@ func (h *FileHandler) GetUploadURL(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// CompleteUpload handles POST /v1/files/{id}/complete
+// CompleteUpload handles POST /files/{id}/complete
 func (h *FileHandler) CompleteUpload(w http.ResponseWriter, r *http.Request) {
 	var params domain.CompleteUploadParams
 	if err := httputil.DecodeJSON(r, &params); err != nil {
@@ -56,7 +56,7 @@ func (h *FileHandler) CompleteUpload(w http.ResponseWriter, r *http.Request) {
 	httputil.WriteOK(w, map[string]any{"file": file})
 }
 
-// Info handles GET /v1/files/{id}
+// Info handles GET /files/{id}
 func (h *FileHandler) Info(w http.ResponseWriter, r *http.Request) {
 	fileID := r.PathValue("id")
 	if fileID == "" {
@@ -73,7 +73,7 @@ func (h *FileHandler) Info(w http.ResponseWriter, r *http.Request) {
 	httputil.WriteOK(w, map[string]any{"file": file})
 }
 
-// Delete handles DELETE /v1/files/{id}
+// Delete handles DELETE /files/{id}
 func (h *FileHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	fileID := r.PathValue("id")
 	if fileID == "" {
@@ -89,7 +89,7 @@ func (h *FileHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	httputil.WriteOK(w, nil)
 }
 
-// List handles GET /v1/files?channel=C123&user=U123&cursor=...&limit=100
+// List handles GET /files?channel=C123&user=U123&cursor=...&limit=100
 func (h *FileHandler) List(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	limit, _ := strconv.Atoi(q.Get("limit"))
@@ -116,7 +116,7 @@ func (h *FileHandler) List(w http.ResponseWriter, r *http.Request) {
 	httputil.WriteOK(w, resp)
 }
 
-// AddRemoteFile handles POST /v1/files/remote
+// AddRemoteFile handles POST /files/remote
 func (h *FileHandler) AddRemoteFile(w http.ResponseWriter, r *http.Request) {
 	var params domain.AddRemoteFileParams
 	if err := httputil.DecodeJSON(r, &params); err != nil {
@@ -133,7 +133,7 @@ func (h *FileHandler) AddRemoteFile(w http.ResponseWriter, r *http.Request) {
 	httputil.WriteOK(w, map[string]any{"file": file})
 }
 
-// ShareRemoteFile handles POST /v1/files/{id}/share
+// ShareRemoteFile handles POST /files/{id}/share
 func (h *FileHandler) ShareRemoteFile(w http.ResponseWriter, r *http.Request) {
 	var params domain.ShareRemoteFileParams
 	if err := httputil.DecodeJSON(r, &params); err != nil {

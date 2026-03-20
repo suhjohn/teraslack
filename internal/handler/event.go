@@ -18,7 +18,7 @@ func NewEventHandler(svc *service.EventService) *EventHandler {
 	return &EventHandler{svc: svc}
 }
 
-// CreateSubscription handles POST /v1/event_subscriptions
+// CreateSubscription handles POST /event_subscriptions
 func (h *EventHandler) CreateSubscription(w http.ResponseWriter, r *http.Request) {
 	var params domain.CreateEventSubscriptionParams
 	if err := httputil.DecodeJSON(r, &params); err != nil {
@@ -35,7 +35,7 @@ func (h *EventHandler) CreateSubscription(w http.ResponseWriter, r *http.Request
 	httputil.WriteOK(w, map[string]any{"subscription": sub})
 }
 
-// GetSubscription handles GET /v1/event_subscriptions/{id}
+// GetSubscription handles GET /event_subscriptions/{id}
 func (h *EventHandler) GetSubscription(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 
@@ -48,7 +48,7 @@ func (h *EventHandler) GetSubscription(w http.ResponseWriter, r *http.Request) {
 	httputil.WriteOK(w, map[string]any{"subscription": sub})
 }
 
-// UpdateSubscription handles POST /v1/event_subscriptions/{id}
+// UpdateSubscription handles POST /event_subscriptions/{id}
 func (h *EventHandler) UpdateSubscription(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	if id == "" {
@@ -79,7 +79,7 @@ func (h *EventHandler) UpdateSubscription(w http.ResponseWriter, r *http.Request
 	httputil.WriteOK(w, map[string]any{"subscription": sub})
 }
 
-// DeleteSubscription handles DELETE /v1/event_subscriptions/{id}
+// DeleteSubscription handles DELETE /event_subscriptions/{id}
 func (h *EventHandler) DeleteSubscription(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	if id == "" {
@@ -95,7 +95,7 @@ func (h *EventHandler) DeleteSubscription(w http.ResponseWriter, r *http.Request
 	httputil.WriteOK(w, nil)
 }
 
-// ListSubscriptions handles GET /v1/event_subscriptions?team_id=T123
+// ListSubscriptions handles GET /event_subscriptions?team_id=T123
 func (h *EventHandler) ListSubscriptions(w http.ResponseWriter, r *http.Request) {
 	teamID := r.URL.Query().Get("team_id")
 

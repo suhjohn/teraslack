@@ -20,7 +20,7 @@ func NewConversationHandler(svc *service.ConversationService) *ConversationHandl
 	return &ConversationHandler{svc: svc}
 }
 
-// Create handles POST /v1/conversations
+// Create handles POST /conversations
 func (h *ConversationHandler) Create(w http.ResponseWriter, r *http.Request) {
 	var params domain.CreateConversationParams
 	if err := httputil.DecodeJSON(r, &params); err != nil {
@@ -37,7 +37,7 @@ func (h *ConversationHandler) Create(w http.ResponseWriter, r *http.Request) {
 	httputil.WriteOK(w, map[string]any{"channel": conv})
 }
 
-// Info handles GET /v1/conversations/{id}
+// Info handles GET /conversations/{id}
 func (h *ConversationHandler) Info(w http.ResponseWriter, r *http.Request) {
 	channelID := r.PathValue("id")
 	if channelID == "" {
@@ -54,7 +54,7 @@ func (h *ConversationHandler) Info(w http.ResponseWriter, r *http.Request) {
 	httputil.WriteOK(w, map[string]any{"channel": conv})
 }
 
-// Update handles POST /v1/conversations/{id}
+// Update handles POST /conversations/{id}
 func (h *ConversationHandler) Update(w http.ResponseWriter, r *http.Request) {
 	channelID := r.PathValue("id")
 	if channelID == "" {
@@ -77,7 +77,7 @@ func (h *ConversationHandler) Update(w http.ResponseWriter, r *http.Request) {
 	httputil.WriteOK(w, map[string]any{"channel": conv})
 }
 
-// Archive handles POST /v1/conversations/{id}/archive
+// Archive handles POST /conversations/{id}/archive
 func (h *ConversationHandler) Archive(w http.ResponseWriter, r *http.Request) {
 	channelID := r.PathValue("id")
 	if channelID == "" {
@@ -93,7 +93,7 @@ func (h *ConversationHandler) Archive(w http.ResponseWriter, r *http.Request) {
 	httputil.WriteOK(w, nil)
 }
 
-// Unarchive handles POST /v1/conversations/{id}/unarchive
+// Unarchive handles POST /conversations/{id}/unarchive
 func (h *ConversationHandler) Unarchive(w http.ResponseWriter, r *http.Request) {
 	channelID := r.PathValue("id")
 	if channelID == "" {
@@ -109,7 +109,7 @@ func (h *ConversationHandler) Unarchive(w http.ResponseWriter, r *http.Request) 
 	httputil.WriteOK(w, nil)
 }
 
-// SetTopic handles POST /v1/conversations/{id}/topic
+// SetTopic handles POST /conversations/{id}/topic
 func (h *ConversationHandler) SetTopic(w http.ResponseWriter, r *http.Request) {
 	channelID := r.PathValue("id")
 	if channelID == "" {
@@ -138,7 +138,7 @@ func (h *ConversationHandler) SetTopic(w http.ResponseWriter, r *http.Request) {
 	httputil.WriteOK(w, map[string]any{"channel": conv})
 }
 
-// SetPurpose handles POST /v1/conversations/{id}/purpose
+// SetPurpose handles POST /conversations/{id}/purpose
 func (h *ConversationHandler) SetPurpose(w http.ResponseWriter, r *http.Request) {
 	channelID := r.PathValue("id")
 	if channelID == "" {
@@ -167,7 +167,7 @@ func (h *ConversationHandler) SetPurpose(w http.ResponseWriter, r *http.Request)
 	httputil.WriteOK(w, map[string]any{"channel": conv})
 }
 
-// List handles GET /v1/conversations?team_id=T123&types=public_channel,private_channel&...
+// List handles GET /conversations?team_id=T123&types=public_channel,private_channel&...
 func (h *ConversationHandler) List(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	limit, _ := strconv.Atoi(q.Get("limit"))
@@ -206,7 +206,7 @@ func (h *ConversationHandler) List(w http.ResponseWriter, r *http.Request) {
 	httputil.WriteOK(w, resp)
 }
 
-// Invite handles POST /v1/conversations/{id}/members
+// Invite handles POST /conversations/{id}/members
 func (h *ConversationHandler) Invite(w http.ResponseWriter, r *http.Request) {
 	channelID := r.PathValue("id")
 	if channelID == "" {
@@ -242,7 +242,7 @@ func (h *ConversationHandler) Invite(w http.ResponseWriter, r *http.Request) {
 	httputil.WriteOK(w, map[string]any{"channel": conv})
 }
 
-// Kick handles DELETE /v1/conversations/{id}/members/{user_id}
+// Kick handles DELETE /conversations/{id}/members/{user_id}
 func (h *ConversationHandler) Kick(w http.ResponseWriter, r *http.Request) {
 	channelID := r.PathValue("id")
 	userID := r.PathValue("user_id")
@@ -259,7 +259,7 @@ func (h *ConversationHandler) Kick(w http.ResponseWriter, r *http.Request) {
 	httputil.WriteOK(w, nil)
 }
 
-// Members handles GET /v1/conversations/{id}/members?cursor=...&limit=100
+// Members handles GET /conversations/{id}/members?cursor=...&limit=100
 func (h *ConversationHandler) Members(w http.ResponseWriter, r *http.Request) {
 	channelID := r.PathValue("id")
 	if channelID == "" {
