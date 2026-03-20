@@ -44,7 +44,17 @@ func run(logger *slog.Logger) error {
 		return fmt.Errorf("create migrator: %w", err)
 	}
 	if err := m.Up(); err != nil && err != migrate.ErrNoChange {
+		srcErr, dbErr := m.Close()
+		_ = srcErr
+		_ = dbErr
 		return fmt.Errorf("run migrations: %w", err)
+	}
+	srcErr, dbErr := m.Close()
+	if srcErr != nil {
+		return fmt.Errorf("close migration source: %w", srcErr)
+	}
+	if dbErr != nil {
+		return fmt.Errorf("close migration db: %w", dbErr)
 	}
 	logger.Info("migrations complete")
 

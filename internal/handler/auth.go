@@ -89,10 +89,22 @@ func (h *AuthHandler) Revoke(w http.ResponseWriter, r *http.Request) {
 	httputil.WriteOK(w, nil)
 }
 
+// authBypassPaths are endpoints that handle token validation themselves.
+var authBypassPaths = map[string]bool{
+	"/api/auth.test":        true,
+	"/api/auth.createToken": true,
+}
+
 // AuthMiddleware validates Bearer token and injects user context.
 func AuthMiddleware(authSvc *service.AuthService) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// Skip middleware for endpoints that handle auth themselves
+			if authBypassPaths[r.URL.Path] {
+				next.ServeHTTP(w, r)
+				return
+			}
+
 			authHeader := r.Header.Get("Authorization")
 			if authHeader == "" || !strings.HasPrefix(authHeader, "Bearer ") {
 				// Allow unauthenticated access for backwards compatibility

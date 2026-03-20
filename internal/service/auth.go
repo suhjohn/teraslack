@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/suhjohn/workspace/internal/domain"
 	"github.com/suhjohn/workspace/internal/repository"
@@ -47,6 +48,10 @@ func (s *AuthService) ValidateToken(ctx context.Context, bearerToken string) (*d
 	t, err := s.repo.GetByToken(ctx, token)
 	if err != nil {
 		return nil, err
+	}
+
+	if t.ExpiresAt != nil && t.ExpiresAt.Before(time.Now()) {
+		return nil, domain.ErrTokenRevoked
 	}
 
 	return &domain.AuthTestResponse{

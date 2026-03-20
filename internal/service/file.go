@@ -25,6 +25,9 @@ func NewFileService(repo repository.FileRepository, s3 *s3client.Client, baseURL
 }
 
 func (s *FileService) GetUploadURL(ctx context.Context, params domain.GetUploadURLParams) (*domain.GetUploadURLResponse, error) {
+	if s.s3 == nil {
+		return nil, fmt.Errorf("file uploads not configured: %w", domain.ErrInvalidArgument)
+	}
 	if params.Filename == "" {
 		return nil, fmt.Errorf("filename: %w", domain.ErrInvalidArgument)
 	}
@@ -41,7 +44,13 @@ func (s *FileService) GetUploadURL(ctx context.Context, params domain.GetUploadU
 
 	s3Key := fmt.Sprintf("files/%s/%s", fileID, params.Filename)
 
-	// Create file record in DB
+	// Generate presigned upload URL first to avoid orphaned DB records
+	uploadURL, err := s.s3.GeneratePresignedURL(ctx, s3Key, contentType, 15*time.Minute)
+	if err != nil {
+		return nil, fmt.Errorf("generate upload url: %w", err)
+	}
+
+	// Create file record in DB only after URL generation succeeds
 	f := &domain.File{
 		ID:       fileID,
 		Name:     params.Filename,
@@ -53,12 +62,6 @@ func (s *FileService) GetUploadURL(ctx context.Context, params domain.GetUploadU
 		return nil, fmt.Errorf("create file record: %w", err)
 	}
 
-	// Generate presigned upload URL
-	uploadURL, err := s.s3.GeneratePresignedURL(ctx, s3Key, contentType, 15*time.Minute)
-	if err != nil {
-		return nil, fmt.Errorf("generate upload url: %w", err)
-	}
-
 	return &domain.GetUploadURLResponse{
 		UploadURL: uploadURL,
 		FileID:    fileID,
@@ -66,6 +69,9 @@ func (s *FileService) GetUploadURL(ctx context.Context, params domain.GetUploadU
 }
 
 func (s *FileService) CompleteUpload(ctx context.Context, params domain.CompleteUploadParams) (*domain.File, error) {
+	if s.s3 == nil {
+		return nil, fmt.Errorf("file uploads not configured: %w", domain.ErrInvalidArgument)
+	}
 	if params.FileID == "" {
 		return nil, fmt.Errorf("file_id: %w", domain.ErrInvalidArgument)
 	}
@@ -123,11 +129,13 @@ func (s *FileService) Delete(ctx context.Context, id string) error {
 		return err
 	}
 
-	// Delete from S3
-	s3Key := fmt.Sprintf("files/%s/%s", f.ID, f.Name)
-	if err := s.s3.Delete(ctx, s3Key); err != nil {
-		// Log but don't fail - DB cleanup is more important
-		_ = err
+	// Delete from S3 if configured
+	if s.s3 != nil {
+		s3Key := fmt.Sprintf("files/%s/%s", f.ID, f.Name)
+		if err := s.s3.Delete(ctx, s3Key); err != nil {
+			// Log but don't fail - DB cleanup is more important
+			_ = err
+		}
 	}
 
 	return s.repo.Delete(ctx, id)

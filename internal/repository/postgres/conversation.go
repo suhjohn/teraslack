@@ -41,13 +41,15 @@ func (r *ConversationRepo) Create(ctx context.Context, params domain.CreateConve
 	qtx := r.q.WithTx(tx)
 
 	row, err := qtx.CreateConversation(ctx, sqlcgen.CreateConversationParams{
-		ID:           id,
-		TeamID:       params.TeamID,
-		Name:         params.Name,
-		Type:         string(params.Type),
-		CreatorID:    params.CreatorID,
-		TopicValue:   params.Topic,
-		PurposeValue: params.Purpose,
+		ID:             id,
+		TeamID:         params.TeamID,
+		Name:           params.Name,
+		Type:           string(params.Type),
+		CreatorID:      params.CreatorID,
+		TopicValue:     params.Topic,
+		TopicCreator:   params.CreatorID,
+		PurposeValue:   params.Purpose,
+		PurposeCreator: params.CreatorID,
 	})
 	if err != nil {
 		if strings.Contains(err.Error(), "duplicate key") {
@@ -382,6 +384,11 @@ func (r *ConversationRepo) AddMember(ctx context.Context, conversationID, userID
 	defer tx.Rollback(ctx)
 	qtx := r.q.WithTx(tx)
 
+	// Lock the conversation row to prevent concurrent member count races
+	if _, err := qtx.LockConversationForUpdate(ctx, conversationID); err != nil {
+		return fmt.Errorf("lock conversation: %w", err)
+	}
+
 	if err := qtx.AddConversationMember(ctx, sqlcgen.AddConversationMemberParams{
 		ConversationID: conversationID,
 		UserID:         userID,
@@ -411,6 +418,11 @@ func (r *ConversationRepo) RemoveMember(ctx context.Context, conversationID, use
 	}
 	defer tx.Rollback(ctx)
 	qtx := r.q.WithTx(tx)
+
+	// Lock the conversation row to prevent concurrent member count races
+	if _, err := qtx.LockConversationForUpdate(ctx, conversationID); err != nil {
+		return fmt.Errorf("lock conversation: %w", err)
+	}
 
 	count, err := qtx.CountConversationMembers(ctx, conversationID)
 	if err != nil {

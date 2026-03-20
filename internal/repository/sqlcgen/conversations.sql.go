@@ -47,7 +47,7 @@ func (q *Queries) CountConversationMembers(ctx context.Context, conversationID s
 
 const createConversation = `-- name: CreateConversation :one
 INSERT INTO conversations (id, team_id, name, type, creator_id, topic_value, topic_creator, purpose_value, purpose_creator)
-VALUES ($1, $2, $3, $4, $5, $6, $5, $7, $5)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 RETURNING id, team_id, name, type, creator_id, is_archived,
           topic_value, topic_creator, topic_last_set,
           purpose_value, purpose_creator, purpose_last_set,
@@ -55,13 +55,15 @@ RETURNING id, team_id, name, type, creator_id, is_archived,
 `
 
 type CreateConversationParams struct {
-	ID           string `json:"id"`
-	TeamID       string `json:"team_id"`
-	Name         string `json:"name"`
-	Type         string `json:"type"`
-	CreatorID    string `json:"creator_id"`
-	TopicValue   string `json:"topic_value"`
-	PurposeValue string `json:"purpose_value"`
+	ID             string `json:"id"`
+	TeamID         string `json:"team_id"`
+	Name           string `json:"name"`
+	Type           string `json:"type"`
+	CreatorID      string `json:"creator_id"`
+	TopicValue     string `json:"topic_value"`
+	TopicCreator   string `json:"topic_creator"`
+	PurposeValue   string `json:"purpose_value"`
+	PurposeCreator string `json:"purpose_creator"`
 }
 
 func (q *Queries) CreateConversation(ctx context.Context, arg CreateConversationParams) (Conversation, error) {
@@ -72,7 +74,9 @@ func (q *Queries) CreateConversation(ctx context.Context, arg CreateConversation
 		arg.Type,
 		arg.CreatorID,
 		arg.TopicValue,
+		arg.TopicCreator,
 		arg.PurposeValue,
+		arg.PurposeCreator,
 	)
 	var i Conversation
 	err := row.Scan(
@@ -280,6 +284,16 @@ func (q *Queries) ListConversationsByTeamExcludeArchived(ctx context.Context, ar
 		return nil, err
 	}
 	return items, nil
+}
+
+const lockConversationForUpdate = `-- name: LockConversationForUpdate :one
+SELECT id FROM conversations WHERE id = $1 FOR UPDATE
+`
+
+func (q *Queries) LockConversationForUpdate(ctx context.Context, id string) (string, error) {
+	row := q.db.QueryRow(ctx, lockConversationForUpdate, id)
+	err := row.Scan(&id)
+	return id, err
 }
 
 const removeConversationMember = `-- name: RemoveConversationMember :exec

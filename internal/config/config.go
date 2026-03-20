@@ -45,7 +45,7 @@ func Load() (*Config, error) {
 		Port:        port,
 		DatabaseURL: dbURL,
 		BaseURL:     baseURL,
-		S3Bucket:    getEnv("S3_BUCKET", "slackbackend-files"),
+		S3Bucket:    os.Getenv("S3_BUCKET"),
 		S3Region:    getEnv("S3_REGION", "us-east-1"),
 		S3Endpoint:  os.Getenv("S3_ENDPOINT"),
 		S3AccessKey: os.Getenv("S3_ACCESS_KEY"),

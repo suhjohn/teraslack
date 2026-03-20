@@ -99,7 +99,7 @@ func (q *Queries) GetEventSubscription(ctx context.Context, id string) (EventSub
 
 const listEventSubscriptions = `-- name: ListEventSubscriptions :many
 SELECT id, team_id, url, event_types, secret, enabled, created_at, updated_at
-FROM event_subscriptions WHERE team_id = $1 AND enabled = TRUE
+FROM event_subscriptions WHERE team_id = $1
 ORDER BY created_at ASC
 `
 

@@ -1,6 +1,6 @@
 -- name: CreateConversation :one
 INSERT INTO conversations (id, team_id, name, type, creator_id, topic_value, topic_creator, purpose_value, purpose_creator)
-VALUES ($1, $2, $3, $4, $5, $6, $5, $7, $5)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 RETURNING id, team_id, name, type, creator_id, is_archived,
           topic_value, topic_creator, topic_last_set,
           purpose_value, purpose_creator, purpose_last_set,
@@ -83,6 +83,9 @@ SELECT EXISTS(SELECT 1 FROM conversation_members WHERE conversation_id = $1 AND 
 
 -- name: CountConversationMembers :one
 SELECT COUNT(*) FROM conversation_members WHERE conversation_id = $1;
+
+-- name: LockConversationForUpdate :one
+SELECT id FROM conversations WHERE id = $1 FOR UPDATE;
 
 -- name: UpdateConversationMemberCount :exec
 UPDATE conversations SET num_members = (
