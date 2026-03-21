@@ -751,8 +751,7 @@ func (p *Projector) applyAPIKeyUpsert(ctx context.Context, tx pgx.Tx, entry doma
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)
 		ON CONFLICT (id) DO UPDATE SET
 			name = EXCLUDED.name, description = EXCLUDED.description,
-			key_hash = CASE WHEN EXCLUDED.key_hash = '' THEN api_keys.key_hash ELSE EXCLUDED.key_hash END,
-			key_prefix = EXCLUDED.key_prefix, key_hint = EXCLUDED.key_hint,
+			key_hash = EXCLUDED.key_hash, key_prefix = EXCLUDED.key_prefix, key_hint = EXCLUDED.key_hint,
 			team_id = EXCLUDED.team_id, principal_id = EXCLUDED.principal_id,
 			created_by = EXCLUDED.created_by, on_behalf_of = EXCLUDED.on_behalf_of,
 			type = EXCLUDED.type, environment = EXCLUDED.environment,

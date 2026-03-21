@@ -56,13 +56,11 @@ type APIKey struct {
 	UpdatedAt         time.Time  `json:"updated_at"`
 }
 
-// Redacted returns a copy with sensitive fields cleared for event_data.
-// KeyHash is cleared because the projector's UPSERT uses
-// CASE WHEN EXCLUDED.key_hash = '' THEN api_keys.key_hash ELSE EXCLUDED.key_hash END
-// to preserve the hash already stored in the projection table.
+// Redacted returns a copy safe for event_data storage.
+// KeyHash (a one-way SHA-256 hash) is preserved so projection rebuilds
+// can restore the lookup hash after TRUNCATE + replay.
 func (k *APIKey) Redacted() *APIKey {
 	c := *k
-	c.KeyHash = "" // never store key hash in event log
 	return &c
 }
 
