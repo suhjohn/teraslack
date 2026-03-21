@@ -252,6 +252,9 @@ func (r *ConversationRepo) listWithTypes(ctx context.Context, params domain.List
 		}
 		conversations = append(conversations, c)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate conversations: %w", err)
+	}
 
 	page := &domain.CursorPage[domain.Conversation]{}
 	if len(conversations) > limit {

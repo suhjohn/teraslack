@@ -23,6 +23,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
+	"github.com/aws/smithy-go"
 )
 
 // ErrCASConflict is returned when a compare-and-set write fails because the
@@ -181,14 +182,15 @@ func (q *S3Queue) Write(ctx context.Context, state QueueState, expectedETag stri
 
 	out, err := q.client.PutObject(ctx, input)
 	if err != nil {
-		// S3 returns 412 Precondition Failed when If-Match doesn't match
-		var precondErr *types.NotFound
-		if errors.As(err, &precondErr) {
+		// S3 returns 412 Precondition Failed when If-Match doesn't match.
+		// Use smithy GenericAPIError to match the error code properly.
+		var apiErr smithy.APIError
+		if errors.As(err, &apiErr) && apiErr.ErrorCode() == "PreconditionFailed" {
 			return "", ErrCASConflict
 		}
-		// Also check for generic "PreconditionFailed" in the error string
-		// since aws-sdk-go-v2 may wrap it differently
-		if isConflictError(err) {
+		// Fallback: check HTTP status code directly
+		var httpErr interface{ HTTPStatusCode() int }
+		if errors.As(err, &httpErr) && httpErr.HTTPStatusCode() == 412 {
 			return "", ErrCASConflict
 		}
 		return "", fmt.Errorf("s3 put queue: %w", err)
@@ -199,15 +201,4 @@ func (q *S3Queue) Write(ctx context.Context, state QueueState, expectedETag stri
 		newETag = *out.ETag
 	}
 	return newETag, nil
-}
-
-// isConflictError checks if an error is a CAS conflict (412 Precondition Failed).
-func isConflictError(err error) bool {
-	if err == nil {
-		return false
-	}
-	errStr := err.Error()
-	return bytes.Contains([]byte(errStr), []byte("PreconditionFailed")) ||
-		bytes.Contains([]byte(errStr), []byte("412")) ||
-		bytes.Contains([]byte(errStr), []byte("Precondition"))
 }
