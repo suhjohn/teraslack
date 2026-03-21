@@ -90,6 +90,21 @@ func setupTestDB(t *testing.T) *pgxpool.Pool {
 	return pool
 }
 
+func getMigrationsDir(t *testing.T) string {
+	t.Helper()
+	_, thisFile, _, _ := runtime.Caller(0)
+	return filepath.Join(filepath.Dir(thisFile), "..", "repository", "migrations")
+}
+
+func readMigration(t *testing.T, dir, name string) []byte {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join(dir, name))
+	if err != nil {
+		t.Fatalf("read migration %s: %v", name, err)
+	}
+	return data
+}
+
 func newTestLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn}))
 }
