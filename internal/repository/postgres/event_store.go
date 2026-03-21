@@ -28,18 +28,13 @@ func (r *EventStoreRepo) WithTx(tx pgx.Tx) repository.EventStoreRepository {
 	return &EventStoreRepo{db: tx, q: sqlcgen.New(tx), encryptor: r.encryptor}
 }
 
-// Append writes a service event and creates outbox entries for matching subscriptions atomically.
+// Append writes a service event and creates outbox entries for matching subscriptions.
+// When called via WithTx, it operates within the caller's transaction (no nested tx).
+// When called directly (r.db is a pool), it uses r.q directly — the event insert and
+// outbox entries share the same implicit connection.
 func (r *EventStoreRepo) Append(ctx context.Context, event domain.ServiceEvent) (*domain.ServiceEvent, error) {
-	tx, err := r.db.Begin(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("begin tx: %w", err)
-	}
-	defer tx.Rollback(ctx)
-
-	qtx := r.q.WithTx(tx)
-
 	// Insert the service event
-	row, err := qtx.InsertServiceEvent(ctx, sqlcgen.InsertServiceEventParams{
+	row, err := r.q.InsertServiceEvent(ctx, sqlcgen.InsertServiceEventParams{
 		EventType:     event.EventType,
 		AggregateType: event.AggregateType,
 		AggregateID:   event.AggregateID,
@@ -53,7 +48,7 @@ func (r *EventStoreRepo) Append(ctx context.Context, event domain.ServiceEvent) 
 	}
 
 	// Find matching subscriptions and create outbox entries
-	subs, err := qtx.GetMatchingSubscriptions(ctx, sqlcgen.GetMatchingSubscriptionsParams{
+	subs, err := r.q.GetMatchingSubscriptions(ctx, sqlcgen.GetMatchingSubscriptionsParams{
 		TeamID:  event.TeamID,
 		Column2: event.EventType,
 	})
@@ -68,7 +63,7 @@ func (r *EventStoreRepo) Append(ctx context.Context, event domain.ServiceEvent) 
 		if outboxSecret == "" {
 			outboxSecret = sub.Secret // fallback for unencrypted subscriptions
 		}
-		if err := qtx.InsertOutboxEntry(ctx, sqlcgen.InsertOutboxEntryParams{
+		if err := r.q.InsertOutboxEntry(ctx, sqlcgen.InsertOutboxEntryParams{
 			EventID:        row.ID,
 			SubscriptionID: sub.ID,
 			Url:            sub.Url,
@@ -78,10 +73,6 @@ func (r *EventStoreRepo) Append(ctx context.Context, event domain.ServiceEvent) 
 		}); err != nil {
 			return nil, fmt.Errorf("insert outbox entry for subscription %s: %w", sub.ID, err)
 		}
-	}
-
-	if err := tx.Commit(ctx); err != nil {
-		return nil, fmt.Errorf("commit tx: %w", err)
 	}
 
 	result := serviceEventToDomain(row)
