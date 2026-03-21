@@ -413,7 +413,7 @@ func (q *Queries) RevokeAPIKey(ctx context.Context, id string) error {
 }
 
 const setAPIKeyRotated = `-- name: SetAPIKeyRotated :exec
-UPDATE api_keys SET rotated_to_id = $2, grace_period_ends_at = $3 WHERE id = $1
+UPDATE api_keys SET rotated_to_id = $2, grace_period_ends_at = $3, revoked = TRUE, revoked_at = NOW() WHERE id = $1
 `
 
 type SetAPIKeyRotatedParams struct {

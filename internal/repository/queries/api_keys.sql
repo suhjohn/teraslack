@@ -65,7 +65,7 @@ RETURNING id, name, description, key_hash, key_prefix, key_hint, team_id, princi
           revoked, revoked_at, rotated_to_id, grace_period_ends_at, created_at, updated_at;
 
 -- name: SetAPIKeyRotated :exec
-UPDATE api_keys SET rotated_to_id = $2, grace_period_ends_at = $3 WHERE id = $1;
+UPDATE api_keys SET rotated_to_id = $2, grace_period_ends_at = $3, revoked = TRUE, revoked_at = NOW() WHERE id = $1;
 
 -- name: UpdateAPIKeyUsage :exec
 UPDATE api_keys SET last_used_at = NOW(), request_count = request_count + 1 WHERE id = $1;
