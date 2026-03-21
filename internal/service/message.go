@@ -15,15 +15,16 @@ type MessageService struct {
 	repo     repository.MessageRepository
 	convRepo repository.ConversationRepository
 	recorder EventRecorder
+	db       repository.TxBeginner
 	logger   *slog.Logger
 }
 
 // NewMessageService creates a new MessageService.
-func NewMessageService(repo repository.MessageRepository, convRepo repository.ConversationRepository, recorder EventRecorder, logger *slog.Logger) *MessageService {
+func NewMessageService(repo repository.MessageRepository, convRepo repository.ConversationRepository, recorder EventRecorder, db repository.TxBeginner, logger *slog.Logger) *MessageService {
 	if recorder == nil {
 		recorder = noopRecorder{}
 	}
-	return &MessageService{repo: repo, convRepo: convRepo, recorder: recorder, logger: logger}
+	return &MessageService{repo: repo, convRepo: convRepo, recorder: recorder, db: db, logger: logger}
 }
 
 func (s *MessageService) PostMessage(ctx context.Context, params domain.PostMessageParams) (*domain.Message, error) {
@@ -53,19 +54,29 @@ func (s *MessageService) PostMessage(ctx context.Context, params domain.PostMess
 		}
 	}
 
-	msg, err := s.repo.Create(ctx, params)
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	msg, err := s.repo.WithTx(tx).Create(ctx, params)
 	if err != nil {
 		return nil, err
 	}
 	payload, _ := json.Marshal(msg)
-	if recErr := s.recorder.Record(ctx, domain.ServiceEvent{
+	if err := s.recorder.WithTx(tx).Record(ctx, domain.ServiceEvent{
 		EventType:     domain.EventMessagePosted,
 		AggregateType: domain.AggregateMessage,
 		AggregateID:   msg.TS,
 		TeamID:        conv.TeamID,
 		Payload:       payload,
-	}); recErr != nil {
-		s.logger.Warn("record message.posted event", "error", recErr)
+	}); err != nil {
+		return nil, fmt.Errorf("record message.posted event: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("commit tx: %w", err)
 	}
 	return msg, nil
 }
@@ -81,19 +92,30 @@ func (s *MessageService) UpdateMessage(ctx context.Context, channelID, ts string
 	if channelID == "" || ts == "" {
 		return nil, fmt.Errorf("channel_id and ts: %w", domain.ErrInvalidArgument)
 	}
-	msg, err := s.repo.Update(ctx, channelID, ts, params)
+
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	msg, err := s.repo.WithTx(tx).Update(ctx, channelID, ts, params)
 	if err != nil {
 		return nil, err
 	}
 	payload, _ := json.Marshal(msg)
-	if recErr := s.recorder.Record(ctx, domain.ServiceEvent{
+	if err := s.recorder.WithTx(tx).Record(ctx, domain.ServiceEvent{
 		EventType:     domain.EventMessageUpdated,
 		AggregateType: domain.AggregateMessage,
 		AggregateID:   msg.TS,
 		TeamID:        "",
 		Payload:       payload,
-	}); recErr != nil {
-		s.logger.Warn("record message.updated event", "error", recErr)
+	}); err != nil {
+		return nil, fmt.Errorf("record message.updated event: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("commit tx: %w", err)
 	}
 	return msg, nil
 }
@@ -102,18 +124,29 @@ func (s *MessageService) DeleteMessage(ctx context.Context, channelID, ts string
 	if channelID == "" || ts == "" {
 		return fmt.Errorf("channel_id and ts: %w", domain.ErrInvalidArgument)
 	}
-	if err := s.repo.Delete(ctx, channelID, ts); err != nil {
+
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	if err := s.repo.WithTx(tx).Delete(ctx, channelID, ts); err != nil {
 		return err
 	}
 	payload, _ := json.Marshal(map[string]string{"channel_id": channelID, "ts": ts})
-	if recErr := s.recorder.Record(ctx, domain.ServiceEvent{
+	if err := s.recorder.WithTx(tx).Record(ctx, domain.ServiceEvent{
 		EventType:     domain.EventMessageDeleted,
 		AggregateType: domain.AggregateMessage,
 		AggregateID:   ts,
 		TeamID:        "",
 		Payload:       payload,
-	}); recErr != nil {
-		s.logger.Warn("record message.deleted event", "error", recErr)
+	}); err != nil {
+		return fmt.Errorf("record message.deleted event: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit tx: %w", err)
 	}
 	return nil
 }
@@ -140,20 +173,30 @@ func (s *MessageService) AddReaction(ctx context.Context, params domain.AddReact
 	if _, err := s.repo.Get(ctx, params.ChannelID, params.MessageTS); err != nil {
 		return fmt.Errorf("message: %w", err)
 	}
-	if err := s.repo.AddReaction(ctx, params); err != nil {
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	if err := s.repo.WithTx(tx).AddReaction(ctx, params); err != nil {
 		return err
 	}
 	payload, _ := json.Marshal(struct {
 		Reaction domain.AddReactionParams `json:"reaction"`
 	}{Reaction: params})
-	if recErr := s.recorder.Record(ctx, domain.ServiceEvent{
+	if err := s.recorder.WithTx(tx).Record(ctx, domain.ServiceEvent{
 		EventType:     domain.EventReactionAdded,
 		AggregateType: domain.AggregateMessage,
 		AggregateID:   params.MessageTS,
 		TeamID:        "",
 		Payload:       payload,
-	}); recErr != nil {
-		s.logger.Warn("record reaction.added event", "error", recErr)
+	}); err != nil {
+		return fmt.Errorf("record reaction.added event: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit tx: %w", err)
 	}
 	return nil
 }
@@ -162,20 +205,31 @@ func (s *MessageService) RemoveReaction(ctx context.Context, params domain.Remov
 	if params.ChannelID == "" || params.MessageTS == "" || params.UserID == "" || params.Emoji == "" {
 		return fmt.Errorf("channel_id, message_ts, user_id, and emoji: %w", domain.ErrInvalidArgument)
 	}
-	if err := s.repo.RemoveReaction(ctx, params); err != nil {
+
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	if err := s.repo.WithTx(tx).RemoveReaction(ctx, params); err != nil {
 		return err
 	}
 	payload, _ := json.Marshal(struct {
 		Reaction domain.RemoveReactionParams `json:"reaction"`
 	}{Reaction: params})
-	if recErr := s.recorder.Record(ctx, domain.ServiceEvent{
+	if err := s.recorder.WithTx(tx).Record(ctx, domain.ServiceEvent{
 		EventType:     domain.EventReactionRemoved,
 		AggregateType: domain.AggregateMessage,
 		AggregateID:   params.MessageTS,
 		TeamID:        "",
 		Payload:       payload,
-	}); recErr != nil {
-		s.logger.Warn("record reaction.removed event", "error", recErr)
+	}); err != nil {
+		return fmt.Errorf("record reaction.removed event: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit tx: %w", err)
 	}
 	return nil
 }

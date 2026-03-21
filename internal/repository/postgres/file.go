@@ -6,18 +6,23 @@ import (
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/suhjohn/workspace/internal/domain"
+	"github.com/suhjohn/workspace/internal/repository"
 	"github.com/suhjohn/workspace/internal/repository/sqlcgen"
 )
 
 type FileRepo struct {
-	q    *sqlcgen.Queries
-	pool *pgxpool.Pool
+	q  *sqlcgen.Queries
+	db DBTX
 }
 
-func NewFileRepo(pool *pgxpool.Pool) *FileRepo {
-	return &FileRepo{q: sqlcgen.New(pool), pool: pool}
+func NewFileRepo(db DBTX) *FileRepo {
+	return &FileRepo{q: sqlcgen.New(db), db: db}
+}
+
+// WithTx returns a new FileRepo that operates within the given transaction.
+func (r *FileRepo) WithTx(tx pgx.Tx) repository.FileRepository {
+	return &FileRepo{q: sqlcgen.New(tx), db: tx}
 }
 
 func (r *FileRepo) Create(ctx context.Context, f *domain.File) error {

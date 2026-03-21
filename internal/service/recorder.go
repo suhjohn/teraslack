@@ -5,17 +5,19 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/suhjohn/workspace/internal/ctxutil"
 	"github.com/suhjohn/workspace/internal/domain"
 	"github.com/suhjohn/workspace/internal/repository"
 )
 
 // EventRecorder defines the interface for recording service-level events.
-// This replaces the old EventPublisher interface. Services call Record()
-// after successful mutations to append events to the event store with
-// actor identity and explicit payload control.
+// Services call Record() after successful mutations to append events to
+// the event store with actor identity and explicit payload control.
 type EventRecorder interface {
 	Record(ctx context.Context, event domain.ServiceEvent) error
+	// WithTx returns an EventRecorder that operates within the given transaction.
+	WithTx(tx pgx.Tx) EventRecorder
 }
 
 // eventRecorder is the production implementation backed by EventStoreRepository.
@@ -48,9 +50,18 @@ func (r *eventRecorder) Record(ctx context.Context, event domain.ServiceEvent) e
 	return nil
 }
 
+// WithTx returns a new eventRecorder that operates within the given transaction.
+func (r *eventRecorder) WithTx(tx pgx.Tx) EventRecorder {
+	return &eventRecorder{store: r.store.WithTx(tx)}
+}
+
 // noopRecorder is a no-op implementation used when no event recorder is configured.
 type noopRecorder struct{}
 
 func (noopRecorder) Record(ctx context.Context, event domain.ServiceEvent) error {
 	return nil
+}
+
+func (noopRecorder) WithTx(tx pgx.Tx) EventRecorder {
+	return noopRecorder{}
 }

@@ -108,7 +108,7 @@ func TestServiceEventRecording_UserCreate(t *testing.T) {
 	userRepo := pgRepo.NewUserRepo(pool)
 	eventStoreRepo := pgRepo.NewEventStoreRepo(pool, nil)
 	recorder := service.NewEventRecorder(eventStoreRepo)
-	userSvc := service.NewUserService(userRepo, recorder, logger)
+	userSvc := service.NewUserService(userRepo, recorder, pool, logger)
 
 	user, err := userSvc.Create(ctx, domain.CreateUserParams{
 		TeamID: "T001",
@@ -170,7 +170,7 @@ func TestServiceEventRecording_UserUpdate(t *testing.T) {
 	userRepo := pgRepo.NewUserRepo(pool)
 	eventStoreRepo := pgRepo.NewEventStoreRepo(pool, nil)
 	recorder := service.NewEventRecorder(eventStoreRepo)
-	userSvc := service.NewUserService(userRepo, recorder, logger)
+	userSvc := service.NewUserService(userRepo, recorder, pool, logger)
 
 	user, err := userSvc.Create(ctx, domain.CreateUserParams{
 		TeamID: "T001",
@@ -234,7 +234,7 @@ func TestReplayCorrectness_Users(t *testing.T) {
 	userRepo := pgRepo.NewUserRepo(pool)
 	eventStoreRepo := pgRepo.NewEventStoreRepo(pool, nil)
 	recorder := service.NewEventRecorder(eventStoreRepo)
-	userSvc := service.NewUserService(userRepo, recorder, logger)
+	userSvc := service.NewUserService(userRepo, recorder, pool, logger)
 
 	var userIDs []string
 	for i := 0; i < 5; i++ {
@@ -318,8 +318,8 @@ func TestReplayCorrectness_ConversationWithMembers(t *testing.T) {
 	convRepo := pgRepo.NewConversationRepo(pool)
 	eventStoreRepo := pgRepo.NewEventStoreRepo(pool, nil)
 	recorder := service.NewEventRecorder(eventStoreRepo)
-	userSvc := service.NewUserService(userRepo, recorder, logger)
-	convSvc := service.NewConversationService(convRepo, userRepo, recorder, logger)
+	userSvc := service.NewUserService(userRepo, recorder, pool, logger)
+	convSvc := service.NewConversationService(convRepo, userRepo, recorder, pool, logger)
 
 	creator, err := userSvc.Create(ctx, domain.CreateUserParams{
 		TeamID: "T001",
@@ -398,9 +398,9 @@ func TestReplayCorrectness_BookmarkCRUD(t *testing.T) {
 	bookmarkRepo := pgRepo.NewBookmarkRepo(pool)
 	eventStoreRepo := pgRepo.NewEventStoreRepo(pool, nil)
 	recorder := service.NewEventRecorder(eventStoreRepo)
-	userSvc := service.NewUserService(userRepo, recorder, logger)
-	convSvc := service.NewConversationService(convRepo, userRepo, recorder, logger)
-	bookmarkSvc := service.NewBookmarkService(bookmarkRepo, convRepo, recorder, logger)
+	userSvc := service.NewUserService(userRepo, recorder, pool, logger)
+	convSvc := service.NewConversationService(convRepo, userRepo, recorder, pool, logger)
+	bookmarkSvc := service.NewBookmarkService(bookmarkRepo, convRepo, recorder, pool, logger)
 
 	user, err := userSvc.Create(ctx, domain.CreateUserParams{
 		TeamID: "T001",
@@ -490,7 +490,7 @@ func TestPayloadIsFullSnapshot(t *testing.T) {
 	userRepo := pgRepo.NewUserRepo(pool)
 	eventStoreRepo := pgRepo.NewEventStoreRepo(pool, nil)
 	recorder := service.NewEventRecorder(eventStoreRepo)
-	userSvc := service.NewUserService(userRepo, recorder, logger)
+	userSvc := service.NewUserService(userRepo, recorder, pool, logger)
 
 	user, err := userSvc.Create(ctx, domain.CreateUserParams{
 		TeamID:      "T001",
@@ -560,9 +560,9 @@ func TestDeleteEventIsRecorded(t *testing.T) {
 	bookmarkRepo := pgRepo.NewBookmarkRepo(pool)
 	eventStoreRepo := pgRepo.NewEventStoreRepo(pool, nil)
 	recorder := service.NewEventRecorder(eventStoreRepo)
-	userSvc := service.NewUserService(userRepo, recorder, logger)
-	convSvc := service.NewConversationService(convRepo, userRepo, recorder, logger)
-	bookmarkSvc := service.NewBookmarkService(bookmarkRepo, convRepo, recorder, logger)
+	userSvc := service.NewUserService(userRepo, recorder, pool, logger)
+	convSvc := service.NewConversationService(convRepo, userRepo, recorder, pool, logger)
+	bookmarkSvc := service.NewBookmarkService(bookmarkRepo, convRepo, recorder, pool, logger)
 
 	user, err := userSvc.Create(ctx, domain.CreateUserParams{
 		TeamID: "T001",
@@ -630,7 +630,7 @@ func TestEventCountConsistency(t *testing.T) {
 	userRepo := pgRepo.NewUserRepo(pool)
 	eventStoreRepo := pgRepo.NewEventStoreRepo(pool, nil)
 	recorder := service.NewEventRecorder(eventStoreRepo)
-	userSvc := service.NewUserService(userRepo, recorder, logger)
+	userSvc := service.NewUserService(userRepo, recorder, pool, logger)
 
 	u, err := userSvc.Create(ctx, domain.CreateUserParams{
 		TeamID: "T001",

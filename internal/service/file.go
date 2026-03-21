@@ -20,15 +20,16 @@ type FileService struct {
 	s3       *s3client.Client
 	baseURL  string
 	recorder EventRecorder
+	db       repository.TxBeginner
 	logger   *slog.Logger
 }
 
 // NewFileService creates a new FileService.
-func NewFileService(repo repository.FileRepository, s3 *s3client.Client, baseURL string, recorder EventRecorder, logger *slog.Logger) *FileService {
+func NewFileService(repo repository.FileRepository, s3 *s3client.Client, baseURL string, recorder EventRecorder, db repository.TxBeginner, logger *slog.Logger) *FileService {
 	if recorder == nil {
 		recorder = noopRecorder{}
 	}
-	return &FileService{repo: repo, s3: s3, baseURL: baseURL, recorder: recorder, logger: logger}
+	return &FileService{repo: repo, s3: s3, baseURL: baseURL, recorder: recorder, db: db, logger: logger}
 }
 
 func (s *FileService) GetUploadURL(ctx context.Context, params domain.GetUploadURLParams) (*domain.GetUploadURLResponse, error) {
@@ -65,23 +66,35 @@ func (s *FileService) GetUploadURL(ctx context.Context, params domain.GetUploadU
 		Filetype: ext,
 		Size:     params.Length,
 	}
-	if err := s.repo.Create(ctx, f); err != nil {
+
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	if err := s.repo.WithTx(tx).Create(ctx, f); err != nil {
 		return nil, fmt.Errorf("create file record: %w", err)
 	}
 
-	resp := &domain.GetUploadURLResponse{
-		UploadURL: uploadURL,
-		FileID:    fileID,
-	}
 	payload, _ := json.Marshal(f)
-	if recErr := s.recorder.Record(ctx, domain.ServiceEvent{
+	if err := s.recorder.WithTx(tx).Record(ctx, domain.ServiceEvent{
 		EventType:     domain.EventFileCreated,
 		AggregateType: domain.AggregateFile,
 		AggregateID:   f.ID,
 		TeamID:        "",
 		Payload:       payload,
-	}); recErr != nil {
-		s.logger.Warn("record file.created event", "error", recErr)
+	}); err != nil {
+		return nil, fmt.Errorf("record file.created event: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("commit tx: %w", err)
+	}
+
+	resp := &domain.GetUploadURLResponse{
+		UploadURL: uploadURL,
+		FileID:    fileID,
 	}
 	return resp, nil
 }
@@ -115,13 +128,22 @@ func (s *FileService) CompleteUpload(ctx context.Context, params domain.Complete
 	f.URLPrivateDownload = downloadURL
 	f.Permalink = fmt.Sprintf("%s/files/%s", s.baseURL, f.ID)
 
-	if err := s.repo.Update(ctx, f); err != nil {
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	txRepo := s.repo.WithTx(tx)
+	txRecorder := s.recorder.WithTx(tx)
+
+	if err := txRepo.Update(ctx, f); err != nil {
 		return nil, fmt.Errorf("update file: %w", err)
 	}
 
 	// Share to channel if specified
 	if params.ChannelID != "" {
-		if err := s.repo.ShareToChannel(ctx, f.ID, params.ChannelID); err != nil {
+		if err := txRepo.ShareToChannel(ctx, f.ID, params.ChannelID); err != nil {
 			return nil, fmt.Errorf("share to channel: %w", err)
 		}
 		f.Channels = append(f.Channels, params.ChannelID)
@@ -129,28 +151,32 @@ func (s *FileService) CompleteUpload(ctx context.Context, params domain.Complete
 
 	// Record file update event with full snapshot
 	payload, _ := json.Marshal(f)
-	if recErr := s.recorder.Record(ctx, domain.ServiceEvent{
+	if err := txRecorder.Record(ctx, domain.ServiceEvent{
 		EventType:     domain.EventFileUpdated,
 		AggregateType: domain.AggregateFile,
 		AggregateID:   f.ID,
 		TeamID:        "",
 		Payload:       payload,
-	}); recErr != nil {
-		s.logger.Warn("record file.updated event", "error", recErr)
+	}); err != nil {
+		return nil, fmt.Errorf("record file.updated event: %w", err)
 	}
 
 	// Record file.shared event with the {file_id, channel_id} format the projector expects
 	if params.ChannelID != "" {
 		sharePayload, _ := json.Marshal(map[string]string{"file_id": f.ID, "channel_id": params.ChannelID})
-		if recErr := s.recorder.Record(ctx, domain.ServiceEvent{
+		if err := txRecorder.Record(ctx, domain.ServiceEvent{
 			EventType:     domain.EventFileShared,
 			AggregateType: domain.AggregateFile,
 			AggregateID:   f.ID,
 			TeamID:        "",
 			Payload:       sharePayload,
-		}); recErr != nil {
-			s.logger.Warn("record file.shared event", "error", recErr)
+		}); err != nil {
+			return nil, fmt.Errorf("record file.shared event: %w", err)
 		}
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("commit tx: %w", err)
 	}
 	return f, nil
 }
@@ -181,18 +207,28 @@ func (s *FileService) Delete(ctx context.Context, id string) error {
 		}
 	}
 
-	if err := s.repo.Delete(ctx, id); err != nil {
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	if err := s.repo.WithTx(tx).Delete(ctx, id); err != nil {
 		return err
 	}
 	payload, _ := json.Marshal(f)
-	if recErr := s.recorder.Record(ctx, domain.ServiceEvent{
+	if err := s.recorder.WithTx(tx).Record(ctx, domain.ServiceEvent{
 		EventType:     domain.EventFileDeleted,
 		AggregateType: domain.AggregateFile,
 		AggregateID:   f.ID,
 		TeamID:        "",
 		Payload:       payload,
-	}); recErr != nil {
-		s.logger.Warn("record file.deleted event", "error", recErr)
+	}); err != nil {
+		return fmt.Errorf("record file.deleted event: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit tx: %w", err)
 	}
 	return nil
 }

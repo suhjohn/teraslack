@@ -6,20 +6,25 @@ import (
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/suhjohn/workspace/internal/crypto"
 	"github.com/suhjohn/workspace/internal/domain"
+	"github.com/suhjohn/workspace/internal/repository"
 	"github.com/suhjohn/workspace/internal/repository/sqlcgen"
 )
 
 type EventRepo struct {
 	q         *sqlcgen.Queries
-	pool      *pgxpool.Pool
+	db        DBTX
 	encryptor *crypto.Encryptor
 }
 
-func NewEventRepo(pool *pgxpool.Pool, encryptor *crypto.Encryptor) *EventRepo {
-	return &EventRepo{q: sqlcgen.New(pool), pool: pool, encryptor: encryptor}
+func NewEventRepo(db DBTX, encryptor *crypto.Encryptor) *EventRepo {
+	return &EventRepo{q: sqlcgen.New(db), db: db, encryptor: encryptor}
+}
+
+// WithTx returns a new EventRepo that operates within the given transaction.
+func (r *EventRepo) WithTx(tx pgx.Tx) repository.EventRepository {
+	return &EventRepo{q: sqlcgen.New(tx), db: tx, encryptor: r.encryptor}
 }
 
 func (r *EventRepo) CreateSubscription(ctx context.Context, params domain.CreateEventSubscriptionParams) (*domain.EventSubscription, error) {

@@ -7,18 +7,23 @@ import (
 	"strings"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/suhjohn/workspace/internal/domain"
+	"github.com/suhjohn/workspace/internal/repository"
 	"github.com/suhjohn/workspace/internal/repository/sqlcgen"
 )
 
 type ConversationRepo struct {
-	q    *sqlcgen.Queries
-	pool *pgxpool.Pool
+	q  *sqlcgen.Queries
+	db DBTX
 }
 
-func NewConversationRepo(pool *pgxpool.Pool) *ConversationRepo {
-	return &ConversationRepo{q: sqlcgen.New(pool), pool: pool}
+func NewConversationRepo(db DBTX) *ConversationRepo {
+	return &ConversationRepo{q: sqlcgen.New(db), db: db}
+}
+
+// WithTx returns a new ConversationRepo that operates within the given transaction.
+func (r *ConversationRepo) WithTx(tx pgx.Tx) repository.ConversationRepository {
+	return &ConversationRepo{q: sqlcgen.New(tx), db: tx}
 }
 
 func (r *ConversationRepo) Create(ctx context.Context, params domain.CreateConversationParams) (*domain.Conversation, error) {
@@ -31,7 +36,7 @@ func (r *ConversationRepo) Create(ctx context.Context, params domain.CreateConve
 	}
 	id := generateID(prefix)
 
-	tx, err := r.pool.Begin(ctx)
+	tx, err := r.db.Begin(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("begin tx: %w", err)
 	}
@@ -233,7 +238,7 @@ func (r *ConversationRepo) listWithTypes(ctx context.Context, params domain.List
 	args = append(args, limit+1)
 	query += fmt.Sprintf(" LIMIT $%d", len(args))
 
-	rows, err := r.pool.Query(ctx, query, args...)
+	rows, err := r.db.Query(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("list conversations: %w", err)
 	}
@@ -271,7 +276,7 @@ func (r *ConversationRepo) listWithTypes(ctx context.Context, params domain.List
 }
 
 func (r *ConversationRepo) AddMember(ctx context.Context, conversationID, userID string) error {
-	tx, err := r.pool.Begin(ctx)
+	tx, err := r.db.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
 	}
@@ -297,7 +302,7 @@ func (r *ConversationRepo) AddMember(ctx context.Context, conversationID, userID
 }
 
 func (r *ConversationRepo) RemoveMember(ctx context.Context, conversationID, userID string) error {
-	tx, err := r.pool.Begin(ctx)
+	tx, err := r.db.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
 	}

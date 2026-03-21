@@ -5,7 +5,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/suhjohn/workspace/internal/domain"
+	"github.com/suhjohn/workspace/internal/repository"
 )
 
 type mockBookmarkRepo struct {
@@ -76,6 +78,8 @@ func (m *mockBookmarkRepo) List(_ context.Context, params domain.ListBookmarksPa
 	return result, nil
 }
 
+func (m *mockBookmarkRepo) WithTx(_ pgx.Tx) repository.BookmarkRepository { return m }
+
 // mockConvRepoForBookmark is a minimal conversation repo mock for bookmark tests.
 type mockConvRepoForBookmark struct{}
 
@@ -114,10 +118,11 @@ func (m *mockConvRepoForBookmark) ListMembers(_ context.Context, _ string, _ str
 func (m *mockConvRepoForBookmark) IsMember(_ context.Context, _, _ string) (bool, error) {
 	return true, nil
 }
+func (m *mockConvRepoForBookmark) WithTx(_ pgx.Tx) repository.ConversationRepository { return m }
 
 func TestBookmarkService_Create(t *testing.T) {
 	repo := newMockBookmarkRepo()
-	svc := NewBookmarkService(repo, &mockConvRepoForBookmark{}, nil, nil)
+	svc := NewBookmarkService(repo, &mockConvRepoForBookmark{}, nil, mockTxBeginner{}, nil)
 
 	tests := []struct {
 		name    string
@@ -184,7 +189,7 @@ func TestBookmarkService_Create(t *testing.T) {
 
 func TestBookmarkService_CRUD(t *testing.T) {
 	repo := newMockBookmarkRepo()
-	svc := NewBookmarkService(repo, &mockConvRepoForBookmark{}, nil, nil)
+	svc := NewBookmarkService(repo, &mockConvRepoForBookmark{}, nil, mockTxBeginner{}, nil)
 
 	// Create
 	b, err := svc.Create(context.Background(), domain.CreateBookmarkParams{

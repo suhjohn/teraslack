@@ -147,15 +147,15 @@ func run(logger *slog.Logger) error {
 	}
 
 	// Initialize services
-	eventSvc := service.NewEventService(eventRepo, recorder, logger)
-	userSvc := service.NewUserService(userRepo, recorder, logger)
-	convSvc := service.NewConversationService(convRepo, userRepo, recorder, logger)
-	msgSvc := service.NewMessageService(msgRepo, convRepo, recorder, logger)
-	ugSvc := service.NewUsergroupService(ugRepo, userRepo, recorder, logger)
-	pinSvc := service.NewPinService(pinRepo, convRepo, msgRepo, recorder, logger)
-	bookmarkSvc := service.NewBookmarkService(bookmarkRepo, convRepo, recorder, logger)
-	fileSvc := service.NewFileService(fileRepo, s3, cfg.BaseURL, recorder, logger)
-	authSvc := service.NewAuthService(authRepo, userRepo, recorder, logger)
+	eventSvc := service.NewEventService(eventRepo, recorder, pool, logger)
+	userSvc := service.NewUserService(userRepo, recorder, pool, logger)
+	convSvc := service.NewConversationService(convRepo, userRepo, recorder, pool, logger)
+	msgSvc := service.NewMessageService(msgRepo, convRepo, recorder, pool, logger)
+	ugSvc := service.NewUsergroupService(ugRepo, userRepo, recorder, pool, logger)
+	pinSvc := service.NewPinService(pinRepo, convRepo, msgRepo, recorder, pool, logger)
+	bookmarkSvc := service.NewBookmarkService(bookmarkRepo, convRepo, recorder, pool, logger)
+	fileSvc := service.NewFileService(fileRepo, s3, cfg.BaseURL, recorder, pool, logger)
+	authSvc := service.NewAuthService(authRepo, userRepo, recorder, pool, logger)
 	searchSvc := service.NewSearchService(nil) // Turbopuffer optional — pass client when configured
 
 	// Initialize handlers

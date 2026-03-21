@@ -4,8 +4,10 @@ import (
 	"context"
 	"testing"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/suhjohn/workspace/internal/crypto"
 	"github.com/suhjohn/workspace/internal/domain"
+	"github.com/suhjohn/workspace/internal/repository"
 )
 
 type mockAuthRepo struct {
@@ -49,9 +51,11 @@ func (m *mockAuthRepo) RevokeToken(_ context.Context, token string) error {
 	return nil
 }
 
+func (m *mockAuthRepo) WithTx(_ pgx.Tx) repository.AuthRepository { return m }
+
 func TestAuthService_CreateAndValidate(t *testing.T) {
 	authRepo := newMockAuthRepo()
-	svc := NewAuthService(authRepo, &mockUserRepoForUG{}, nil, nil)
+	svc := NewAuthService(authRepo, &mockUserRepoForUG{}, nil, mockTxBeginner{}, nil)
 
 	// Create token
 	tok, err := svc.CreateToken(context.Background(), domain.CreateTokenParams{
@@ -97,7 +101,7 @@ func TestAuthService_CreateAndValidate(t *testing.T) {
 
 func TestAuthService_RevokeToken(t *testing.T) {
 	authRepo := newMockAuthRepo()
-	svc := NewAuthService(authRepo, &mockUserRepoForUG{}, nil, nil)
+	svc := NewAuthService(authRepo, &mockUserRepoForUG{}, nil, mockTxBeginner{}, nil)
 
 	tok, err := svc.CreateToken(context.Background(), domain.CreateTokenParams{
 		TeamID: "T123",
@@ -128,7 +132,7 @@ func TestAuthService_RevokeToken(t *testing.T) {
 
 func TestAuthService_ValidationErrors(t *testing.T) {
 	authRepo := newMockAuthRepo()
-	svc := NewAuthService(authRepo, &mockUserRepoForUG{}, nil, nil)
+	svc := NewAuthService(authRepo, &mockUserRepoForUG{}, nil, mockTxBeginner{}, nil)
 
 	// Missing team_id
 	_, err := svc.CreateToken(context.Background(), domain.CreateTokenParams{

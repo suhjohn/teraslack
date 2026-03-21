@@ -6,18 +6,23 @@ import (
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/suhjohn/workspace/internal/domain"
+	"github.com/suhjohn/workspace/internal/repository"
 	"github.com/suhjohn/workspace/internal/repository/sqlcgen"
 )
 
 type BookmarkRepo struct {
-	q    *sqlcgen.Queries
-	pool *pgxpool.Pool
+	q  *sqlcgen.Queries
+	db DBTX
 }
 
-func NewBookmarkRepo(pool *pgxpool.Pool) *BookmarkRepo {
-	return &BookmarkRepo{q: sqlcgen.New(pool), pool: pool}
+func NewBookmarkRepo(db DBTX) *BookmarkRepo {
+	return &BookmarkRepo{q: sqlcgen.New(db), db: db}
+}
+
+// WithTx returns a new BookmarkRepo that operates within the given transaction.
+func (r *BookmarkRepo) WithTx(tx pgx.Tx) repository.BookmarkRepository {
+	return &BookmarkRepo{q: sqlcgen.New(tx), db: tx}
 }
 
 func (r *BookmarkRepo) Create(ctx context.Context, params domain.CreateBookmarkParams) (*domain.Bookmark, error) {

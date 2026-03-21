@@ -10,8 +10,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/suhjohn/workspace/internal/domain"
+	"github.com/suhjohn/workspace/internal/repository"
 	"github.com/suhjohn/workspace/internal/repository/sqlcgen"
 )
 
@@ -20,13 +20,18 @@ var timeNow = time.Now
 
 // UserRepo implements repository.UserRepository using sqlc with event sourcing.
 type UserRepo struct {
-	q    *sqlcgen.Queries
-	pool *pgxpool.Pool
+	q  *sqlcgen.Queries
+	db DBTX
 }
 
 // NewUserRepo creates a new UserRepo.
-func NewUserRepo(pool *pgxpool.Pool) *UserRepo {
-	return &UserRepo{q: sqlcgen.New(pool), pool: pool}
+func NewUserRepo(db DBTX) *UserRepo {
+	return &UserRepo{q: sqlcgen.New(db), db: db}
+}
+
+// WithTx returns a new UserRepo that operates within the given transaction.
+func (r *UserRepo) WithTx(tx pgx.Tx) repository.UserRepository {
+	return &UserRepo{q: sqlcgen.New(tx), db: tx}
 }
 
 func (r *UserRepo) Create(ctx context.Context, params domain.CreateUserParams) (*domain.User, error) {

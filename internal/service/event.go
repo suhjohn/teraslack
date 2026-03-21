@@ -15,17 +15,19 @@ import (
 type EventService struct {
 	repo     repository.EventRepository
 	recorder EventRecorder
+	db       repository.TxBeginner
 	logger   *slog.Logger
 }
 
 // NewEventService creates a new EventService.
-func NewEventService(repo repository.EventRepository, recorder EventRecorder, logger *slog.Logger) *EventService {
+func NewEventService(repo repository.EventRepository, recorder EventRecorder, db repository.TxBeginner, logger *slog.Logger) *EventService {
 	if recorder == nil {
 		recorder = noopRecorder{}
 	}
 	return &EventService{
 		repo:     repo,
 		recorder: recorder,
+		db:       db,
 		logger:   logger,
 	}
 }
@@ -40,20 +42,30 @@ func (s *EventService) CreateSubscription(ctx context.Context, params domain.Cre
 	if len(params.EventTypes) == 0 {
 		return nil, fmt.Errorf("event_types: %w", domain.ErrInvalidArgument)
 	}
-	sub, err := s.repo.CreateSubscription(ctx, params)
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	sub, err := s.repo.WithTx(tx).CreateSubscription(ctx, params)
 	if err != nil {
 		return nil, err
 	}
 	// Redact: omit Secret field
 	payload, _ := json.Marshal(sub.Redacted())
-	if recErr := s.recorder.Record(ctx, domain.ServiceEvent{
+	if err := s.recorder.WithTx(tx).Record(ctx, domain.ServiceEvent{
 		EventType:     domain.EventSubscriptionCreated,
 		AggregateType: domain.AggregateSubscription,
 		AggregateID:   sub.ID,
 		TeamID:        sub.TeamID,
 		Payload:       payload,
-	}); recErr != nil {
-		s.logger.Warn("record subscription.created event", "error", recErr)
+	}); err != nil {
+		return nil, fmt.Errorf("record subscription.created event: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("commit tx: %w", err)
 	}
 	return sub, nil
 }
@@ -69,19 +81,30 @@ func (s *EventService) UpdateSubscription(ctx context.Context, id string, params
 	if id == "" {
 		return nil, fmt.Errorf("id: %w", domain.ErrInvalidArgument)
 	}
-	sub, err := s.repo.UpdateSubscription(ctx, id, params)
+
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	sub, err := s.repo.WithTx(tx).UpdateSubscription(ctx, id, params)
 	if err != nil {
 		return nil, err
 	}
 	payload, _ := json.Marshal(sub.Redacted())
-	if recErr := s.recorder.Record(ctx, domain.ServiceEvent{
+	if err := s.recorder.WithTx(tx).Record(ctx, domain.ServiceEvent{
 		EventType:     domain.EventSubscriptionUpdated,
 		AggregateType: domain.AggregateSubscription,
 		AggregateID:   sub.ID,
 		TeamID:        sub.TeamID,
 		Payload:       payload,
-	}); recErr != nil {
-		s.logger.Warn("record subscription.updated event", "error", recErr)
+	}); err != nil {
+		return nil, fmt.Errorf("record subscription.updated event: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("commit tx: %w", err)
 	}
 	return sub, nil
 }
@@ -92,22 +115,33 @@ func (s *EventService) DeleteSubscription(ctx context.Context, id string) error 
 	}
 	// Get subscription before deleting to capture team_id for event
 	sub, _ := s.repo.GetSubscription(ctx, id)
-	if err := s.repo.DeleteSubscription(ctx, id); err != nil {
-		return err
-	}
 	teamID := ""
 	if sub != nil {
 		teamID = sub.TeamID
 	}
+
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	if err := s.repo.WithTx(tx).DeleteSubscription(ctx, id); err != nil {
+		return err
+	}
 	payload, _ := json.Marshal(map[string]string{"subscription_id": id})
-	if recErr := s.recorder.Record(ctx, domain.ServiceEvent{
+	if err := s.recorder.WithTx(tx).Record(ctx, domain.ServiceEvent{
 		EventType:     domain.EventSubscriptionDeleted,
 		AggregateType: domain.AggregateSubscription,
 		AggregateID:   id,
 		TeamID:        teamID,
 		Payload:       payload,
-	}); recErr != nil {
-		s.logger.Warn("record subscription.deleted event", "error", recErr)
+	}); err != nil {
+		return fmt.Errorf("record subscription.deleted event: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit tx: %w", err)
 	}
 	return nil
 }

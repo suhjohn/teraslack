@@ -15,15 +15,16 @@ type BookmarkService struct {
 	repo     repository.BookmarkRepository
 	convRepo repository.ConversationRepository
 	recorder EventRecorder
+	db       repository.TxBeginner
 	logger   *slog.Logger
 }
 
 // NewBookmarkService creates a new BookmarkService.
-func NewBookmarkService(repo repository.BookmarkRepository, convRepo repository.ConversationRepository, recorder EventRecorder, logger *slog.Logger) *BookmarkService {
+func NewBookmarkService(repo repository.BookmarkRepository, convRepo repository.ConversationRepository, recorder EventRecorder, db repository.TxBeginner, logger *slog.Logger) *BookmarkService {
 	if recorder == nil {
 		recorder = noopRecorder{}
 	}
-	return &BookmarkService{repo: repo, convRepo: convRepo, recorder: recorder, logger: logger}
+	return &BookmarkService{repo: repo, convRepo: convRepo, recorder: recorder, db: db, logger: logger}
 }
 
 func (s *BookmarkService) Create(ctx context.Context, params domain.CreateBookmarkParams) (*domain.Bookmark, error) {
@@ -45,19 +46,29 @@ func (s *BookmarkService) Create(ctx context.Context, params domain.CreateBookma
 		return nil, fmt.Errorf("channel: %w", err)
 	}
 
-	bm, err := s.repo.Create(ctx, params)
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	bm, err := s.repo.WithTx(tx).Create(ctx, params)
 	if err != nil {
 		return nil, err
 	}
 	payload, _ := json.Marshal(bm)
-	if recErr := s.recorder.Record(ctx, domain.ServiceEvent{
+	if err := s.recorder.WithTx(tx).Record(ctx, domain.ServiceEvent{
 		EventType:     domain.EventBookmarkCreated,
 		AggregateType: domain.AggregateBookmark,
 		AggregateID:   bm.ID,
 		TeamID:        "",
 		Payload:       payload,
-	}); recErr != nil {
-		s.logger.Warn("record bookmark.created event", "error", recErr)
+	}); err != nil {
+		return nil, fmt.Errorf("record bookmark.created event: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("commit tx: %w", err)
 	}
 	return bm, nil
 }
@@ -66,19 +77,30 @@ func (s *BookmarkService) Update(ctx context.Context, id string, params domain.U
 	if id == "" {
 		return nil, fmt.Errorf("bookmark_id: %w", domain.ErrInvalidArgument)
 	}
-	bm, err := s.repo.Update(ctx, id, params)
+
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	bm, err := s.repo.WithTx(tx).Update(ctx, id, params)
 	if err != nil {
 		return nil, err
 	}
 	payload, _ := json.Marshal(bm)
-	if recErr := s.recorder.Record(ctx, domain.ServiceEvent{
+	if err := s.recorder.WithTx(tx).Record(ctx, domain.ServiceEvent{
 		EventType:     domain.EventBookmarkUpdated,
 		AggregateType: domain.AggregateBookmark,
 		AggregateID:   bm.ID,
 		TeamID:        "",
 		Payload:       payload,
-	}); recErr != nil {
-		s.logger.Warn("record bookmark.updated event", "error", recErr)
+	}); err != nil {
+		return nil, fmt.Errorf("record bookmark.updated event: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("commit tx: %w", err)
 	}
 	return bm, nil
 }
@@ -87,18 +109,29 @@ func (s *BookmarkService) Delete(ctx context.Context, id string) error {
 	if id == "" {
 		return fmt.Errorf("bookmark_id: %w", domain.ErrInvalidArgument)
 	}
-	if err := s.repo.Delete(ctx, id); err != nil {
+
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	if err := s.repo.WithTx(tx).Delete(ctx, id); err != nil {
 		return err
 	}
 	payload, _ := json.Marshal(map[string]string{"bookmark_id": id})
-	if recErr := s.recorder.Record(ctx, domain.ServiceEvent{
+	if err := s.recorder.WithTx(tx).Record(ctx, domain.ServiceEvent{
 		EventType:     domain.EventBookmarkDeleted,
 		AggregateType: domain.AggregateBookmark,
 		AggregateID:   id,
 		TeamID:        "",
 		Payload:       payload,
-	}); recErr != nil {
-		s.logger.Warn("record bookmark.deleted event", "error", recErr)
+	}); err != nil {
+		return fmt.Errorf("record bookmark.deleted event: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit tx: %w", err)
 	}
 	return nil
 }

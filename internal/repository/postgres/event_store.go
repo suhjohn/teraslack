@@ -4,27 +4,33 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/jackc/pgx/v5"
 	"github.com/suhjohn/workspace/internal/crypto"
 	"github.com/suhjohn/workspace/internal/domain"
+	"github.com/suhjohn/workspace/internal/repository"
 	"github.com/suhjohn/workspace/internal/repository/sqlcgen"
 )
 
 // EventStoreRepo implements repository.EventStoreRepository using Postgres.
 type EventStoreRepo struct {
-	pool      *pgxpool.Pool
+	db        DBTX
 	q         *sqlcgen.Queries
 	encryptor *crypto.Encryptor
 }
 
 // NewEventStoreRepo creates a new EventStoreRepo.
-func NewEventStoreRepo(pool *pgxpool.Pool, encryptor *crypto.Encryptor) *EventStoreRepo {
-	return &EventStoreRepo{pool: pool, q: sqlcgen.New(pool), encryptor: encryptor}
+func NewEventStoreRepo(db DBTX, encryptor *crypto.Encryptor) *EventStoreRepo {
+	return &EventStoreRepo{db: db, q: sqlcgen.New(db), encryptor: encryptor}
+}
+
+// WithTx returns a new EventStoreRepo that operates within the given transaction.
+func (r *EventStoreRepo) WithTx(tx pgx.Tx) repository.EventStoreRepository {
+	return &EventStoreRepo{db: tx, q: sqlcgen.New(tx), encryptor: r.encryptor}
 }
 
 // Append writes a service event and creates outbox entries for matching subscriptions atomically.
 func (r *EventStoreRepo) Append(ctx context.Context, event domain.ServiceEvent) (*domain.ServiceEvent, error) {
-	tx, err := r.pool.Begin(ctx)
+	tx, err := r.db.Begin(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("begin tx: %w", err)
 	}

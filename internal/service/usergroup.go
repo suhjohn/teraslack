@@ -15,15 +15,16 @@ type UsergroupService struct {
 	repo     repository.UsergroupRepository
 	userRepo repository.UserRepository
 	recorder EventRecorder
+	db       repository.TxBeginner
 	logger   *slog.Logger
 }
 
 // NewUsergroupService creates a new UsergroupService.
-func NewUsergroupService(repo repository.UsergroupRepository, userRepo repository.UserRepository, recorder EventRecorder, logger *slog.Logger) *UsergroupService {
+func NewUsergroupService(repo repository.UsergroupRepository, userRepo repository.UserRepository, recorder EventRecorder, db repository.TxBeginner, logger *slog.Logger) *UsergroupService {
 	if recorder == nil {
 		recorder = noopRecorder{}
 	}
-	return &UsergroupService{repo: repo, userRepo: userRepo, recorder: recorder, logger: logger}
+	return &UsergroupService{repo: repo, userRepo: userRepo, recorder: recorder, db: db, logger: logger}
 }
 
 func (s *UsergroupService) Create(ctx context.Context, params domain.CreateUsergroupParams) (*domain.Usergroup, error) {
@@ -39,19 +40,29 @@ func (s *UsergroupService) Create(ctx context.Context, params domain.CreateUserg
 	if params.CreatedBy == "" {
 		return nil, fmt.Errorf("created_by: %w", domain.ErrInvalidArgument)
 	}
-	ug, err := s.repo.Create(ctx, params)
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	ug, err := s.repo.WithTx(tx).Create(ctx, params)
 	if err != nil {
 		return nil, err
 	}
 	payload, _ := json.Marshal(ug)
-	if recErr := s.recorder.Record(ctx, domain.ServiceEvent{
+	if err := s.recorder.WithTx(tx).Record(ctx, domain.ServiceEvent{
 		EventType:     domain.EventUsergroupCreated,
 		AggregateType: domain.AggregateUsergroup,
 		AggregateID:   ug.ID,
 		TeamID:        ug.TeamID,
 		Payload:       payload,
-	}); recErr != nil {
-		s.logger.Warn("record usergroup.created event", "error", recErr)
+	}); err != nil {
+		return nil, fmt.Errorf("record usergroup.created event: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("commit tx: %w", err)
 	}
 	return ug, nil
 }
@@ -67,19 +78,30 @@ func (s *UsergroupService) Update(ctx context.Context, id string, params domain.
 	if id == "" {
 		return nil, fmt.Errorf("usergroup: %w", domain.ErrInvalidArgument)
 	}
-	ug, err := s.repo.Update(ctx, id, params)
+
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	ug, err := s.repo.WithTx(tx).Update(ctx, id, params)
 	if err != nil {
 		return nil, err
 	}
 	payload, _ := json.Marshal(ug)
-	if recErr := s.recorder.Record(ctx, domain.ServiceEvent{
+	if err := s.recorder.WithTx(tx).Record(ctx, domain.ServiceEvent{
 		EventType:     domain.EventUsergroupUpdated,
 		AggregateType: domain.AggregateUsergroup,
 		AggregateID:   ug.ID,
 		TeamID:        ug.TeamID,
 		Payload:       payload,
-	}); recErr != nil {
-		s.logger.Warn("record usergroup.updated event", "error", recErr)
+	}); err != nil {
+		return nil, fmt.Errorf("record usergroup.updated event: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("commit tx: %w", err)
 	}
 	return ug, nil
 }
@@ -95,21 +117,33 @@ func (s *UsergroupService) Enable(ctx context.Context, id string) error {
 	if id == "" {
 		return fmt.Errorf("usergroup: %w", domain.ErrInvalidArgument)
 	}
-	if err := s.repo.Enable(ctx, id); err != nil {
+
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	txRepo := s.repo.WithTx(tx)
+	if err := txRepo.Enable(ctx, id); err != nil {
 		return err
 	}
-	ug, _ := s.repo.Get(ctx, id)
+	ug, _ := txRepo.Get(ctx, id)
 	if ug != nil {
 		payload, _ := json.Marshal(ug)
-		if recErr := s.recorder.Record(ctx, domain.ServiceEvent{
+		if err := s.recorder.WithTx(tx).Record(ctx, domain.ServiceEvent{
 			EventType:     domain.EventUsergroupEnabled,
 			AggregateType: domain.AggregateUsergroup,
 			AggregateID:   id,
 			TeamID:        ug.TeamID,
 			Payload:       payload,
-		}); recErr != nil {
-			s.logger.Warn("record usergroup.enabled event", "error", recErr)
+		}); err != nil {
+			return fmt.Errorf("record usergroup.enabled event: %w", err)
 		}
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit tx: %w", err)
 	}
 	return nil
 }
@@ -118,21 +152,33 @@ func (s *UsergroupService) Disable(ctx context.Context, id string) error {
 	if id == "" {
 		return fmt.Errorf("usergroup: %w", domain.ErrInvalidArgument)
 	}
-	if err := s.repo.Disable(ctx, id); err != nil {
+
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	txRepo := s.repo.WithTx(tx)
+	if err := txRepo.Disable(ctx, id); err != nil {
 		return err
 	}
-	ug, _ := s.repo.Get(ctx, id)
+	ug, _ := txRepo.Get(ctx, id)
 	if ug != nil {
 		payload, _ := json.Marshal(ug)
-		if recErr := s.recorder.Record(ctx, domain.ServiceEvent{
+		if err := s.recorder.WithTx(tx).Record(ctx, domain.ServiceEvent{
 			EventType:     domain.EventUsergroupDisabled,
 			AggregateType: domain.AggregateUsergroup,
 			AggregateID:   id,
 			TeamID:        ug.TeamID,
 			Payload:       payload,
-		}); recErr != nil {
-			s.logger.Warn("record usergroup.disabled event", "error", recErr)
+		}); err != nil {
+			return fmt.Errorf("record usergroup.disabled event: %w", err)
 		}
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit tx: %w", err)
 	}
 	return nil
 }
@@ -152,24 +198,36 @@ func (s *UsergroupService) SetUsers(ctx context.Context, usergroupID string, use
 	if _, err := s.repo.Get(ctx, usergroupID); err != nil {
 		return err
 	}
-	if err := s.repo.SetUsers(ctx, usergroupID, userIDs); err != nil {
+
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	txRepo := s.repo.WithTx(tx)
+	if err := txRepo.SetUsers(ctx, usergroupID, userIDs); err != nil {
 		return err
 	}
-	ug, _ := s.repo.Get(ctx, usergroupID)
+	ug, _ := txRepo.Get(ctx, usergroupID)
 	if ug != nil {
 		payload, _ := json.Marshal(struct {
 			UserIDs   []string         `json:"user_ids"`
 			Usergroup *domain.Usergroup `json:"usergroup"`
 		}{UserIDs: userIDs, Usergroup: ug})
-		if recErr := s.recorder.Record(ctx, domain.ServiceEvent{
+		if err := s.recorder.WithTx(tx).Record(ctx, domain.ServiceEvent{
 			EventType:     domain.EventUsergroupUserSet,
 			AggregateType: domain.AggregateUsergroup,
 			AggregateID:   usergroupID,
 			TeamID:        ug.TeamID,
 			Payload:       payload,
-		}); recErr != nil {
-			s.logger.Warn("record usergroup.users_set event", "error", recErr)
+		}); err != nil {
+			return fmt.Errorf("record usergroup.users_set event: %w", err)
 		}
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit tx: %w", err)
 	}
 	return nil
 }

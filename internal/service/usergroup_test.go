@@ -4,7 +4,9 @@ import (
 	"context"
 	"testing"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/suhjohn/workspace/internal/domain"
+	"github.com/suhjohn/workspace/internal/repository"
 )
 
 // mockUsergroupRepo is a mock implementation of repository.UsergroupRepository.
@@ -112,6 +114,8 @@ func (m *mockUsergroupRepo) SetUsers(_ context.Context, usergroupID string, user
 	return nil
 }
 
+func (m *mockUsergroupRepo) WithTx(_ pgx.Tx) repository.UsergroupRepository { return m }
+
 // mockUserRepoForUG is a minimal user repo mock for usergroup tests.
 type mockUserRepoForUG struct{}
 
@@ -130,10 +134,11 @@ func (m *mockUserRepoForUG) Update(_ context.Context, _ string, _ domain.UpdateU
 func (m *mockUserRepoForUG) List(_ context.Context, _ domain.ListUsersParams) (*domain.CursorPage[domain.User], error) {
 	return nil, nil
 }
+func (m *mockUserRepoForUG) WithTx(_ pgx.Tx) repository.UserRepository { return m }
 
 func TestUsergroupService_Create(t *testing.T) {
 	repo := newMockUsergroupRepo()
-	svc := NewUsergroupService(repo, &mockUserRepoForUG{}, nil, nil)
+	svc := NewUsergroupService(repo, &mockUserRepoForUG{}, nil, mockTxBeginner{}, nil)
 
 	tests := []struct {
 		name    string
@@ -212,7 +217,7 @@ func TestUsergroupService_Create(t *testing.T) {
 
 func TestUsergroupService_SetUsers(t *testing.T) {
 	repo := newMockUsergroupRepo()
-	svc := NewUsergroupService(repo, &mockUserRepoForUG{}, nil, nil)
+	svc := NewUsergroupService(repo, &mockUserRepoForUG{}, nil, mockTxBeginner{}, nil)
 
 	// Create a group first
 	ug, err := svc.Create(context.Background(), domain.CreateUsergroupParams{
@@ -249,7 +254,7 @@ func TestUsergroupService_SetUsers(t *testing.T) {
 
 func TestUsergroupService_EnableDisable(t *testing.T) {
 	repo := newMockUsergroupRepo()
-	svc := NewUsergroupService(repo, &mockUserRepoForUG{}, nil, nil)
+	svc := NewUsergroupService(repo, &mockUserRepoForUG{}, nil, mockTxBeginner{}, nil)
 
 	ug, err := svc.Create(context.Background(), domain.CreateUsergroupParams{
 		TeamID:    "T123",

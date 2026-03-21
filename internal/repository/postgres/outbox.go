@@ -6,20 +6,19 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/suhjohn/workspace/internal/domain"
 	"github.com/suhjohn/workspace/internal/repository/sqlcgen"
 )
 
 // OutboxRepo implements repository.OutboxRepository using Postgres.
 type OutboxRepo struct {
-	pool *pgxpool.Pool
-	q    *sqlcgen.Queries
+	db DBTX
+	q  *sqlcgen.Queries
 }
 
 // NewOutboxRepo creates a new OutboxRepo.
-func NewOutboxRepo(pool *pgxpool.Pool) *OutboxRepo {
-	return &OutboxRepo{pool: pool, q: sqlcgen.New(pool)}
+func NewOutboxRepo(db DBTX) *OutboxRepo {
+	return &OutboxRepo{db: db, q: sqlcgen.New(db)}
 }
 
 // ClaimBatch atomically claims up to `limit` pending outbox entries by setting

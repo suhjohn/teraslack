@@ -6,24 +6,29 @@ import (
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/suhjohn/workspace/internal/domain"
+	"github.com/suhjohn/workspace/internal/repository"
 	"github.com/suhjohn/workspace/internal/repository/sqlcgen"
 )
 
 type UsergroupRepo struct {
-	q    *sqlcgen.Queries
-	pool *pgxpool.Pool
+	q  *sqlcgen.Queries
+	db DBTX
 }
 
-func NewUsergroupRepo(pool *pgxpool.Pool) *UsergroupRepo {
-	return &UsergroupRepo{q: sqlcgen.New(pool), pool: pool}
+func NewUsergroupRepo(db DBTX) *UsergroupRepo {
+	return &UsergroupRepo{q: sqlcgen.New(db), db: db}
+}
+
+// WithTx returns a new UsergroupRepo that operates within the given transaction.
+func (r *UsergroupRepo) WithTx(tx pgx.Tx) repository.UsergroupRepository {
+	return &UsergroupRepo{q: sqlcgen.New(tx), db: tx}
 }
 
 func (r *UsergroupRepo) Create(ctx context.Context, params domain.CreateUsergroupParams) (*domain.Usergroup, error) {
 	id := generateID("S")
 
-	tx, err := r.pool.Begin(ctx)
+	tx, err := r.db.Begin(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("begin tx: %w", err)
 	}
@@ -159,7 +164,7 @@ func (r *UsergroupRepo) ListUsers(ctx context.Context, usergroupID string) ([]st
 }
 
 func (r *UsergroupRepo) SetUsers(ctx context.Context, usergroupID string, userIDs []string) error {
-	tx, err := r.pool.Begin(ctx)
+	tx, err := r.db.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
 	}

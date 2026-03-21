@@ -15,15 +15,16 @@ type ConversationService struct {
 	repo     repository.ConversationRepository
 	userRepo repository.UserRepository
 	recorder EventRecorder
+	db       repository.TxBeginner
 	logger   *slog.Logger
 }
 
 // NewConversationService creates a new ConversationService.
-func NewConversationService(repo repository.ConversationRepository, userRepo repository.UserRepository, recorder EventRecorder, logger *slog.Logger) *ConversationService {
+func NewConversationService(repo repository.ConversationRepository, userRepo repository.UserRepository, recorder EventRecorder, db repository.TxBeginner, logger *slog.Logger) *ConversationService {
 	if recorder == nil {
 		recorder = noopRecorder{}
 	}
-	return &ConversationService{repo: repo, userRepo: userRepo, recorder: recorder, logger: logger}
+	return &ConversationService{repo: repo, userRepo: userRepo, recorder: recorder, db: db, logger: logger}
 }
 
 func (s *ConversationService) Create(ctx context.Context, params domain.CreateConversationParams) (*domain.Conversation, error) {
@@ -45,19 +46,29 @@ func (s *ConversationService) Create(ctx context.Context, params domain.CreateCo
 		return nil, fmt.Errorf("creator: %w", err)
 	}
 
-	conv, err := s.repo.Create(ctx, params)
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	conv, err := s.repo.WithTx(tx).Create(ctx, params)
 	if err != nil {
 		return nil, err
 	}
 	payload, _ := json.Marshal(conv)
-	if recErr := s.recorder.Record(ctx, domain.ServiceEvent{
+	if err := s.recorder.WithTx(tx).Record(ctx, domain.ServiceEvent{
 		EventType:     domain.EventConversationCreated,
 		AggregateType: domain.AggregateConversation,
 		AggregateID:   conv.ID,
 		TeamID:        conv.TeamID,
 		Payload:       payload,
-	}); recErr != nil {
-		s.logger.Warn("record conversation.created event", "error", recErr)
+	}); err != nil {
+		return nil, fmt.Errorf("record conversation.created event: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("commit tx: %w", err)
 	}
 	return conv, nil
 }
@@ -73,19 +84,31 @@ func (s *ConversationService) Update(ctx context.Context, id string, params doma
 	if id == "" {
 		return nil, fmt.Errorf("id: %w", domain.ErrInvalidArgument)
 	}
-	conv, err := s.repo.Update(ctx, id, params)
+
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	txRepo := s.repo.WithTx(tx)
+	conv, err := txRepo.Update(ctx, id, params)
 	if err != nil {
 		return nil, err
 	}
 	payload, _ := json.Marshal(conv)
-	if recErr := s.recorder.Record(ctx, domain.ServiceEvent{
+	if err := s.recorder.WithTx(tx).Record(ctx, domain.ServiceEvent{
 		EventType:     domain.EventConversationUpdated,
 		AggregateType: domain.AggregateConversation,
 		AggregateID:   conv.ID,
 		TeamID:        conv.TeamID,
 		Payload:       payload,
-	}); recErr != nil {
-		s.logger.Warn("record conversation.updated event", "error", recErr)
+	}); err != nil {
+		return nil, fmt.Errorf("record conversation.updated event: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("commit tx: %w", err)
 	}
 	return conv, nil
 }
@@ -98,20 +121,31 @@ func (s *ConversationService) Archive(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
-	if err := s.repo.Archive(ctx, id); err != nil {
+
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	txRepo := s.repo.WithTx(tx)
+	if err := txRepo.Archive(ctx, id); err != nil {
 		return err
 	}
-	// Re-fetch to get updated state for projector.
-	updatedConv, _ := s.repo.Get(ctx, id)
+	updatedConv, _ := txRepo.Get(ctx, id)
 	payload, _ := json.Marshal(updatedConv)
-	if recErr := s.recorder.Record(ctx, domain.ServiceEvent{
+	if err := s.recorder.WithTx(tx).Record(ctx, domain.ServiceEvent{
 		EventType:     domain.EventConversationArchived,
 		AggregateType: domain.AggregateConversation,
 		AggregateID:   id,
 		TeamID:        conv.TeamID,
 		Payload:       payload,
-	}); recErr != nil {
-		s.logger.Warn("record conversation.archived event", "error", recErr)
+	}); err != nil {
+		return fmt.Errorf("record conversation.archived event: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit tx: %w", err)
 	}
 	return nil
 }
@@ -124,20 +158,31 @@ func (s *ConversationService) Unarchive(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
-	if err := s.repo.Unarchive(ctx, id); err != nil {
+
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	txRepo := s.repo.WithTx(tx)
+	if err := txRepo.Unarchive(ctx, id); err != nil {
 		return err
 	}
-	// Re-fetch to get updated state for projector.
-	updatedConv, _ := s.repo.Get(ctx, id)
+	updatedConv, _ := txRepo.Get(ctx, id)
 	payload, _ := json.Marshal(updatedConv)
-	if recErr := s.recorder.Record(ctx, domain.ServiceEvent{
+	if err := s.recorder.WithTx(tx).Record(ctx, domain.ServiceEvent{
 		EventType:     domain.EventConversationUnarchived,
 		AggregateType: domain.AggregateConversation,
 		AggregateID:   id,
 		TeamID:        conv.TeamID,
 		Payload:       payload,
-	}); recErr != nil {
-		s.logger.Warn("record conversation.unarchived event", "error", recErr)
+	}); err != nil {
+		return fmt.Errorf("record conversation.unarchived event: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit tx: %w", err)
 	}
 	return nil
 }
@@ -153,19 +198,30 @@ func (s *ConversationService) SetTopic(ctx context.Context, id string, params do
 	if conv.IsArchived {
 		return nil, domain.ErrChannelArchived
 	}
-	result, err := s.repo.SetTopic(ctx, id, params)
+
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	result, err := s.repo.WithTx(tx).SetTopic(ctx, id, params)
 	if err != nil {
 		return nil, err
 	}
 	payload, _ := json.Marshal(result)
-	if recErr := s.recorder.Record(ctx, domain.ServiceEvent{
+	if err := s.recorder.WithTx(tx).Record(ctx, domain.ServiceEvent{
 		EventType:     domain.EventConversationTopicSet,
 		AggregateType: domain.AggregateConversation,
 		AggregateID:   id,
 		TeamID:        result.TeamID,
 		Payload:       payload,
-	}); recErr != nil {
-		s.logger.Warn("record conversation.topic_set event", "error", recErr)
+	}); err != nil {
+		return nil, fmt.Errorf("record conversation.topic_set event: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("commit tx: %w", err)
 	}
 	return result, nil
 }
@@ -181,19 +237,30 @@ func (s *ConversationService) SetPurpose(ctx context.Context, id string, params 
 	if conv.IsArchived {
 		return nil, domain.ErrChannelArchived
 	}
-	result, err := s.repo.SetPurpose(ctx, id, params)
+
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	result, err := s.repo.WithTx(tx).SetPurpose(ctx, id, params)
 	if err != nil {
 		return nil, err
 	}
 	payload, _ := json.Marshal(result)
-	if recErr := s.recorder.Record(ctx, domain.ServiceEvent{
+	if err := s.recorder.WithTx(tx).Record(ctx, domain.ServiceEvent{
 		EventType:     domain.EventConversationPurposeSet,
 		AggregateType: domain.AggregateConversation,
 		AggregateID:   id,
 		TeamID:        result.TeamID,
 		Payload:       payload,
-	}); recErr != nil {
-		s.logger.Warn("record conversation.purpose_set event", "error", recErr)
+	}); err != nil {
+		return nil, fmt.Errorf("record conversation.purpose_set event: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("commit tx: %w", err)
 	}
 	return result, nil
 }
@@ -226,23 +293,33 @@ func (s *ConversationService) Invite(ctx context.Context, conversationID, userID
 		return domain.ErrAlreadyInChannel
 	}
 
-	if err := s.repo.AddMember(ctx, conversationID, userID); err != nil {
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	txRepo := s.repo.WithTx(tx)
+	if err := txRepo.AddMember(ctx, conversationID, userID); err != nil {
 		return err
 	}
-	// Re-fetch conversation to get updated num_members for projector replay.
-	updatedConv, _ := s.repo.Get(ctx, conversationID)
+	updatedConv, _ := txRepo.Get(ctx, conversationID)
 	payload, _ := json.Marshal(struct {
 		UserID       string              `json:"user_id"`
 		Conversation *domain.Conversation `json:"conversation"`
 	}{UserID: userID, Conversation: updatedConv})
-	if recErr := s.recorder.Record(ctx, domain.ServiceEvent{
+	if err := s.recorder.WithTx(tx).Record(ctx, domain.ServiceEvent{
 		EventType:     domain.EventMemberJoined,
 		AggregateType: domain.AggregateConversation,
 		AggregateID:   conversationID,
 		TeamID:        conv.TeamID,
 		Payload:       payload,
-	}); recErr != nil {
-		s.logger.Warn("record member_joined event", "error", recErr)
+	}); err != nil {
+		return fmt.Errorf("record member_joined event: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit tx: %w", err)
 	}
 	return nil
 }
@@ -255,23 +332,34 @@ func (s *ConversationService) Kick(ctx context.Context, conversationID, userID s
 	if err != nil {
 		return err
 	}
-	if err := s.repo.RemoveMember(ctx, conversationID, userID); err != nil {
+
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	txRepo := s.repo.WithTx(tx)
+	if err := txRepo.RemoveMember(ctx, conversationID, userID); err != nil {
 		return err
 	}
-	// Re-fetch conversation to get updated num_members for projector replay.
-	updatedConv, _ := s.repo.Get(ctx, conversationID)
+	updatedConv, _ := txRepo.Get(ctx, conversationID)
 	payload, _ := json.Marshal(struct {
 		UserID       string              `json:"user_id"`
 		Conversation *domain.Conversation `json:"conversation"`
 	}{UserID: userID, Conversation: updatedConv})
-	if recErr := s.recorder.Record(ctx, domain.ServiceEvent{
+	if err := s.recorder.WithTx(tx).Record(ctx, domain.ServiceEvent{
 		EventType:     domain.EventMemberLeft,
 		AggregateType: domain.AggregateConversation,
 		AggregateID:   conversationID,
 		TeamID:        conv.TeamID,
 		Payload:       payload,
-	}); recErr != nil {
-		s.logger.Warn("record member_left event", "error", recErr)
+	}); err != nil {
+		return fmt.Errorf("record member_left event: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit tx: %w", err)
 	}
 	return nil
 }

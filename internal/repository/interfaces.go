@@ -4,11 +4,19 @@ import (
 	"context"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/suhjohn/workspace/internal/domain"
 )
 
+// TxBeginner abstracts the ability to begin a database transaction.
+// Satisfied by *pgxpool.Pool.
+type TxBeginner interface {
+	Begin(ctx context.Context) (pgx.Tx, error)
+}
+
 // UserRepository defines data access operations for users.
 type UserRepository interface {
+	WithTx(tx pgx.Tx) UserRepository
 	Create(ctx context.Context, params domain.CreateUserParams) (*domain.User, error)
 	Get(ctx context.Context, id string) (*domain.User, error)
 	GetByEmail(ctx context.Context, email string) (*domain.User, error)
@@ -18,6 +26,7 @@ type UserRepository interface {
 
 // ConversationRepository defines data access operations for conversations.
 type ConversationRepository interface {
+	WithTx(tx pgx.Tx) ConversationRepository
 	Create(ctx context.Context, params domain.CreateConversationParams) (*domain.Conversation, error)
 	Get(ctx context.Context, id string) (*domain.Conversation, error)
 	Update(ctx context.Context, id string, params domain.UpdateConversationParams) (*domain.Conversation, error)
@@ -35,6 +44,7 @@ type ConversationRepository interface {
 
 // MessageRepository defines data access operations for messages.
 type MessageRepository interface {
+	WithTx(tx pgx.Tx) MessageRepository
 	Create(ctx context.Context, params domain.PostMessageParams) (*domain.Message, error)
 	Get(ctx context.Context, channelID, ts string) (*domain.Message, error)
 	Update(ctx context.Context, channelID, ts string, params domain.UpdateMessageParams) (*domain.Message, error)
@@ -49,6 +59,7 @@ type MessageRepository interface {
 
 // UsergroupRepository defines data access operations for usergroups.
 type UsergroupRepository interface {
+	WithTx(tx pgx.Tx) UsergroupRepository
 	Create(ctx context.Context, params domain.CreateUsergroupParams) (*domain.Usergroup, error)
 	Get(ctx context.Context, id string) (*domain.Usergroup, error)
 	Update(ctx context.Context, id string, params domain.UpdateUsergroupParams) (*domain.Usergroup, error)
@@ -62,6 +73,7 @@ type UsergroupRepository interface {
 
 // PinRepository defines data access operations for pins.
 type PinRepository interface {
+	WithTx(tx pgx.Tx) PinRepository
 	Add(ctx context.Context, params domain.PinParams) (*domain.Pin, error)
 	Remove(ctx context.Context, params domain.PinParams) error
 	List(ctx context.Context, params domain.ListPinsParams) ([]domain.Pin, error)
@@ -69,6 +81,7 @@ type PinRepository interface {
 
 // BookmarkRepository defines data access operations for bookmarks.
 type BookmarkRepository interface {
+	WithTx(tx pgx.Tx) BookmarkRepository
 	Create(ctx context.Context, params domain.CreateBookmarkParams) (*domain.Bookmark, error)
 	Get(ctx context.Context, id string) (*domain.Bookmark, error)
 	Update(ctx context.Context, id string, params domain.UpdateBookmarkParams) (*domain.Bookmark, error)
@@ -78,6 +91,7 @@ type BookmarkRepository interface {
 
 // FileRepository defines data access operations for files.
 type FileRepository interface {
+	WithTx(tx pgx.Tx) FileRepository
 	Create(ctx context.Context, f *domain.File) error
 	Get(ctx context.Context, id string) (*domain.File, error)
 	Update(ctx context.Context, f *domain.File) error
@@ -88,6 +102,7 @@ type FileRepository interface {
 
 // EventRepository defines data access operations for event subscriptions.
 type EventRepository interface {
+	WithTx(tx pgx.Tx) EventRepository
 	CreateSubscription(ctx context.Context, params domain.CreateEventSubscriptionParams) (*domain.EventSubscription, error)
 	GetSubscription(ctx context.Context, id string) (*domain.EventSubscription, error)
 	UpdateSubscription(ctx context.Context, id string, params domain.UpdateEventSubscriptionParams) (*domain.EventSubscription, error)
@@ -98,6 +113,7 @@ type EventRepository interface {
 
 // AuthRepository defines data access operations for authentication tokens.
 type AuthRepository interface {
+	WithTx(tx pgx.Tx) AuthRepository
 	CreateToken(ctx context.Context, params domain.CreateTokenParams) (*domain.Token, error)
 	GetByTokenHash(ctx context.Context, tokenHash string) (*domain.Token, error)
 	RevokeToken(ctx context.Context, token string) error
@@ -105,6 +121,7 @@ type AuthRepository interface {
 
 // EventStoreRepository defines data access for the service-level event store.
 type EventStoreRepository interface {
+	WithTx(tx pgx.Tx) EventStoreRepository
 	// Append writes a service event and creates outbox entries for matching subscriptions atomically.
 	Append(ctx context.Context, event domain.ServiceEvent) (*domain.ServiceEvent, error)
 	// GetByAggregate returns all events for an aggregate ordered by ID.

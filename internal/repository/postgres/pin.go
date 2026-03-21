@@ -4,18 +4,24 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/jackc/pgx/v5"
 	"github.com/suhjohn/workspace/internal/domain"
+	"github.com/suhjohn/workspace/internal/repository"
 	"github.com/suhjohn/workspace/internal/repository/sqlcgen"
 )
 
 type PinRepo struct {
-	q    *sqlcgen.Queries
-	pool *pgxpool.Pool
+	q  *sqlcgen.Queries
+	db DBTX
 }
 
-func NewPinRepo(pool *pgxpool.Pool) *PinRepo {
-	return &PinRepo{q: sqlcgen.New(pool), pool: pool}
+func NewPinRepo(db DBTX) *PinRepo {
+	return &PinRepo{q: sqlcgen.New(db), db: db}
+}
+
+// WithTx returns a new PinRepo that operates within the given transaction.
+func (r *PinRepo) WithTx(tx pgx.Tx) repository.PinRepository {
+	return &PinRepo{q: sqlcgen.New(tx), db: tx}
 }
 
 func (r *PinRepo) Add(ctx context.Context, params domain.PinParams) (*domain.Pin, error) {

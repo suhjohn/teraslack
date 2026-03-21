@@ -9,18 +9,23 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/suhjohn/workspace/internal/domain"
+	"github.com/suhjohn/workspace/internal/repository"
 	"github.com/suhjohn/workspace/internal/repository/sqlcgen"
 )
 
 type MessageRepo struct {
-	q    *sqlcgen.Queries
-	pool *pgxpool.Pool
+	q  *sqlcgen.Queries
+	db DBTX
 }
 
-func NewMessageRepo(pool *pgxpool.Pool) *MessageRepo {
-	return &MessageRepo{q: sqlcgen.New(pool), pool: pool}
+func NewMessageRepo(db DBTX) *MessageRepo {
+	return &MessageRepo{q: sqlcgen.New(db), db: db}
+}
+
+// WithTx returns a new MessageRepo that operates within the given transaction.
+func (r *MessageRepo) WithTx(tx pgx.Tx) repository.MessageRepository {
+	return &MessageRepo{q: sqlcgen.New(tx), db: tx}
 }
 
 func (r *MessageRepo) Create(ctx context.Context, params domain.PostMessageParams) (*domain.Message, error) {
@@ -29,7 +34,7 @@ func (r *MessageRepo) Create(ctx context.Context, params domain.PostMessageParam
 
 	if params.ThreadTS != "" {
 		// Thread reply requires updating parent stats in same tx
-		tx, err := r.pool.Begin(ctx)
+		tx, err := r.db.Begin(ctx)
 		if err != nil {
 			return nil, fmt.Errorf("begin tx: %w", err)
 		}
