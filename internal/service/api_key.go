@@ -116,6 +116,12 @@ func (s *APIKeyService) Revoke(ctx context.Context, id string) error {
 		return err
 	}
 
+	// Re-fetch after revoke so event payload reflects post-mutation state (revoked_at set)
+	key, err = s.repo.WithTx(tx).Get(ctx, id)
+	if err != nil {
+		return fmt.Errorf("re-fetch revoked key: %w", err)
+	}
+
 	payload, _ := json.Marshal(key.Redacted())
 	if err := s.recorder.WithTx(tx).Record(ctx, domain.ServiceEvent{
 		EventType:     domain.EventAPIKeyRevoked,
@@ -205,6 +211,18 @@ func (s *APIKeyService) Rotate(ctx context.Context, id string, params domain.Rot
 	})
 	if err != nil {
 		return nil, "", fmt.Errorf("create rotated key: %w", err)
+	}
+
+	// Record creation event for the new key (required for projection rebuild)
+	newKeyPayload, _ := json.Marshal(newKey.Redacted())
+	if err := s.recorder.WithTx(tx).Record(ctx, domain.ServiceEvent{
+		EventType:     domain.EventAPIKeyCreated,
+		AggregateType: domain.AggregateAPIKey,
+		AggregateID:   newKey.ID,
+		TeamID:        newKey.TeamID,
+		Payload:       newKeyPayload,
+	}); err != nil {
+		return nil, "", fmt.Errorf("record api_key.created event for rotated key: %w", err)
 	}
 
 	gracePeriodEndsAt := time.Now().Add(gracePeriod)
