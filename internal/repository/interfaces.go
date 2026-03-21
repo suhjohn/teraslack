@@ -135,24 +135,11 @@ type APIKeyRepository interface {
 // EventStoreRepository defines data access for the service-level event store.
 type EventStoreRepository interface {
 	WithTx(tx pgx.Tx) EventStoreRepository
-	// Append writes a service event and creates outbox entries for matching subscriptions atomically.
+	// Append writes a service event to the event store (pure INSERT).
+	// Webhook fan-out is handled by WebhookProducer via S3 queue.
 	Append(ctx context.Context, event domain.ServiceEvent) (*domain.ServiceEvent, error)
 	// GetByAggregate returns all events for an aggregate ordered by ID.
 	GetByAggregate(ctx context.Context, aggregateType, aggregateID string) ([]domain.ServiceEvent, error)
 	// GetAllSince returns events since a given ID for incremental projection rebuilds.
 	GetAllSince(ctx context.Context, sinceID int64, limit int) ([]domain.ServiceEvent, error)
-}
-
-// OutboxRepository defines data access for the transactional outbox.
-type OutboxRepository interface {
-	// ClaimBatch claims up to `limit` pending outbox entries using FOR UPDATE SKIP LOCKED.
-	ClaimBatch(ctx context.Context, limit int) ([]domain.OutboxEntry, error)
-	// MarkDelivered marks an outbox entry as successfully delivered.
-	MarkDelivered(ctx context.Context, id int64) error
-	// MarkFailed marks an outbox entry as permanently failed.
-	MarkFailed(ctx context.Context, id int64, lastError string) error
-	// ScheduleRetry schedules an outbox entry for retry at a future time.
-	ScheduleRetry(ctx context.Context, id int64, nextAttemptAt time.Time, lastError string) error
-	// CleanupDelivered removes delivered outbox entries older than the given duration.
-	CleanupDelivered(ctx context.Context, olderThan time.Duration) (int64, error)
 }

@@ -19,9 +19,6 @@ type Config struct {
 	S3AccessKey string
 	S3SecretKey string
 
-	// Queue configuration
-	QueueS3Key string // S3 object key for the index queue file
-
 	// Turbopuffer configuration
 	TurbopufferRegion string
 
@@ -61,7 +58,6 @@ func Load() (*Config, error) {
 		S3Endpoint:        os.Getenv("S3_ENDPOINT"),
 		S3AccessKey:       os.Getenv("S3_ACCESS_KEY"),
 		S3SecretKey:       os.Getenv("S3_SECRET_KEY"),
-		QueueS3Key:        getEnv("QUEUE_S3_KEY", "queue/index-queue.json"),
 		TurbopufferRegion: getEnv("TURBOPUFFER_REGION", "us-east-1"),
 		EncryptionKey:     os.Getenv("ENCRYPTION_KEY"),
 	}, nil

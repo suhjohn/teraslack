@@ -41,9 +41,11 @@ func setupAllServices(t *testing.T) *testEnv {
 	ctx := context.Background()
 
 	migrationsDir := getMigrationsDir(t)
-	data := readMigration(t, migrationsDir, "000007_api_keys_principal_type.up.sql")
-	if _, err := pool.Exec(ctx, string(data)); err != nil {
-		t.Fatalf("run migration 000007: %v", err)
+	for _, mig := range []string{"000007_api_keys_principal_type.up.sql", "000008_drop_outbox.up.sql"} {
+		data := readMigration(t, migrationsDir, mig)
+		if _, err := pool.Exec(ctx, string(data)); err != nil {
+			t.Fatalf("run migration %s: %v", mig, err)
+		}
 	}
 
 	logger := newTestLogger()
@@ -58,7 +60,7 @@ func setupAllServices(t *testing.T) *testEnv {
 	authRepo := pgRepo.NewAuthRepo(pool)
 	eventRepo := pgRepo.NewEventRepo(pool, nil)
 	apiKeyRepo := pgRepo.NewAPIKeyRepo(pool)
-	eventStoreRepo := pgRepo.NewEventStoreRepo(pool, nil)
+	eventStoreRepo := pgRepo.NewEventStoreRepo(pool)
 	recorder := service.NewEventRecorder(eventStoreRepo)
 
 	return &testEnv{

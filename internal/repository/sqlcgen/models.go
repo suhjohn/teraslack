@@ -127,22 +127,6 @@ type Message struct {
 	UpdatedAt       pgtype.Timestamptz `json:"updated_at"`
 }
 
-type Outbox struct {
-	ID             int64              `json:"id"`
-	EventID        int64              `json:"event_id"`
-	SubscriptionID string             `json:"subscription_id"`
-	Url            string             `json:"url"`
-	Payload        []byte             `json:"payload"`
-	Secret         string             `json:"secret"`
-	Status         string             `json:"status"`
-	Attempts       int32              `json:"attempts"`
-	MaxAttempts    int32              `json:"max_attempts"`
-	NextAttemptAt  pgtype.Timestamptz `json:"next_attempt_at"`
-	LastError      string             `json:"last_error"`
-	DeliveredAt    pgtype.Timestamptz `json:"delivered_at"`
-	CreatedAt      pgtype.Timestamptz `json:"created_at"`
-}
-
 type Pin struct {
 	ChannelID string             `json:"channel_id"`
 	MessageTs string             `json:"message_ts"`

@@ -38,6 +38,7 @@ func setupTestDB(t *testing.T) *pgxpool.Pool {
 		"000004_token_hash_encrypted_secret.up.sql",
 		"000005_service_events_outbox.up.sql",
 		"000006_drop_token_unique.up.sql",
+		"000008_drop_outbox.up.sql",
 	}
 
 	migrationData := make([][]byte, len(migrations))
@@ -121,7 +122,7 @@ func TestServiceEventRecording_UserCreate(t *testing.T) {
 	logger := newTestLogger()
 
 	userRepo := pgRepo.NewUserRepo(pool)
-	eventStoreRepo := pgRepo.NewEventStoreRepo(pool, nil)
+	eventStoreRepo := pgRepo.NewEventStoreRepo(pool)
 	recorder := service.NewEventRecorder(eventStoreRepo)
 	userSvc := service.NewUserService(userRepo, recorder, pool, logger)
 
@@ -183,7 +184,7 @@ func TestServiceEventRecording_UserUpdate(t *testing.T) {
 	logger := newTestLogger()
 
 	userRepo := pgRepo.NewUserRepo(pool)
-	eventStoreRepo := pgRepo.NewEventStoreRepo(pool, nil)
+	eventStoreRepo := pgRepo.NewEventStoreRepo(pool)
 	recorder := service.NewEventRecorder(eventStoreRepo)
 	userSvc := service.NewUserService(userRepo, recorder, pool, logger)
 
@@ -247,7 +248,7 @@ func TestReplayCorrectness_Users(t *testing.T) {
 	logger := newTestLogger()
 
 	userRepo := pgRepo.NewUserRepo(pool)
-	eventStoreRepo := pgRepo.NewEventStoreRepo(pool, nil)
+	eventStoreRepo := pgRepo.NewEventStoreRepo(pool)
 	recorder := service.NewEventRecorder(eventStoreRepo)
 	userSvc := service.NewUserService(userRepo, recorder, pool, logger)
 
@@ -331,7 +332,7 @@ func TestReplayCorrectness_ConversationWithMembers(t *testing.T) {
 
 	userRepo := pgRepo.NewUserRepo(pool)
 	convRepo := pgRepo.NewConversationRepo(pool)
-	eventStoreRepo := pgRepo.NewEventStoreRepo(pool, nil)
+	eventStoreRepo := pgRepo.NewEventStoreRepo(pool)
 	recorder := service.NewEventRecorder(eventStoreRepo)
 	userSvc := service.NewUserService(userRepo, recorder, pool, logger)
 	convSvc := service.NewConversationService(convRepo, userRepo, recorder, pool, logger)
@@ -411,7 +412,7 @@ func TestReplayCorrectness_BookmarkCRUD(t *testing.T) {
 	userRepo := pgRepo.NewUserRepo(pool)
 	convRepo := pgRepo.NewConversationRepo(pool)
 	bookmarkRepo := pgRepo.NewBookmarkRepo(pool)
-	eventStoreRepo := pgRepo.NewEventStoreRepo(pool, nil)
+	eventStoreRepo := pgRepo.NewEventStoreRepo(pool)
 	recorder := service.NewEventRecorder(eventStoreRepo)
 	userSvc := service.NewUserService(userRepo, recorder, pool, logger)
 	convSvc := service.NewConversationService(convRepo, userRepo, recorder, pool, logger)
@@ -503,7 +504,7 @@ func TestPayloadIsFullSnapshot(t *testing.T) {
 	logger := newTestLogger()
 
 	userRepo := pgRepo.NewUserRepo(pool)
-	eventStoreRepo := pgRepo.NewEventStoreRepo(pool, nil)
+	eventStoreRepo := pgRepo.NewEventStoreRepo(pool)
 	recorder := service.NewEventRecorder(eventStoreRepo)
 	userSvc := service.NewUserService(userRepo, recorder, pool, logger)
 
@@ -573,7 +574,7 @@ func TestDeleteEventIsRecorded(t *testing.T) {
 	userRepo := pgRepo.NewUserRepo(pool)
 	convRepo := pgRepo.NewConversationRepo(pool)
 	bookmarkRepo := pgRepo.NewBookmarkRepo(pool)
-	eventStoreRepo := pgRepo.NewEventStoreRepo(pool, nil)
+	eventStoreRepo := pgRepo.NewEventStoreRepo(pool)
 	recorder := service.NewEventRecorder(eventStoreRepo)
 	userSvc := service.NewUserService(userRepo, recorder, pool, logger)
 	convSvc := service.NewConversationService(convRepo, userRepo, recorder, pool, logger)
@@ -643,7 +644,7 @@ func TestEventCountConsistency(t *testing.T) {
 	logger := newTestLogger()
 
 	userRepo := pgRepo.NewUserRepo(pool)
-	eventStoreRepo := pgRepo.NewEventStoreRepo(pool, nil)
+	eventStoreRepo := pgRepo.NewEventStoreRepo(pool)
 	recorder := service.NewEventRecorder(eventStoreRepo)
 	userSvc := service.NewUserService(userRepo, recorder, pool, logger)
 

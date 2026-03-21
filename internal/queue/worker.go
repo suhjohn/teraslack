@@ -371,8 +371,8 @@ func (w *IndexWorker) markResults(ctx context.Context, completed, failed []strin
 			}
 		}
 
-		// Garbage collect completed jobs older than 1 hour
-		gcCutoff := now.Add(-1 * time.Hour)
+		// Garbage collect completed jobs older than GCRetention (7 days)
+		gcCutoff := now.Add(-GCRetention)
 		originalJobCount := len(snap.State.Jobs)
 		filtered := make([]Job, 0, len(snap.State.Jobs))
 		for _, job := range snap.State.Jobs {

@@ -11,7 +11,7 @@ import (
 )
 
 // EventService contains business logic for event subscription operations.
-// Webhook dispatch is now handled by OutboxWorker, not by this service.
+// Webhook dispatch is handled by the WebhookProducer/WebhookWorker processes via S3 queue.
 type EventService struct {
 	repo     repository.EventRepository
 	recorder EventRecorder

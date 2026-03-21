@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/suhjohn/workspace/internal/crypto"
 	"github.com/suhjohn/workspace/internal/domain"
 	"github.com/suhjohn/workspace/internal/repository"
 	"github.com/suhjohn/workspace/internal/repository/sqlcgen"
@@ -13,27 +12,24 @@ import (
 
 // EventStoreRepo implements repository.EventStoreRepository using Postgres.
 type EventStoreRepo struct {
-	db        DBTX
-	q         *sqlcgen.Queries
-	encryptor *crypto.Encryptor
+	db DBTX
+	q  *sqlcgen.Queries
 }
 
 // NewEventStoreRepo creates a new EventStoreRepo.
-func NewEventStoreRepo(db DBTX, encryptor *crypto.Encryptor) *EventStoreRepo {
-	return &EventStoreRepo{db: db, q: sqlcgen.New(db), encryptor: encryptor}
+func NewEventStoreRepo(db DBTX) *EventStoreRepo {
+	return &EventStoreRepo{db: db, q: sqlcgen.New(db)}
 }
 
 // WithTx returns a new EventStoreRepo that operates within the given transaction.
 func (r *EventStoreRepo) WithTx(tx pgx.Tx) repository.EventStoreRepository {
-	return &EventStoreRepo{db: tx, q: sqlcgen.New(tx), encryptor: r.encryptor}
+	return &EventStoreRepo{db: tx, q: sqlcgen.New(tx)}
 }
 
-// Append writes a service event and creates outbox entries for matching subscriptions.
-// When called via WithTx, it operates within the caller's transaction (no nested tx).
-// When called directly (r.db is a pool), it uses r.q directly — the event insert and
-// outbox entries share the same implicit connection.
+// Append writes a service event to the event store.
+// This is a pure INSERT — webhook fan-out is handled by the WebhookProducer process
+// which tails service_events independently via S3 queue.
 func (r *EventStoreRepo) Append(ctx context.Context, event domain.ServiceEvent) (*domain.ServiceEvent, error) {
-	// Insert the service event
 	row, err := r.q.InsertServiceEvent(ctx, sqlcgen.InsertServiceEventParams{
 		EventType:     event.EventType,
 		AggregateType: event.AggregateType,
@@ -45,34 +41,6 @@ func (r *EventStoreRepo) Append(ctx context.Context, event domain.ServiceEvent) 
 	})
 	if err != nil {
 		return nil, fmt.Errorf("insert service event: %w", err)
-	}
-
-	// Find matching subscriptions and create outbox entries
-	subs, err := r.q.GetMatchingSubscriptions(ctx, sqlcgen.GetMatchingSubscriptionsParams{
-		TeamID:  event.TeamID,
-		Column2: event.EventType,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("get matching subscriptions: %w", err)
-	}
-
-	for _, sub := range subs {
-		// Store the encrypted secret in the outbox — the worker decrypts at delivery time.
-		// This avoids persisting plaintext secrets in the outbox table.
-		outboxSecret := sub.EncryptedSecret
-		if outboxSecret == "" {
-			outboxSecret = sub.Secret // fallback for unencrypted subscriptions
-		}
-		if err := r.q.InsertOutboxEntry(ctx, sqlcgen.InsertOutboxEntryParams{
-			EventID:        row.ID,
-			SubscriptionID: sub.ID,
-			Url:            sub.Url,
-			Payload:        event.Payload,
-			Secret:         outboxSecret,
-			MaxAttempts:     5,
-		}); err != nil {
-			return nil, fmt.Errorf("insert outbox entry for subscription %s: %w", sub.ID, err)
-		}
 	}
 
 	result := serviceEventToDomain(row)

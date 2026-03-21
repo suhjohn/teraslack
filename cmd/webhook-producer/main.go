@@ -1,11 +1,11 @@
-// cmd/indexer is a standalone process that runs both the IndexProducer
-// (tails service_events → S3 queue) and the IndexWorker (claims jobs from
-// S3 queue → Turbopuffer). It runs separately from the API server so
-// multiple server replicas don't contend over indexing.
+// cmd/webhook-producer is a standalone process that tails service_events,
+// looks up matching webhook subscriptions, and fans out delivery jobs to an
+// S3-backed queue. It runs separately from both the API server and the
+// webhook worker.
 //
 // Usage:
 //
-//	DATABASE_URL=postgres://... S3_BUCKET=my-bucket WORKER_ID=idx-1 go run ./cmd/indexer
+//	DATABASE_URL=postgres://... S3_BUCKET=my-bucket go run ./cmd/webhook-producer
 package main
 
 import (
@@ -22,7 +22,7 @@ import (
 
 func main() {
 	if err := run(); err != nil {
-		fmt.Fprintf(os.Stderr, "indexer: %v\n", err)
+		fmt.Fprintf(os.Stderr, "webhook-producer: %v\n", err)
 		os.Exit(1)
 	}
 }
@@ -30,7 +30,7 @@ func main() {
 func run() error {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
 
-	// Database connection (needed by IndexProducer to tail service_events)
+	// Database connection (needed to tail service_events and query subscriptions)
 	dbURL := os.Getenv("DATABASE_URL")
 	if dbURL == "" {
 		return fmt.Errorf("DATABASE_URL is required")
@@ -43,7 +43,7 @@ func run() error {
 		Endpoint:  os.Getenv("S3_ENDPOINT"),
 		AccessKey: os.Getenv("S3_ACCESS_KEY"),
 		SecretKey: os.Getenv("S3_SECRET_KEY"),
-		QueueKey:  getEnv("INDEX_QUEUE_S3_KEY", "queues/index/queue.json"),
+		QueueKey:  getEnv("WEBHOOK_QUEUE_S3_KEY", "queues/webhooks/queue.json"),
 	}
 
 	if s3Cfg.Bucket == "" {
@@ -70,20 +70,7 @@ func run() error {
 		return fmt.Errorf("create S3 queue: %w", err)
 	}
 
-	workerID := getEnv("WORKER_ID", "")
-
-	// Start IndexProducer (tails service_events → S3 queue)
-	producer := queue.NewIndexProducer(pool, s3Queue, logger, queue.ProducerConfig{})
-	producerErrCh := make(chan error, 1)
-	go func() {
-		producerErrCh <- producer.Run(ctx)
-	}()
-
-	// TurbopufferClient is nil for now — pass a real implementation when configured.
-	// The worker will still claim and mark jobs as completed (dry-run mode).
-	worker := queue.NewIndexWorker(s3Queue, nil, logger, queue.WorkerConfig{
-		WorkerID: workerID,
-	})
+	producer := queue.NewWebhookProducer(pool, s3Queue, logger, queue.WebhookProducerConfig{})
 
 	// Handle graceful shutdown
 	sigCh := make(chan os.Signal, 1)
@@ -95,23 +82,11 @@ func run() error {
 		cancel()
 	}()
 
-	logger.Info("indexer starting",
+	logger.Info("webhook producer starting",
 		"bucket", s3Cfg.Bucket,
-		"queue_key", s3Cfg.QueueKey,
-		"worker_id", workerID)
+		"queue_key", s3Cfg.QueueKey)
 
-	// Run worker in foreground; producer runs in background goroutine.
-	// Both shut down when ctx is cancelled.
-	workerErr := worker.Run(ctx)
-
-	// Wait for producer to finish draining
-	<-producer.Done()
-
-	if producerErr := <-producerErrCh; producerErr != nil {
-		logger.Error("producer error", "error", producerErr)
-	}
-
-	return workerErr
+	return producer.Run(ctx)
 }
 
 func getEnv(key, fallback string) string {

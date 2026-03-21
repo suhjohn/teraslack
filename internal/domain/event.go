@@ -49,7 +49,7 @@ type ListEventSubscriptionsParams struct {
 }
 
 // Subscription event types — these must match the service event type constants
-// in service_event.go so that GetMatchingSubscriptions can match them via
+// in service_event.go so that subscription matching can compare them via
 // exact equality ($2::TEXT = ANY(event_types)).
 const (
 	EventTypeMessagePosted       = "message.posted"

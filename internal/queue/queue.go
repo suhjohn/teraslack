@@ -40,17 +40,34 @@ const (
 	StatusFailed    JobStatus = "failed"
 )
 
-// Job represents a single indexing job in the queue.
+// Job represents a single job in an S3-backed queue.
+// Used for both index jobs (Turbopuffer) and webhook delivery jobs.
 type Job struct {
 	ID            string          `json:"id"`             // Unique job ID (e.g., "evt-123")
 	EventID       int64           `json:"event_id"`       // Source service_event ID
-	ResourceType  string          `json:"resource_type"`  // "user", "message", "conversation", "file", etc.
-	ResourceID    string          `json:"resource_id"`    // Entity ID
 	TeamID        string          `json:"team_id"`        // Team context
 	EventType     string          `json:"event_type"`     // "user.created", "message.posted", etc.
-	Content       string          `json:"content"`        // Searchable text content for embedding
-	Data          json.RawMessage `json:"data"`           // Full entity snapshot for Turbopuffer metadata
 	Status        JobStatus       `json:"status"`         // Current job state
+
+	// Index-specific fields
+	ResourceType  string          `json:"resource_type,omitempty"`  // "user", "message", "conversation", "file"
+	ResourceID    string          `json:"resource_id,omitempty"`    // Entity ID
+	Content       string          `json:"content,omitempty"`        // Searchable text content for embedding
+	Data          json.RawMessage `json:"data,omitempty"`           // Full entity snapshot for Turbopuffer metadata
+
+	// Webhook-specific fields
+	SubscriptionID string         `json:"subscription_id,omitempty"` // Target subscription
+	URL            string         `json:"url,omitempty"`             // Webhook delivery URL
+	Secret         string         `json:"secret,omitempty"`          // Encrypted HMAC signing secret
+	Payload        json.RawMessage `json:"payload,omitempty"`        // Webhook payload body
+
+	// Retry tracking
+	Attempts      int             `json:"attempts,omitempty"`       // Number of delivery attempts so far
+	MaxAttempts   int             `json:"max_attempts,omitempty"`   // Max delivery attempts before permanent failure
+	LastError     string          `json:"last_error,omitempty"`     // Last error message
+	NextAttemptAt *time.Time      `json:"next_attempt_at,omitempty"` // Earliest time this job can be claimed (for backoff)
+
+	// Worker coordination
 	ClaimedBy     string          `json:"claimed_by,omitempty"`   // Worker ID that claimed this job
 	Heartbeat     *time.Time      `json:"heartbeat,omitempty"`    // Last heartbeat from claiming worker
 	CompletedAt   *time.Time      `json:"completed_at,omitempty"` // When job was completed
@@ -64,6 +81,9 @@ type QueueState struct {
 	Cursor int64  `json:"cursor"`
 	Jobs   []Job  `json:"jobs"`
 }
+
+// GCRetention is the default retention period for completed jobs before garbage collection.
+const GCRetention = 7 * 24 * time.Hour
 
 // S3Queue provides CAS-based read/write operations on a queue.json file in S3.
 type S3Queue struct {

@@ -35,7 +35,7 @@ func TestAPIKey_CreateForHumanPrincipal(t *testing.T) {
 
 	userRepo := pgRepo.NewUserRepo(pool)
 	apiKeyRepo := pgRepo.NewAPIKeyRepo(pool)
-	eventStoreRepo := pgRepo.NewEventStoreRepo(pool, nil)
+	eventStoreRepo := pgRepo.NewEventStoreRepo(pool)
 	recorder := service.NewEventRecorder(eventStoreRepo)
 	userSvc := service.NewUserService(userRepo, recorder, pool, logger)
 	apiKeySvc := service.NewAPIKeyService(apiKeyRepo, userRepo, recorder, pool, logger)
@@ -142,7 +142,7 @@ func TestAPIKey_CreateForAgentPrincipal(t *testing.T) {
 
 	userRepo := pgRepo.NewUserRepo(pool)
 	apiKeyRepo := pgRepo.NewAPIKeyRepo(pool)
-	eventStoreRepo := pgRepo.NewEventStoreRepo(pool, nil)
+	eventStoreRepo := pgRepo.NewEventStoreRepo(pool)
 	recorder := service.NewEventRecorder(eventStoreRepo)
 	userSvc := service.NewUserService(userRepo, recorder, pool, logger)
 	apiKeySvc := service.NewAPIKeyService(apiKeyRepo, userRepo, recorder, pool, logger)
@@ -230,7 +230,7 @@ func TestAPIKey_CreateTestEnvironment(t *testing.T) {
 
 	userRepo := pgRepo.NewUserRepo(pool)
 	apiKeyRepo := pgRepo.NewAPIKeyRepo(pool)
-	eventStoreRepo := pgRepo.NewEventStoreRepo(pool, nil)
+	eventStoreRepo := pgRepo.NewEventStoreRepo(pool)
 	recorder := service.NewEventRecorder(eventStoreRepo)
 	userSvc := service.NewUserService(userRepo, recorder, pool, logger)
 	apiKeySvc := service.NewAPIKeyService(apiKeyRepo, userRepo, recorder, pool, logger)
@@ -283,7 +283,7 @@ func TestAPIKey_CreateValidationErrors(t *testing.T) {
 
 	userRepo := pgRepo.NewUserRepo(pool)
 	apiKeyRepo := pgRepo.NewAPIKeyRepo(pool)
-	eventStoreRepo := pgRepo.NewEventStoreRepo(pool, nil)
+	eventStoreRepo := pgRepo.NewEventStoreRepo(pool)
 	recorder := service.NewEventRecorder(eventStoreRepo)
 	apiKeySvc := service.NewAPIKeyService(apiKeyRepo, userRepo, recorder, pool, logger)
 
@@ -341,7 +341,7 @@ func TestAPIKey_CreateForNonexistentPrincipal(t *testing.T) {
 
 	userRepo := pgRepo.NewUserRepo(pool)
 	apiKeyRepo := pgRepo.NewAPIKeyRepo(pool)
-	eventStoreRepo := pgRepo.NewEventStoreRepo(pool, nil)
+	eventStoreRepo := pgRepo.NewEventStoreRepo(pool)
 	recorder := service.NewEventRecorder(eventStoreRepo)
 	apiKeySvc := service.NewAPIKeyService(apiKeyRepo, userRepo, recorder, pool, logger)
 
@@ -373,7 +373,7 @@ func TestAPIKey_GetStripsKeyHash(t *testing.T) {
 
 	userRepo := pgRepo.NewUserRepo(pool)
 	apiKeyRepo := pgRepo.NewAPIKeyRepo(pool)
-	eventStoreRepo := pgRepo.NewEventStoreRepo(pool, nil)
+	eventStoreRepo := pgRepo.NewEventStoreRepo(pool)
 	recorder := service.NewEventRecorder(eventStoreRepo)
 	userSvc := service.NewUserService(userRepo, recorder, pool, logger)
 	apiKeySvc := service.NewAPIKeyService(apiKeyRepo, userRepo, recorder, pool, logger)
@@ -416,7 +416,7 @@ func TestAPIKey_ListAndFilter(t *testing.T) {
 
 	userRepo := pgRepo.NewUserRepo(pool)
 	apiKeyRepo := pgRepo.NewAPIKeyRepo(pool)
-	eventStoreRepo := pgRepo.NewEventStoreRepo(pool, nil)
+	eventStoreRepo := pgRepo.NewEventStoreRepo(pool)
 	recorder := service.NewEventRecorder(eventStoreRepo)
 	userSvc := service.NewUserService(userRepo, recorder, pool, logger)
 	apiKeySvc := service.NewAPIKeyService(apiKeyRepo, userRepo, recorder, pool, logger)
@@ -509,7 +509,7 @@ func TestAPIKey_UpdateNameDescriptionPermissions(t *testing.T) {
 
 	userRepo := pgRepo.NewUserRepo(pool)
 	apiKeyRepo := pgRepo.NewAPIKeyRepo(pool)
-	eventStoreRepo := pgRepo.NewEventStoreRepo(pool, nil)
+	eventStoreRepo := pgRepo.NewEventStoreRepo(pool)
 	recorder := service.NewEventRecorder(eventStoreRepo)
 	userSvc := service.NewUserService(userRepo, recorder, pool, logger)
 	apiKeySvc := service.NewAPIKeyService(apiKeyRepo, userRepo, recorder, pool, logger)
@@ -572,7 +572,7 @@ func TestAPIKey_Revoke(t *testing.T) {
 
 	userRepo := pgRepo.NewUserRepo(pool)
 	apiKeyRepo := pgRepo.NewAPIKeyRepo(pool)
-	eventStoreRepo := pgRepo.NewEventStoreRepo(pool, nil)
+	eventStoreRepo := pgRepo.NewEventStoreRepo(pool)
 	recorder := service.NewEventRecorder(eventStoreRepo)
 	userSvc := service.NewUserService(userRepo, recorder, pool, logger)
 	apiKeySvc := service.NewAPIKeyService(apiKeyRepo, userRepo, recorder, pool, logger)
@@ -636,7 +636,7 @@ func TestAPIKey_ValidateLiveKey(t *testing.T) {
 
 	userRepo := pgRepo.NewUserRepo(pool)
 	apiKeyRepo := pgRepo.NewAPIKeyRepo(pool)
-	eventStoreRepo := pgRepo.NewEventStoreRepo(pool, nil)
+	eventStoreRepo := pgRepo.NewEventStoreRepo(pool)
 	recorder := service.NewEventRecorder(eventStoreRepo)
 	userSvc := service.NewUserService(userRepo, recorder, pool, logger)
 	apiKeySvc := service.NewAPIKeyService(apiKeyRepo, userRepo, recorder, pool, logger)
@@ -687,7 +687,7 @@ func TestAPIKey_ValidateTestKey(t *testing.T) {
 
 	userRepo := pgRepo.NewUserRepo(pool)
 	apiKeyRepo := pgRepo.NewAPIKeyRepo(pool)
-	eventStoreRepo := pgRepo.NewEventStoreRepo(pool, nil)
+	eventStoreRepo := pgRepo.NewEventStoreRepo(pool)
 	recorder := service.NewEventRecorder(eventStoreRepo)
 	userSvc := service.NewUserService(userRepo, recorder, pool, logger)
 	apiKeySvc := service.NewAPIKeyService(apiKeyRepo, userRepo, recorder, pool, logger)
@@ -727,7 +727,7 @@ func TestAPIKey_ValidateExpiredKey(t *testing.T) {
 
 	userRepo := pgRepo.NewUserRepo(pool)
 	apiKeyRepo := pgRepo.NewAPIKeyRepo(pool)
-	eventStoreRepo := pgRepo.NewEventStoreRepo(pool, nil)
+	eventStoreRepo := pgRepo.NewEventStoreRepo(pool)
 	recorder := service.NewEventRecorder(eventStoreRepo)
 	userSvc := service.NewUserService(userRepo, recorder, pool, logger)
 	apiKeySvc := service.NewAPIKeyService(apiKeyRepo, userRepo, recorder, pool, logger)
@@ -775,7 +775,7 @@ func TestAPIKey_ValidateGarbageKey(t *testing.T) {
 
 	userRepo := pgRepo.NewUserRepo(pool)
 	apiKeyRepo := pgRepo.NewAPIKeyRepo(pool)
-	eventStoreRepo := pgRepo.NewEventStoreRepo(pool, nil)
+	eventStoreRepo := pgRepo.NewEventStoreRepo(pool)
 	recorder := service.NewEventRecorder(eventStoreRepo)
 	apiKeySvc := service.NewAPIKeyService(apiKeyRepo, userRepo, recorder, pool, logger)
 
@@ -802,7 +802,7 @@ func TestAPIKey_UsageTracking(t *testing.T) {
 
 	userRepo := pgRepo.NewUserRepo(pool)
 	apiKeyRepo := pgRepo.NewAPIKeyRepo(pool)
-	eventStoreRepo := pgRepo.NewEventStoreRepo(pool, nil)
+	eventStoreRepo := pgRepo.NewEventStoreRepo(pool)
 	recorder := service.NewEventRecorder(eventStoreRepo)
 	userSvc := service.NewUserService(userRepo, recorder, pool, logger)
 	apiKeySvc := service.NewAPIKeyService(apiKeyRepo, userRepo, recorder, pool, logger)
@@ -863,7 +863,7 @@ func TestAPIKey_RotateCreatesNewKey(t *testing.T) {
 
 	userRepo := pgRepo.NewUserRepo(pool)
 	apiKeyRepo := pgRepo.NewAPIKeyRepo(pool)
-	eventStoreRepo := pgRepo.NewEventStoreRepo(pool, nil)
+	eventStoreRepo := pgRepo.NewEventStoreRepo(pool)
 	recorder := service.NewEventRecorder(eventStoreRepo)
 	userSvc := service.NewUserService(userRepo, recorder, pool, logger)
 	apiKeySvc := service.NewAPIKeyService(apiKeyRepo, userRepo, recorder, pool, logger)
@@ -952,7 +952,7 @@ func TestAPIKey_RotateRevokedKeyFails(t *testing.T) {
 
 	userRepo := pgRepo.NewUserRepo(pool)
 	apiKeyRepo := pgRepo.NewAPIKeyRepo(pool)
-	eventStoreRepo := pgRepo.NewEventStoreRepo(pool, nil)
+	eventStoreRepo := pgRepo.NewEventStoreRepo(pool)
 	recorder := service.NewEventRecorder(eventStoreRepo)
 	userSvc := service.NewUserService(userRepo, recorder, pool, logger)
 	apiKeySvc := service.NewAPIKeyService(apiKeyRepo, userRepo, recorder, pool, logger)
@@ -991,7 +991,7 @@ func TestAPIKey_RotateCustomGracePeriod(t *testing.T) {
 
 	userRepo := pgRepo.NewUserRepo(pool)
 	apiKeyRepo := pgRepo.NewAPIKeyRepo(pool)
-	eventStoreRepo := pgRepo.NewEventStoreRepo(pool, nil)
+	eventStoreRepo := pgRepo.NewEventStoreRepo(pool)
 	recorder := service.NewEventRecorder(eventStoreRepo)
 	userSvc := service.NewUserService(userRepo, recorder, pool, logger)
 	apiKeySvc := service.NewAPIKeyService(apiKeyRepo, userRepo, recorder, pool, logger)
@@ -1044,7 +1044,7 @@ func TestPrincipalType_DefaultsToHuman(t *testing.T) {
 	}
 
 	userRepo := pgRepo.NewUserRepo(pool)
-	eventStoreRepo := pgRepo.NewEventStoreRepo(pool, nil)
+	eventStoreRepo := pgRepo.NewEventStoreRepo(pool)
 	recorder := service.NewEventRecorder(eventStoreRepo)
 	userSvc := service.NewUserService(userRepo, recorder, pool, logger)
 
@@ -1079,7 +1079,7 @@ func TestPrincipalType_AgentWithOwner(t *testing.T) {
 	}
 
 	userRepo := pgRepo.NewUserRepo(pool)
-	eventStoreRepo := pgRepo.NewEventStoreRepo(pool, nil)
+	eventStoreRepo := pgRepo.NewEventStoreRepo(pool)
 	recorder := service.NewEventRecorder(eventStoreRepo)
 	userSvc := service.NewUserService(userRepo, recorder, pool, logger)
 
@@ -1129,7 +1129,7 @@ func TestAPIKey_AgentActionsTrackedInEvents(t *testing.T) {
 	userRepo := pgRepo.NewUserRepo(pool)
 	apiKeyRepo := pgRepo.NewAPIKeyRepo(pool)
 	convRepo := pgRepo.NewConversationRepo(pool)
-	eventStoreRepo := pgRepo.NewEventStoreRepo(pool, nil)
+	eventStoreRepo := pgRepo.NewEventStoreRepo(pool)
 	recorder := service.NewEventRecorder(eventStoreRepo)
 	userSvc := service.NewUserService(userRepo, recorder, pool, logger)
 	apiKeySvc := service.NewAPIKeyService(apiKeyRepo, userRepo, recorder, pool, logger)
@@ -1205,7 +1205,7 @@ func TestAPIKey_FullLifecycleEventCount(t *testing.T) {
 
 	userRepo := pgRepo.NewUserRepo(pool)
 	apiKeyRepo := pgRepo.NewAPIKeyRepo(pool)
-	eventStoreRepo := pgRepo.NewEventStoreRepo(pool, nil)
+	eventStoreRepo := pgRepo.NewEventStoreRepo(pool)
 	recorder := service.NewEventRecorder(eventStoreRepo)
 	userSvc := service.NewUserService(userRepo, recorder, pool, logger)
 	apiKeySvc := service.NewAPIKeyService(apiKeyRepo, userRepo, recorder, pool, logger)
@@ -1307,7 +1307,7 @@ func TestAPIKey_EventPayloadsRedacted(t *testing.T) {
 
 	userRepo := pgRepo.NewUserRepo(pool)
 	apiKeyRepo := pgRepo.NewAPIKeyRepo(pool)
-	eventStoreRepo := pgRepo.NewEventStoreRepo(pool, nil)
+	eventStoreRepo := pgRepo.NewEventStoreRepo(pool)
 	recorder := service.NewEventRecorder(eventStoreRepo)
 	userSvc := service.NewUserService(userRepo, recorder, pool, logger)
 	apiKeySvc := service.NewAPIKeyService(apiKeyRepo, userRepo, recorder, pool, logger)
@@ -1364,7 +1364,7 @@ func TestAPIKey_TransactionalAtomicity(t *testing.T) {
 
 	userRepo := pgRepo.NewUserRepo(pool)
 	apiKeyRepo := pgRepo.NewAPIKeyRepo(pool)
-	eventStoreRepo := pgRepo.NewEventStoreRepo(pool, nil)
+	eventStoreRepo := pgRepo.NewEventStoreRepo(pool)
 	recorder := service.NewEventRecorder(eventStoreRepo)
 	userSvc := service.NewUserService(userRepo, recorder, pool, logger)
 	apiKeySvc := service.NewAPIKeyService(apiKeyRepo, userRepo, recorder, pool, logger)
