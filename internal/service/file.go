@@ -257,8 +257,29 @@ func (s *FileService) AddRemoteFile(ctx context.Context, params domain.AddRemote
 		Permalink:   params.ExternalURL,
 	}
 
-	if err := s.repo.Create(ctx, f); err != nil {
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	if err := s.repo.WithTx(tx).Create(ctx, f); err != nil {
 		return nil, fmt.Errorf("create remote file: %w", err)
+	}
+
+	payload, _ := json.Marshal(f)
+	if err := s.recorder.WithTx(tx).Record(ctx, domain.ServiceEvent{
+		EventType:     domain.EventFileCreated,
+		AggregateType: domain.AggregateFile,
+		AggregateID:   f.ID,
+		TeamID:        "",
+		Payload:       payload,
+	}); err != nil {
+		return nil, fmt.Errorf("record file.created event: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("commit tx: %w", err)
 	}
 	return f, nil
 }
@@ -267,10 +288,35 @@ func (s *FileService) ShareRemoteFile(ctx context.Context, params domain.ShareRe
 	if params.FileID == "" {
 		return fmt.Errorf("file_id: %w", domain.ErrInvalidArgument)
 	}
+
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	txRepo := s.repo.WithTx(tx)
+	txRecorder := s.recorder.WithTx(tx)
+
 	for _, ch := range params.Channels {
-		if err := s.repo.ShareToChannel(ctx, params.FileID, ch); err != nil {
+		if err := txRepo.ShareToChannel(ctx, params.FileID, ch); err != nil {
 			return fmt.Errorf("share to channel %s: %w", ch, err)
 		}
+
+		sharePayload, _ := json.Marshal(map[string]string{"file_id": params.FileID, "channel_id": ch})
+		if err := txRecorder.Record(ctx, domain.ServiceEvent{
+			EventType:     domain.EventFileShared,
+			AggregateType: domain.AggregateFile,
+			AggregateID:   params.FileID,
+			TeamID:        "",
+			Payload:       sharePayload,
+		}); err != nil {
+			return fmt.Errorf("record file.shared event: %w", err)
+		}
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit tx: %w", err)
 	}
 	return nil
 }

@@ -57,9 +57,10 @@ type APIKey struct {
 }
 
 // Redacted returns a copy with sensitive fields cleared for event_data.
+// KeyHash is preserved because it's a one-way SHA-256 hash (not a secret)
+// and is needed for ValidateAPIKey lookups after projection rebuilds.
 func (k *APIKey) Redacted() *APIKey {
 	c := *k
-	c.KeyHash = ""
 	return &c
 }
 
