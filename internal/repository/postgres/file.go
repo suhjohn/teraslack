@@ -140,7 +140,7 @@ func (r *FileRepo) List(ctx context.Context, params domain.ListFilesParams) (*do
 	page := &domain.CursorPage[domain.File]{}
 	if len(files) > limit {
 		page.HasMore = true
-		page.NextCursor = files[limit-1].ID
+		page.NextCursor = files[limit].ID
 		page.Items = files[:limit]
 	} else {
 		page.Items = files

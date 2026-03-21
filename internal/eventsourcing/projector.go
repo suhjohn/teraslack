@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -278,8 +279,10 @@ func (p *Projector) applyEvent(ctx context.Context, tx pgx.Tx, entry domain.Serv
 		return p.applySubscriptionDeleted(ctx, tx, entry)
 
 	// API Key events
-	case domain.EventAPIKeyCreated, domain.EventAPIKeyUpdated, domain.EventAPIKeyRotated:
+	case domain.EventAPIKeyCreated, domain.EventAPIKeyUpdated:
 		return p.applyAPIKeyUpsert(ctx, tx, entry)
+	case domain.EventAPIKeyRotated:
+		return p.applyAPIKeyRotated(ctx, tx, entry)
 	case domain.EventAPIKeyRevoked:
 		return p.applyAPIKeyRevoked(ctx, tx, entry)
 
@@ -763,6 +766,20 @@ func (p *Projector) applyAPIKeyUpsert(ctx context.Context, tx pgx.Tx, entry doma
 		k.Permissions, k.ExpiresAt, k.LastUsedAt, k.RequestCount,
 		k.Revoked, k.RevokedAt,
 		k.RotatedToID, k.GracePeriodEndsAt, k.CreatedAt, k.UpdatedAt)
+	return err
+}
+
+func (p *Projector) applyAPIKeyRotated(ctx context.Context, tx pgx.Tx, entry domain.ServiceEvent) error {
+	var data struct {
+		OldKeyID          string     `json:"old_key_id"`
+		NewKeyID          string     `json:"new_key_id"`
+		GracePeriodEndsAt *time.Time `json:"grace_period_ends_at"`
+	}
+	if err := json.Unmarshal(entry.Payload, &data); err != nil {
+		return fmt.Errorf("unmarshal api key rotated: %w", err)
+	}
+	_, err := tx.Exec(ctx, `UPDATE api_keys SET rotated_to_id = $2, grace_period_ends_at = $3, updated_at = $4 WHERE id = $1`,
+		data.OldKeyID, data.NewKeyID, data.GracePeriodEndsAt, entry.CreatedAt)
 	return err
 }
 
