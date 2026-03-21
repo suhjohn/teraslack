@@ -120,26 +120,30 @@ func (w *IndexWorker) processJobs(ctx context.Context) error {
 	w.logger.Info("claimed jobs", "count", len(claimed), "worker_id", w.workerID)
 
 	// Step 2: Start heartbeat goroutine for claimed jobs
+	jobIDs := make([]string, len(claimed))
+	for i, j := range claimed {
+		jobIDs[i] = j.ID
+	}
 	heartbeatCtx, cancelHeartbeat := context.WithCancel(ctx)
 	var wg sync.WaitGroup
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		w.heartbeatLoop(heartbeatCtx, claimed)
+		w.heartbeatLoop(heartbeatCtx, jobIDs)
 	}()
 
 	// Step 3: Process each claimed job
 	completed := make([]string, 0, len(claimed))
 	failed := make([]string, 0)
-	for _, jobID := range claimed {
+	for i := range claimed {
 		if ctx.Err() != nil {
 			break
 		}
-		if err := w.processJob(ctx, jobID); err != nil {
-			w.logger.Error("process job", "job_id", jobID, "error", err, "worker_id", w.workerID)
-			failed = append(failed, jobID)
+		if err := w.processJob(ctx, &claimed[i]); err != nil {
+			w.logger.Error("process job", "job_id", claimed[i].ID, "error", err, "worker_id", w.workerID)
+			failed = append(failed, claimed[i].ID)
 		} else {
-			completed = append(completed, jobID)
+			completed = append(completed, claimed[i].ID)
 		}
 	}
 
@@ -158,7 +162,8 @@ func (w *IndexWorker) processJobs(ctx context.Context) error {
 }
 
 // claimJobs reads the queue and claims the first N unclaimed/expired jobs via CAS.
-func (w *IndexWorker) claimJobs(ctx context.Context) ([]string, error) {
+// Returns copies of the claimed jobs so callers don't need to re-read S3.
+func (w *IndexWorker) claimJobs(ctx context.Context) ([]Job, error) {
 	maxRetries := 5
 	for attempt := 0; attempt < maxRetries; attempt++ {
 		snap, err := w.queue.Read(ctx)
@@ -167,7 +172,7 @@ func (w *IndexWorker) claimJobs(ctx context.Context) ([]string, error) {
 		}
 
 		now := time.Now()
-		var claimed []string
+		var claimed []Job
 		modified := false
 
 		for i := range snap.State.Jobs {
@@ -184,7 +189,7 @@ func (w *IndexWorker) claimJobs(ctx context.Context) ([]string, error) {
 				job.ClaimedBy = w.workerID
 				hb := now
 				job.Heartbeat = &hb
-				claimed = append(claimed, job.ID)
+				claimed = append(claimed, *job)
 				modified = true
 
 			case StatusClaimed:
@@ -198,7 +203,7 @@ func (w *IndexWorker) claimJobs(ctx context.Context) ([]string, error) {
 					job.ClaimedBy = w.workerID
 					hb := now
 					job.Heartbeat = &hb
-					claimed = append(claimed, job.ID)
+					claimed = append(claimed, *job)
 					modified = true
 				}
 			}
@@ -224,24 +229,7 @@ func (w *IndexWorker) claimJobs(ctx context.Context) ([]string, error) {
 }
 
 // processJob handles a single index job — upserts or deletes from Turbopuffer.
-func (w *IndexWorker) processJob(ctx context.Context, jobID string) error {
-	// Read the queue to get the job data
-	snap, err := w.queue.Read(ctx)
-	if err != nil {
-		return fmt.Errorf("read queue for job: %w", err)
-	}
-
-	var job *Job
-	for i := range snap.State.Jobs {
-		if snap.State.Jobs[i].ID == jobID {
-			job = &snap.State.Jobs[i]
-			break
-		}
-	}
-	if job == nil {
-		return fmt.Errorf("job %s not found in queue", jobID)
-	}
-
+func (w *IndexWorker) processJob(ctx context.Context, job *Job) error {
 	// Check if this is a delete event
 	isDelete := job.EventType == "user.deleted" ||
 		job.EventType == "message.deleted" ||
@@ -252,7 +240,7 @@ func (w *IndexWorker) processJob(ctx context.Context, jobID string) error {
 		// Since the current interface only has Upsert, we skip deletes for now
 		// and log them. A production implementation would add a Delete method.
 		w.logger.Info("skipping delete indexing (not yet implemented)",
-			"job_id", jobID, "resource_type", job.ResourceType, "resource_id", job.ResourceID)
+			"job_id", job.ID, "resource_type", job.ResourceType, "resource_id", job.ResourceID)
 		return nil
 	}
 
@@ -282,7 +270,7 @@ func (w *IndexWorker) processJob(ctx context.Context, jobID string) error {
 		return fmt.Errorf("turbopuffer upsert: %w", err)
 	}
 
-	w.logger.Debug("indexed job", "job_id", jobID, "tp_id", tpID)
+	w.logger.Debug("indexed job", "job_id", job.ID, "tp_id", tpID)
 	return nil
 }
 

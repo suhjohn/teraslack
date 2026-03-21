@@ -195,9 +195,11 @@ func (q *S3Queue) Write(ctx context.Context, state QueueState, expectedETag stri
 	}
 
 	// CAS: If we have an ETag from a previous read, use If-Match.
-	// If the object is new (no ETag), we don't set If-Match — first writer wins.
+	// If the object is new (no ETag), use If-None-Match to prevent race on creation.
 	if expectedETag != "" {
 		input.IfMatch = aws.String(expectedETag)
+	} else {
+		input.IfNoneMatch = aws.String("*")
 	}
 
 	out, err := q.client.PutObject(ctx, input)
