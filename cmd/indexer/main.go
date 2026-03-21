@@ -18,6 +18,8 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/suhjohn/teraslack/internal/queue"
+	"github.com/suhjohn/teraslack/internal/search"
+	"github.com/suhjohn/teraslack/internal/service"
 )
 
 func main() {
@@ -79,9 +81,17 @@ func run() error {
 		producerErrCh <- producer.Run(ctx)
 	}()
 
-	// TurbopufferClient is nil for now — pass a real implementation when configured.
-	// The worker will still claim and mark jobs as completed (dry-run mode).
-	worker := queue.NewIndexWorker(s3Queue, nil, logger, queue.WorkerConfig{
+	// Initialize TurbopufferClient (optional — nil means dry-run mode).
+	var tpClient service.TurbopufferClient
+	if apiKey := os.Getenv("TURBOPUFFER_API_KEY"); apiKey != "" {
+		nsPrefix := getEnv("TURBOPUFFER_NS_PREFIX", "teraslack")
+		tpClient = search.NewClient(apiKey, nsPrefix)
+		logger.Info("turbopuffer client initialized", "ns_prefix", nsPrefix)
+	} else {
+		logger.Warn("TURBOPUFFER_API_KEY not set — indexer running in dry-run mode")
+	}
+
+	worker := queue.NewIndexWorker(s3Queue, tpClient, logger, queue.WorkerConfig{
 		WorkerID: workerID,
 	})
 

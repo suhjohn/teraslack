@@ -20,6 +20,7 @@ import (
 	"github.com/suhjohn/teraslack/internal/handler"
 	pgRepo "github.com/suhjohn/teraslack/internal/repository/postgres"
 	s3client "github.com/suhjohn/teraslack/internal/s3"
+	"github.com/suhjohn/teraslack/internal/search"
 	"github.com/suhjohn/teraslack/internal/service"
 )
 
@@ -131,7 +132,17 @@ func run(logger *slog.Logger) error {
 	fileSvc := service.NewFileService(fileRepo, s3, cfg.BaseURL, recorder, pool, logger)
 	authSvc := service.NewAuthService(authRepo, userRepo, recorder, pool, logger)
 	apiKeySvc := service.NewAPIKeyService(apiKeyRepo, userRepo, recorder, pool, logger)
-	searchSvc := service.NewSearchService(nil) // Turbopuffer optional — pass client when configured
+	// Initialize TurbopufferClient (optional — nil means search is disabled)
+	var tpClient service.TurbopufferClient
+	if cfg.TurbopufferAPIKey != "" {
+		nsPrefix := "teraslack"
+		if v := os.Getenv("TURBOPUFFER_NS_PREFIX"); v != "" {
+			nsPrefix = v
+		}
+		tpClient = search.NewClient(cfg.TurbopufferAPIKey, nsPrefix)
+		logger.Info("turbopuffer client initialized", "ns_prefix", nsPrefix)
+	}
+	searchSvc := service.NewSearchService(tpClient)
 
 	// Initialize handlers
 	userHandler := handler.NewUserHandler(userSvc)

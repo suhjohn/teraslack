@@ -289,7 +289,54 @@ func (p *IndexProducer) eventToJob(evt domain.ServiceEvent) *Job {
 	}
 }
 
+// dedup removes duplicate jobs from a batch by keeping only the latest job
+// per (resource_type, resource_id) pair. This is the producer-side dedup
+// (Option A) — prevents writing redundant jobs to the S3 queue when the
+// same resource is updated multiple times within a single flush interval.
+func dedup(jobs []Job) []Job {
+	// Walk backwards so the last (newest) job per key wins.
+	seen := make(map[string]struct{}, len(jobs))
+	deduped := make([]Job, 0, len(jobs))
+	for i := len(jobs) - 1; i >= 0; i-- {
+		key := jobs[i].ResourceType + ":" + jobs[i].ResourceID
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		deduped = append(deduped, jobs[i])
+	}
+	// Reverse to restore chronological order.
+	for i, j := 0, len(deduped)-1; i < j; i, j = i+1, j-1 {
+		deduped[i], deduped[j] = deduped[j], deduped[i]
+	}
+	return deduped
+}
+
+// dedupWithExisting removes jobs from newJobs whose resource is already
+// pending in the existing queue (Option B — queue-level dedup). This avoids
+// writing a new job for a resource that already has an unclaimed job.
+func dedupWithExisting(newJobs []Job, existingJobs []Job) []Job {
+	pending := make(map[string]struct{}, len(existingJobs))
+	for _, j := range existingJobs {
+		if j.Status == StatusPending {
+			pending[j.ResourceType+":"+j.ResourceID] = struct{}{}
+		}
+	}
+	result := make([]Job, 0, len(newJobs))
+	for _, j := range newJobs {
+		key := j.ResourceType + ":" + j.ResourceID
+		if _, ok := pending[key]; ok {
+			continue // already pending in queue
+		}
+		result = append(result, j)
+	}
+	return result
+}
+
 // flush writes all buffered jobs to the S3 queue in a single CAS write (group commit).
+// Applies two levels of dedup before writing:
+//  1. Producer-side (Option A): dedup within the current batch by (resource_type, resource_id).
+//  2. Queue-level (Option B): skip jobs whose resource already has a pending job in the queue.
 func (p *IndexProducer) flush(ctx context.Context) error {
 	p.mu.Lock()
 	if len(p.buffer) == 0 {
@@ -301,6 +348,9 @@ func (p *IndexProducer) flush(ctx context.Context) error {
 	p.buffer = p.buffer[:0]
 	p.mu.Unlock()
 
+	// Option A: dedup within the batch
+	jobs = dedup(jobs)
+
 	// CAS retry loop
 	maxRetries := 10
 	for attempt := 0; attempt < maxRetries; attempt++ {
@@ -309,8 +359,11 @@ func (p *IndexProducer) flush(ctx context.Context) error {
 			return fmt.Errorf("read queue: %w", err)
 		}
 
-		// Append new jobs
-		snap.State.Jobs = append(snap.State.Jobs, jobs...)
+		// Option B: dedup against pending jobs already in the queue
+		toAppend := dedupWithExisting(jobs, snap.State.Jobs)
+
+		// Append new (deduped) jobs
+		snap.State.Jobs = append(snap.State.Jobs, toAppend...)
 
 		// Update cursor to the latest event ID
 		if len(jobs) > 0 {
@@ -333,7 +386,9 @@ func (p *IndexProducer) flush(ctx context.Context) error {
 			return fmt.Errorf("write queue: %w", err)
 		}
 
-		p.logger.Info("flushed index jobs to queue", "count", len(jobs))
+		p.logger.Info("flushed index jobs to queue",
+			"batch_total", len(jobs),
+			"after_dedup", len(toAppend))
 		return nil
 	}
 

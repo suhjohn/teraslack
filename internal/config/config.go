@@ -20,6 +20,7 @@ type Config struct {
 	S3SecretKey string
 
 	// Turbopuffer configuration
+	TurbopufferAPIKey string
 	TurbopufferRegion string
 
 	// Encryption configuration
@@ -58,6 +59,7 @@ func Load() (*Config, error) {
 		S3Endpoint:        os.Getenv("S3_ENDPOINT"),
 		S3AccessKey:       os.Getenv("S3_ACCESS_KEY"),
 		S3SecretKey:       os.Getenv("S3_SECRET_KEY"),
+		TurbopufferAPIKey: os.Getenv("TURBOPUFFER_API_KEY"),
 		TurbopufferRegion: getEnv("TURBOPUFFER_REGION", "us-east-1"),
 		EncryptionKey:     os.Getenv("ENCRYPTION_KEY"),
 	}, nil

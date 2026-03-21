@@ -229,27 +229,29 @@ func (w *IndexWorker) claimJobs(ctx context.Context) ([]Job, error) {
 }
 
 // processJob handles a single index job — upserts or deletes from Turbopuffer.
+// Uses namespace sharding: the namespace is the first 2 hex chars of the
+// UUID portion of the resource ID (e.g., "U_01abc..." → namespace "01").
 func (w *IndexWorker) processJob(ctx context.Context, job *Job) error {
+	if w.tpClient == nil {
+		return nil
+	}
+
+	namespace := service.NamespaceFromID(job.ResourceID)
+	tpID := fmt.Sprintf("%s:%s", job.ResourceType, job.ResourceID)
+
 	// Check if this is a delete event
 	isDelete := job.EventType == "user.deleted" ||
 		job.EventType == "message.deleted" ||
 		job.EventType == "file.deleted"
 
 	if isDelete {
-		// For deletes, we'd call a Delete method on TurbopufferClient.
-		// Since the current interface only has Upsert, we skip deletes for now
-		// and log them. A production implementation would add a Delete method.
-		w.logger.Info("skipping delete indexing (not yet implemented)",
-			"job_id", job.ID, "resource_type", job.ResourceType, "resource_id", job.ResourceID)
+		if err := w.tpClient.Delete(ctx, namespace, tpID); err != nil {
+			return fmt.Errorf("turbopuffer delete: %w", err)
+		}
+		w.logger.Debug("deleted from index", "job_id", job.ID, "tp_id", tpID, "namespace", namespace)
 		return nil
 	}
 
-	if w.tpClient == nil {
-		// No Turbopuffer client configured — skip but mark as completed
-		return nil
-	}
-
-	// Generate embedding and upsert to Turbopuffer
 	if job.Content == "" {
 		return nil
 	}
@@ -265,12 +267,11 @@ func (w *IndexWorker) processJob(ctx context.Context, job *Job) error {
 		"data":    job.Data,
 	}
 
-	tpID := fmt.Sprintf("%s:%s", job.ResourceType, job.ResourceID)
-	if err := w.tpClient.Upsert(ctx, tpID, embedding, metadata); err != nil {
+	if err := w.tpClient.Upsert(ctx, namespace, tpID, embedding, metadata); err != nil {
 		return fmt.Errorf("turbopuffer upsert: %w", err)
 	}
 
-	w.logger.Debug("indexed job", "job_id", job.ID, "tp_id", tpID)
+	w.logger.Debug("indexed job", "job_id", job.ID, "tp_id", tpID, "namespace", namespace)
 	return nil
 }
 
