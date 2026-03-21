@@ -1027,9 +1027,9 @@ func (r *UsergroupRepo) List(ctx context.Context, params domain.ListUsergroupsPa
 	var err error
 
 	if params.IncludeDisabled {
-		rows, err = r.q.ListUsergroups(ctx, params.TeamID)
-	} else {
 		rows, err = r.q.ListUsergroupsIncludeDisabled(ctx, params.TeamID)
+	} else {
+		rows, err = r.q.ListUsergroups(ctx, params.TeamID)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("list usergroups: %w", err)

@@ -48,18 +48,23 @@ type ListEventSubscriptionsParams struct {
 	TeamID string `json:"team_id"`
 }
 
-// Common event types.
+// Subscription event types — these must match the service event type constants
+// in service_event.go so that GetMatchingSubscriptions can match them via
+// exact equality ($2::TEXT = ANY(event_types)).
 const (
-	EventTypeMessage             = "message"
-	EventTypeReactionAdded       = "reaction_added"
-	EventTypeReactionRemoved     = "reaction_removed"
-	EventTypeMemberJoinedChannel = "member_joined_channel"
-	EventTypeMemberLeftChannel   = "member_left_channel"
-	EventTypeChannelCreated      = "channel_created"
-	EventTypeChannelArchive      = "channel_archive"
-	EventTypeChannelUnarchive    = "channel_unarchive"
-	EventTypeChannelRename       = "channel_rename"
-	EventTypeFileShared          = "file_shared"
-	EventTypePinAdded            = "pin_added"
-	EventTypePinRemoved          = "pin_removed"
+	EventTypeMessagePosted       = "message.posted"
+	EventTypeMessageUpdated      = "message.updated"
+	EventTypeMessageDeleted      = "message.deleted"
+	EventTypeReactionAdded       = "reaction.added"
+	EventTypeReactionRemoved     = "reaction.removed"
+	EventTypeMemberJoinedChannel = "conversation.member_joined"
+	EventTypeMemberLeftChannel   = "conversation.member_left"
+	EventTypeChannelCreated      = "conversation.created"
+	EventTypeChannelArchive      = "conversation.archived"
+	EventTypeChannelUnarchive    = "conversation.unarchived"
+	EventTypeChannelUpdated      = "conversation.updated"
+	EventTypeFileShared          = "file.shared"
+	EventTypeFileCreated         = "file.created"
+	EventTypePinAdded            = "pin.added"
+	EventTypePinRemoved          = "pin.removed"
 )
