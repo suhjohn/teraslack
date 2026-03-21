@@ -15,12 +15,12 @@ import (
 	_ "github.com/golang-migrate/migrate/v4/source/file"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/suhjohn/workspace/internal/config"
-	"github.com/suhjohn/workspace/internal/crypto"
-	"github.com/suhjohn/workspace/internal/handler"
-	pgRepo "github.com/suhjohn/workspace/internal/repository/postgres"
-	s3client "github.com/suhjohn/workspace/internal/s3"
-	"github.com/suhjohn/workspace/internal/service"
+	"github.com/suhjohn/teraslack/internal/config"
+	"github.com/suhjohn/teraslack/internal/crypto"
+	"github.com/suhjohn/teraslack/internal/handler"
+	pgRepo "github.com/suhjohn/teraslack/internal/repository/postgres"
+	s3client "github.com/suhjohn/teraslack/internal/s3"
+	"github.com/suhjohn/teraslack/internal/service"
 )
 
 func main() {

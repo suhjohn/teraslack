@@ -4,10 +4,10 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/suhjohn/workspace/internal/ctxutil"
-	"github.com/suhjohn/workspace/internal/domain"
-	"github.com/suhjohn/workspace/internal/service"
-	"github.com/suhjohn/workspace/pkg/httputil"
+	"github.com/suhjohn/teraslack/internal/ctxutil"
+	"github.com/suhjohn/teraslack/internal/domain"
+	"github.com/suhjohn/teraslack/internal/service"
+	"github.com/suhjohn/teraslack/pkg/httputil"
 )
 
 // APIKeyHandler handles HTTP requests for API key operations.

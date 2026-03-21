@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/suhjohn/workspace/internal/domain"
+	"github.com/suhjohn/teraslack/internal/domain"
 )
 
 // IndexProducer tails the service_events table and pushes index jobs to the

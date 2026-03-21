@@ -5,7 +5,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/suhjohn/workspace/internal/domain"
+	"github.com/suhjohn/teraslack/internal/domain"
 )
 
 // TxBeginner abstracts the ability to begin a database transaction.

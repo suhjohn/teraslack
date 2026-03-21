@@ -6,11 +6,11 @@ import (
 	"log/slog"
 	"net/http"
 
-	"github.com/suhjohn/workspace/internal/domain"
+	"github.com/suhjohn/teraslack/internal/domain"
 )
 
-// SlackResponse mirrors Slack's API response format.
-type SlackResponse struct {
+// TeraslackResponse mirrors Teraslack's API response format.
+type TeraslackResponse struct {
 	OK               bool            `json:"ok"`
 	Error            string          `json:"error,omitempty"`
 	Warning          string          `json:"warning,omitempty"`
@@ -24,7 +24,7 @@ func WriteJSON(w http.ResponseWriter, status int, v any) {
 	json.NewEncoder(w).Encode(v)
 }
 
-// WriteOK writes a successful Slack-style response.
+// WriteOK writes a successful Teraslack-style response.
 func WriteOK(w http.ResponseWriter, data map[string]any) {
 	resp := map[string]any{"ok": true}
 	for k, v := range data {
@@ -33,14 +33,14 @@ func WriteOK(w http.ResponseWriter, data map[string]any) {
 	WriteJSON(w, http.StatusOK, resp)
 }
 
-// WriteError maps domain errors to Slack-style error responses.
+// WriteError maps domain errors to Teraslack-style error responses.
 func WriteError(w http.ResponseWriter, err error) {
 	status := http.StatusInternalServerError
 	errCode := "internal_error"
 
 	switch {
 	case errors.Is(err, domain.ErrNotFound):
-		status = http.StatusOK // Slack returns 200 with ok:false
+		status = http.StatusOK // Teraslack returns 200 with ok:false
 		errCode = "not_found"
 	case errors.Is(err, domain.ErrAlreadyExists):
 		status = http.StatusOK
@@ -83,7 +83,7 @@ func WriteError(w http.ResponseWriter, err error) {
 	if errCode == "internal_error" {
 		slog.Error("internal error", "error", err.Error())
 	}
-	WriteJSON(w, status, SlackResponse{OK: false, Error: errCode})
+	WriteJSON(w, status, TeraslackResponse{OK: false, Error: errCode})
 }
 
 // DecodeJSON decodes a JSON request body into the given value.

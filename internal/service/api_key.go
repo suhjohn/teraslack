@@ -7,9 +7,9 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/suhjohn/workspace/internal/crypto"
-	"github.com/suhjohn/workspace/internal/domain"
-	"github.com/suhjohn/workspace/internal/repository"
+	"github.com/suhjohn/teraslack/internal/crypto"
+	"github.com/suhjohn/teraslack/internal/domain"
+	"github.com/suhjohn/teraslack/internal/repository"
 )
 
 // APIKeyService contains business logic for API key operations.

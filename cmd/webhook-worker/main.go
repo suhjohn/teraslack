@@ -16,8 +16,8 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/suhjohn/workspace/internal/crypto"
-	"github.com/suhjohn/workspace/internal/queue"
+	"github.com/suhjohn/teraslack/internal/crypto"
+	"github.com/suhjohn/teraslack/internal/queue"
 )
 
 func main() {

@@ -4,7 +4,7 @@ import (
 	"log/slog"
 	"net/http"
 
-	"github.com/suhjohn/workspace/internal/service"
+	"github.com/suhjohn/teraslack/internal/service"
 )
 
 // Router sets up all HTTP routes.

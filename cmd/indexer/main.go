@@ -17,7 +17,7 @@ import (
 	"syscall"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/suhjohn/workspace/internal/queue"
+	"github.com/suhjohn/teraslack/internal/queue"
 )
 
 func main() {

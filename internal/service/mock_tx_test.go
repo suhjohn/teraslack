@@ -5,7 +5,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
-	"github.com/suhjohn/workspace/internal/repository"
+	"github.com/suhjohn/teraslack/internal/repository"
 )
 
 // mockTx implements pgx.Tx for testing — all operations are no-ops.

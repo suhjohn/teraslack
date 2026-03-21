@@ -5,9 +5,9 @@ import (
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/suhjohn/workspace/internal/domain"
-	"github.com/suhjohn/workspace/internal/repository"
-	"github.com/suhjohn/workspace/internal/repository/sqlcgen"
+	"github.com/suhjohn/teraslack/internal/domain"
+	"github.com/suhjohn/teraslack/internal/repository"
+	"github.com/suhjohn/teraslack/internal/repository/sqlcgen"
 )
 
 // EventStoreRepo implements repository.EventStoreRepository using Postgres.

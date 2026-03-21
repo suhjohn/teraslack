@@ -9,7 +9,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/suhjohn/workspace/internal/domain"
+	"github.com/suhjohn/teraslack/internal/domain"
 )
 
 // Projector rebuilds projection tables by replaying events from the event log.

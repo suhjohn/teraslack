@@ -10,10 +10,10 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/suhjohn/workspace/internal/domain"
-	"github.com/suhjohn/workspace/internal/eventsourcing"
-	pgRepo "github.com/suhjohn/workspace/internal/repository/postgres"
-	"github.com/suhjohn/workspace/internal/service"
+	"github.com/suhjohn/teraslack/internal/domain"
+	"github.com/suhjohn/teraslack/internal/eventsourcing"
+	pgRepo "github.com/suhjohn/teraslack/internal/repository/postgres"
+	"github.com/suhjohn/teraslack/internal/service"
 )
 
 // ---------------------------------------------------------------------------

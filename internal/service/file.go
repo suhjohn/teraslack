@@ -9,9 +9,9 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/suhjohn/workspace/internal/domain"
-	"github.com/suhjohn/workspace/internal/repository"
-	s3client "github.com/suhjohn/workspace/internal/s3"
+	"github.com/suhjohn/teraslack/internal/domain"
+	"github.com/suhjohn/teraslack/internal/repository"
+	s3client "github.com/suhjohn/teraslack/internal/s3"
 )
 
 // FileService contains business logic for file operations.

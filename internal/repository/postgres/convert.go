@@ -5,8 +5,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
-	"github.com/suhjohn/workspace/internal/domain"
-	"github.com/suhjohn/workspace/internal/repository/sqlcgen"
+	"github.com/suhjohn/teraslack/internal/domain"
+	"github.com/suhjohn/teraslack/internal/repository/sqlcgen"
 )
 
 func tsToTime(ts pgtype.Timestamptz) time.Time {

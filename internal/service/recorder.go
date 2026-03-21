@@ -6,9 +6,9 @@ import (
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/suhjohn/workspace/internal/ctxutil"
-	"github.com/suhjohn/workspace/internal/domain"
-	"github.com/suhjohn/workspace/internal/repository"
+	"github.com/suhjohn/teraslack/internal/ctxutil"
+	"github.com/suhjohn/teraslack/internal/domain"
+	"github.com/suhjohn/teraslack/internal/repository"
 )
 
 // EventRecorder defines the interface for recording service-level events.

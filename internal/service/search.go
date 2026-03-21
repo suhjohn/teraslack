@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/suhjohn/workspace/internal/domain"
+	"github.com/suhjohn/teraslack/internal/domain"
 )
 
 // SearchService contains business logic for unified search across all resource types.

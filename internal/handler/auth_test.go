@@ -6,7 +6,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/suhjohn/workspace/internal/ctxutil"
+	"github.com/suhjohn/teraslack/internal/ctxutil"
 )
 
 func TestGetTeamID(t *testing.T) {

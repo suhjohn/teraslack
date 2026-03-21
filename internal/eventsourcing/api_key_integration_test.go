@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/suhjohn/workspace/internal/domain"
-	pgRepo "github.com/suhjohn/workspace/internal/repository/postgres"
-	"github.com/suhjohn/workspace/internal/service"
+	"github.com/suhjohn/teraslack/internal/domain"
+	pgRepo "github.com/suhjohn/teraslack/internal/repository/postgres"
+	"github.com/suhjohn/teraslack/internal/service"
 )
 
 // No shared setup struct needed — each test sets up its own environment

@@ -41,7 +41,7 @@ func Load() (*Config, error) {
 
 	dbURL := os.Getenv("DATABASE_URL")
 	if dbURL == "" {
-		dbURL = "postgres://slackbackend:slackbackend@localhost:5432/slackbackend?sslmode=disable"
+		dbURL = "postgres://teraslack:teraslack@localhost:5432/teraslack?sslmode=disable"
 	}
 
 	baseURL := os.Getenv("BASE_URL")

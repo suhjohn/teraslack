@@ -3,9 +3,9 @@ package handler
 import (
 	"net/http"
 
-	"github.com/suhjohn/workspace/internal/domain"
-	"github.com/suhjohn/workspace/internal/service"
-	"github.com/suhjohn/workspace/pkg/httputil"
+	"github.com/suhjohn/teraslack/internal/domain"
+	"github.com/suhjohn/teraslack/internal/service"
+	"github.com/suhjohn/teraslack/pkg/httputil"
 )
 
 // EventHandler handles HTTP requests for event subscription operations.

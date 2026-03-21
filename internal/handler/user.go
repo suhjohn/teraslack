@@ -4,9 +4,9 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/suhjohn/workspace/internal/domain"
-	"github.com/suhjohn/workspace/internal/service"
-	"github.com/suhjohn/workspace/pkg/httputil"
+	"github.com/suhjohn/teraslack/internal/domain"
+	"github.com/suhjohn/teraslack/internal/service"
+	"github.com/suhjohn/teraslack/pkg/httputil"
 )
 
 // UserHandler handles HTTP requests for user operations.

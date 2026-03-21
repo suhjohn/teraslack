@@ -4,9 +4,9 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/suhjohn/workspace/internal/domain"
-	"github.com/suhjohn/workspace/internal/service"
-	"github.com/suhjohn/workspace/pkg/httputil"
+	"github.com/suhjohn/teraslack/internal/domain"
+	"github.com/suhjohn/teraslack/internal/service"
+	"github.com/suhjohn/teraslack/pkg/httputil"
 )
 
 // UsergroupHandler handles HTTP requests for usergroup operations.

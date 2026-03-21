@@ -10,9 +10,9 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/suhjohn/workspace/internal/domain"
-	"github.com/suhjohn/workspace/internal/repository"
-	"github.com/suhjohn/workspace/internal/repository/sqlcgen"
+	"github.com/suhjohn/teraslack/internal/domain"
+	"github.com/suhjohn/teraslack/internal/repository"
+	"github.com/suhjohn/teraslack/internal/repository/sqlcgen"
 )
 
 // timeNow is a package-level variable for testing.
@@ -186,7 +186,7 @@ func (r *UserRepo) List(ctx context.Context, params domain.ListUsersParams) (*do
 	return page, nil
 }
 
-// generateID creates a Slack-style prefixed ID with random suffix for uniqueness.
+// generateID creates a Teraslack-style prefixed ID with random suffix for uniqueness.
 func generateID(prefix string) string {
 	b := make([]byte, 4)
 	_, _ = rand.Read(b)

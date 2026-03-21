@@ -5,10 +5,10 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/suhjohn/workspace/internal/ctxutil"
-	"github.com/suhjohn/workspace/internal/domain"
-	"github.com/suhjohn/workspace/internal/service"
-	"github.com/suhjohn/workspace/pkg/httputil"
+	"github.com/suhjohn/teraslack/internal/ctxutil"
+	"github.com/suhjohn/teraslack/internal/domain"
+	"github.com/suhjohn/teraslack/internal/service"
+	"github.com/suhjohn/teraslack/pkg/httputil"
 )
 
 
@@ -109,7 +109,7 @@ func AuthMiddleware(authSvc *service.AuthService, apiKeySvc *service.APIKeyServi
 
 			authHeader := r.Header.Get("Authorization")
 			if authHeader == "" || !strings.HasPrefix(authHeader, "Bearer ") {
-				httputil.WriteJSON(w, http.StatusUnauthorized, httputil.SlackResponse{
+				httputil.WriteJSON(w, http.StatusUnauthorized, httputil.TeraslackResponse{
 					OK:    false,
 					Error: "not_authed",
 				})
@@ -124,7 +124,7 @@ func AuthMiddleware(authSvc *service.AuthService, apiKeySvc *service.APIKeyServi
 			// Route to API key validation if token starts with sk_live_ or sk_test_
 			if strings.HasPrefix(token, "sk_live_") || strings.HasPrefix(token, "sk_test_") {
 				if apiKeySvc == nil {
-					httputil.WriteJSON(w, http.StatusUnauthorized, httputil.SlackResponse{
+					httputil.WriteJSON(w, http.StatusUnauthorized, httputil.TeraslackResponse{
 						OK:    false,
 						Error: "api_keys_not_configured",
 					})
@@ -133,7 +133,7 @@ func AuthMiddleware(authSvc *service.AuthService, apiKeySvc *service.APIKeyServi
 
 				validation, err := apiKeySvc.ValidateAPIKey(ctx, token)
 				if err != nil {
-					httputil.WriteJSON(w, http.StatusUnauthorized, httputil.SlackResponse{
+					httputil.WriteJSON(w, http.StatusUnauthorized, httputil.TeraslackResponse{
 						OK:    false,
 						Error: "invalid_auth",
 					})
@@ -150,7 +150,7 @@ func AuthMiddleware(authSvc *service.AuthService, apiKeySvc *service.APIKeyServi
 
 			// Legacy Bearer token validation
 			if authSvc == nil {
-				httputil.WriteJSON(w, http.StatusUnauthorized, httputil.SlackResponse{
+				httputil.WriteJSON(w, http.StatusUnauthorized, httputil.TeraslackResponse{
 					OK:    false,
 					Error: "token_auth_not_configured",
 				})
@@ -158,7 +158,7 @@ func AuthMiddleware(authSvc *service.AuthService, apiKeySvc *service.APIKeyServi
 			}
 			resp, err := authSvc.ValidateToken(ctx, token)
 			if err != nil {
-				httputil.WriteJSON(w, http.StatusUnauthorized, httputil.SlackResponse{
+				httputil.WriteJSON(w, http.StatusUnauthorized, httputil.TeraslackResponse{
 					OK:    false,
 					Error: "invalid_auth",
 				})

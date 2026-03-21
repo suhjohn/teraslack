@@ -14,7 +14,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/suhjohn/workspace/internal/crypto"
+	"github.com/suhjohn/teraslack/internal/crypto"
 )
 
 // WebhookWorker claims webhook delivery jobs from an S3-backed queue,
@@ -255,8 +255,8 @@ func (w *WebhookWorker) deliverWebhook(ctx context.Context, job Job) string {
 		mac := hmac.New(sha256.New, []byte(signingKey))
 		mac.Write([]byte(sigBase))
 		sig := "v0=" + hex.EncodeToString(mac.Sum(nil))
-		req.Header.Set("X-Slack-Signature", sig)
-		req.Header.Set("X-Slack-Request-Timestamp", timestamp)
+		req.Header.Set("X-Teraslack-Signature", sig)
+		req.Header.Set("X-Teraslack-Request-Timestamp", timestamp)
 	}
 
 	resp, err := w.httpClient.Do(req)

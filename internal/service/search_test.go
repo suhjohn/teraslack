@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/suhjohn/workspace/internal/domain"
+	"github.com/suhjohn/teraslack/internal/domain"
 )
 
 func TestSearchService_Search_EmptyQuery(t *testing.T) {

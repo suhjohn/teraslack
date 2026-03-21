@@ -1,4 +1,4 @@
-module github.com/suhjohn/workspace
+module github.com/suhjohn/teraslack
 
 go 1.25.0
 

@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/suhjohn/workspace/internal/service"
+	"github.com/suhjohn/teraslack/internal/service"
 )
 
 // IndexWorker claims jobs from the S3 queue and flushes them to Turbopuffer.
