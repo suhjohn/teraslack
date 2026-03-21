@@ -1798,3 +1798,1930 @@ func TestFlow_ConcurrentEdgeCases(t *testing.T) {
 		t.Errorf("after rebuild = %q", u.RealName)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Flow 14: User Profile Management — CRUD, profile fields, principal types
+// ---------------------------------------------------------------------------
+
+func TestFlow_UserProfileManagement(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test")
+	}
+	env := setupAllServices(t)
+	ctx := context.Background()
+	teamID := "T-profile"
+
+	// Step 1: Create user with full profile
+	user, err := env.userSvc.Create(ctx, domain.CreateUserParams{
+		TeamID:      teamID,
+		Name:        "fullprofile",
+		RealName:    "Full Profile User",
+		DisplayName: "FPU",
+		Email:       "full@example.com",
+		IsAdmin:     false,
+		Profile: domain.UserProfile{
+			Title:       "Senior Engineer",
+			Phone:       "+1-555-1234",
+			StatusText:  "In a meeting",
+			StatusEmoji: ":calendar:",
+		},
+	})
+	if err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	if user.RealName != "Full Profile User" {
+		t.Errorf("real_name = %q", user.RealName)
+	}
+	if user.DisplayName != "FPU" {
+		t.Errorf("display_name = %q", user.DisplayName)
+	}
+	if user.PrincipalType != domain.PrincipalTypeHuman {
+		t.Errorf("default principal_type = %q, want human", user.PrincipalType)
+	}
+
+	// Step 2: Get by ID
+	fetched, err := env.userSvc.Get(ctx, user.ID)
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if fetched.Email != "full@example.com" {
+		t.Errorf("email = %q", fetched.Email)
+	}
+
+	// Step 3: Get by email
+	byEmail, err := env.userSvc.GetByEmail(ctx, "full@example.com")
+	if err != nil {
+		t.Fatalf("get by email: %v", err)
+	}
+	if byEmail.ID != user.ID {
+		t.Errorf("id mismatch: %s != %s", byEmail.ID, user.ID)
+	}
+
+	// Step 4: Update real name
+	newRealName := "Updated Real Name"
+	updated, err := env.userSvc.Update(ctx, user.ID, domain.UpdateUserParams{RealName: &newRealName})
+	if err != nil {
+		t.Fatalf("update real_name: %v", err)
+	}
+	if updated.RealName != "Updated Real Name" {
+		t.Errorf("updated real_name = %q", updated.RealName)
+	}
+
+	// Step 5: Update display name
+	newDisplay := "New Display"
+	updated, err = env.userSvc.Update(ctx, user.ID, domain.UpdateUserParams{DisplayName: &newDisplay})
+	if err != nil {
+		t.Fatalf("update display_name: %v", err)
+	}
+	if updated.DisplayName != "New Display" {
+		t.Errorf("display_name = %q", updated.DisplayName)
+	}
+
+	// Step 6: Update email
+	newEmail := "newemail@example.com"
+	updated, err = env.userSvc.Update(ctx, user.ID, domain.UpdateUserParams{Email: &newEmail})
+	if err != nil {
+		t.Fatalf("update email: %v", err)
+	}
+	if updated.Email != "newemail@example.com" {
+		t.Errorf("email = %q", updated.Email)
+	}
+
+	// Step 7: Verify old email lookup fails, new one works
+	_, err = env.userSvc.GetByEmail(ctx, "full@example.com")
+	if !errors.Is(err, domain.ErrNotFound) {
+		t.Errorf("old email should not resolve: got %v", err)
+	}
+	byEmail, err = env.userSvc.GetByEmail(ctx, "newemail@example.com")
+	if err != nil {
+		t.Fatalf("new email lookup: %v", err)
+	}
+	if byEmail.ID != user.ID {
+		t.Error("new email should resolve to same user")
+	}
+
+	// Step 8: Promote to admin
+	isAdmin := true
+	updated, err = env.userSvc.Update(ctx, user.ID, domain.UpdateUserParams{IsAdmin: &isAdmin})
+	if err != nil {
+		t.Fatalf("promote admin: %v", err)
+	}
+	if !updated.IsAdmin {
+		t.Error("should be admin")
+	}
+
+	// Step 9: Mark restricted
+	isRestricted := true
+	updated, err = env.userSvc.Update(ctx, user.ID, domain.UpdateUserParams{IsRestricted: &isRestricted})
+	if err != nil {
+		t.Fatalf("restrict: %v", err)
+	}
+	if !updated.IsRestricted {
+		t.Error("should be restricted")
+	}
+
+	// Step 10: Soft delete (deactivate)
+	deleted := true
+	updated, err = env.userSvc.Update(ctx, user.ID, domain.UpdateUserParams{Deleted: &deleted})
+	if err != nil {
+		t.Fatalf("deactivate: %v", err)
+	}
+	if !updated.Deleted {
+		t.Error("should be deleted")
+	}
+
+	// Step 11: Reactivate
+	reactivated := false
+	updated, err = env.userSvc.Update(ctx, user.ID, domain.UpdateUserParams{Deleted: &reactivated})
+	if err != nil {
+		t.Fatalf("reactivate: %v", err)
+	}
+	if updated.Deleted {
+		t.Error("should not be deleted")
+	}
+
+	// Step 12: Update profile struct
+	newProfile := &domain.UserProfile{
+		Title:       "Staff Engineer",
+		Phone:       "+1-555-9999",
+		StatusText:  "Available",
+		StatusEmoji: ":white_check_mark:",
+	}
+	updated, err = env.userSvc.Update(ctx, user.ID, domain.UpdateUserParams{Profile: newProfile})
+	if err != nil {
+		t.Fatalf("update profile: %v", err)
+	}
+
+	// Step 13: Create system principal
+	systemUser, err := env.userSvc.Create(ctx, domain.CreateUserParams{
+		TeamID:        teamID,
+		Name:          "system-bot",
+		Email:         "system@example.com",
+		PrincipalType: domain.PrincipalTypeSystem,
+		IsBot:         true,
+	})
+	if err != nil {
+		t.Fatalf("create system user: %v", err)
+	}
+	if systemUser.PrincipalType != domain.PrincipalTypeSystem {
+		t.Errorf("system principal_type = %q", systemUser.PrincipalType)
+	}
+	if !systemUser.IsBot {
+		t.Error("system should be bot")
+	}
+
+	// Step 14: Create agent with owner
+	agent, err := env.userSvc.Create(ctx, domain.CreateUserParams{
+		TeamID:        teamID,
+		Name:          "devin-agent",
+		Email:         "devin@example.com",
+		PrincipalType: domain.PrincipalTypeAgent,
+		OwnerID:       user.ID,
+		IsBot:         true,
+	})
+	if err != nil {
+		t.Fatalf("create agent: %v", err)
+	}
+	if agent.OwnerID != user.ID {
+		t.Errorf("owner_id = %q, want %q", agent.OwnerID, user.ID)
+	}
+
+	// Step 15: List all users for team
+	allUsers, err := env.userSvc.List(ctx, domain.ListUsersParams{TeamID: teamID, Limit: 100})
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(allUsers.Items) != 3 {
+		t.Errorf("user count = %d, want 3", len(allUsers.Items))
+	}
+
+	// Verify event sequence
+	events := queryEventTypes(t, env, teamID)
+	userCreated, userUpdated := 0, 0
+	for _, e := range events {
+		switch e {
+		case domain.EventUserCreated:
+			userCreated++
+		case domain.EventUserUpdated:
+			userUpdated++
+		}
+	}
+	if userCreated != 3 {
+		t.Errorf("user.created = %d, want 3", userCreated)
+	}
+	// real_name + display_name + email + admin + restricted + delete + reactivate + profile = 8
+	if userUpdated < 8 {
+		t.Errorf("user.updated = %d, want >= 8", userUpdated)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Flow 15: Multi-Channel Workspace — user active across many channels
+// ---------------------------------------------------------------------------
+
+func TestFlow_MultiChannelWorkspace(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test")
+	}
+	env := setupAllServices(t)
+	ctx := context.Background()
+	teamID := "T-multichan"
+
+	alice, err := env.userSvc.Create(ctx, domain.CreateUserParams{
+		TeamID: teamID, Name: "alice", Email: "alice-mc@example.com",
+	})
+	if err != nil {
+		t.Fatalf("create alice: %v", err)
+	}
+	bob, err := env.userSvc.Create(ctx, domain.CreateUserParams{
+		TeamID: teamID, Name: "bob", Email: "bob-mc@example.com",
+	})
+	if err != nil {
+		t.Fatalf("create bob: %v", err)
+	}
+	charlie, err := env.userSvc.Create(ctx, domain.CreateUserParams{
+		TeamID: teamID, Name: "charlie", Email: "charlie-mc@example.com",
+	})
+	if err != nil {
+		t.Fatalf("create charlie: %v", err)
+	}
+
+	// Create 4 channels
+	channelNames := []string{"general", "engineering", "random", "announcements"}
+	channels := make([]*domain.Conversation, len(channelNames))
+	for i, name := range channelNames {
+		ch, err := env.convSvc.Create(ctx, domain.CreateConversationParams{
+			TeamID: teamID, Name: name,
+			Type: domain.ConversationTypePublicChannel, CreatorID: alice.ID,
+		})
+		if err != nil {
+			t.Fatalf("create %s: %v", name, err)
+		}
+		channels[i] = ch
+	}
+
+	// Invite bob to general, engineering, random
+	for _, ch := range channels[:3] {
+		if err := env.convSvc.Invite(ctx, ch.ID, bob.ID); err != nil {
+			t.Fatalf("invite bob to %s: %v", ch.Name, err)
+		}
+	}
+
+	// Invite charlie to general and random only
+	if err := env.convSvc.Invite(ctx, channels[0].ID, charlie.ID); err != nil {
+		t.Fatalf("invite charlie general: %v", err)
+	}
+	if err := env.convSvc.Invite(ctx, channels[2].ID, charlie.ID); err != nil {
+		t.Fatalf("invite charlie random: %v", err)
+	}
+
+	// Verify member counts
+	for i, expected := range []int{3, 2, 3, 1} { // general=3, engineering=2, random=3, announcements=1(alice)
+		ch, err := env.convSvc.Get(ctx, channels[i].ID)
+		if err != nil {
+			t.Fatalf("get %s: %v", channels[i].Name, err)
+		}
+		if ch.NumMembers != expected {
+			t.Errorf("%s members = %d, want %d", channels[i].Name, ch.NumMembers, expected)
+		}
+	}
+
+	// Post messages in each channel
+	for i, ch := range channels {
+		_, err := env.msgSvc.PostMessage(ctx, domain.PostMessageParams{
+			ChannelID: ch.ID, UserID: alice.ID, Text: "Hello " + channelNames[i],
+		})
+		if err != nil {
+			t.Fatalf("post in %s: %v", channelNames[i], err)
+		}
+	}
+
+	// Bob posts in engineering (channel he's in)
+	engMsg, err := env.msgSvc.PostMessage(ctx, domain.PostMessageParams{
+		ChannelID: channels[1].ID, UserID: bob.ID, Text: "Let's ship it",
+	})
+	if err != nil {
+		t.Fatalf("bob post: %v", err)
+	}
+
+	// Charlie replies in general thread
+	generalMsg, err := env.msgSvc.PostMessage(ctx, domain.PostMessageParams{
+		ChannelID: channels[0].ID, UserID: alice.ID, Text: "Discussion topic",
+	})
+	if err != nil {
+		t.Fatalf("general thread: %v", err)
+	}
+	time.Sleep(2 * time.Millisecond)
+	_, err = env.msgSvc.PostMessage(ctx, domain.PostMessageParams{
+		ChannelID: channels[0].ID, UserID: charlie.ID, Text: "I agree", ThreadTS: generalMsg.TS,
+	})
+	if err != nil {
+		t.Fatalf("charlie reply: %v", err)
+	}
+
+	// Bob reacts to engineering msg
+	if err := env.msgSvc.AddReaction(ctx, domain.AddReactionParams{
+		ChannelID: channels[1].ID, MessageTS: engMsg.TS, UserID: alice.ID, Emoji: "rocket",
+	}); err != nil {
+		t.Fatalf("react: %v", err)
+	}
+
+	// Alice leaves random
+	if err := env.convSvc.Kick(ctx, channels[2].ID, alice.ID); err != nil {
+		t.Fatalf("kick alice from random: %v", err)
+	}
+	ch, _ := env.convSvc.Get(ctx, channels[2].ID)
+	if ch.NumMembers != 2 {
+		t.Errorf("random after kick = %d, want 2", ch.NumMembers)
+	}
+
+	// Verify alice is not in random members list
+	members, _ := env.convSvc.ListMembers(ctx, channels[2].ID, "", 100)
+	for _, m := range members.Items {
+		if m.UserID == alice.ID {
+			t.Error("alice should not be in random")
+		}
+	}
+
+	// List all channels
+	allConvs, err := env.convSvc.List(ctx, domain.ListConversationsParams{
+		TeamID: teamID, Limit: 100,
+	})
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(allConvs.Items) != 4 {
+		t.Errorf("conv count = %d, want 4", len(allConvs.Items))
+	}
+
+	// Archive announcements, then list excluding archived
+	if err := env.convSvc.Archive(ctx, channels[3].ID); err != nil {
+		t.Fatalf("archive: %v", err)
+	}
+	filtered, _ := env.convSvc.List(ctx, domain.ListConversationsParams{
+		TeamID: teamID, ExcludeArchived: true, Limit: 100,
+	})
+	if len(filtered.Items) != 3 {
+		t.Errorf("non-archived = %d, want 3", len(filtered.Items))
+	}
+
+	// Verify history for engineering has 2 messages
+	engHistory, _ := env.msgSvc.History(ctx, domain.ListMessagesParams{
+		ChannelID: channels[1].ID, Limit: 100,
+	})
+	if len(engHistory.Items) < 2 {
+		t.Errorf("eng history = %d, want >= 2", len(engHistory.Items))
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Flow 16: Deep Threading — reply chains, counts, thread participants
+// ---------------------------------------------------------------------------
+
+func TestFlow_DeepThreading(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test")
+	}
+	env := setupAllServices(t)
+	ctx := context.Background()
+	teamID := "T-deepthread"
+
+	// Setup 3 users in a channel
+	users := make([]*domain.User, 3)
+	for i, name := range []string{"alice", "bob", "charlie"} {
+		u, err := env.userSvc.Create(ctx, domain.CreateUserParams{
+			TeamID: teamID, Name: name, Email: name + "-dt@example.com",
+		})
+		if err != nil {
+			t.Fatalf("create %s: %v", name, err)
+		}
+		users[i] = u
+	}
+
+	ch, err := env.convSvc.Create(ctx, domain.CreateConversationParams{
+		TeamID: teamID, Name: "threads",
+		Type: domain.ConversationTypePublicChannel, CreatorID: users[0].ID,
+	})
+	if err != nil {
+		t.Fatalf("create channel: %v", err)
+	}
+	for _, u := range users[1:] {
+		env.convSvc.Invite(ctx, ch.ID, u.ID)
+	}
+
+	// Post parent message
+	parent, err := env.msgSvc.PostMessage(ctx, domain.PostMessageParams{
+		ChannelID: ch.ID, UserID: users[0].ID, Text: "Let's discuss the architecture",
+	})
+	if err != nil {
+		t.Fatalf("post parent: %v", err)
+	}
+
+	// 5 replies from different users
+	replyTexts := []string{
+		"I think we should use event sourcing",
+		"Agreed, let's also add CQRS",
+		"What about the read model?",
+		"We can use materialized views",
+		"Good idea, let's prototype it",
+	}
+	replyUsers := []int{1, 2, 0, 1, 2} // bob, charlie, alice, bob, charlie
+	var replies []*domain.Message
+	for i, text := range replyTexts {
+		time.Sleep(2 * time.Millisecond)
+		r, err := env.msgSvc.PostMessage(ctx, domain.PostMessageParams{
+			ChannelID: ch.ID, UserID: users[replyUsers[i]].ID,
+			Text: text, ThreadTS: parent.TS,
+		})
+		if err != nil {
+			t.Fatalf("reply %d: %v", i, err)
+		}
+		replies = append(replies, r)
+	}
+
+	// Verify all replies reference parent
+	for i, r := range replies {
+		if r.ThreadTS == nil || *r.ThreadTS != parent.TS {
+			t.Errorf("reply[%d].ThreadTS = %v, want %q", i, r.ThreadTS, parent.TS)
+		}
+	}
+
+	// Get thread replies
+	threadReplies, err := env.msgSvc.Replies(ctx, domain.ListRepliesParams{
+		ChannelID: ch.ID, ThreadTS: parent.TS, Limit: 100,
+	})
+	if err != nil {
+		t.Fatalf("replies: %v", err)
+	}
+	if len(threadReplies.Items) < 5 {
+		t.Errorf("thread reply count = %d, want >= 5", len(threadReplies.Items))
+	}
+
+	// Edit a reply in the thread
+	editedText := "I think we should definitely use event sourcing (edited)"
+	edited, err := env.msgSvc.UpdateMessage(ctx, ch.ID, replies[0].TS, domain.UpdateMessageParams{
+		Text: &editedText,
+	})
+	if err != nil {
+		t.Fatalf("edit reply: %v", err)
+	}
+	if edited.Text != editedText {
+		t.Errorf("edited text = %q", edited.Text)
+	}
+
+	// Delete middle reply
+	if err := env.msgSvc.DeleteMessage(ctx, ch.ID, replies[2].TS); err != nil {
+		t.Fatalf("delete reply: %v", err)
+	}
+
+	// Add reactions to multiple thread messages
+	if err := env.msgSvc.AddReaction(ctx, domain.AddReactionParams{
+		ChannelID: ch.ID, MessageTS: replies[0].TS, UserID: users[0].ID, Emoji: "thumbsup",
+	}); err != nil {
+		t.Fatalf("react reply 0: %v", err)
+	}
+	if err := env.msgSvc.AddReaction(ctx, domain.AddReactionParams{
+		ChannelID: ch.ID, MessageTS: replies[0].TS, UserID: users[2].ID, Emoji: "thumbsup",
+	}); err != nil {
+		t.Fatalf("react reply 0 charlie: %v", err)
+	}
+	if err := env.msgSvc.AddReaction(ctx, domain.AddReactionParams{
+		ChannelID: ch.ID, MessageTS: replies[3].TS, UserID: users[0].ID, Emoji: "100",
+	}); err != nil {
+		t.Fatalf("react reply 3: %v", err)
+	}
+
+	// Verify reaction counts
+	reactions0, _ := env.msgSvc.GetReactions(ctx, ch.ID, replies[0].TS)
+	for _, r := range reactions0 {
+		if r.Name == "thumbsup" && r.Count != 2 {
+			t.Errorf("thumbsup count = %d, want 2", r.Count)
+		}
+	}
+
+	// Post second parent + replies (verify two threads are independent)
+	time.Sleep(2 * time.Millisecond)
+	parent2, err := env.msgSvc.PostMessage(ctx, domain.PostMessageParams{
+		ChannelID: ch.ID, UserID: users[1].ID, Text: "Separate topic",
+	})
+	if err != nil {
+		t.Fatalf("post parent2: %v", err)
+	}
+	time.Sleep(2 * time.Millisecond)
+	_, err = env.msgSvc.PostMessage(ctx, domain.PostMessageParams{
+		ChannelID: ch.ID, UserID: users[2].ID, Text: "Reply to topic 2", ThreadTS: parent2.TS,
+	})
+	if err != nil {
+		t.Fatalf("reply to parent2: %v", err)
+	}
+
+	// Thread 2 has 1 reply only
+	thread2Replies, _ := env.msgSvc.Replies(ctx, domain.ListRepliesParams{
+		ChannelID: ch.ID, ThreadTS: parent2.TS, Limit: 100,
+	})
+	if len(thread2Replies.Items) < 1 {
+		t.Errorf("thread2 replies = %d", len(thread2Replies.Items))
+	}
+
+	// Channel history shows all top-level + thread messages
+	history, _ := env.msgSvc.History(ctx, domain.ListMessagesParams{
+		ChannelID: ch.ID, Limit: 100,
+	})
+	if len(history.Items) < 2 { // At least 2 parent messages
+		t.Errorf("history = %d", len(history.Items))
+	}
+
+	// Paginate thread replies
+	pageSize := 2
+	page1, _ := env.msgSvc.Replies(ctx, domain.ListRepliesParams{
+		ChannelID: ch.ID, ThreadTS: parent.TS, Limit: pageSize,
+	})
+	if len(page1.Items) != pageSize {
+		t.Errorf("thread page1 = %d, want %d", len(page1.Items), pageSize)
+	}
+	if !page1.HasMore {
+		t.Error("thread should have more pages")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Flow 17: Bookmark Full CRUD — multiple bookmarks, updates, emojis
+// ---------------------------------------------------------------------------
+
+func TestFlow_BookmarkFullCRUD(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test")
+	}
+	env := setupAllServices(t)
+	ctx := context.Background()
+	teamID := "T-bookmarks"
+
+	user, err := env.userSvc.Create(ctx, domain.CreateUserParams{
+		TeamID: teamID, Name: "bookmarker", Email: "bm@example.com",
+	})
+	if err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	user2, err := env.userSvc.Create(ctx, domain.CreateUserParams{
+		TeamID: teamID, Name: "bookmarker2", Email: "bm2@example.com",
+	})
+	if err != nil {
+		t.Fatalf("create user2: %v", err)
+	}
+
+	ch, err := env.convSvc.Create(ctx, domain.CreateConversationParams{
+		TeamID: teamID, Name: "bookmarks-ch",
+		Type: domain.ConversationTypePublicChannel, CreatorID: user.ID,
+	})
+	if err != nil {
+		t.Fatalf("create channel: %v", err)
+	}
+
+	// Create 3 bookmarks
+	bm1, err := env.bookmarkSvc.Create(ctx, domain.CreateBookmarkParams{
+		ChannelID: ch.ID, Title: "Wiki", Type: "link",
+		Link: "https://wiki.example.com", Emoji: ":book:", CreatedBy: user.ID,
+	})
+	if err != nil {
+		t.Fatalf("create bm1: %v", err)
+	}
+	if bm1.Emoji != ":book:" {
+		t.Errorf("emoji = %q", bm1.Emoji)
+	}
+
+	bm2, err := env.bookmarkSvc.Create(ctx, domain.CreateBookmarkParams{
+		ChannelID: ch.ID, Title: "Figma Design", Type: "link",
+		Link: "https://figma.com/design", Emoji: ":art:", CreatedBy: user.ID,
+	})
+	if err != nil {
+		t.Fatalf("create bm2: %v", err)
+	}
+
+	bm3, err := env.bookmarkSvc.Create(ctx, domain.CreateBookmarkParams{
+		ChannelID: ch.ID, Title: "Runbook", Type: "link",
+		Link: "https://runbook.example.com", CreatedBy: user2.ID,
+	})
+	if err != nil {
+		t.Fatalf("create bm3: %v", err)
+	}
+
+	// List — should have 3
+	bookmarks, err := env.bookmarkSvc.List(ctx, ch.ID)
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(bookmarks) != 3 {
+		t.Errorf("bookmark count = %d, want 3", len(bookmarks))
+	}
+
+	// Update title + link on bm1
+	newTitle := "Internal Wiki (Updated)"
+	newLink := "https://wiki.example.com/v2"
+	updatedBm, err := env.bookmarkSvc.Update(ctx, bm1.ID, domain.UpdateBookmarkParams{
+		Title: &newTitle, Link: &newLink, UpdatedBy: user2.ID,
+	})
+	if err != nil {
+		t.Fatalf("update bm1: %v", err)
+	}
+	if updatedBm.Title != "Internal Wiki (Updated)" {
+		t.Errorf("title = %q", updatedBm.Title)
+	}
+	if updatedBm.Link != "https://wiki.example.com/v2" {
+		t.Errorf("link = %q", updatedBm.Link)
+	}
+	if updatedBm.UpdatedBy != user2.ID {
+		t.Errorf("updated_by = %q", updatedBm.UpdatedBy)
+	}
+
+	// Update emoji on bm2
+	newEmoji := ":paintbrush:"
+	updatedBm2, err := env.bookmarkSvc.Update(ctx, bm2.ID, domain.UpdateBookmarkParams{
+		Emoji: &newEmoji, UpdatedBy: user.ID,
+	})
+	if err != nil {
+		t.Fatalf("update bm2 emoji: %v", err)
+	}
+	if updatedBm2.Emoji != ":paintbrush:" {
+		t.Errorf("emoji = %q", updatedBm2.Emoji)
+	}
+
+	// Delete bm3
+	if err := env.bookmarkSvc.Delete(ctx, bm3.ID); err != nil {
+		t.Fatalf("delete bm3: %v", err)
+	}
+
+	// List — should have 2
+	bookmarks, _ = env.bookmarkSvc.List(ctx, ch.ID)
+	if len(bookmarks) != 2 {
+		t.Errorf("after delete = %d, want 2", len(bookmarks))
+	}
+
+	// Verify deleted bookmark IDs
+	for _, bm := range bookmarks {
+		if bm.ID == bm3.ID {
+			t.Error("bm3 should be deleted")
+		}
+	}
+
+	// Create bookmark in second channel
+	ch2, err := env.convSvc.Create(ctx, domain.CreateConversationParams{
+		TeamID: teamID, Name: "other-ch",
+		Type: domain.ConversationTypePublicChannel, CreatorID: user.ID,
+	})
+	if err != nil {
+		t.Fatalf("create ch2: %v", err)
+	}
+	_, err = env.bookmarkSvc.Create(ctx, domain.CreateBookmarkParams{
+		ChannelID: ch2.ID, Title: "Ch2 Wiki", Type: "link",
+		Link: "https://ch2wiki.com", CreatedBy: user.ID,
+	})
+	if err != nil {
+		t.Fatalf("create bm in ch2: %v", err)
+	}
+
+	// Bookmarks are scoped to channel
+	ch1Bookmarks, _ := env.bookmarkSvc.List(ctx, ch.ID)
+	ch2Bookmarks, _ := env.bookmarkSvc.List(ctx, ch2.ID)
+	if len(ch1Bookmarks) != 2 {
+		t.Errorf("ch1 bookmarks = %d", len(ch1Bookmarks))
+	}
+	if len(ch2Bookmarks) != 1 {
+		t.Errorf("ch2 bookmarks = %d", len(ch2Bookmarks))
+	}
+
+	// Verify events
+	var bmEvents int
+	env.pool.QueryRow(ctx, "SELECT COUNT(*) FROM service_events WHERE aggregate_type = $1",
+		domain.AggregateBookmark).Scan(&bmEvents)
+	// 3 created + 2 updated + 1 deleted + 1 created = 7
+	if bmEvents != 7 {
+		t.Errorf("bookmark events = %d, want 7", bmEvents)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Flow 18: Pin Lifecycle — pin multiple, list, unpin, re-pin
+// ---------------------------------------------------------------------------
+
+func TestFlow_PinLifecycle(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test")
+	}
+	env := setupAllServices(t)
+	ctx := context.Background()
+	teamID := "T-pins"
+
+	user, err := env.userSvc.Create(ctx, domain.CreateUserParams{
+		TeamID: teamID, Name: "pinner", Email: "pinner@example.com",
+	})
+	if err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+
+	ch, err := env.convSvc.Create(ctx, domain.CreateConversationParams{
+		TeamID: teamID, Name: "pinboard",
+		Type: domain.ConversationTypePublicChannel, CreatorID: user.ID,
+	})
+	if err != nil {
+		t.Fatalf("create channel: %v", err)
+	}
+
+	// Post 4 messages
+	var msgs []*domain.Message
+	for i := 0; i < 4; i++ {
+		time.Sleep(2 * time.Millisecond)
+		m, err := env.msgSvc.PostMessage(ctx, domain.PostMessageParams{
+			ChannelID: ch.ID, UserID: user.ID, Text: "pin candidate " + string(rune('A'+i)),
+		})
+		if err != nil {
+			t.Fatalf("post %d: %v", i, err)
+		}
+		msgs = append(msgs, m)
+	}
+
+	// Pin first 3
+	for i := 0; i < 3; i++ {
+		if _, err := env.pinSvc.Add(ctx, domain.PinParams{
+			ChannelID: ch.ID, MessageTS: msgs[i].TS, UserID: user.ID,
+		}); err != nil {
+			t.Fatalf("pin %d: %v", i, err)
+		}
+	}
+
+	// List pins — should have 3
+	pins, err := env.pinSvc.List(ctx, ch.ID)
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(pins) != 3 {
+		t.Errorf("pin count = %d, want 3", len(pins))
+	}
+
+	// Unpin second message
+	if err := env.pinSvc.Remove(ctx, domain.PinParams{
+		ChannelID: ch.ID, MessageTS: msgs[1].TS, UserID: user.ID,
+	}); err != nil {
+		t.Fatalf("unpin: %v", err)
+	}
+
+	// List pins — should have 2
+	pins, _ = env.pinSvc.List(ctx, ch.ID)
+	if len(pins) != 2 {
+		t.Errorf("after unpin = %d, want 2", len(pins))
+	}
+
+	// Verify unpinned message is not in list
+	for _, p := range pins {
+		if p.MessageTS == msgs[1].TS {
+			t.Error("unpinned message should not be in list")
+		}
+	}
+
+	// Re-pin the message
+	if _, err := env.pinSvc.Add(ctx, domain.PinParams{
+		ChannelID: ch.ID, MessageTS: msgs[1].TS, UserID: user.ID,
+	}); err != nil {
+		t.Fatalf("re-pin: %v", err)
+	}
+	pins, _ = env.pinSvc.List(ctx, ch.ID)
+	if len(pins) != 3 {
+		t.Errorf("after re-pin = %d, want 3", len(pins))
+	}
+
+	// Pin 4th message
+	if _, err := env.pinSvc.Add(ctx, domain.PinParams{
+		ChannelID: ch.ID, MessageTS: msgs[3].TS, UserID: user.ID,
+	}); err != nil {
+		t.Fatalf("pin 4th: %v", err)
+	}
+	pins, _ = env.pinSvc.List(ctx, ch.ID)
+	if len(pins) != 4 {
+		t.Errorf("all pinned = %d, want 4", len(pins))
+	}
+
+	// Unpin all
+	for _, m := range msgs {
+		env.pinSvc.Remove(ctx, domain.PinParams{
+			ChannelID: ch.ID, MessageTS: m.TS, UserID: user.ID,
+		})
+	}
+	pins, _ = env.pinSvc.List(ctx, ch.ID)
+	if len(pins) != 0 {
+		t.Errorf("after unpin all = %d, want 0", len(pins))
+	}
+
+	// Verify events
+	var pinEvents int
+	env.pool.QueryRow(ctx, "SELECT COUNT(*) FROM service_events WHERE aggregate_type = $1",
+		domain.AggregatePin).Scan(&pinEvents)
+	// 3 add + 1 remove + 1 re-add + 1 add + 4 remove = 10
+	if pinEvents != 10 {
+		t.Errorf("pin events = %d, want 10", pinEvents)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Flow 19: File Sharing Across Channels
+// ---------------------------------------------------------------------------
+
+func TestFlow_FileSharingAcrossChannels(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test")
+	}
+	env := setupAllServices(t)
+	ctx := context.Background()
+	teamID := "T-fileshare"
+
+	user, err := env.userSvc.Create(ctx, domain.CreateUserParams{
+		TeamID: teamID, Name: "sharer", Email: "sharer@example.com",
+	})
+	if err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+
+	// Create 3 channels
+	ch1, _ := env.convSvc.Create(ctx, domain.CreateConversationParams{
+		TeamID: teamID, Name: "design",
+		Type: domain.ConversationTypePublicChannel, CreatorID: user.ID,
+	})
+	ch2, _ := env.convSvc.Create(ctx, domain.CreateConversationParams{
+		TeamID: teamID, Name: "dev",
+		Type: domain.ConversationTypePublicChannel, CreatorID: user.ID,
+	})
+	ch3, _ := env.convSvc.Create(ctx, domain.CreateConversationParams{
+		TeamID: teamID, Name: "product",
+		Type: domain.ConversationTypePublicChannel, CreatorID: user.ID,
+	})
+
+	// Add 3 remote files
+	designDoc, err := env.fileSvc.AddRemoteFile(ctx, domain.AddRemoteFileParams{
+		Title: "Design System", ExternalURL: "https://figma.com/design-system",
+		Filetype: "figma", UserID: user.ID,
+	})
+	if err != nil {
+		t.Fatalf("add design doc: %v", err)
+	}
+
+	spec, err := env.fileSvc.AddRemoteFile(ctx, domain.AddRemoteFileParams{
+		Title: "API Spec", ExternalURL: "https://docs.example.com/spec",
+		Filetype: "gdoc", UserID: user.ID,
+	})
+	if err != nil {
+		t.Fatalf("add spec: %v", err)
+	}
+
+	readme, err := env.fileSvc.AddRemoteFile(ctx, domain.AddRemoteFileParams{
+		Title: "README", ExternalURL: "https://github.com/org/repo/README.md",
+		Filetype: "markdown", UserID: user.ID,
+	})
+	if err != nil {
+		t.Fatalf("add readme: %v", err)
+	}
+
+	// Share design doc to design and product
+	if err := env.fileSvc.ShareRemoteFile(ctx, domain.ShareRemoteFileParams{
+		FileID: designDoc.ID, Channels: []string{ch1.ID, ch3.ID},
+	}); err != nil {
+		t.Fatalf("share design: %v", err)
+	}
+
+	// Share spec to all 3 channels
+	if err := env.fileSvc.ShareRemoteFile(ctx, domain.ShareRemoteFileParams{
+		FileID: spec.ID, Channels: []string{ch1.ID, ch2.ID, ch3.ID},
+	}); err != nil {
+		t.Fatalf("share spec: %v", err)
+	}
+
+	// Share readme to dev only
+	if err := env.fileSvc.ShareRemoteFile(ctx, domain.ShareRemoteFileParams{
+		FileID: readme.ID, Channels: []string{ch2.ID},
+	}); err != nil {
+		t.Fatalf("share readme: %v", err)
+	}
+
+	// Verify file metadata
+	gotDesign, _ := env.fileSvc.Get(ctx, designDoc.ID)
+	if gotDesign.Title != "Design System" {
+		t.Errorf("title = %q", gotDesign.Title)
+	}
+	if !gotDesign.IsExternal {
+		t.Error("should be external")
+	}
+
+	// List all files
+	allFiles, err := env.fileSvc.List(ctx, domain.ListFilesParams{Limit: 100})
+	if err != nil {
+		t.Fatalf("list all: %v", err)
+	}
+	if len(allFiles.Items) < 3 {
+		t.Errorf("all files = %d, want >= 3", len(allFiles.Items))
+	}
+
+	// Delete spec
+	if err := env.fileSvc.Delete(ctx, spec.ID); err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+
+	// Verify spec is gone
+	_, err = env.fileSvc.Get(ctx, spec.ID)
+	if !errors.Is(err, domain.ErrNotFound) {
+		t.Errorf("get deleted: %v", err)
+	}
+
+	// Others still exist
+	gotDesign, _ = env.fileSvc.Get(ctx, designDoc.ID)
+	if gotDesign == nil {
+		t.Error("design doc should still exist")
+	}
+	gotReadme, _ := env.fileSvc.Get(ctx, readme.ID)
+	if gotReadme == nil {
+		t.Error("readme should still exist")
+	}
+
+	// Verify events
+	var fileEvents int
+	env.pool.QueryRow(ctx, "SELECT COUNT(*) FROM service_events WHERE aggregate_type = $1",
+		domain.AggregateFile).Scan(&fileEvents)
+	// 3 created + 3 shared (updated+shared events) + 1 deleted
+	if fileEvents < 7 {
+		t.Errorf("file events = %d, want >= 7", fileEvents)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Flow 20: Multiple API Keys Per Principal — environments, permissions, listing
+// ---------------------------------------------------------------------------
+
+func TestFlow_MultipleAPIKeys(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test")
+	}
+	env := setupAllServices(t)
+	ctx := context.Background()
+	teamID := "T-multikey"
+
+	user, err := env.userSvc.Create(ctx, domain.CreateUserParams{
+		TeamID: teamID, Name: "multikey", Email: "multikey@example.com",
+	})
+	if err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+
+	// Create live key with read/write permissions
+	liveKey, liveRaw, err := env.apiKeySvc.Create(ctx, domain.CreateAPIKeyParams{
+		Name: "production", TeamID: teamID, PrincipalID: user.ID,
+		Type: domain.APIKeyTypePersistent, Environment: domain.APIKeyEnvLive,
+		Permissions: []string{"read", "write"},
+	})
+	if err != nil {
+		t.Fatalf("create live key: %v", err)
+	}
+	if !strings.HasPrefix(liveRaw, "sk_live_") {
+		t.Errorf("live prefix: %q", liveRaw[:min(8, len(liveRaw))])
+	}
+
+	// Create test key with read-only permissions
+	testKey, testRaw, err := env.apiKeySvc.Create(ctx, domain.CreateAPIKeyParams{
+		Name: "staging", TeamID: teamID, PrincipalID: user.ID,
+		Type: domain.APIKeyTypePersistent, Environment: domain.APIKeyEnvTest,
+		Permissions: []string{"read"},
+	})
+	if err != nil {
+		t.Fatalf("create test key: %v", err)
+	}
+	if !strings.HasPrefix(testRaw, "sk_test_") {
+		t.Errorf("test prefix: %q", testRaw[:min(8, len(testRaw))])
+	}
+
+	// Create restricted key
+	restrictedKey, restrictedRaw, err := env.apiKeySvc.Create(ctx, domain.CreateAPIKeyParams{
+		Name: "ci-deploy", TeamID: teamID, PrincipalID: user.ID,
+		Type: domain.APIKeyTypeRestricted, Environment: domain.APIKeyEnvLive,
+		Permissions: []string{"deploy"},
+	})
+	if err != nil {
+		t.Fatalf("create restricted key: %v", err)
+	}
+
+	// Validate each key returns correct metadata
+	liveVal, err := env.apiKeySvc.ValidateAPIKey(ctx, liveRaw)
+	if err != nil {
+		t.Fatalf("validate live: %v", err)
+	}
+	if liveVal.Environment != domain.APIKeyEnvLive {
+		t.Errorf("live env = %q", liveVal.Environment)
+	}
+	if len(liveVal.Permissions) != 2 {
+		t.Errorf("live permissions = %v", liveVal.Permissions)
+	}
+
+	testVal, err := env.apiKeySvc.ValidateAPIKey(ctx, testRaw)
+	if err != nil {
+		t.Fatalf("validate test: %v", err)
+	}
+	if testVal.Environment != domain.APIKeyEnvTest {
+		t.Errorf("test env = %q", testVal.Environment)
+	}
+
+	restrictedVal, err := env.apiKeySvc.ValidateAPIKey(ctx, restrictedRaw)
+	if err != nil {
+		t.Fatalf("validate restricted: %v", err)
+	}
+	if len(restrictedVal.Permissions) != 1 || restrictedVal.Permissions[0] != "deploy" {
+		t.Errorf("restricted permissions = %v", restrictedVal.Permissions)
+	}
+
+	// List all keys
+	allKeys, err := env.apiKeySvc.List(ctx, domain.ListAPIKeysParams{
+		TeamID: teamID, Limit: 100,
+	})
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(allKeys.Items) != 3 {
+		t.Errorf("key count = %d, want 3", len(allKeys.Items))
+	}
+
+	// Update description on live key
+	desc := "Production key for API access"
+	_, err = env.apiKeySvc.Update(ctx, liveKey.ID, domain.UpdateAPIKeyParams{Description: &desc})
+	if err != nil {
+		t.Fatalf("update: %v", err)
+	}
+	gotKey, _ := env.apiKeySvc.Get(ctx, liveKey.ID)
+	if gotKey.Description != "Production key for API access" {
+		t.Errorf("desc = %q", gotKey.Description)
+	}
+
+	// Update permissions on test key
+	newPerms := []string{"read", "write", "admin"}
+	_, err = env.apiKeySvc.Update(ctx, testKey.ID, domain.UpdateAPIKeyParams{Permissions: &newPerms})
+	if err != nil {
+		t.Fatalf("update permissions: %v", err)
+	}
+	testVal2, _ := env.apiKeySvc.ValidateAPIKey(ctx, testRaw)
+	if len(testVal2.Permissions) != 3 {
+		t.Errorf("updated perms = %v", testVal2.Permissions)
+	}
+
+	// Revoke restricted key
+	if err := env.apiKeySvc.Revoke(ctx, restrictedKey.ID); err != nil {
+		t.Fatalf("revoke: %v", err)
+	}
+
+	// List without revoked — should be 2
+	active, _ := env.apiKeySvc.List(ctx, domain.ListAPIKeysParams{TeamID: teamID, Limit: 100})
+	if len(active.Items) != 2 {
+		t.Errorf("active count = %d, want 2", len(active.Items))
+	}
+
+	// List with revoked — should be 3
+	withRevoked, _ := env.apiKeySvc.List(ctx, domain.ListAPIKeysParams{
+		TeamID: teamID, IncludeRevoked: true, Limit: 100,
+	})
+	if len(withRevoked.Items) != 3 {
+		t.Errorf("with revoked = %d, want 3", len(withRevoked.Items))
+	}
+
+	// Validate revoked fails
+	_, err = env.apiKeySvc.ValidateAPIKey(ctx, restrictedRaw)
+	if !errors.Is(err, domain.ErrTokenRevoked) {
+		t.Errorf("validate revoked: %v", err)
+	}
+
+	// Live and test keys still work
+	if _, err := env.apiKeySvc.ValidateAPIKey(ctx, liveRaw); err != nil {
+		t.Fatalf("live still valid: %v", err)
+	}
+	if _, err := env.apiKeySvc.ValidateAPIKey(ctx, testRaw); err != nil {
+		t.Fatalf("test still valid: %v", err)
+	}
+
+	// Verify events
+	events := queryEventTypes(t, env, teamID)
+	akCreated, akUpdated, akRevoked := 0, 0, 0
+	for _, e := range events {
+		switch e {
+		case domain.EventAPIKeyCreated:
+			akCreated++
+		case domain.EventAPIKeyUpdated:
+			akUpdated++
+		case domain.EventAPIKeyRevoked:
+			akRevoked++
+		}
+	}
+	if akCreated != 3 {
+		t.Errorf("created = %d, want 3", akCreated)
+	}
+	if akUpdated != 2 {
+		t.Errorf("updated = %d, want 2", akUpdated)
+	}
+	if akRevoked != 1 {
+		t.Errorf("revoked = %d, want 1", akRevoked)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Flow 21: Subscription Event Type Matching — overlapping subscriptions
+// ---------------------------------------------------------------------------
+
+func TestFlow_SubscriptionEventTypeMatching(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test")
+	}
+	env := setupAllServices(t)
+	ctx := context.Background()
+	teamID := "T-submatch"
+
+	// Create subscription for message events only
+	msgSub, err := env.eventSvc.CreateSubscription(ctx, domain.CreateEventSubscriptionParams{
+		TeamID:     teamID,
+		URL:        "https://hooks.example.com/messages",
+		EventTypes: []string{domain.EventTypeMessagePosted, domain.EventTypeMessageUpdated, domain.EventTypeMessageDeleted},
+		Secret:     "msg-secret",
+	})
+	if err != nil {
+		t.Fatalf("create msg sub: %v", err)
+	}
+	if len(msgSub.EventTypes) != 3 {
+		t.Errorf("msg event types = %d", len(msgSub.EventTypes))
+	}
+
+	// Create subscription for channel events only
+	chSub, err := env.eventSvc.CreateSubscription(ctx, domain.CreateEventSubscriptionParams{
+		TeamID:     teamID,
+		URL:        "https://hooks.example.com/channels",
+		EventTypes: []string{domain.EventTypeChannelCreated, domain.EventTypeChannelArchive, domain.EventTypeMemberJoinedChannel},
+		Secret:     "ch-secret",
+	})
+	if err != nil {
+		t.Fatalf("create ch sub: %v", err)
+	}
+
+	// Create catch-all subscription
+	allSub, err := env.eventSvc.CreateSubscription(ctx, domain.CreateEventSubscriptionParams{
+		TeamID: teamID,
+		URL:    "https://hooks.example.com/all",
+		EventTypes: []string{
+			domain.EventTypeMessagePosted, domain.EventTypeChannelCreated,
+			domain.EventTypeReactionAdded, domain.EventTypePinAdded,
+		},
+		Secret: "all-secret",
+	})
+	if err != nil {
+		t.Fatalf("create all sub: %v", err)
+	}
+
+	// Verify all 3 subscriptions exist
+	subs, _ := env.eventSvc.ListSubscriptions(ctx, domain.ListEventSubscriptionsParams{TeamID: teamID})
+	if len(subs) != 3 {
+		t.Errorf("sub count = %d, want 3", len(subs))
+	}
+
+	// Update msg subscription — add reaction events
+	newTypes := []string{
+		domain.EventTypeMessagePosted, domain.EventTypeMessageUpdated,
+		domain.EventTypeMessageDeleted, domain.EventTypeReactionAdded,
+	}
+	updatedSub, err := env.eventSvc.UpdateSubscription(ctx, msgSub.ID, domain.UpdateEventSubscriptionParams{
+		EventTypes: newTypes,
+	})
+	if err != nil {
+		t.Fatalf("update msg sub: %v", err)
+	}
+	if len(updatedSub.EventTypes) != 4 {
+		t.Errorf("updated types = %d", len(updatedSub.EventTypes))
+	}
+
+	// Disable the all-events subscription
+	disabled := false
+	_, err = env.eventSvc.UpdateSubscription(ctx, allSub.ID, domain.UpdateEventSubscriptionParams{
+		Enabled: &disabled,
+	})
+	if err != nil {
+		t.Fatalf("disable: %v", err)
+	}
+	gotAll, _ := env.eventSvc.GetSubscription(ctx, allSub.ID)
+	if gotAll.Enabled {
+		t.Error("should be disabled")
+	}
+
+	// Re-enable
+	enabled := true
+	_, err = env.eventSvc.UpdateSubscription(ctx, allSub.ID, domain.UpdateEventSubscriptionParams{
+		Enabled: &enabled,
+	})
+	if err != nil {
+		t.Fatalf("enable: %v", err)
+	}
+	gotAll, _ = env.eventSvc.GetSubscription(ctx, allSub.ID)
+	if !gotAll.Enabled {
+		t.Error("should be re-enabled")
+	}
+
+	// Change URL on channel sub
+	newURL := "https://hooks.example.com/channels/v2"
+	_, err = env.eventSvc.UpdateSubscription(ctx, chSub.ID, domain.UpdateEventSubscriptionParams{
+		URL: &newURL,
+	})
+	if err != nil {
+		t.Fatalf("update url: %v", err)
+	}
+	gotCh, _ := env.eventSvc.GetSubscription(ctx, chSub.ID)
+	if gotCh.URL != newURL {
+		t.Errorf("url = %q", gotCh.URL)
+	}
+
+	// Delete channel sub
+	if err := env.eventSvc.DeleteSubscription(ctx, chSub.ID); err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+
+	// List — should be 2
+	subs, _ = env.eventSvc.ListSubscriptions(ctx, domain.ListEventSubscriptionsParams{TeamID: teamID})
+	if len(subs) != 2 {
+		t.Errorf("after delete = %d, want 2", len(subs))
+	}
+
+	// Verify events
+	var subEvents int
+	env.pool.QueryRow(ctx, "SELECT COUNT(*) FROM service_events WHERE aggregate_type = $1",
+		domain.AggregateSubscription).Scan(&subEvents)
+	// 3 created + 1 update(types) + 1 disable + 1 enable + 1 update(url) + 1 deleted = 8
+	if subEvents != 8 {
+		t.Errorf("sub events = %d, want 8", subEvents)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Flow 22: Complex Projection Rebuild — verify all state survives TRUNCATE+replay
+// ---------------------------------------------------------------------------
+
+func TestFlow_ComplexProjectionRebuild(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test")
+	}
+	env := setupAllServices(t)
+	ctx := context.Background()
+	teamID := "T-rebuild"
+
+	// Build a rich workspace state
+	admin, err := env.userSvc.Create(ctx, domain.CreateUserParams{
+		TeamID: teamID, Name: "admin", Email: "admin-rb@example.com",
+		PrincipalType: domain.PrincipalTypeHuman, IsAdmin: true,
+	})
+	if err != nil {
+		t.Fatalf("create admin: %v", err)
+	}
+
+	agent, err := env.userSvc.Create(ctx, domain.CreateUserParams{
+		TeamID: teamID, Name: "agent", Email: "agent-rb@example.com",
+		PrincipalType: domain.PrincipalTypeAgent, OwnerID: admin.ID, IsBot: true,
+	})
+	if err != nil {
+		t.Fatalf("create agent: %v", err)
+	}
+
+	// Create channel with topic and purpose
+	ch, err := env.convSvc.Create(ctx, domain.CreateConversationParams{
+		TeamID: teamID, Name: "rebuild-test",
+		Type: domain.ConversationTypePublicChannel, CreatorID: admin.ID,
+	})
+	if err != nil {
+		t.Fatalf("create channel: %v", err)
+	}
+	env.convSvc.SetTopic(ctx, ch.ID, domain.SetTopicParams{Topic: "Rebuild test", SetByID: admin.ID})
+	env.convSvc.SetPurpose(ctx, ch.ID, domain.SetPurposeParams{Purpose: "Test projection rebuild", SetByID: admin.ID})
+	env.convSvc.Invite(ctx, ch.ID, agent.ID)
+
+	// Post messages with thread
+	msg, err := env.msgSvc.PostMessage(ctx, domain.PostMessageParams{
+		ChannelID: ch.ID, UserID: admin.ID, Text: "parent msg",
+	})
+	if err != nil {
+		t.Fatalf("post parent: %v", err)
+	}
+	time.Sleep(2 * time.Millisecond)
+	env.msgSvc.PostMessage(ctx, domain.PostMessageParams{
+		ChannelID: ch.ID, UserID: agent.ID, Text: "reply", ThreadTS: msg.TS,
+	})
+
+	// Reactions
+	env.msgSvc.AddReaction(ctx, domain.AddReactionParams{
+		ChannelID: ch.ID, MessageTS: msg.TS, UserID: admin.ID, Emoji: "star",
+	})
+
+	// Pin
+	env.pinSvc.Add(ctx, domain.PinParams{
+		ChannelID: ch.ID, MessageTS: msg.TS, UserID: admin.ID,
+	})
+
+	// Bookmark
+	bm, _ := env.bookmarkSvc.Create(ctx, domain.CreateBookmarkParams{
+		ChannelID: ch.ID, Title: "Rebuild Wiki", Type: "link",
+		Link: "https://wiki.rebuild.com", CreatedBy: admin.ID,
+	})
+
+	// Usergroup
+	ug, _ := env.ugSvc.Create(ctx, domain.CreateUsergroupParams{
+		TeamID: teamID, Name: "Rebuilders", Handle: "rebuilders", CreatedBy: admin.ID,
+	})
+	env.ugSvc.SetUsers(ctx, ug.ID, []string{admin.ID, agent.ID})
+
+	// File
+	f, _ := env.fileSvc.AddRemoteFile(ctx, domain.AddRemoteFileParams{
+		Title: "Rebuild Doc", ExternalURL: "https://rebuild.com/doc",
+		Filetype: "pdf", UserID: admin.ID,
+	})
+
+	// Token
+	token, _ := env.authSvc.CreateToken(ctx, domain.CreateTokenParams{
+		TeamID: teamID, UserID: admin.ID, Scopes: []string{"read", "write"},
+	})
+
+	// API key
+	apiKey, apiKeyRaw, _ := env.apiKeySvc.Create(ctx, domain.CreateAPIKeyParams{
+		Name: "rebuild-key", TeamID: teamID, PrincipalID: admin.ID,
+		Type: domain.APIKeyTypePersistent, Environment: domain.APIKeyEnvLive,
+		Permissions: []string{"read", "write"},
+	})
+
+	// Subscription
+	sub, _ := env.eventSvc.CreateSubscription(ctx, domain.CreateEventSubscriptionParams{
+		TeamID: teamID, URL: "https://hooks.rebuild.com",
+		EventTypes: []string{domain.EventTypeMessagePosted}, Secret: "rebuild-secret",
+	})
+
+	// Count events before rebuild
+	eventsBefore := countEvents(t, env)
+	if eventsBefore < 15 {
+		t.Errorf("events before rebuild = %d, want >= 15", eventsBefore)
+	}
+
+	// Perform full rebuild
+	if err := env.projector.RebuildAll(ctx); err != nil {
+		t.Fatalf("rebuild: %v", err)
+	}
+
+	// Verify events are unchanged
+	eventsAfter := countEvents(t, env)
+	if eventsAfter != eventsBefore {
+		t.Errorf("events changed: %d -> %d", eventsBefore, eventsAfter)
+	}
+
+	// Verify admin user survives
+	gotAdmin, err := env.userSvc.Get(ctx, admin.ID)
+	if err != nil {
+		t.Fatalf("get admin: %v", err)
+	}
+	if gotAdmin.Name != "admin" || !gotAdmin.IsAdmin || gotAdmin.PrincipalType != domain.PrincipalTypeHuman {
+		t.Errorf("admin state wrong: name=%q isAdmin=%v type=%q", gotAdmin.Name, gotAdmin.IsAdmin, gotAdmin.PrincipalType)
+	}
+
+	// Verify agent survives with owner
+	gotAgent, err := env.userSvc.Get(ctx, agent.ID)
+	if err != nil {
+		t.Fatalf("get agent: %v", err)
+	}
+	if gotAgent.PrincipalType != domain.PrincipalTypeAgent || gotAgent.OwnerID != admin.ID {
+		t.Errorf("agent state wrong: type=%q owner=%q", gotAgent.PrincipalType, gotAgent.OwnerID)
+	}
+
+	// Verify channel state
+	gotCh, err := env.convSvc.Get(ctx, ch.ID)
+	if err != nil {
+		t.Fatalf("get channel: %v", err)
+	}
+	if gotCh.Topic.Value != "Rebuild test" {
+		t.Errorf("topic = %q", gotCh.Topic.Value)
+	}
+	if gotCh.Purpose.Value != "Test projection rebuild" {
+		t.Errorf("purpose = %q", gotCh.Purpose.Value)
+	}
+	if gotCh.NumMembers != 2 {
+		t.Errorf("members = %d", gotCh.NumMembers)
+	}
+
+	// Verify messages
+	gotMsg, err := env.msgSvc.GetMessage(ctx, ch.ID, msg.TS)
+	if err != nil {
+		t.Fatalf("get msg: %v", err)
+	}
+	if gotMsg.Text != "parent msg" {
+		t.Errorf("msg text = %q", gotMsg.Text)
+	}
+
+	// Verify reactions
+	reactions, _ := env.msgSvc.GetReactions(ctx, ch.ID, msg.TS)
+	if len(reactions) == 0 {
+		t.Error("reactions lost after rebuild")
+	}
+
+	// Verify pin
+	pins, _ := env.pinSvc.List(ctx, ch.ID)
+	if len(pins) != 1 || pins[0].MessageTS != msg.TS {
+		t.Errorf("pins lost after rebuild: %d", len(pins))
+	}
+
+	// Verify bookmark
+	bms, _ := env.bookmarkSvc.List(ctx, ch.ID)
+	if len(bms) != 1 || bms[0].ID != bm.ID {
+		t.Error("bookmark lost after rebuild")
+	}
+
+	// Verify usergroup + members
+	gotUG, _ := env.ugSvc.Get(ctx, ug.ID)
+	if gotUG.Name != "Rebuilders" {
+		t.Errorf("ug name = %q", gotUG.Name)
+	}
+	ugUsers, _ := env.ugSvc.ListUsers(ctx, ug.ID)
+	if len(ugUsers) != 2 {
+		t.Errorf("ug users = %d, want 2", len(ugUsers))
+	}
+
+	// Verify file
+	gotFile, _ := env.fileSvc.Get(ctx, f.ID)
+	if gotFile.Title != "Rebuild Doc" {
+		t.Errorf("file title = %q", gotFile.Title)
+	}
+
+	// Verify token still validates
+	if _, err := env.authSvc.ValidateToken(ctx, token.Token); err != nil {
+		t.Fatalf("token invalid after rebuild: %v", err)
+	}
+
+	// Verify API key still validates
+	akVal, err := env.apiKeySvc.ValidateAPIKey(ctx, apiKeyRaw)
+	if err != nil {
+		t.Fatalf("api key invalid after rebuild: %v", err)
+	}
+	if akVal.KeyID != apiKey.ID {
+		t.Errorf("api key id = %q", akVal.KeyID)
+	}
+
+	// Verify subscription
+	gotSub, _ := env.eventSvc.GetSubscription(ctx, sub.ID)
+	if gotSub.URL != "https://hooks.rebuild.com" {
+		t.Errorf("sub url = %q", gotSub.URL)
+	}
+	if !gotSub.Enabled {
+		t.Error("sub should be enabled")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Flow 23: Message Metadata & Blocks — rich message content
+// ---------------------------------------------------------------------------
+
+func TestFlow_MessageMetadataAndBlocks(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test")
+	}
+	env := setupAllServices(t)
+	ctx := context.Background()
+	teamID := "T-blocks"
+
+	user, err := env.userSvc.Create(ctx, domain.CreateUserParams{
+		TeamID: teamID, Name: "richcontent", Email: "rich@example.com",
+	})
+	if err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	ch, err := env.convSvc.Create(ctx, domain.CreateConversationParams{
+		TeamID: teamID, Name: "rich-messages",
+		Type: domain.ConversationTypePublicChannel, CreatorID: user.ID,
+	})
+	if err != nil {
+		t.Fatalf("create channel: %v", err)
+	}
+
+	// Post message with blocks
+	blocks := json.RawMessage(`[{"type":"section","text":{"type":"mrkdwn","text":"*Hello* from blocks"}}]`)
+	msg, err := env.msgSvc.PostMessage(ctx, domain.PostMessageParams{
+		ChannelID: ch.ID, UserID: user.ID,
+		Text:   "fallback text",
+		Blocks: blocks,
+	})
+	if err != nil {
+		t.Fatalf("post with blocks: %v", err)
+	}
+	if msg.Text != "fallback text" {
+		t.Errorf("text = %q", msg.Text)
+	}
+
+	// Get message and verify blocks are present
+	gotMsg, err := env.msgSvc.GetMessage(ctx, ch.ID, msg.TS)
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if gotMsg.Blocks == nil {
+		t.Error("blocks should be present")
+	}
+
+	// Post message with metadata
+	metadata := json.RawMessage(`{"event_type":"deploy","event_payload":{"service":"api","version":"1.2.3"}}`)
+	msgMeta, err := env.msgSvc.PostMessage(ctx, domain.PostMessageParams{
+		ChannelID: ch.ID, UserID: user.ID,
+		Text:     "Deploy notification",
+		Metadata: metadata,
+	})
+	if err != nil {
+		t.Fatalf("post with metadata: %v", err)
+	}
+
+	gotMeta, _ := env.msgSvc.GetMessage(ctx, ch.ID, msgMeta.TS)
+	if gotMeta.Metadata == nil {
+		t.Error("metadata should be present")
+	}
+
+	// Update blocks
+	newBlocks := json.RawMessage(`[{"type":"section","text":{"type":"mrkdwn","text":"*Updated* content"}}]`)
+	updated, err := env.msgSvc.UpdateMessage(ctx, ch.ID, msg.TS, domain.UpdateMessageParams{
+		Blocks: newBlocks,
+	})
+	if err != nil {
+		t.Fatalf("update blocks: %v", err)
+	}
+	if updated.Blocks == nil {
+		t.Error("updated blocks should be present")
+	}
+
+	// Update text only (blocks should remain)
+	newText := "updated fallback"
+	updated2, err := env.msgSvc.UpdateMessage(ctx, ch.ID, msg.TS, domain.UpdateMessageParams{
+		Text: &newText,
+	})
+	if err != nil {
+		t.Fatalf("update text: %v", err)
+	}
+	if updated2.Text != "updated fallback" {
+		t.Errorf("text = %q", updated2.Text)
+	}
+
+	// Post with both blocks and metadata
+	time.Sleep(2 * time.Millisecond)
+	bothMsg, err := env.msgSvc.PostMessage(ctx, domain.PostMessageParams{
+		ChannelID: ch.ID, UserID: user.ID,
+		Text:     "rich message",
+		Blocks:   json.RawMessage(`[{"type":"divider"}]`),
+		Metadata: json.RawMessage(`{"event_type":"test"}`),
+	})
+	if err != nil {
+		t.Fatalf("post both: %v", err)
+	}
+	gotBoth, _ := env.msgSvc.GetMessage(ctx, ch.ID, bothMsg.TS)
+	if gotBoth.Blocks == nil || gotBoth.Metadata == nil {
+		t.Error("both blocks and metadata should be present")
+	}
+
+	// History returns messages with blocks/metadata
+	history, _ := env.msgSvc.History(ctx, domain.ListMessagesParams{
+		ChannelID: ch.ID, Limit: 100,
+	})
+	if len(history.Items) < 3 {
+		t.Errorf("history = %d, want >= 3", len(history.Items))
+	}
+
+	// Verify events
+	var msgEvents int
+	env.pool.QueryRow(ctx, "SELECT COUNT(*) FROM service_events WHERE event_type LIKE 'message.%'").Scan(&msgEvents)
+	// 3 posted + 2 updated = 5
+	if msgEvents != 5 {
+		t.Errorf("message events = %d, want 5", msgEvents)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Flow 24: Conversation with Initial Topic/Purpose + Full Update Lifecycle
+// ---------------------------------------------------------------------------
+
+func TestFlow_ConversationCreationWithTopicPurpose(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test")
+	}
+	env := setupAllServices(t)
+	ctx := context.Background()
+	teamID := "T-convfull"
+
+	user, err := env.userSvc.Create(ctx, domain.CreateUserParams{
+		TeamID: teamID, Name: "creator", Email: "creator@example.com",
+	})
+	if err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+
+	// Create with topic and purpose
+	ch, err := env.convSvc.Create(ctx, domain.CreateConversationParams{
+		TeamID:    teamID,
+		Name:      "full-channel",
+		Type:      domain.ConversationTypePublicChannel,
+		CreatorID: user.ID,
+		Topic:     "Initial Topic",
+		Purpose:   "Initial Purpose",
+	})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	if ch.Topic.Value != "Initial Topic" {
+		t.Errorf("topic = %q", ch.Topic.Value)
+	}
+	if ch.Purpose.Value != "Initial Purpose" {
+		t.Errorf("purpose = %q", ch.Purpose.Value)
+	}
+
+	// Update topic multiple times
+	topics := []string{"Second Topic", "Third Topic", "Final Topic"}
+	for _, topic := range topics {
+		var err error
+		ch, err = env.convSvc.SetTopic(ctx, ch.ID, domain.SetTopicParams{
+			Topic: topic, SetByID: user.ID,
+		})
+		if err != nil {
+			t.Fatalf("set topic %q: %v", topic, err)
+		}
+	}
+	if ch.Topic.Value != "Final Topic" {
+		t.Errorf("final topic = %q", ch.Topic.Value)
+	}
+
+	// Update purpose
+	ch, err = env.convSvc.SetPurpose(ctx, ch.ID, domain.SetPurposeParams{
+		Purpose: "Updated Purpose", SetByID: user.ID,
+	})
+	if err != nil {
+		t.Fatalf("set purpose: %v", err)
+	}
+	if ch.Purpose.Value != "Updated Purpose" {
+		t.Errorf("purpose = %q", ch.Purpose.Value)
+	}
+
+	// Rename
+	newName := "renamed-channel"
+	ch, err = env.convSvc.Update(ctx, ch.ID, domain.UpdateConversationParams{Name: &newName})
+	if err != nil {
+		t.Fatalf("rename: %v", err)
+	}
+	if ch.Name != "renamed-channel" {
+		t.Errorf("name = %q", ch.Name)
+	}
+
+	// Invite 3 users
+	users := make([]*domain.User, 3)
+	for i := 0; i < 3; i++ {
+		ts := time.Now().Format("150405.000000")
+		u, err := env.userSvc.Create(ctx, domain.CreateUserParams{
+			TeamID: teamID, Name: "member-" + ts, Email: "m" + ts + "@x.com",
+		})
+		if err != nil {
+			t.Fatalf("create member %d: %v", i, err)
+		}
+		users[i] = u
+		time.Sleep(1 * time.Millisecond)
+	}
+	for _, u := range users {
+		if err := env.convSvc.Invite(ctx, ch.ID, u.ID); err != nil {
+			t.Fatalf("invite: %v", err)
+		}
+	}
+
+	// Verify member count = 4 (creator + 3)
+	ch, _ = env.convSvc.Get(ctx, ch.ID)
+	if ch.NumMembers != 4 {
+		t.Errorf("members = %d, want 4", ch.NumMembers)
+	}
+
+	// Kick one member
+	if err := env.convSvc.Kick(ctx, ch.ID, users[1].ID); err != nil {
+		t.Fatalf("kick: %v", err)
+	}
+	ch, _ = env.convSvc.Get(ctx, ch.ID)
+	if ch.NumMembers != 3 {
+		t.Errorf("after kick = %d, want 3", ch.NumMembers)
+	}
+
+	// Re-invite the kicked member
+	if err := env.convSvc.Invite(ctx, ch.ID, users[1].ID); err != nil {
+		t.Fatalf("re-invite: %v", err)
+	}
+	ch, _ = env.convSvc.Get(ctx, ch.ID)
+	if ch.NumMembers != 4 {
+		t.Errorf("after re-invite = %d, want 4", ch.NumMembers)
+	}
+
+	// Archive and unarchive
+	if err := env.convSvc.Archive(ctx, ch.ID); err != nil {
+		t.Fatalf("archive: %v", err)
+	}
+	ch, _ = env.convSvc.Get(ctx, ch.ID)
+	if !ch.IsArchived {
+		t.Error("should be archived")
+	}
+	if err := env.convSvc.Unarchive(ctx, ch.ID); err != nil {
+		t.Fatalf("unarchive: %v", err)
+	}
+	ch, _ = env.convSvc.Get(ctx, ch.ID)
+	if ch.IsArchived {
+		t.Error("should not be archived")
+	}
+
+	// Verify comprehensive event sequence
+	events := queryEventTypes(t, env, teamID)
+	convEvents := 0
+	for _, e := range events {
+		if strings.HasPrefix(e, "conversation.") {
+			convEvents++
+		}
+	}
+	// created + 3 topic_set + purpose_set + updated + 3 member_joined + member_left + member_joined + archived + unarchived = 13
+	if convEvents < 13 {
+		t.Errorf("conv events = %d, want >= 13", convEvents)
+	}
+
+	// Rebuild and verify
+	if err := env.projector.RebuildAll(ctx); err != nil {
+		t.Fatalf("rebuild: %v", err)
+	}
+	ch, _ = env.convSvc.Get(ctx, ch.ID)
+	if ch.Name != "renamed-channel" || ch.Topic.Value != "Final Topic" || ch.Purpose.Value != "Updated Purpose" {
+		t.Errorf("state after rebuild: name=%q topic=%q purpose=%q", ch.Name, ch.Topic.Value, ch.Purpose.Value)
+	}
+	if ch.NumMembers != 4 {
+		t.Errorf("members after rebuild = %d", ch.NumMembers)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Flow 25: Usergroup Full Lifecycle — handle updates, description, membership churn
+// ---------------------------------------------------------------------------
+
+func TestFlow_UsergroupFullLifecycle(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test")
+	}
+	env := setupAllServices(t)
+	ctx := context.Background()
+	teamID := "T-ugfull"
+
+	// Create 5 users
+	users := make([]*domain.User, 5)
+	for i := 0; i < 5; i++ {
+		u, err := env.userSvc.Create(ctx, domain.CreateUserParams{
+			TeamID: teamID, Name: "ug-user-" + string(rune('A'+i)),
+			Email: "ug" + string(rune('a'+i)) + "@example.com",
+		})
+		if err != nil {
+			t.Fatalf("create user %d: %v", i, err)
+		}
+		users[i] = u
+	}
+
+	// Create usergroup with initial users
+	ug, err := env.ugSvc.Create(ctx, domain.CreateUsergroupParams{
+		TeamID:      teamID,
+		Name:        "Frontend Team",
+		Handle:      "frontend",
+		Description: "Frontend developers",
+		CreatedBy:   users[0].ID,
+	})
+	if err != nil {
+		t.Fatalf("create ug: %v", err)
+	}
+
+	// Set initial members (A, B, C)
+	if err := env.ugSvc.SetUsers(ctx, ug.ID, []string{users[0].ID, users[1].ID, users[2].ID}); err != nil {
+		t.Fatalf("set users: %v", err)
+	}
+	members, _ := env.ugSvc.ListUsers(ctx, ug.ID)
+	if len(members) != 3 {
+		t.Errorf("initial members = %d, want 3", len(members))
+	}
+
+	// Update name
+	newName := "Frontend & Mobile Team"
+	if _, err := env.ugSvc.Update(ctx, ug.ID, domain.UpdateUsergroupParams{
+		Name: &newName, UpdatedBy: users[0].ID,
+	}); err != nil {
+		t.Fatalf("update name: %v", err)
+	}
+
+	// Update handle
+	newHandle := "frontend-mobile"
+	if _, err := env.ugSvc.Update(ctx, ug.ID, domain.UpdateUsergroupParams{
+		Handle: &newHandle, UpdatedBy: users[0].ID,
+	}); err != nil {
+		t.Fatalf("update handle: %v", err)
+	}
+
+	// Update description
+	newDesc := "Frontend and Mobile developers"
+	if _, err := env.ugSvc.Update(ctx, ug.ID, domain.UpdateUsergroupParams{
+		Description: &newDesc, UpdatedBy: users[0].ID,
+	}); err != nil {
+		t.Fatalf("update desc: %v", err)
+	}
+
+	// Verify updates
+	got, _ := env.ugSvc.Get(ctx, ug.ID)
+	if got.Name != "Frontend & Mobile Team" {
+		t.Errorf("name = %q", got.Name)
+	}
+	if got.Handle != "frontend-mobile" {
+		t.Errorf("handle = %q", got.Handle)
+	}
+	if got.Description != "Frontend and Mobile developers" {
+		t.Errorf("desc = %q", got.Description)
+	}
+
+	// Change membership: remove B, add D and E
+	if err := env.ugSvc.SetUsers(ctx, ug.ID, []string{users[0].ID, users[2].ID, users[3].ID, users[4].ID}); err != nil {
+		t.Fatalf("update members: %v", err)
+	}
+	members, _ = env.ugSvc.ListUsers(ctx, ug.ID)
+	if len(members) != 4 {
+		t.Errorf("updated members = %d, want 4", len(members))
+	}
+
+	// Verify B is not in the group
+	memberIDs := map[string]bool{}
+	for _, m := range members {
+		memberIDs[m] = true
+	}
+	if memberIDs[users[1].ID] {
+		t.Error("B should not be in group")
+	}
+	if !memberIDs[users[3].ID] || !memberIDs[users[4].ID] {
+		t.Error("D and E should be in group")
+	}
+
+	// Disable
+	if err := env.ugSvc.Disable(ctx, ug.ID); err != nil {
+		t.Fatalf("disable: %v", err)
+	}
+
+	// List without disabled
+	ugs, _ := env.ugSvc.List(ctx, domain.ListUsergroupsParams{TeamID: teamID, IncludeDisabled: false})
+	if len(ugs) != 0 {
+		t.Errorf("active groups = %d, want 0", len(ugs))
+	}
+
+	// List with disabled
+	ugs, _ = env.ugSvc.List(ctx, domain.ListUsergroupsParams{TeamID: teamID, IncludeDisabled: true})
+	if len(ugs) != 1 {
+		t.Errorf("all groups = %d, want 1", len(ugs))
+	}
+
+	// Re-enable
+	if err := env.ugSvc.Enable(ctx, ug.ID); err != nil {
+		t.Fatalf("enable: %v", err)
+	}
+
+	// Create second usergroup
+	ug2, err := env.ugSvc.Create(ctx, domain.CreateUsergroupParams{
+		TeamID:    teamID,
+		Name:      "Backend Team",
+		Handle:    "backend",
+		CreatedBy: users[0].ID,
+	})
+	if err != nil {
+		t.Fatalf("create ug2: %v", err)
+	}
+	env.ugSvc.SetUsers(ctx, ug2.ID, []string{users[1].ID, users[2].ID})
+
+	// List all — should be 2
+	ugs, _ = env.ugSvc.List(ctx, domain.ListUsergroupsParams{TeamID: teamID, IncludeDisabled: true})
+	if len(ugs) != 2 {
+		t.Errorf("total groups = %d, want 2", len(ugs))
+	}
+
+	// User C is in both groups
+	ug1Members, _ := env.ugSvc.ListUsers(ctx, ug.ID)
+	ug2Members, _ := env.ugSvc.ListUsers(ctx, ug2.ID)
+	ug1Has := false
+	ug2Has := false
+	for _, m := range ug1Members {
+		if m == users[2].ID {
+			ug1Has = true
+		}
+	}
+	for _, m := range ug2Members {
+		if m == users[2].ID {
+			ug2Has = true
+		}
+	}
+	if !ug1Has || !ug2Has {
+		t.Error("user C should be in both groups")
+	}
+
+	// Rebuild and verify
+	if err := env.projector.RebuildAll(ctx); err != nil {
+		t.Fatalf("rebuild: %v", err)
+	}
+	got, _ = env.ugSvc.Get(ctx, ug.ID)
+	if got.Name != "Frontend & Mobile Team" || got.Handle != "frontend-mobile" {
+		t.Errorf("ug after rebuild: name=%q handle=%q", got.Name, got.Handle)
+	}
+	members, _ = env.ugSvc.ListUsers(ctx, ug.ID)
+	if len(members) != 4 {
+		t.Errorf("members after rebuild = %d, want 4", len(members))
+	}
+}

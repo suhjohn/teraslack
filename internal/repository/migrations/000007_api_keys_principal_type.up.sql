@@ -39,6 +39,7 @@ CREATE INDEX IF NOT EXISTS idx_api_keys_team_id ON api_keys(team_id);
 CREATE INDEX IF NOT EXISTS idx_api_keys_principal_id ON api_keys(principal_id);
 CREATE INDEX IF NOT EXISTS idx_api_keys_created_by ON api_keys(created_by);
 
+DROP TRIGGER IF EXISTS trg_api_keys_updated_at ON api_keys;
 CREATE TRIGGER trg_api_keys_updated_at
     BEFORE UPDATE ON api_keys
     FOR EACH ROW EXECUTE FUNCTION update_updated_at();
