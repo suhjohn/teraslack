@@ -112,13 +112,14 @@ func TestAPIKey_CreateForHumanPrincipal(t *testing.T) {
 		t.Errorf("event_type = %q, want %q", eventType, domain.EventAPIKeyCreated)
 	}
 
-	// Verify payload is redacted (no key_hash)
+	// Verify payload contains the key snapshot (key_hash is a one-way SHA-256
+	// hash and is intentionally preserved for projection rebuild support).
 	var snapshot domain.APIKey
 	if err := json.Unmarshal(payload, &snapshot); err != nil {
 		t.Fatalf("unmarshal payload: %v", err)
 	}
-	if snapshot.KeyHash != "" {
-		t.Error("event payload contains key_hash — should be redacted")
+	if snapshot.KeyHash == "" {
+		t.Error("event payload missing key_hash — needed for projection rebuilds")
 	}
 	if snapshot.ID != key.ID {
 		t.Errorf("snapshot.ID = %q, want %q", snapshot.ID, key.ID)
@@ -1341,8 +1342,10 @@ func TestAPIKey_EventPayloadsRedacted(t *testing.T) {
 		var m map[string]any
 		json.Unmarshal(payload, &m)
 
-		if hash, ok := m["key_hash"]; ok && hash != "" {
-			t.Errorf("event %q payload contains non-empty key_hash — should be redacted", et)
+		// key_hash is a one-way SHA-256 hash, safe to store in events.
+		// It must be present for projection rebuilds to restore auth capability.
+		if hash, ok := m["key_hash"]; ok && hash == "" {
+			t.Errorf("event %q payload has empty key_hash — needed for projection rebuilds", et)
 		}
 	}
 }

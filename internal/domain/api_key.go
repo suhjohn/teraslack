@@ -58,7 +58,9 @@ type APIKey struct {
 
 // Redacted returns a copy safe for event_data storage.
 // KeyHash (a one-way SHA-256 hash) is preserved so projection rebuilds
-// can restore the lookup hash after TRUNCATE + replay.
+// can restore the lookup hash after TRUNCATE + replay. This is safe
+// because the hash is irreversible — it's the same pattern as storing
+// bcrypt password hashes.
 func (k *APIKey) Redacted() *APIKey {
 	c := *k
 	return &c

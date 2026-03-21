@@ -2,13 +2,12 @@ package postgres
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/suhjohn/teraslack/internal/domain"
 	"github.com/suhjohn/teraslack/internal/repository"
@@ -186,9 +185,13 @@ func (r *UserRepo) List(ctx context.Context, params domain.ListUsersParams) (*do
 	return page, nil
 }
 
-// generateID creates a Teraslack-style prefixed ID with random suffix for uniqueness.
+// generateID creates a Teraslack-style prefixed ID using UUIDv7 for time-ordered,
+// uniformly distributed identifiers. Format: "{prefix}_{uuidv7}" e.g. "U_0192d4a8-7e1b-7f3c-9d2e-4b5a6c7d8e9f".
 func generateID(prefix string) string {
-	b := make([]byte, 4)
-	_, _ = rand.Read(b)
-	return fmt.Sprintf("%s%d%s", prefix, timeNow().UnixNano(), hex.EncodeToString(b))
+	id, err := uuid.NewV7()
+	if err != nil {
+		// Fallback: use a random UUID v4 if v7 fails (should never happen)
+		id = uuid.New()
+	}
+	return fmt.Sprintf("%s_%s", prefix, id.String())
 }

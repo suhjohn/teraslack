@@ -8,8 +8,10 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/suhjohn/teraslack/internal/domain"
+	"github.com/suhjohn/teraslack/internal/repository/sqlcgen"
 )
 
 // Projector rebuilds projection tables by replaying events from the event log.
@@ -22,6 +24,29 @@ type Projector struct {
 // NewProjector creates a new Projector.
 func NewProjector(pool *pgxpool.Pool, logger *slog.Logger) *Projector {
 	return &Projector{pool: pool, logger: logger}
+}
+
+// timeToTs converts a time.Time to pgtype.Timestamptz.
+// Always returns Valid=true because time.Time is non-pointer (caller already
+// decided the value is present). Use timePtrToTs for nullable timestamps.
+func timeToTs(t time.Time) pgtype.Timestamptz {
+	return pgtype.Timestamptz{Time: t, Valid: true}
+}
+
+// timePtrToTs converts a *time.Time to pgtype.Timestamptz.
+func timePtrToTs(t *time.Time) pgtype.Timestamptz {
+	if t == nil {
+		return pgtype.Timestamptz{}
+	}
+	return pgtype.Timestamptz{Time: *t, Valid: true}
+}
+
+// projStringPtrToText converts a *string to pgtype.Text.
+func projStringPtrToText(s *string) pgtype.Text {
+	if s == nil {
+		return pgtype.Text{}
+	}
+	return pgtype.Text{String: *s, Valid: true}
 }
 
 // RebuildAll replays all events and rebuilds every projection table from scratch.
@@ -48,11 +73,10 @@ func (p *Projector) RebuildAll(ctx context.Context) error {
 
 // RebuildAggregate replays events for a specific aggregate type and rebuilds its projection table.
 func (p *Projector) RebuildAggregate(ctx context.Context, aggregateType string) error {
-	// Collect all events first to avoid "conn busy" — pgx doesn't allow
-	// executing statements while iterating rows on the same connection.
-	entries, err := p.collectEvents(ctx, aggregateType)
+	q := sqlcgen.New(p.pool)
+	entries, err := q.ProjectorGetEventsByAggregateType(ctx, aggregateType)
 	if err != nil {
-		return err
+		return fmt.Errorf("query events: %w", err)
 	}
 
 	tx, err := p.pool.Begin(ctx)
@@ -61,16 +85,17 @@ func (p *Projector) RebuildAggregate(ctx context.Context, aggregateType string) 
 	}
 	defer tx.Rollback(ctx)
 
-	// Truncate the projection table(s) for this aggregate
+	// TRUNCATE is DDL -- not supported by sqlc, so keep as raw exec.
 	if err := p.truncateProjection(ctx, tx, aggregateType); err != nil {
 		return fmt.Errorf("truncate projection: %w", err)
 	}
 
-	for i, entry := range entries {
-		if err := p.applyEvent(ctx, tx, entry); err != nil {
+	qtx := q.WithTx(tx)
+	for _, entry := range entries {
+		domainEvt := sqlcEventToDomain(entry)
+		if err := p.applyEvent(ctx, qtx, domainEvt); err != nil {
 			return fmt.Errorf("apply event id=%d type=%s: %w", entry.ID, entry.EventType, err)
 		}
-		_ = i
 	}
 
 	if err := tx.Commit(ctx); err != nil {
@@ -81,76 +106,12 @@ func (p *Projector) RebuildAggregate(ctx context.Context, aggregateType string) 
 	return nil
 }
 
-// collectEvents reads all events for an aggregate type into memory.
-func (p *Projector) collectEvents(ctx context.Context, aggregateType string) ([]domain.ServiceEvent, error) {
-	rows, err := p.pool.Query(ctx,
-		`SELECT id, event_type, aggregate_type, aggregate_id, team_id, actor_id, payload, metadata, created_at
-		 FROM service_events
-		 WHERE aggregate_type = $1
-		 ORDER BY id ASC`, aggregateType)
-	if err != nil {
-		return nil, fmt.Errorf("query events: %w", err)
-	}
-	defer rows.Close()
-
-	var entries []domain.ServiceEvent
-	for rows.Next() {
-		var entry domain.ServiceEvent
-		if err := rows.Scan(
-			&entry.ID,
-			&entry.EventType,
-			&entry.AggregateType,
-			&entry.AggregateID,
-			&entry.TeamID,
-			&entry.ActorID,
-			&entry.Payload,
-			&entry.Metadata,
-			&entry.CreatedAt,
-		); err != nil {
-			return nil, fmt.Errorf("scan event: %w", err)
-		}
-		entries = append(entries, entry)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate events: %w", err)
-	}
-	return entries, nil
-}
-
 // RebuildSince replays events since a given event ID across all aggregate types.
-// This is useful for incremental rebuilds.
 func (p *Projector) RebuildSince(ctx context.Context, sinceID int64) error {
-	// Collect events first to avoid conn busy.
-	rows, err := p.pool.Query(ctx,
-		`SELECT id, event_type, aggregate_type, aggregate_id, team_id, actor_id, payload, metadata, created_at
-		 FROM service_events
-		 WHERE id > $1
-		 ORDER BY id ASC`, sinceID)
+	q := sqlcgen.New(p.pool)
+	entries, err := q.ProjectorGetEventsSince(ctx, sinceID)
 	if err != nil {
 		return fmt.Errorf("query events: %w", err)
-	}
-	var entries []domain.ServiceEvent
-	for rows.Next() {
-		var entry domain.ServiceEvent
-		if err := rows.Scan(
-			&entry.ID,
-			&entry.EventType,
-			&entry.AggregateType,
-			&entry.AggregateID,
-			&entry.TeamID,
-			&entry.ActorID,
-			&entry.Payload,
-			&entry.Metadata,
-			&entry.CreatedAt,
-		); err != nil {
-			rows.Close()
-			return fmt.Errorf("scan event: %w", err)
-		}
-		entries = append(entries, entry)
-	}
-	rows.Close()
-	if err := rows.Err(); err != nil {
-		return fmt.Errorf("iterate events: %w", err)
 	}
 
 	tx, err := p.pool.Begin(ctx)
@@ -159,8 +120,10 @@ func (p *Projector) RebuildSince(ctx context.Context, sinceID int64) error {
 	}
 	defer tx.Rollback(ctx)
 
+	qtx := q.WithTx(tx)
 	for _, entry := range entries {
-		if err := p.applyEvent(ctx, tx, entry); err != nil {
+		domainEvt := sqlcEventToDomain(entry)
+		if err := p.applyEvent(ctx, qtx, domainEvt); err != nil {
 			return fmt.Errorf("apply event id=%d type=%s: %w", entry.ID, entry.EventType, err)
 		}
 	}
@@ -173,8 +136,22 @@ func (p *Projector) RebuildSince(ctx context.Context, sinceID int64) error {
 	return nil
 }
 
+// sqlcEventToDomain converts the sqlcgen.ServiceEvent model to domain.ServiceEvent.
+func sqlcEventToDomain(e sqlcgen.ServiceEvent) domain.ServiceEvent {
+	return domain.ServiceEvent{
+		ID:            e.ID,
+		EventType:     e.EventType,
+		AggregateType: e.AggregateType,
+		AggregateID:   e.AggregateID,
+		TeamID:        e.TeamID,
+		ActorID:       e.ActorID,
+		Payload:       e.Payload,
+		Metadata:      e.Metadata,
+		CreatedAt:     e.CreatedAt.Time,
+	}
+}
+
 func (p *Projector) truncateProjection(ctx context.Context, tx pgx.Tx, aggregateType string) error {
-	// Use TRUNCATE ... CASCADE to handle foreign key constraints.
 	switch aggregateType {
 	case domain.AggregateUser:
 		_, err := tx.Exec(ctx, "TRUNCATE users CASCADE")
@@ -211,80 +188,80 @@ func (p *Projector) truncateProjection(ctx context.Context, tx pgx.Tx, aggregate
 	}
 }
 
-func (p *Projector) applyEvent(ctx context.Context, tx pgx.Tx, entry domain.ServiceEvent) error {
+func (p *Projector) applyEvent(ctx context.Context, q *sqlcgen.Queries, entry domain.ServiceEvent) error {
 	switch entry.EventType {
 	// User events
 	case domain.EventUserCreated, domain.EventUserUpdated:
-		return p.applyUserUpsert(ctx, tx, entry)
+		return p.applyUserUpsert(ctx, q, entry)
 	case domain.EventUserDeleted:
-		return p.applyUserDeleted(ctx, tx, entry)
+		return p.applyUserDeleted(ctx, q, entry)
 
 	// Conversation events
 	case domain.EventConversationCreated, domain.EventConversationUpdated,
 		domain.EventConversationArchived, domain.EventConversationUnarchived,
 		domain.EventConversationTopicSet, domain.EventConversationPurposeSet:
-		return p.applyConversationUpsert(ctx, tx, entry)
+		return p.applyConversationUpsert(ctx, q, entry)
 	case domain.EventMemberJoined:
-		return p.applyMemberJoined(ctx, tx, entry)
+		return p.applyMemberJoined(ctx, q, entry)
 	case domain.EventMemberLeft:
-		return p.applyMemberLeft(ctx, tx, entry)
+		return p.applyMemberLeft(ctx, q, entry)
 
 	// Message events
 	case domain.EventMessagePosted, domain.EventMessageUpdated:
-		return p.applyMessageUpsert(ctx, tx, entry)
+		return p.applyMessageUpsert(ctx, q, entry)
 	case domain.EventMessageDeleted:
-		return p.applyMessageDeleted(ctx, tx, entry)
+		return p.applyMessageDeleted(ctx, q, entry)
 	case domain.EventReactionAdded:
-		return p.applyReactionAdded(ctx, tx, entry)
+		return p.applyReactionAdded(ctx, q, entry)
 	case domain.EventReactionRemoved:
-		return p.applyReactionRemoved(ctx, tx, entry)
+		return p.applyReactionRemoved(ctx, q, entry)
 
 	// Usergroup events
 	case domain.EventUsergroupCreated, domain.EventUsergroupUpdated,
 		domain.EventUsergroupEnabled, domain.EventUsergroupDisabled:
-		return p.applyUsergroupUpsert(ctx, tx, entry)
+		return p.applyUsergroupUpsert(ctx, q, entry)
 	case domain.EventUsergroupUserSet:
-		return p.applyUsergroupUsersSet(ctx, tx, entry)
+		return p.applyUsergroupUsersSet(ctx, q, entry)
 
 	// Pin events
 	case domain.EventPinAdded:
-		return p.applyPinAdded(ctx, tx, entry)
+		return p.applyPinAdded(ctx, q, entry)
 	case domain.EventPinRemoved:
-		return p.applyPinRemoved(ctx, tx, entry)
+		return p.applyPinRemoved(ctx, q, entry)
 
 	// Bookmark events
 	case domain.EventBookmarkCreated, domain.EventBookmarkUpdated:
-		return p.applyBookmarkUpsert(ctx, tx, entry)
+		return p.applyBookmarkUpsert(ctx, q, entry)
 	case domain.EventBookmarkDeleted:
-		return p.applyBookmarkDeleted(ctx, tx, entry)
+		return p.applyBookmarkDeleted(ctx, q, entry)
 
 	// File events
 	case domain.EventFileCreated, domain.EventFileUpdated:
-		return p.applyFileUpsert(ctx, tx, entry)
+		return p.applyFileUpsert(ctx, q, entry)
 	case domain.EventFileDeleted:
-		return p.applyFileDeleted(ctx, tx, entry)
+		return p.applyFileDeleted(ctx, q, entry)
 	case domain.EventFileShared:
-		return p.applyFileShared(ctx, tx, entry)
+		return p.applyFileShared(ctx, q, entry)
 
 	// Token events
 	case domain.EventTokenCreated:
-		return p.applyTokenCreated(ctx, tx, entry)
+		return p.applyTokenCreated(ctx, q, entry)
 	case domain.EventTokenRevoked:
-		return p.applyTokenRevoked(ctx, tx, entry)
+		return p.applyTokenRevoked(ctx, q, entry)
 
 	// Subscription events
 	case domain.EventSubscriptionCreated, domain.EventSubscriptionUpdated:
-		return p.applySubscriptionUpsert(ctx, tx, entry)
+		return p.applySubscriptionUpsert(ctx, q, entry)
 	case domain.EventSubscriptionDeleted:
-		return p.applySubscriptionDeleted(ctx, tx, entry)
+		return p.applySubscriptionDeleted(ctx, q, entry)
 
 	// API Key events
 	case domain.EventAPIKeyCreated, domain.EventAPIKeyUpdated:
-		return p.applyAPIKeyUpsert(ctx, tx, entry)
+		return p.applyAPIKeyUpsert(ctx, q, entry)
 	case domain.EventAPIKeyRotated:
-		return p.applyAPIKeyRotated(ctx, tx, entry)
+		return p.applyAPIKeyRotated(ctx, q, entry)
 	case domain.EventAPIKeyRevoked:
-		return p.applyAPIKeyRevoked(ctx, tx, entry)
+		return p.applyAPIKeyRevoked(ctx, q, entry)
 
 	default:
 		p.logger.Warn("unknown event type", "event_type", entry.EventType, "id", entry.ID)
@@ -294,7 +271,7 @@ func (p *Projector) applyEvent(ctx context.Context, tx pgx.Tx, entry domain.Serv
 
 // --- User projections ---
 
-func (p *Projector) applyUserUpsert(ctx context.Context, tx pgx.Tx, entry domain.ServiceEvent) error {
+func (p *Projector) applyUserUpsert(ctx context.Context, q *sqlcgen.Queries, entry domain.ServiceEvent) error {
 	var u domain.User
 	if err := json.Unmarshal(entry.Payload, &u); err != nil {
 		return fmt.Errorf("unmarshal user: %w", err)
@@ -302,117 +279,116 @@ func (p *Projector) applyUserUpsert(ctx context.Context, tx pgx.Tx, entry domain
 
 	profileJSON, _ := json.Marshal(u.Profile)
 
-	_, err := tx.Exec(ctx, `
-		INSERT INTO users (id, team_id, name, real_name, display_name, email, is_bot, is_admin, is_owner, is_restricted, deleted, profile, principal_type, owner_id, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
-		ON CONFLICT (id) DO UPDATE SET
-			team_id = EXCLUDED.team_id, name = EXCLUDED.name, real_name = EXCLUDED.real_name,
-			display_name = EXCLUDED.display_name, email = EXCLUDED.email, is_bot = EXCLUDED.is_bot,
-			is_admin = EXCLUDED.is_admin, is_owner = EXCLUDED.is_owner, is_restricted = EXCLUDED.is_restricted,
-			deleted = EXCLUDED.deleted, profile = EXCLUDED.profile,
-			principal_type = EXCLUDED.principal_type, owner_id = EXCLUDED.owner_id,
-			updated_at = EXCLUDED.updated_at`,
-		u.ID, u.TeamID, u.Name, u.RealName, u.DisplayName, u.Email,
-		u.IsBot, u.IsAdmin, u.IsOwner, u.IsRestricted, u.Deleted,
-		profileJSON, string(u.PrincipalType), u.OwnerID, u.CreatedAt, u.UpdatedAt)
-	return err
+	return q.ProjectorUpsertUser(ctx, sqlcgen.ProjectorUpsertUserParams{
+		ID:            u.ID,
+		TeamID:        u.TeamID,
+		Name:          u.Name,
+		RealName:      u.RealName,
+		DisplayName:   u.DisplayName,
+		Email:         u.Email,
+		IsBot:         u.IsBot,
+		IsAdmin:       u.IsAdmin,
+		IsOwner:       u.IsOwner,
+		IsRestricted:  u.IsRestricted,
+		Deleted:       u.Deleted,
+		Profile:       profileJSON,
+		PrincipalType: string(u.PrincipalType),
+		OwnerID:       u.OwnerID,
+		CreatedAt:     timeToTs(u.CreatedAt),
+		UpdatedAt:     timeToTs(u.UpdatedAt),
+	})
 }
 
-func (p *Projector) applyUserDeleted(ctx context.Context, tx pgx.Tx, entry domain.ServiceEvent) error {
+func (p *Projector) applyUserDeleted(ctx context.Context, q *sqlcgen.Queries, entry domain.ServiceEvent) error {
 	var u domain.User
 	if err := json.Unmarshal(entry.Payload, &u); err != nil {
 		return fmt.Errorf("unmarshal user: %w", err)
 	}
-	_, err := tx.Exec(ctx, `UPDATE users SET deleted = TRUE, updated_at = $2 WHERE id = $1`, u.ID, entry.CreatedAt)
-	return err
+	return q.ProjectorMarkUserDeleted(ctx, sqlcgen.ProjectorMarkUserDeletedParams{
+		ID:        u.ID,
+		UpdatedAt: timeToTs(entry.CreatedAt),
+	})
 }
 
 // --- Conversation projections ---
 
-func (p *Projector) applyConversationUpsert(ctx context.Context, tx pgx.Tx, entry domain.ServiceEvent) error {
+func (p *Projector) applyConversationUpsert(ctx context.Context, q *sqlcgen.Queries, entry domain.ServiceEvent) error {
 	var c domain.Conversation
 	if err := json.Unmarshal(entry.Payload, &c); err != nil {
 		return fmt.Errorf("unmarshal conversation: %w", err)
 	}
 
-	_, err := tx.Exec(ctx, `
-		INSERT INTO conversations (id, team_id, name, type, creator_id, is_archived,
-			topic_value, topic_creator, topic_last_set,
-			purpose_value, purpose_creator, purpose_last_set,
-			num_members, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
-		ON CONFLICT (id) DO UPDATE SET
-			team_id = EXCLUDED.team_id, name = EXCLUDED.name, type = EXCLUDED.type,
-			creator_id = EXCLUDED.creator_id, is_archived = EXCLUDED.is_archived,
-			topic_value = EXCLUDED.topic_value, topic_creator = EXCLUDED.topic_creator,
-			topic_last_set = EXCLUDED.topic_last_set,
-			purpose_value = EXCLUDED.purpose_value, purpose_creator = EXCLUDED.purpose_creator,
-			purpose_last_set = EXCLUDED.purpose_last_set,
-			num_members = EXCLUDED.num_members, updated_at = EXCLUDED.updated_at`,
-		c.ID, c.TeamID, c.Name, string(c.Type), c.CreatorID, c.IsArchived,
-		c.Topic.Value, c.Topic.Creator, c.Topic.LastSet,
-		c.Purpose.Value, c.Purpose.Creator, c.Purpose.LastSet,
-		c.NumMembers, c.CreatedAt, c.UpdatedAt)
-	return err
+	return q.ProjectorUpsertConversation(ctx, sqlcgen.ProjectorUpsertConversationParams{
+		ID:             c.ID,
+		TeamID:         c.TeamID,
+		Name:           c.Name,
+		Type:           string(c.Type),
+		CreatorID:      c.CreatorID,
+		IsArchived:     c.IsArchived,
+		TopicValue:     c.Topic.Value,
+		TopicCreator:   c.Topic.Creator,
+		TopicLastSet:   timePtrToTs(c.Topic.LastSet),
+		PurposeValue:   c.Purpose.Value,
+		PurposeCreator: c.Purpose.Creator,
+		PurposeLastSet: timePtrToTs(c.Purpose.LastSet),
+		NumMembers:     int32(c.NumMembers),
+		CreatedAt:      timeToTs(c.CreatedAt),
+		UpdatedAt:      timeToTs(c.UpdatedAt),
+	})
 }
 
-func (p *Projector) applyMemberJoined(ctx context.Context, tx pgx.Tx, entry domain.ServiceEvent) error {
+func (p *Projector) applyMemberJoined(ctx context.Context, q *sqlcgen.Queries, entry domain.ServiceEvent) error {
 	var data struct {
-		UserID       string              `json:"user_id"`
+		UserID       string               `json:"user_id"`
 		Conversation *domain.Conversation `json:"conversation"`
 	}
 	if err := json.Unmarshal(entry.Payload, &data); err != nil {
 		return fmt.Errorf("unmarshal member joined: %w", err)
 	}
 
-	// Upsert the conversation state
 	if data.Conversation != nil {
 		convEntry := entry
 		convData, _ := json.Marshal(data.Conversation)
 		convEntry.Payload = convData
-		if err := p.applyConversationUpsert(ctx, tx, convEntry); err != nil {
+		if err := p.applyConversationUpsert(ctx, q, convEntry); err != nil {
 			return err
 		}
 	}
 
-	// Insert the membership
-	_, err := tx.Exec(ctx, `
-		INSERT INTO conversation_members (conversation_id, user_id, joined_at)
-		VALUES ($1, $2, $3)
-		ON CONFLICT (conversation_id, user_id) DO NOTHING`,
-		entry.AggregateID, data.UserID, entry.CreatedAt)
-	return err
+	return q.ProjectorUpsertMember(ctx, sqlcgen.ProjectorUpsertMemberParams{
+		ConversationID: entry.AggregateID,
+		UserID:         data.UserID,
+		JoinedAt:       timeToTs(entry.CreatedAt),
+	})
 }
 
-func (p *Projector) applyMemberLeft(ctx context.Context, tx pgx.Tx, entry domain.ServiceEvent) error {
+func (p *Projector) applyMemberLeft(ctx context.Context, q *sqlcgen.Queries, entry domain.ServiceEvent) error {
 	var data struct {
-		UserID       string              `json:"user_id"`
+		UserID       string               `json:"user_id"`
 		Conversation *domain.Conversation `json:"conversation"`
 	}
 	if err := json.Unmarshal(entry.Payload, &data); err != nil {
 		return fmt.Errorf("unmarshal member left: %w", err)
 	}
 
-	// Upsert the conversation state
 	if data.Conversation != nil {
 		convEntry := entry
 		convData, _ := json.Marshal(data.Conversation)
 		convEntry.Payload = convData
-		if err := p.applyConversationUpsert(ctx, tx, convEntry); err != nil {
+		if err := p.applyConversationUpsert(ctx, q, convEntry); err != nil {
 			return err
 		}
 	}
 
-	// Delete the membership
-	_, err := tx.Exec(ctx, `
-		DELETE FROM conversation_members WHERE conversation_id = $1 AND user_id = $2`,
-		entry.AggregateID, data.UserID)
-	return err
+	return q.ProjectorDeleteMember(ctx, sqlcgen.ProjectorDeleteMemberParams{
+		ConversationID: entry.AggregateID,
+		UserID:         data.UserID,
+	})
 }
 
 // --- Message projections ---
 
-func (p *Projector) applyMessageUpsert(ctx context.Context, tx pgx.Tx, entry domain.ServiceEvent) error {
+func (p *Projector) applyMessageUpsert(ctx context.Context, q *sqlcgen.Queries, entry domain.ServiceEvent) error {
 	var m domain.Message
 	if err := json.Unmarshal(entry.Payload, &m); err != nil {
 		return fmt.Errorf("unmarshal message: %w", err)
@@ -427,36 +403,40 @@ func (p *Projector) applyMessageUpsert(ctx context.Context, tx pgx.Tx, entry dom
 		metadataJSON = m.Metadata
 	}
 
-	_, err := tx.Exec(ctx, `
-		INSERT INTO messages (ts, channel_id, user_id, text, thread_ts, type, subtype,
-			blocks, metadata, edited_by, edited_at, reply_count, reply_users_count,
-			latest_reply, is_deleted, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
-		ON CONFLICT (channel_id, ts) DO UPDATE SET
-			user_id = EXCLUDED.user_id, text = EXCLUDED.text, thread_ts = EXCLUDED.thread_ts,
-			type = EXCLUDED.type, subtype = EXCLUDED.subtype, blocks = EXCLUDED.blocks,
-			metadata = EXCLUDED.metadata, edited_by = EXCLUDED.edited_by,
-			edited_at = EXCLUDED.edited_at, reply_count = EXCLUDED.reply_count,
-			reply_users_count = EXCLUDED.reply_users_count, latest_reply = EXCLUDED.latest_reply,
-			is_deleted = EXCLUDED.is_deleted, updated_at = EXCLUDED.updated_at`,
-		m.TS, m.ChannelID, m.UserID, m.Text, m.ThreadTS, m.Type, m.Subtype,
-		blocksJSON, metadataJSON, m.EditedBy, m.EditedAt,
-		m.ReplyCount, m.ReplyUsersCount, m.LatestReply,
-		m.IsDeleted, m.CreatedAt, m.UpdatedAt)
-	return err
+	return q.ProjectorUpsertMessage(ctx, sqlcgen.ProjectorUpsertMessageParams{
+		Ts:              m.TS,
+		ChannelID:       m.ChannelID,
+		UserID:          m.UserID,
+		Text:            m.Text,
+		ThreadTs:        projStringPtrToText(m.ThreadTS),
+		Type:            m.Type,
+		Subtype:         projStringPtrToText(m.Subtype),
+		Blocks:          blocksJSON,
+		Metadata:        metadataJSON,
+		EditedBy:        projStringPtrToText(m.EditedBy),
+		EditedAt:        projStringPtrToText(m.EditedAt),
+		ReplyCount:      int32(m.ReplyCount),
+		ReplyUsersCount: int32(m.ReplyUsersCount),
+		LatestReply:     projStringPtrToText(m.LatestReply),
+		IsDeleted:       m.IsDeleted,
+		CreatedAt:       timeToTs(m.CreatedAt),
+		UpdatedAt:       timeToTs(m.UpdatedAt),
+	})
 }
 
-func (p *Projector) applyMessageDeleted(ctx context.Context, tx pgx.Tx, entry domain.ServiceEvent) error {
+func (p *Projector) applyMessageDeleted(ctx context.Context, q *sqlcgen.Queries, entry domain.ServiceEvent) error {
 	var m domain.Message
 	if err := json.Unmarshal(entry.Payload, &m); err != nil {
 		return fmt.Errorf("unmarshal deleted message: %w", err)
 	}
-	_, err := tx.Exec(ctx, `UPDATE messages SET is_deleted = TRUE, updated_at = $3 WHERE channel_id = $1 AND ts = $2`,
-		m.ChannelID, m.TS, entry.CreatedAt)
-	return err
+	return q.ProjectorMarkMessageDeleted(ctx, sqlcgen.ProjectorMarkMessageDeletedParams{
+		ChannelID: m.ChannelID,
+		Ts:        m.TS,
+		UpdatedAt: timeToTs(entry.CreatedAt),
+	})
 }
 
-func (p *Projector) applyReactionAdded(ctx context.Context, tx pgx.Tx, entry domain.ServiceEvent) error {
+func (p *Projector) applyReactionAdded(ctx context.Context, q *sqlcgen.Queries, entry domain.ServiceEvent) error {
 	var data struct {
 		Reaction domain.AddReactionParams `json:"reaction"`
 		Message  *domain.Message          `json:"message"`
@@ -465,16 +445,16 @@ func (p *Projector) applyReactionAdded(ctx context.Context, tx pgx.Tx, entry dom
 		return fmt.Errorf("unmarshal reaction added: %w", err)
 	}
 
-	_, err := tx.Exec(ctx, `
-		INSERT INTO reactions (channel_id, message_ts, user_id, emoji, created_at)
-		VALUES ($1, $2, $3, $4, $5)
-		ON CONFLICT (channel_id, message_ts, user_id, emoji) DO NOTHING`,
-		data.Reaction.ChannelID, data.Reaction.MessageTS,
-		data.Reaction.UserID, data.Reaction.Emoji, entry.CreatedAt)
-	return err
+	return q.ProjectorUpsertReaction(ctx, sqlcgen.ProjectorUpsertReactionParams{
+		ChannelID: data.Reaction.ChannelID,
+		MessageTs: data.Reaction.MessageTS,
+		UserID:    data.Reaction.UserID,
+		Emoji:     data.Reaction.Emoji,
+		CreatedAt: timeToTs(entry.CreatedAt),
+	})
 }
 
-func (p *Projector) applyReactionRemoved(ctx context.Context, tx pgx.Tx, entry domain.ServiceEvent) error {
+func (p *Projector) applyReactionRemoved(ctx context.Context, q *sqlcgen.Queries, entry domain.ServiceEvent) error {
 	var data struct {
 		Reaction domain.RemoveReactionParams `json:"reaction"`
 		Message  *domain.Message             `json:"message"`
@@ -483,66 +463,65 @@ func (p *Projector) applyReactionRemoved(ctx context.Context, tx pgx.Tx, entry d
 		return fmt.Errorf("unmarshal reaction removed: %w", err)
 	}
 
-	_, err := tx.Exec(ctx, `
-		DELETE FROM reactions WHERE channel_id = $1 AND message_ts = $2 AND user_id = $3 AND emoji = $4`,
-		data.Reaction.ChannelID, data.Reaction.MessageTS,
-		data.Reaction.UserID, data.Reaction.Emoji)
-	return err
+	return q.ProjectorDeleteReaction(ctx, sqlcgen.ProjectorDeleteReactionParams{
+		ChannelID: data.Reaction.ChannelID,
+		MessageTs: data.Reaction.MessageTS,
+		UserID:    data.Reaction.UserID,
+		Emoji:     data.Reaction.Emoji,
+	})
 }
 
 // --- Usergroup projections ---
 
-func (p *Projector) applyUsergroupUpsert(ctx context.Context, tx pgx.Tx, entry domain.ServiceEvent) error {
+func (p *Projector) applyUsergroupUpsert(ctx context.Context, q *sqlcgen.Queries, entry domain.ServiceEvent) error {
 	var ug domain.Usergroup
 	if err := json.Unmarshal(entry.Payload, &ug); err != nil {
 		return fmt.Errorf("unmarshal usergroup: %w", err)
 	}
 
-	_, err := tx.Exec(ctx, `
-		INSERT INTO usergroups (id, team_id, name, handle, description, is_external, enabled, user_count, created_by, updated_by, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-		ON CONFLICT (id) DO UPDATE SET
-			team_id = EXCLUDED.team_id, name = EXCLUDED.name, handle = EXCLUDED.handle,
-			description = EXCLUDED.description, is_external = EXCLUDED.is_external,
-			enabled = EXCLUDED.enabled, user_count = EXCLUDED.user_count,
-			updated_by = EXCLUDED.updated_by, updated_at = EXCLUDED.updated_at`,
-		ug.ID, ug.TeamID, ug.Name, ug.Handle, ug.Description,
-		ug.IsExternal, ug.Enabled, ug.UserCount,
-		ug.CreatedBy, ug.UpdatedBy, ug.CreatedAt, ug.UpdatedAt)
-	return err
+	return q.ProjectorUpsertUsergroup(ctx, sqlcgen.ProjectorUpsertUsergroupParams{
+		ID:          ug.ID,
+		TeamID:      ug.TeamID,
+		Name:        ug.Name,
+		Handle:      ug.Handle,
+		Description: ug.Description,
+		IsExternal:  ug.IsExternal,
+		Enabled:     ug.Enabled,
+		UserCount:   int32(ug.UserCount),
+		CreatedBy:   ug.CreatedBy,
+		UpdatedBy:   ug.UpdatedBy,
+		CreatedAt:   timeToTs(ug.CreatedAt),
+		UpdatedAt:   timeToTs(ug.UpdatedAt),
+	})
 }
 
-func (p *Projector) applyUsergroupUsersSet(ctx context.Context, tx pgx.Tx, entry domain.ServiceEvent) error {
+func (p *Projector) applyUsergroupUsersSet(ctx context.Context, q *sqlcgen.Queries, entry domain.ServiceEvent) error {
 	var data struct {
-		UserIDs   []string         `json:"user_ids"`
+		UserIDs   []string          `json:"user_ids"`
 		Usergroup *domain.Usergroup `json:"usergroup"`
 	}
 	if err := json.Unmarshal(entry.Payload, &data); err != nil {
 		return fmt.Errorf("unmarshal usergroup users set: %w", err)
 	}
 
-	// Upsert the usergroup state
 	if data.Usergroup != nil {
 		ugEntry := entry
 		ugData, _ := json.Marshal(data.Usergroup)
 		ugEntry.Payload = ugData
-		if err := p.applyUsergroupUpsert(ctx, tx, ugEntry); err != nil {
+		if err := p.applyUsergroupUpsert(ctx, q, ugEntry); err != nil {
 			return err
 		}
 	}
 
-	// Replace membership
-	_, err := tx.Exec(ctx, `DELETE FROM usergroup_members WHERE usergroup_id = $1`, entry.AggregateID)
-	if err != nil {
+	if err := q.ProjectorDeleteUsergroupMembers(ctx, entry.AggregateID); err != nil {
 		return err
 	}
 	for _, uid := range data.UserIDs {
-		_, err := tx.Exec(ctx, `
-			INSERT INTO usergroup_members (usergroup_id, user_id, added_at)
-			VALUES ($1, $2, $3)
-			ON CONFLICT (usergroup_id, user_id) DO NOTHING`,
-			entry.AggregateID, uid, entry.CreatedAt)
-		if err != nil {
+		if err := q.ProjectorUpsertUsergroupMember(ctx, sqlcgen.ProjectorUpsertUsergroupMemberParams{
+			UsergroupID: entry.AggregateID,
+			UserID:      uid,
+			AddedAt:     timeToTs(entry.CreatedAt),
+		}); err != nil {
 			return err
 		}
 	}
@@ -551,21 +530,21 @@ func (p *Projector) applyUsergroupUsersSet(ctx context.Context, tx pgx.Tx, entry
 
 // --- Pin projections ---
 
-func (p *Projector) applyPinAdded(ctx context.Context, tx pgx.Tx, entry domain.ServiceEvent) error {
+func (p *Projector) applyPinAdded(ctx context.Context, q *sqlcgen.Queries, entry domain.ServiceEvent) error {
 	var pin domain.Pin
 	if err := json.Unmarshal(entry.Payload, &pin); err != nil {
 		return fmt.Errorf("unmarshal pin: %w", err)
 	}
 
-	_, err := tx.Exec(ctx, `
-		INSERT INTO pins (channel_id, message_ts, pinned_by, pinned_at)
-		VALUES ($1, $2, $3, $4)
-		ON CONFLICT (channel_id, message_ts) DO NOTHING`,
-		pin.ChannelID, pin.MessageTS, pin.PinnedBy, pin.PinnedAt)
-	return err
+	return q.ProjectorUpsertPin(ctx, sqlcgen.ProjectorUpsertPinParams{
+		ChannelID: pin.ChannelID,
+		MessageTs: pin.MessageTS,
+		PinnedBy:  pin.PinnedBy,
+		PinnedAt:  timeToTs(pin.PinnedAt),
+	})
 }
 
-func (p *Projector) applyPinRemoved(ctx context.Context, tx pgx.Tx, entry domain.ServiceEvent) error {
+func (p *Projector) applyPinRemoved(ctx context.Context, q *sqlcgen.Queries, entry domain.ServiceEvent) error {
 	var data struct {
 		ChannelID string `json:"channel_id"`
 		MessageTS string `json:"message_ts"`
@@ -574,40 +553,41 @@ func (p *Projector) applyPinRemoved(ctx context.Context, tx pgx.Tx, entry domain
 		return fmt.Errorf("unmarshal pin removed: %w", err)
 	}
 
-	_, err := tx.Exec(ctx, `DELETE FROM pins WHERE channel_id = $1 AND message_ts = $2`,
-		data.ChannelID, data.MessageTS)
-	return err
+	return q.ProjectorDeletePin(ctx, sqlcgen.ProjectorDeletePinParams{
+		ChannelID: data.ChannelID,
+		MessageTs: data.MessageTS,
+	})
 }
 
 // --- Bookmark projections ---
 
-func (p *Projector) applyBookmarkUpsert(ctx context.Context, tx pgx.Tx, entry domain.ServiceEvent) error {
+func (p *Projector) applyBookmarkUpsert(ctx context.Context, q *sqlcgen.Queries, entry domain.ServiceEvent) error {
 	var b domain.Bookmark
 	if err := json.Unmarshal(entry.Payload, &b); err != nil {
 		return fmt.Errorf("unmarshal bookmark: %w", err)
 	}
 
-	_, err := tx.Exec(ctx, `
-		INSERT INTO bookmarks (id, channel_id, title, type, link, emoji, created_by, updated_by, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-		ON CONFLICT (id) DO UPDATE SET
-			channel_id = EXCLUDED.channel_id, title = EXCLUDED.title, type = EXCLUDED.type,
-			link = EXCLUDED.link, emoji = EXCLUDED.emoji,
-			updated_by = EXCLUDED.updated_by, updated_at = EXCLUDED.updated_at`,
-		b.ID, b.ChannelID, b.Title, b.Type, b.Link, b.Emoji,
-		b.CreatedBy, b.UpdatedBy, b.CreatedAt, b.UpdatedAt)
-	return err
+	return q.ProjectorUpsertBookmark(ctx, sqlcgen.ProjectorUpsertBookmarkParams{
+		ID:        b.ID,
+		ChannelID: b.ChannelID,
+		Title:     b.Title,
+		Type:      b.Type,
+		Link:      b.Link,
+		Emoji:     b.Emoji,
+		CreatedBy: b.CreatedBy,
+		UpdatedBy: b.UpdatedBy,
+		CreatedAt: timeToTs(b.CreatedAt),
+		UpdatedAt: timeToTs(b.UpdatedAt),
+	})
 }
 
-func (p *Projector) applyBookmarkDeleted(ctx context.Context, tx pgx.Tx, entry domain.ServiceEvent) error {
-	// The delete payload may be either a full Bookmark snapshot or {"bookmark_id": "..."}.
+func (p *Projector) applyBookmarkDeleted(ctx context.Context, q *sqlcgen.Queries, entry domain.ServiceEvent) error {
 	var b domain.Bookmark
 	if err := json.Unmarshal(entry.Payload, &b); err != nil {
 		return fmt.Errorf("unmarshal deleted bookmark: %w", err)
 	}
 	id := b.ID
 	if id == "" {
-		// Fall back to aggregate_id or bookmark_id field.
 		var m map[string]string
 		if err := json.Unmarshal(entry.Payload, &m); err == nil {
 			id = m["bookmark_id"]
@@ -616,44 +596,44 @@ func (p *Projector) applyBookmarkDeleted(ctx context.Context, tx pgx.Tx, entry d
 	if id == "" {
 		id = entry.AggregateID
 	}
-	_, err := tx.Exec(ctx, `DELETE FROM bookmarks WHERE id = $1`, id)
-	return err
+	return q.ProjectorDeleteBookmark(ctx, id)
 }
 
 // --- File projections ---
 
-func (p *Projector) applyFileUpsert(ctx context.Context, tx pgx.Tx, entry domain.ServiceEvent) error {
+func (p *Projector) applyFileUpsert(ctx context.Context, q *sqlcgen.Queries, entry domain.ServiceEvent) error {
 	var f domain.File
 	if err := json.Unmarshal(entry.Payload, &f); err != nil {
 		return fmt.Errorf("unmarshal file: %w", err)
 	}
 
-	_, err := tx.Exec(ctx, `
-		INSERT INTO files (id, name, title, mimetype, filetype, size, user_id, s3_key,
-			url_private, url_private_download, permalink, is_external, external_url, upload_complete, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, '', $8, $9, $10, $11, $12, TRUE, $13, $14)
-		ON CONFLICT (id) DO UPDATE SET
-			name = EXCLUDED.name, title = EXCLUDED.title, mimetype = EXCLUDED.mimetype,
-			filetype = EXCLUDED.filetype, size = EXCLUDED.size, user_id = EXCLUDED.user_id,
-			url_private = EXCLUDED.url_private, url_private_download = EXCLUDED.url_private_download,
-			permalink = EXCLUDED.permalink, is_external = EXCLUDED.is_external,
-			external_url = EXCLUDED.external_url, updated_at = EXCLUDED.updated_at`,
-		f.ID, f.Name, f.Title, f.Mimetype, f.Filetype, f.Size, f.UserID,
-		f.URLPrivate, f.URLPrivateDownload, f.Permalink,
-		f.IsExternal, f.ExternalURL, f.CreatedAt, f.UpdatedAt)
-	return err
+	return q.ProjectorUpsertFile(ctx, sqlcgen.ProjectorUpsertFileParams{
+		ID:                 f.ID,
+		Name:               f.Name,
+		Title:              f.Title,
+		Mimetype:           f.Mimetype,
+		Filetype:           f.Filetype,
+		Size:               f.Size,
+		UserID:             f.UserID,
+		UrlPrivate:         f.URLPrivate,
+		UrlPrivateDownload: f.URLPrivateDownload,
+		Permalink:          f.Permalink,
+		IsExternal:         f.IsExternal,
+		ExternalUrl:        f.ExternalURL,
+		CreatedAt:          timeToTs(f.CreatedAt),
+		UpdatedAt:          timeToTs(f.UpdatedAt),
+	})
 }
 
-func (p *Projector) applyFileDeleted(ctx context.Context, tx pgx.Tx, entry domain.ServiceEvent) error {
+func (p *Projector) applyFileDeleted(ctx context.Context, q *sqlcgen.Queries, entry domain.ServiceEvent) error {
 	var f domain.File
 	if err := json.Unmarshal(entry.Payload, &f); err != nil {
 		return fmt.Errorf("unmarshal deleted file: %w", err)
 	}
-	_, err := tx.Exec(ctx, `DELETE FROM files WHERE id = $1`, f.ID)
-	return err
+	return q.ProjectorDeleteFile(ctx, f.ID)
 }
 
-func (p *Projector) applyFileShared(ctx context.Context, tx pgx.Tx, entry domain.ServiceEvent) error {
+func (p *Projector) applyFileShared(ctx context.Context, q *sqlcgen.Queries, entry domain.ServiceEvent) error {
 	var data struct {
 		FileID    string `json:"file_id"`
 		ChannelID string `json:"channel_id"`
@@ -662,67 +642,70 @@ func (p *Projector) applyFileShared(ctx context.Context, tx pgx.Tx, entry domain
 		return fmt.Errorf("unmarshal file shared: %w", err)
 	}
 
-	_, err := tx.Exec(ctx, `
-		INSERT INTO file_channels (file_id, channel_id, shared_at)
-		VALUES ($1, $2, $3)
-		ON CONFLICT (file_id, channel_id) DO NOTHING`,
-		data.FileID, data.ChannelID, entry.CreatedAt)
-	return err
+	return q.ProjectorUpsertFileChannel(ctx, sqlcgen.ProjectorUpsertFileChannelParams{
+		FileID:    data.FileID,
+		ChannelID: data.ChannelID,
+		SharedAt:  timeToTs(entry.CreatedAt),
+	})
 }
 
 // --- Token projections ---
 
-func (p *Projector) applyTokenCreated(ctx context.Context, tx pgx.Tx, entry domain.ServiceEvent) error {
+func (p *Projector) applyTokenCreated(ctx context.Context, q *sqlcgen.Queries, entry domain.ServiceEvent) error {
 	var t domain.Token
 	if err := json.Unmarshal(entry.Payload, &t); err != nil {
 		return fmt.Errorf("unmarshal token: %w", err)
 	}
 
-	_, err := tx.Exec(ctx, `
-		INSERT INTO tokens (id, team_id, user_id, token, token_hash, scopes, is_bot, expires_at, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-		ON CONFLICT (id) DO NOTHING`,
-		t.ID, t.TeamID, t.UserID, t.Token, t.TokenHash, t.Scopes, t.IsBot, t.ExpiresAt, t.CreatedAt)
-	return err
+	return q.ProjectorInsertToken(ctx, sqlcgen.ProjectorInsertTokenParams{
+		ID:        t.ID,
+		TeamID:    t.TeamID,
+		UserID:    t.UserID,
+		Token:     t.Token,
+		TokenHash: t.TokenHash,
+		Scopes:    t.Scopes,
+		IsBot:     t.IsBot,
+		ExpiresAt: timePtrToTs(t.ExpiresAt),
+		CreatedAt: timeToTs(t.CreatedAt),
+	})
 }
 
-func (p *Projector) applyTokenRevoked(ctx context.Context, tx pgx.Tx, entry domain.ServiceEvent) error {
+func (p *Projector) applyTokenRevoked(ctx context.Context, q *sqlcgen.Queries, entry domain.ServiceEvent) error {
 	var t domain.Token
 	if err := json.Unmarshal(entry.Payload, &t); err != nil {
 		return fmt.Errorf("unmarshal revoked token: %w", err)
 	}
-	// Use token_hash for lookup since raw token is redacted in event_data.
-	_, err := tx.Exec(ctx, `DELETE FROM tokens WHERE token_hash = $1`, t.TokenHash)
-	return err
+	return q.ProjectorDeleteTokenByHash(ctx, t.TokenHash)
 }
 
 // --- Subscription projections ---
 
-func (p *Projector) applySubscriptionUpsert(ctx context.Context, tx pgx.Tx, entry domain.ServiceEvent) error {
+func (p *Projector) applySubscriptionUpsert(ctx context.Context, q *sqlcgen.Queries, entry domain.ServiceEvent) error {
 	var s domain.EventSubscription
 	if err := json.Unmarshal(entry.Payload, &s); err != nil {
 		return fmt.Errorf("unmarshal subscription: %w", err)
 	}
 
-	_, err := tx.Exec(ctx, `
-		INSERT INTO event_subscriptions (id, team_id, url, event_types, secret, encrypted_secret, enabled, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-		ON CONFLICT (id) DO UPDATE SET
-			team_id = EXCLUDED.team_id, url = EXCLUDED.url, event_types = EXCLUDED.event_types,
-			secret = EXCLUDED.secret, encrypted_secret = EXCLUDED.encrypted_secret,
-			enabled = EXCLUDED.enabled, updated_at = EXCLUDED.updated_at`,
-		s.ID, s.TeamID, s.URL, s.EventTypes, s.Secret, s.EncryptedSecret, s.Enabled, s.CreatedAt, s.UpdatedAt)
-	return err
+	return q.ProjectorUpsertSubscription(ctx, sqlcgen.ProjectorUpsertSubscriptionParams{
+		ID:              s.ID,
+		TeamID:          s.TeamID,
+		Url:             s.URL,
+		EventTypes:      s.EventTypes,
+		Secret:          s.Secret,
+		EncryptedSecret: s.EncryptedSecret,
+		Enabled:         s.Enabled,
+		CreatedAt:       timeToTs(s.CreatedAt),
+		UpdatedAt:       timeToTs(s.UpdatedAt),
+	})
 }
 
-func (p *Projector) applySubscriptionDeleted(ctx context.Context, tx pgx.Tx, entry domain.ServiceEvent) error {
+func (p *Projector) applySubscriptionDeleted(ctx context.Context, q *sqlcgen.Queries, entry domain.ServiceEvent) error {
 	var s domain.EventSubscription
 	if err := json.Unmarshal(entry.Payload, &s); err != nil {
 		return fmt.Errorf("unmarshal deleted subscription: %w", err)
 	}
 	id := s.ID
 	if id == "" {
-		// Fall back to subscription_id field or aggregate_id.
 		var m map[string]string
 		if err := json.Unmarshal(entry.Payload, &m); err == nil {
 			id = m["subscription_id"]
@@ -731,45 +714,44 @@ func (p *Projector) applySubscriptionDeleted(ctx context.Context, tx pgx.Tx, ent
 	if id == "" {
 		id = entry.AggregateID
 	}
-	_, err := tx.Exec(ctx, `DELETE FROM event_subscriptions WHERE id = $1`, id)
-	return err
+	return q.ProjectorDeleteSubscription(ctx, id)
 }
 
 // --- API Key projections ---
 
-func (p *Projector) applyAPIKeyUpsert(ctx context.Context, tx pgx.Tx, entry domain.ServiceEvent) error {
+func (p *Projector) applyAPIKeyUpsert(ctx context.Context, q *sqlcgen.Queries, entry domain.ServiceEvent) error {
 	var k domain.APIKey
 	if err := json.Unmarshal(entry.Payload, &k); err != nil {
 		return fmt.Errorf("unmarshal api key: %w", err)
 	}
 
-	_, err := tx.Exec(ctx, `
-		INSERT INTO api_keys (id, name, description, key_hash, key_prefix, key_hint,
-			team_id, principal_id, created_by, on_behalf_of, type, environment,
-			permissions, expires_at, last_used_at, request_count, revoked, revoked_at,
-			rotated_to_id, grace_period_ends_at, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)
-		ON CONFLICT (id) DO UPDATE SET
-			name = EXCLUDED.name, description = EXCLUDED.description,
-			key_hash = EXCLUDED.key_hash, key_prefix = EXCLUDED.key_prefix, key_hint = EXCLUDED.key_hint,
-			team_id = EXCLUDED.team_id, principal_id = EXCLUDED.principal_id,
-			created_by = EXCLUDED.created_by, on_behalf_of = EXCLUDED.on_behalf_of,
-			type = EXCLUDED.type, environment = EXCLUDED.environment,
-			permissions = EXCLUDED.permissions, expires_at = EXCLUDED.expires_at,
-			last_used_at = EXCLUDED.last_used_at, request_count = EXCLUDED.request_count,
-			revoked = EXCLUDED.revoked, revoked_at = EXCLUDED.revoked_at,
-			rotated_to_id = EXCLUDED.rotated_to_id, grace_period_ends_at = EXCLUDED.grace_period_ends_at,
-			updated_at = EXCLUDED.updated_at`,
-		k.ID, k.Name, k.Description, k.KeyHash, k.KeyPrefix, k.KeyHint,
-		k.TeamID, k.PrincipalID, k.CreatedBy, k.OnBehalfOf,
-		string(k.Type), string(k.Environment),
-		k.Permissions, k.ExpiresAt, k.LastUsedAt, k.RequestCount,
-		k.Revoked, k.RevokedAt,
-		k.RotatedToID, k.GracePeriodEndsAt, k.CreatedAt, k.UpdatedAt)
-	return err
+	return q.ProjectorUpsertAPIKey(ctx, sqlcgen.ProjectorUpsertAPIKeyParams{
+		ID:                k.ID,
+		Name:              k.Name,
+		Description:       k.Description,
+		KeyHash:           k.KeyHash,
+		KeyPrefix:         k.KeyPrefix,
+		KeyHint:           k.KeyHint,
+		TeamID:            k.TeamID,
+		PrincipalID:       k.PrincipalID,
+		CreatedBy:         k.CreatedBy,
+		OnBehalfOf:        k.OnBehalfOf,
+		Type:              string(k.Type),
+		Environment:       string(k.Environment),
+		Permissions:       k.Permissions,
+		ExpiresAt:         timePtrToTs(k.ExpiresAt),
+		LastUsedAt:        timePtrToTs(k.LastUsedAt),
+		RequestCount:      k.RequestCount,
+		Revoked:           k.Revoked,
+		RevokedAt:         timePtrToTs(k.RevokedAt),
+		RotatedToID:       k.RotatedToID,
+		GracePeriodEndsAt: timePtrToTs(k.GracePeriodEndsAt),
+		CreatedAt:         timeToTs(k.CreatedAt),
+		UpdatedAt:         timeToTs(k.UpdatedAt),
+	})
 }
 
-func (p *Projector) applyAPIKeyRotated(ctx context.Context, tx pgx.Tx, entry domain.ServiceEvent) error {
+func (p *Projector) applyAPIKeyRotated(ctx context.Context, q *sqlcgen.Queries, entry domain.ServiceEvent) error {
 	var data struct {
 		OldKeyID          string     `json:"old_key_id"`
 		NewKeyID          string     `json:"new_key_id"`
@@ -778,17 +760,22 @@ func (p *Projector) applyAPIKeyRotated(ctx context.Context, tx pgx.Tx, entry dom
 	if err := json.Unmarshal(entry.Payload, &data); err != nil {
 		return fmt.Errorf("unmarshal api key rotated: %w", err)
 	}
-	_, err := tx.Exec(ctx, `UPDATE api_keys SET rotated_to_id = $2, grace_period_ends_at = $3, revoked = TRUE, revoked_at = $4, updated_at = $4 WHERE id = $1`,
-		data.OldKeyID, data.NewKeyID, data.GracePeriodEndsAt, entry.CreatedAt)
-	return err
+	return q.ProjectorMarkAPIKeyRotated(ctx, sqlcgen.ProjectorMarkAPIKeyRotatedParams{
+		ID:                data.OldKeyID,
+		RotatedToID:       data.NewKeyID,
+		GracePeriodEndsAt: timePtrToTs(data.GracePeriodEndsAt),
+		RevokedAt:         timeToTs(entry.CreatedAt),
+	})
 }
 
-func (p *Projector) applyAPIKeyRevoked(ctx context.Context, tx pgx.Tx, entry domain.ServiceEvent) error {
+func (p *Projector) applyAPIKeyRevoked(ctx context.Context, q *sqlcgen.Queries, entry domain.ServiceEvent) error {
 	var k domain.APIKey
 	if err := json.Unmarshal(entry.Payload, &k); err != nil {
 		return fmt.Errorf("unmarshal revoked api key: %w", err)
 	}
-	_, err := tx.Exec(ctx, `UPDATE api_keys SET revoked = TRUE, revoked_at = $2, updated_at = $3 WHERE id = $1`,
-		k.ID, k.RevokedAt, entry.CreatedAt)
-	return err
+	return q.ProjectorMarkAPIKeyRevoked(ctx, sqlcgen.ProjectorMarkAPIKeyRevokedParams{
+		ID:        k.ID,
+		RevokedAt: timePtrToTs(k.RevokedAt),
+		UpdatedAt: timeToTs(entry.CreatedAt),
+	})
 }

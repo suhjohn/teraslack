@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/suhjohn/teraslack/internal/domain"
 	"github.com/suhjohn/teraslack/internal/repository"
 	s3client "github.com/suhjohn/teraslack/internal/s3"
@@ -43,7 +44,7 @@ func (s *FileService) GetUploadURL(ctx context.Context, params domain.GetUploadU
 		return nil, fmt.Errorf("length: %w", domain.ErrInvalidArgument)
 	}
 
-	fileID := fmt.Sprintf("F%d", time.Now().UnixNano())
+	fileID := generateFileID()
 	ext := filepath.Ext(params.Filename)
 	contentType := mime.TypeByExtension(ext)
 	if contentType == "" {
@@ -245,7 +246,7 @@ func (s *FileService) AddRemoteFile(ctx context.Context, params domain.AddRemote
 		return nil, fmt.Errorf("title: %w", domain.ErrInvalidArgument)
 	}
 
-	fileID := fmt.Sprintf("F%d", time.Now().UnixNano())
+	fileID := generateFileID()
 	f := &domain.File{
 		ID:          fileID,
 		Name:        params.Title,
@@ -282,6 +283,15 @@ func (s *FileService) AddRemoteFile(ctx context.Context, params domain.AddRemote
 		return nil, fmt.Errorf("commit tx: %w", err)
 	}
 	return f, nil
+}
+
+// generateFileID creates a UUIDv7-based file ID with "F" prefix.
+func generateFileID() string {
+	id, err := uuid.NewV7()
+	if err != nil {
+		id = uuid.New()
+	}
+	return fmt.Sprintf("F_%s", id.String())
 }
 
 func (s *FileService) ShareRemoteFile(ctx context.Context, params domain.ShareRemoteFileParams) error {
