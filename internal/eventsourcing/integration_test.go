@@ -38,6 +38,7 @@ func setupTestDB(t *testing.T) *pgxpool.Pool {
 		"000004_token_hash_encrypted_secret.up.sql",
 		"000005_service_events_outbox.up.sql",
 		"000006_drop_token_unique.up.sql",
+		"000007_api_keys_principal_type.up.sql",
 		"000008_drop_outbox.up.sql",
 	}
 
