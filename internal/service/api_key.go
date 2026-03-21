@@ -172,17 +172,9 @@ func (s *APIKeyService) Update(ctx context.Context, id string, params domain.Upd
 // Rotate creates a new API key and marks the old one as rotated with a grace period.
 // During the grace period, both the old and new keys are valid.
 func (s *APIKeyService) Rotate(ctx context.Context, id string, params domain.RotateAPIKeyParams) (*domain.APIKey, string, error) {
-	oldKey, err := s.repo.Get(ctx, id)
-	if err != nil {
-		return nil, "", err
-	}
-
-	if oldKey.Revoked {
-		return nil, "", fmt.Errorf("key is revoked: %w", domain.ErrInvalidArgument)
-	}
-
 	gracePeriod := 24 * time.Hour
 	if params.GracePeriod != "" {
+		var err error
 		gracePeriod, err = parseDuration(params.GracePeriod)
 		if err != nil {
 			return nil, "", fmt.Errorf("parse grace_period: %w", err)
@@ -196,6 +188,16 @@ func (s *APIKeyService) Rotate(ctx context.Context, id string, params domain.Rot
 	defer tx.Rollback(ctx)
 
 	txRepo := s.repo.WithTx(tx)
+
+	// Read old key inside the transaction to prevent TOCTOU race with concurrent Revoke
+	oldKey, err := txRepo.Get(ctx, id)
+	if err != nil {
+		return nil, "", err
+	}
+
+	if oldKey.Revoked {
+		return nil, "", fmt.Errorf("key is revoked: %w", domain.ErrInvalidArgument)
+	}
 
 	// Create the new key with the same properties as the old one
 	newKey, rawKey, err := txRepo.Create(ctx, domain.CreateAPIKeyParams{

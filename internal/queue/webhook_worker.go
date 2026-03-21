@@ -3,11 +3,12 @@ package queue
 import (
 	"bytes"
 	"context"
-	"crypto/hmac"
-	"crypto/sha256"
-	"encoding/hex"
-	"fmt"
-	"log/slog"
+		"crypto/hmac"
+		"crypto/sha256"
+		"encoding/hex"
+		"fmt"
+		"io"
+		"log/slog"
 	"math"
 	"net/http"
 	"sync"
@@ -262,7 +263,10 @@ func (w *WebhookWorker) deliverWebhook(ctx context.Context, job Job) string {
 	if err != nil {
 		return fmt.Sprintf("http request: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		io.Copy(io.Discard, resp.Body)
+		resp.Body.Close()
+	}()
 
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 		return ""
