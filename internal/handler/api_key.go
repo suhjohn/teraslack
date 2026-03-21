@@ -2,6 +2,7 @@ package handler
 
 import (
 	"net/http"
+	"strconv"
 
 	"github.com/suhjohn/workspace/internal/ctxutil"
 	"github.com/suhjohn/workspace/internal/domain"
@@ -74,16 +75,19 @@ func (h *APIKeyHandler) Get(w http.ResponseWriter, r *http.Request) {
 
 // List handles GET /api_keys
 func (h *APIKeyHandler) List(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	limit, _ := strconv.Atoi(q.Get("limit"))
 	params := domain.ListAPIKeysParams{
 		TeamID:      ctxutil.GetTeamID(r.Context()),
-		PrincipalID: r.URL.Query().Get("principal_id"),
-		Cursor:      r.URL.Query().Get("cursor"),
+		PrincipalID: q.Get("principal_id"),
+		Cursor:      q.Get("cursor"),
+		Limit:       limit,
 	}
-	if r.URL.Query().Get("include_revoked") == "true" {
+	if q.Get("include_revoked") == "true" {
 		params.IncludeRevoked = true
 	}
 	if params.TeamID == "" {
-		params.TeamID = r.URL.Query().Get("team_id")
+		params.TeamID = q.Get("team_id")
 	}
 
 	page, err := h.svc.List(r.Context(), params)
