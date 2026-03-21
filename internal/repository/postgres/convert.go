@@ -44,29 +44,121 @@ func stringToText(s string) pgtype.Text {
 	return pgtype.Text{String: s, Valid: true}
 }
 
-func userToDomain(u sqlcgen.User) (*domain.User, error) {
+// userFields is a common struct for user row conversion.
+type userFields struct {
+	ID, TeamID, Name, RealName, DisplayName, Email string
+	PrincipalType, OwnerID                         string
+	IsBot, IsAdmin, IsOwner, IsRestricted, Deleted  bool
+	Profile                                         []byte
+	CreatedAt, UpdatedAt                            pgtype.Timestamptz
+}
+
+func userFieldsToDomain(u userFields) (*domain.User, error) {
 	var profile domain.UserProfile
 	if len(u.Profile) > 0 {
 		if err := json.Unmarshal(u.Profile, &profile); err != nil {
 			return nil, err
 		}
 	}
+	pt := domain.PrincipalType(u.PrincipalType)
+	if pt == "" {
+		pt = domain.PrincipalTypeHuman
+	}
 	return &domain.User{
-		ID:           u.ID,
-		TeamID:       u.TeamID,
-		Name:         u.Name,
-		RealName:     u.RealName,
-		DisplayName:  u.DisplayName,
-		Email:        u.Email,
-		IsBot:        u.IsBot,
-		IsAdmin:      u.IsAdmin,
-		IsOwner:      u.IsOwner,
-		IsRestricted: u.IsRestricted,
-		Deleted:      u.Deleted,
-		Profile:      profile,
-		CreatedAt:    tsToTime(u.CreatedAt),
-		UpdatedAt:    tsToTime(u.UpdatedAt),
+		ID:            u.ID,
+		TeamID:        u.TeamID,
+		Name:          u.Name,
+		RealName:      u.RealName,
+		DisplayName:   u.DisplayName,
+		Email:         u.Email,
+		PrincipalType: pt,
+		OwnerID:       u.OwnerID,
+		IsBot:         u.IsBot,
+		IsAdmin:       u.IsAdmin,
+		IsOwner:       u.IsOwner,
+		IsRestricted:  u.IsRestricted,
+		Deleted:       u.Deleted,
+		Profile:       profile,
+		CreatedAt:     tsToTime(u.CreatedAt),
+		UpdatedAt:     tsToTime(u.UpdatedAt),
 	}, nil
+}
+
+func createUserRowToFields(r sqlcgen.CreateUserRow) userFields {
+	return userFields{
+		ID: r.ID, TeamID: r.TeamID, Name: r.Name, RealName: r.RealName,
+		DisplayName: r.DisplayName, Email: r.Email, PrincipalType: r.PrincipalType,
+		OwnerID: r.OwnerID, IsBot: r.IsBot, IsAdmin: r.IsAdmin, IsOwner: r.IsOwner,
+		IsRestricted: r.IsRestricted, Deleted: r.Deleted, Profile: r.Profile,
+		CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt,
+	}
+}
+
+func getUserRowToFields(r sqlcgen.GetUserRow) userFields {
+	return userFields{
+		ID: r.ID, TeamID: r.TeamID, Name: r.Name, RealName: r.RealName,
+		DisplayName: r.DisplayName, Email: r.Email, PrincipalType: r.PrincipalType,
+		OwnerID: r.OwnerID, IsBot: r.IsBot, IsAdmin: r.IsAdmin, IsOwner: r.IsOwner,
+		IsRestricted: r.IsRestricted, Deleted: r.Deleted, Profile: r.Profile,
+		CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt,
+	}
+}
+
+func getUserByEmailRowToFields(r sqlcgen.GetUserByEmailRow) userFields {
+	return userFields{
+		ID: r.ID, TeamID: r.TeamID, Name: r.Name, RealName: r.RealName,
+		DisplayName: r.DisplayName, Email: r.Email, PrincipalType: r.PrincipalType,
+		OwnerID: r.OwnerID, IsBot: r.IsBot, IsAdmin: r.IsAdmin, IsOwner: r.IsOwner,
+		IsRestricted: r.IsRestricted, Deleted: r.Deleted, Profile: r.Profile,
+		CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt,
+	}
+}
+
+func updateUserRowToFields(r sqlcgen.UpdateUserRow) userFields {
+	return userFields{
+		ID: r.ID, TeamID: r.TeamID, Name: r.Name, RealName: r.RealName,
+		DisplayName: r.DisplayName, Email: r.Email, PrincipalType: r.PrincipalType,
+		OwnerID: r.OwnerID, IsBot: r.IsBot, IsAdmin: r.IsAdmin, IsOwner: r.IsOwner,
+		IsRestricted: r.IsRestricted, Deleted: r.Deleted, Profile: r.Profile,
+		CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt,
+	}
+}
+
+func listUserRowToFields(r sqlcgen.ListUsersRow) userFields {
+	return userFields{
+		ID: r.ID, TeamID: r.TeamID, Name: r.Name, RealName: r.RealName,
+		DisplayName: r.DisplayName, Email: r.Email, PrincipalType: r.PrincipalType,
+		OwnerID: r.OwnerID, IsBot: r.IsBot, IsAdmin: r.IsAdmin, IsOwner: r.IsOwner,
+		IsRestricted: r.IsRestricted, Deleted: r.Deleted, Profile: r.Profile,
+		CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt,
+	}
+}
+
+func apiKeyToDomain(k sqlcgen.ApiKey) *domain.APIKey {
+	return &domain.APIKey{
+		ID:                k.ID,
+		Name:              k.Name,
+		Description:       k.Description,
+		KeyHash:           k.KeyHash,
+		KeyPrefix:         k.KeyPrefix,
+		KeyHint:           k.KeyHint,
+		TeamID:            k.TeamID,
+		PrincipalID:       k.PrincipalID,
+		CreatedBy:         k.CreatedBy,
+		OnBehalfOf:        k.OnBehalfOf,
+		Type:              domain.APIKeyType(k.Type),
+		Environment:       domain.APIKeyEnvironment(k.Environment),
+		Permissions:       k.Permissions,
+		ExpiresAt:         tsToTimePtr(k.ExpiresAt),
+		LastUsedAt:        tsToTimePtr(k.LastUsedAt),
+		RequestCount:      k.RequestCount,
+		Revoked:           k.Revoked,
+		RevokedAt:         tsToTimePtr(k.RevokedAt),
+		RotatedToID:       k.RotatedToID,
+		GracePeriodEndsAt: tsToTimePtr(k.GracePeriodEndsAt),
+		CreatedAt:         tsToTime(k.CreatedAt),
+		UpdatedAt:         tsToTime(k.UpdatedAt),
+	}
 }
 
 func convToDomain(c sqlcgen.Conversation) *domain.Conversation {

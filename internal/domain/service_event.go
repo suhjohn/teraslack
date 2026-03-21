@@ -53,6 +53,7 @@ const (
 	AggregateBookmark     = "bookmark"
 	AggregateFile         = "file"
 	AggregateToken        = "token"
+	AggregateAPIKey       = "api_key"
 	AggregateSubscription = "event_subscription"
 )
 
@@ -98,6 +99,11 @@ const (
 
 	EventTokenCreated = "token.created"
 	EventTokenRevoked = "token.revoked"
+
+	EventAPIKeyCreated = "api_key.created"
+	EventAPIKeyUpdated = "api_key.updated"
+	EventAPIKeyRevoked = "api_key.revoked"
+	EventAPIKeyRotated = "api_key.rotated"
 
 	EventSubscriptionCreated = "subscription.created"
 	EventSubscriptionUpdated = "subscription.updated"

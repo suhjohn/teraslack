@@ -11,6 +11,7 @@ import (
 func Router(
 	logger *slog.Logger,
 	authSvc *service.AuthService,
+	apiKeySvc *service.APIKeyService,
 	userH *UserHandler,
 	convH *ConversationHandler,
 	msgH *MessageHandler,
@@ -21,6 +22,7 @@ func Router(
 	eventH *EventHandler,
 	authH *AuthHandler,
 	searchH *SearchHandler,
+	apiKeyH *APIKeyHandler,
 ) http.Handler {
 	mux := http.NewServeMux()
 
@@ -106,9 +108,17 @@ func Router(
 	// Search (unified — Turbopuffer-backed)
 	mux.HandleFunc("POST /search", searchH.Search)
 
+	// API Keys
+	mux.HandleFunc("POST /api_keys", apiKeyH.Create)
+	mux.HandleFunc("GET /api_keys", apiKeyH.List)
+	mux.HandleFunc("GET /api_keys/{id}", apiKeyH.Get)
+	mux.HandleFunc("PATCH /api_keys/{id}", apiKeyH.Update)
+	mux.HandleFunc("DELETE /api_keys/{id}", apiKeyH.Delete)
+	mux.HandleFunc("POST /api_keys/{id}/rotate", apiKeyH.Rotate)
+
 	// Apply middleware
 	var h http.Handler = mux
-	h = AuthMiddleware(authSvc)(h)
+	h = AuthMiddleware(authSvc, apiKeySvc)(h)
 	h = Logger(logger)(h)
 	h = Recovery(logger)(h)
 

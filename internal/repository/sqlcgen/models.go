@@ -8,6 +8,31 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+type ApiKey struct {
+	ID                string             `json:"id"`
+	Name              string             `json:"name"`
+	Description       string             `json:"description"`
+	KeyHash           string             `json:"key_hash"`
+	KeyPrefix         string             `json:"key_prefix"`
+	KeyHint           string             `json:"key_hint"`
+	TeamID            string             `json:"team_id"`
+	PrincipalID       string             `json:"principal_id"`
+	CreatedBy         string             `json:"created_by"`
+	OnBehalfOf        string             `json:"on_behalf_of"`
+	Type              string             `json:"type"`
+	Environment       string             `json:"environment"`
+	Permissions       []string           `json:"permissions"`
+	ExpiresAt         pgtype.Timestamptz `json:"expires_at"`
+	LastUsedAt        pgtype.Timestamptz `json:"last_used_at"`
+	RequestCount      int64              `json:"request_count"`
+	Revoked           bool               `json:"revoked"`
+	RevokedAt         pgtype.Timestamptz `json:"revoked_at"`
+	RotatedToID       string             `json:"rotated_to_id"`
+	GracePeriodEndsAt pgtype.Timestamptz `json:"grace_period_ends_at"`
+	CreatedAt         pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt         pgtype.Timestamptz `json:"updated_at"`
+}
+
 type Bookmark struct {
 	ID        string             `json:"id"`
 	ChannelID string             `json:"channel_id"`
@@ -159,20 +184,22 @@ type Token struct {
 }
 
 type User struct {
-	ID           string             `json:"id"`
-	TeamID       string             `json:"team_id"`
-	Name         string             `json:"name"`
-	RealName     string             `json:"real_name"`
-	DisplayName  string             `json:"display_name"`
-	Email        string             `json:"email"`
-	IsBot        bool               `json:"is_bot"`
-	IsAdmin      bool               `json:"is_admin"`
-	IsOwner      bool               `json:"is_owner"`
-	IsRestricted bool               `json:"is_restricted"`
-	Deleted      bool               `json:"deleted"`
-	Profile      []byte             `json:"profile"`
-	CreatedAt    pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt    pgtype.Timestamptz `json:"updated_at"`
+	ID            string             `json:"id"`
+	TeamID        string             `json:"team_id"`
+	Name          string             `json:"name"`
+	RealName      string             `json:"real_name"`
+	DisplayName   string             `json:"display_name"`
+	Email         string             `json:"email"`
+	IsBot         bool               `json:"is_bot"`
+	IsAdmin       bool               `json:"is_admin"`
+	IsOwner       bool               `json:"is_owner"`
+	IsRestricted  bool               `json:"is_restricted"`
+	Deleted       bool               `json:"deleted"`
+	Profile       []byte             `json:"profile"`
+	CreatedAt     pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt     pgtype.Timestamptz `json:"updated_at"`
+	PrincipalType string             `json:"principal_type"`
+	OwnerID       string             `json:"owner_id"`
 }
 
 type Usergroup struct {

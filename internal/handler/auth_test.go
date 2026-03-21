@@ -41,7 +41,7 @@ func TestAuthMiddleware_NoHeader(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	middleware := AuthMiddleware(nil)(next)
+	middleware := AuthMiddleware(nil, nil)(next)
 
 	req := httptest.NewRequest(http.MethodGet, "/test", nil)
 	w := httptest.NewRecorder()
@@ -65,7 +65,7 @@ func TestAuthMiddleware_BypassPaths(t *testing.T) {
 			w.WriteHeader(http.StatusOK)
 		})
 
-		middleware := AuthMiddleware(nil)(next)
+		middleware := AuthMiddleware(nil, nil)(next)
 
 		req := httptest.NewRequest(http.MethodGet, path, nil)
 		w := httptest.NewRecorder()
@@ -86,7 +86,7 @@ func TestAuthMiddleware_BypassPaths(t *testing.T) {
 		called = true
 		w.WriteHeader(http.StatusOK)
 	})
-	middleware := AuthMiddleware(nil)(next)
+	middleware := AuthMiddleware(nil, nil)(next)
 	req := httptest.NewRequest(http.MethodPost, "/tokens", nil)
 	w := httptest.NewRecorder()
 	middleware.ServeHTTP(w, req)
@@ -100,7 +100,7 @@ func TestAuthMiddleware_BypassPaths(t *testing.T) {
 		called = true
 		w.WriteHeader(http.StatusOK)
 	})
-	middleware = AuthMiddleware(nil)(next)
+	middleware = AuthMiddleware(nil, nil)(next)
 	req = httptest.NewRequest(http.MethodDelete, "/tokens", nil)
 	w = httptest.NewRecorder()
 	middleware.ServeHTTP(w, req)

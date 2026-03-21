@@ -94,8 +94,11 @@ var authBypassMethodPaths = map[string]bool{
 	"POST /tokens": true,
 }
 
-// AuthMiddleware validates Bearer token and injects user context.
-func AuthMiddleware(authSvc *service.AuthService) func(http.Handler) http.Handler {
+// AuthMiddleware validates Bearer token or API key and injects user context.
+// Supports two auth mechanisms:
+//   - Bearer token: "Authorization: Bearer xoxb-..." or "Authorization: Bearer xoxp-..."
+//   - API key: "Authorization: Bearer sk_live_..." or "Authorization: Bearer sk_test_..."
+func AuthMiddleware(authSvc *service.AuthService, apiKeySvc *service.APIKeyService) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			// Skip middleware for endpoints that handle auth themselves
@@ -113,6 +116,39 @@ func AuthMiddleware(authSvc *service.AuthService) func(http.Handler) http.Handle
 				return
 			}
 
+			token := strings.TrimPrefix(authHeader, "Bearer ")
+			token = strings.TrimSpace(token)
+
+			ctx := r.Context()
+
+			// Route to API key validation if token starts with sk_live_ or sk_test_
+			if strings.HasPrefix(token, "sk_live_") || strings.HasPrefix(token, "sk_test_") {
+				if apiKeySvc == nil {
+					httputil.WriteJSON(w, http.StatusUnauthorized, httputil.SlackResponse{
+						OK:    false,
+						Error: "api_keys_not_configured",
+					})
+					return
+				}
+
+				validation, err := apiKeySvc.ValidateAPIKey(ctx, token)
+				if err != nil {
+					httputil.WriteJSON(w, http.StatusUnauthorized, httputil.SlackResponse{
+						OK:    false,
+						Error: "invalid_auth",
+					})
+					return
+				}
+
+				ctx = context.WithValue(ctx, ctxutil.ContextKeyTeamID, validation.TeamID)
+				ctx = context.WithValue(ctx, ctxutil.ContextKeyUserID, validation.PrincipalID)
+				ctx = context.WithValue(ctx, ctxutil.ContextKeyIsBot, false)
+				ctx = ctxutil.WithDelegation(ctx, validation.OnBehalfOf, validation.KeyID)
+				next.ServeHTTP(w, r.WithContext(ctx))
+				return
+			}
+
+			// Legacy Bearer token validation
 			resp, err := authSvc.ValidateToken(r.Context(), authHeader)
 			if err != nil {
 				httputil.WriteJSON(w, http.StatusUnauthorized, httputil.SlackResponse{
@@ -122,7 +158,6 @@ func AuthMiddleware(authSvc *service.AuthService) func(http.Handler) http.Handle
 				return
 			}
 
-			ctx := r.Context()
 			ctx = context.WithValue(ctx, ctxutil.ContextKeyTeamID, resp.TeamID)
 			ctx = context.WithValue(ctx, ctxutil.ContextKeyUserID, resp.UserID)
 			ctx = context.WithValue(ctx, ctxutil.ContextKeyIsBot, resp.IsBot)

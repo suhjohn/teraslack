@@ -2,22 +2,24 @@ package domain
 
 import "time"
 
-// User represents a workspace member.
+// User represents a workspace principal (human, agent, or system).
 type User struct {
-	ID          string     `json:"id"`
-	TeamID      string     `json:"team_id"`
-	Name        string     `json:"name"`
-	RealName    string     `json:"real_name"`
-	DisplayName string     `json:"display_name"`
-	Email       string     `json:"email"`
-	IsBot       bool       `json:"is_bot"`
-	IsAdmin     bool       `json:"is_admin"`
-	IsOwner     bool       `json:"is_owner"`
-	IsRestricted bool      `json:"is_restricted"`
-	Deleted     bool       `json:"deleted"`
-	Profile     UserProfile `json:"profile"`
-	CreatedAt   time.Time  `json:"created_at"`
-	UpdatedAt   time.Time  `json:"updated_at"`
+	ID            string        `json:"id"`
+	TeamID        string        `json:"team_id"`
+	Name          string        `json:"name"`
+	RealName      string        `json:"real_name"`
+	DisplayName   string        `json:"display_name"`
+	Email         string        `json:"email"`
+	PrincipalType PrincipalType `json:"principal_type"`
+	OwnerID       string        `json:"owner_id,omitempty"` // For agents: the human who owns this agent
+	IsBot         bool          `json:"is_bot"`
+	IsAdmin       bool          `json:"is_admin"`
+	IsOwner       bool          `json:"is_owner"`
+	IsRestricted  bool          `json:"is_restricted"`
+	Deleted       bool          `json:"deleted"`
+	Profile       UserProfile   `json:"profile"`
+	CreatedAt     time.Time     `json:"created_at"`
+	UpdatedAt     time.Time     `json:"updated_at"`
 }
 
 // UserProfile contains display and contact information for a user.
@@ -43,14 +45,16 @@ type CustomField struct {
 
 // CreateUserParams holds the parameters for creating a new user.
 type CreateUserParams struct {
-	TeamID      string      `json:"team_id"`
-	Name        string      `json:"name"`
-	RealName    string      `json:"real_name"`
-	DisplayName string      `json:"display_name"`
-	Email       string      `json:"email"`
-	IsBot       bool        `json:"is_bot"`
-	IsAdmin     bool        `json:"is_admin"`
-	Profile     UserProfile `json:"profile"`
+	TeamID        string        `json:"team_id"`
+	Name          string        `json:"name"`
+	RealName      string        `json:"real_name"`
+	DisplayName   string        `json:"display_name"`
+	Email         string        `json:"email"`
+	PrincipalType PrincipalType `json:"principal_type,omitempty"` // Defaults to "human" if empty
+	OwnerID       string        `json:"owner_id,omitempty"`
+	IsBot         bool          `json:"is_bot"`
+	IsAdmin       bool          `json:"is_admin"`
+	Profile       UserProfile   `json:"profile"`
 }
 
 // UpdateUserParams holds the parameters for updating a user.

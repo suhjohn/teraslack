@@ -7,28 +7,51 @@ package sqlcgen
 
 import (
 	"context"
+
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const createUser = `-- name: CreateUser :one
-INSERT INTO users (id, team_id, name, real_name, display_name, email, is_bot, is_admin, profile)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-RETURNING id, team_id, name, real_name, display_name, email, is_bot, is_admin, is_owner,
+INSERT INTO users (id, team_id, name, real_name, display_name, email, principal_type, owner_id, is_bot, is_admin, profile)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+RETURNING id, team_id, name, real_name, display_name, email, principal_type, owner_id, is_bot, is_admin, is_owner,
           is_restricted, deleted, profile, created_at, updated_at
 `
 
 type CreateUserParams struct {
-	ID          string `json:"id"`
-	TeamID      string `json:"team_id"`
-	Name        string `json:"name"`
-	RealName    string `json:"real_name"`
-	DisplayName string `json:"display_name"`
-	Email       string `json:"email"`
-	IsBot       bool   `json:"is_bot"`
-	IsAdmin     bool   `json:"is_admin"`
-	Profile     []byte `json:"profile"`
+	ID            string `json:"id"`
+	TeamID        string `json:"team_id"`
+	Name          string `json:"name"`
+	RealName      string `json:"real_name"`
+	DisplayName   string `json:"display_name"`
+	Email         string `json:"email"`
+	PrincipalType string `json:"principal_type"`
+	OwnerID       string `json:"owner_id"`
+	IsBot         bool   `json:"is_bot"`
+	IsAdmin       bool   `json:"is_admin"`
+	Profile       []byte `json:"profile"`
 }
 
-func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (User, error) {
+type CreateUserRow struct {
+	ID            string             `json:"id"`
+	TeamID        string             `json:"team_id"`
+	Name          string             `json:"name"`
+	RealName      string             `json:"real_name"`
+	DisplayName   string             `json:"display_name"`
+	Email         string             `json:"email"`
+	PrincipalType string             `json:"principal_type"`
+	OwnerID       string             `json:"owner_id"`
+	IsBot         bool               `json:"is_bot"`
+	IsAdmin       bool               `json:"is_admin"`
+	IsOwner       bool               `json:"is_owner"`
+	IsRestricted  bool               `json:"is_restricted"`
+	Deleted       bool               `json:"deleted"`
+	Profile       []byte             `json:"profile"`
+	CreatedAt     pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt     pgtype.Timestamptz `json:"updated_at"`
+}
+
+func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (CreateUserRow, error) {
 	row := q.db.QueryRow(ctx, createUser,
 		arg.ID,
 		arg.TeamID,
@@ -36,11 +59,13 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (User, e
 		arg.RealName,
 		arg.DisplayName,
 		arg.Email,
+		arg.PrincipalType,
+		arg.OwnerID,
 		arg.IsBot,
 		arg.IsAdmin,
 		arg.Profile,
 	)
-	var i User
+	var i CreateUserRow
 	err := row.Scan(
 		&i.ID,
 		&i.TeamID,
@@ -48,6 +73,8 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (User, e
 		&i.RealName,
 		&i.DisplayName,
 		&i.Email,
+		&i.PrincipalType,
+		&i.OwnerID,
 		&i.IsBot,
 		&i.IsAdmin,
 		&i.IsOwner,
@@ -61,14 +88,33 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (User, e
 }
 
 const getUser = `-- name: GetUser :one
-SELECT id, team_id, name, real_name, display_name, email, is_bot, is_admin, is_owner,
+SELECT id, team_id, name, real_name, display_name, email, principal_type, owner_id, is_bot, is_admin, is_owner,
        is_restricted, deleted, profile, created_at, updated_at
 FROM users WHERE id = $1
 `
 
-func (q *Queries) GetUser(ctx context.Context, id string) (User, error) {
+type GetUserRow struct {
+	ID            string             `json:"id"`
+	TeamID        string             `json:"team_id"`
+	Name          string             `json:"name"`
+	RealName      string             `json:"real_name"`
+	DisplayName   string             `json:"display_name"`
+	Email         string             `json:"email"`
+	PrincipalType string             `json:"principal_type"`
+	OwnerID       string             `json:"owner_id"`
+	IsBot         bool               `json:"is_bot"`
+	IsAdmin       bool               `json:"is_admin"`
+	IsOwner       bool               `json:"is_owner"`
+	IsRestricted  bool               `json:"is_restricted"`
+	Deleted       bool               `json:"deleted"`
+	Profile       []byte             `json:"profile"`
+	CreatedAt     pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt     pgtype.Timestamptz `json:"updated_at"`
+}
+
+func (q *Queries) GetUser(ctx context.Context, id string) (GetUserRow, error) {
 	row := q.db.QueryRow(ctx, getUser, id)
-	var i User
+	var i GetUserRow
 	err := row.Scan(
 		&i.ID,
 		&i.TeamID,
@@ -76,6 +122,8 @@ func (q *Queries) GetUser(ctx context.Context, id string) (User, error) {
 		&i.RealName,
 		&i.DisplayName,
 		&i.Email,
+		&i.PrincipalType,
+		&i.OwnerID,
 		&i.IsBot,
 		&i.IsAdmin,
 		&i.IsOwner,
@@ -89,14 +137,33 @@ func (q *Queries) GetUser(ctx context.Context, id string) (User, error) {
 }
 
 const getUserByEmail = `-- name: GetUserByEmail :one
-SELECT id, team_id, name, real_name, display_name, email, is_bot, is_admin, is_owner,
+SELECT id, team_id, name, real_name, display_name, email, principal_type, owner_id, is_bot, is_admin, is_owner,
        is_restricted, deleted, profile, created_at, updated_at
 FROM users WHERE email = $1
 `
 
-func (q *Queries) GetUserByEmail(ctx context.Context, email string) (User, error) {
+type GetUserByEmailRow struct {
+	ID            string             `json:"id"`
+	TeamID        string             `json:"team_id"`
+	Name          string             `json:"name"`
+	RealName      string             `json:"real_name"`
+	DisplayName   string             `json:"display_name"`
+	Email         string             `json:"email"`
+	PrincipalType string             `json:"principal_type"`
+	OwnerID       string             `json:"owner_id"`
+	IsBot         bool               `json:"is_bot"`
+	IsAdmin       bool               `json:"is_admin"`
+	IsOwner       bool               `json:"is_owner"`
+	IsRestricted  bool               `json:"is_restricted"`
+	Deleted       bool               `json:"deleted"`
+	Profile       []byte             `json:"profile"`
+	CreatedAt     pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt     pgtype.Timestamptz `json:"updated_at"`
+}
+
+func (q *Queries) GetUserByEmail(ctx context.Context, email string) (GetUserByEmailRow, error) {
 	row := q.db.QueryRow(ctx, getUserByEmail, email)
-	var i User
+	var i GetUserByEmailRow
 	err := row.Scan(
 		&i.ID,
 		&i.TeamID,
@@ -104,6 +171,8 @@ func (q *Queries) GetUserByEmail(ctx context.Context, email string) (User, error
 		&i.RealName,
 		&i.DisplayName,
 		&i.Email,
+		&i.PrincipalType,
+		&i.OwnerID,
 		&i.IsBot,
 		&i.IsAdmin,
 		&i.IsOwner,
@@ -117,7 +186,7 @@ func (q *Queries) GetUserByEmail(ctx context.Context, email string) (User, error
 }
 
 const listUsers = `-- name: ListUsers :many
-SELECT id, team_id, name, real_name, display_name, email, is_bot, is_admin, is_owner,
+SELECT id, team_id, name, real_name, display_name, email, principal_type, owner_id, is_bot, is_admin, is_owner,
        is_restricted, deleted, profile, created_at, updated_at
 FROM users
 WHERE team_id = $1 AND id >= $2
@@ -131,15 +200,34 @@ type ListUsersParams struct {
 	Limit  int32  `json:"limit"`
 }
 
-func (q *Queries) ListUsers(ctx context.Context, arg ListUsersParams) ([]User, error) {
+type ListUsersRow struct {
+	ID            string             `json:"id"`
+	TeamID        string             `json:"team_id"`
+	Name          string             `json:"name"`
+	RealName      string             `json:"real_name"`
+	DisplayName   string             `json:"display_name"`
+	Email         string             `json:"email"`
+	PrincipalType string             `json:"principal_type"`
+	OwnerID       string             `json:"owner_id"`
+	IsBot         bool               `json:"is_bot"`
+	IsAdmin       bool               `json:"is_admin"`
+	IsOwner       bool               `json:"is_owner"`
+	IsRestricted  bool               `json:"is_restricted"`
+	Deleted       bool               `json:"deleted"`
+	Profile       []byte             `json:"profile"`
+	CreatedAt     pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt     pgtype.Timestamptz `json:"updated_at"`
+}
+
+func (q *Queries) ListUsers(ctx context.Context, arg ListUsersParams) ([]ListUsersRow, error) {
 	rows, err := q.db.Query(ctx, listUsers, arg.TeamID, arg.ID, arg.Limit)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []User{}
+	items := []ListUsersRow{}
 	for rows.Next() {
-		var i User
+		var i ListUsersRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.TeamID,
@@ -147,6 +235,8 @@ func (q *Queries) ListUsers(ctx context.Context, arg ListUsersParams) ([]User, e
 			&i.RealName,
 			&i.DisplayName,
 			&i.Email,
+			&i.PrincipalType,
+			&i.OwnerID,
 			&i.IsBot,
 			&i.IsAdmin,
 			&i.IsOwner,
@@ -171,7 +261,7 @@ UPDATE users
 SET real_name = $2, display_name = $3, email = $4, is_admin = $5,
     is_restricted = $6, deleted = $7, profile = $8
 WHERE id = $1
-RETURNING id, team_id, name, real_name, display_name, email, is_bot, is_admin, is_owner,
+RETURNING id, team_id, name, real_name, display_name, email, principal_type, owner_id, is_bot, is_admin, is_owner,
           is_restricted, deleted, profile, created_at, updated_at
 `
 
@@ -186,7 +276,26 @@ type UpdateUserParams struct {
 	Profile      []byte `json:"profile"`
 }
 
-func (q *Queries) UpdateUser(ctx context.Context, arg UpdateUserParams) (User, error) {
+type UpdateUserRow struct {
+	ID            string             `json:"id"`
+	TeamID        string             `json:"team_id"`
+	Name          string             `json:"name"`
+	RealName      string             `json:"real_name"`
+	DisplayName   string             `json:"display_name"`
+	Email         string             `json:"email"`
+	PrincipalType string             `json:"principal_type"`
+	OwnerID       string             `json:"owner_id"`
+	IsBot         bool               `json:"is_bot"`
+	IsAdmin       bool               `json:"is_admin"`
+	IsOwner       bool               `json:"is_owner"`
+	IsRestricted  bool               `json:"is_restricted"`
+	Deleted       bool               `json:"deleted"`
+	Profile       []byte             `json:"profile"`
+	CreatedAt     pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt     pgtype.Timestamptz `json:"updated_at"`
+}
+
+func (q *Queries) UpdateUser(ctx context.Context, arg UpdateUserParams) (UpdateUserRow, error) {
 	row := q.db.QueryRow(ctx, updateUser,
 		arg.ID,
 		arg.RealName,
@@ -197,7 +306,7 @@ func (q *Queries) UpdateUser(ctx context.Context, arg UpdateUserParams) (User, e
 		arg.Deleted,
 		arg.Profile,
 	)
-	var i User
+	var i UpdateUserRow
 	err := row.Scan(
 		&i.ID,
 		&i.TeamID,
@@ -205,6 +314,8 @@ func (q *Queries) UpdateUser(ctx context.Context, arg UpdateUserParams) (User, e
 		&i.RealName,
 		&i.DisplayName,
 		&i.Email,
+		&i.PrincipalType,
+		&i.OwnerID,
 		&i.IsBot,
 		&i.IsAdmin,
 		&i.IsOwner,

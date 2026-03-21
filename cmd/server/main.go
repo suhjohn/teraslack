@@ -117,6 +117,7 @@ func run(logger *slog.Logger) error {
 	authRepo := pgRepo.NewAuthRepo(pool)
 	eventStoreRepo := pgRepo.NewEventStoreRepo(pool, encryptor)
 	outboxRepo := pgRepo.NewOutboxRepo(pool)
+	apiKeyRepo := pgRepo.NewAPIKeyRepo(pool)
 
 	// Initialize EventRecorder (replaces EventPublisher)
 	recorder := service.NewEventRecorder(eventStoreRepo)
@@ -156,6 +157,7 @@ func run(logger *slog.Logger) error {
 	bookmarkSvc := service.NewBookmarkService(bookmarkRepo, convRepo, recorder, pool, logger)
 	fileSvc := service.NewFileService(fileRepo, s3, cfg.BaseURL, recorder, pool, logger)
 	authSvc := service.NewAuthService(authRepo, userRepo, recorder, pool, logger)
+	apiKeySvc := service.NewAPIKeyService(apiKeyRepo, userRepo, recorder, pool, logger)
 	searchSvc := service.NewSearchService(nil) // Turbopuffer optional — pass client when configured
 
 	// Initialize handlers
@@ -168,12 +170,14 @@ func run(logger *slog.Logger) error {
 	fileHandler := handler.NewFileHandler(fileSvc)
 	eventHandler := handler.NewEventHandler(eventSvc)
 	authHandler := handler.NewAuthHandler(authSvc)
+	apiKeyHandler := handler.NewAPIKeyHandler(apiKeySvc)
 	searchHandler := handler.NewSearchHandler(searchSvc)
 
 	// Set up router
 	router := handler.Router(
 		logger,
 		authSvc,
+		apiKeySvc,
 		userHandler,
 		convHandler,
 		msgHandler,
@@ -184,6 +188,7 @@ func run(logger *slog.Logger) error {
 		eventHandler,
 		authHandler,
 		searchHandler,
+		apiKeyHandler,
 	)
 
 	// Start server

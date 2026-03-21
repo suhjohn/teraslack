@@ -41,22 +41,29 @@ func (r *UserRepo) Create(ctx context.Context, params domain.CreateUserParams) (
 		return nil, fmt.Errorf("marshal profile: %w", err)
 	}
 
+	pt := string(params.PrincipalType)
+	if pt == "" {
+		pt = string(domain.PrincipalTypeHuman)
+	}
+
 	row, err := r.q.CreateUser(ctx, sqlcgen.CreateUserParams{
-		ID:          id,
-		TeamID:      params.TeamID,
-		Name:        params.Name,
-		RealName:    params.RealName,
-		DisplayName: params.DisplayName,
-		Email:       params.Email,
-		IsBot:       params.IsBot,
-		IsAdmin:     params.IsAdmin,
-		Profile:     profileJSON,
+		ID:            id,
+		TeamID:        params.TeamID,
+		Name:          params.Name,
+		RealName:      params.RealName,
+		DisplayName:   params.DisplayName,
+		Email:         params.Email,
+		PrincipalType: pt,
+		OwnerID:       params.OwnerID,
+		IsBot:         params.IsBot,
+		IsAdmin:       params.IsAdmin,
+		Profile:       profileJSON,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("insert user: %w", err)
 	}
 
-	return userToDomain(row)
+	return userFieldsToDomain(createUserRowToFields(row))
 }
 
 func (r *UserRepo) Get(ctx context.Context, id string) (*domain.User, error) {
@@ -67,7 +74,7 @@ func (r *UserRepo) Get(ctx context.Context, id string) (*domain.User, error) {
 		}
 		return nil, fmt.Errorf("get user: %w", err)
 	}
-	return userToDomain(row)
+	return userFieldsToDomain(getUserRowToFields(row))
 }
 
 func (r *UserRepo) GetByEmail(ctx context.Context, email string) (*domain.User, error) {
@@ -78,7 +85,7 @@ func (r *UserRepo) GetByEmail(ctx context.Context, email string) (*domain.User, 
 		}
 		return nil, fmt.Errorf("get user by email: %w", err)
 	}
-	return userToDomain(row)
+	return userFieldsToDomain(getUserByEmailRowToFields(row))
 }
 
 func (r *UserRepo) Update(ctx context.Context, id string, params domain.UpdateUserParams) (*domain.User, error) {
@@ -138,7 +145,7 @@ func (r *UserRepo) Update(ctx context.Context, id string, params domain.UpdateUs
 		return nil, fmt.Errorf("update user: %w", err)
 	}
 
-	return userToDomain(row)
+	return userFieldsToDomain(updateUserRowToFields(row))
 }
 
 func (r *UserRepo) List(ctx context.Context, params domain.ListUsersParams) (*domain.CursorPage[domain.User], error) {
@@ -158,7 +165,7 @@ func (r *UserRepo) List(ctx context.Context, params domain.ListUsersParams) (*do
 
 	users := make([]domain.User, 0, len(rows))
 	for _, row := range rows {
-		u, err := userToDomain(row)
+		u, err := userFieldsToDomain(listUserRowToFields(row))
 		if err != nil {
 			return nil, fmt.Errorf("convert user: %w", err)
 		}

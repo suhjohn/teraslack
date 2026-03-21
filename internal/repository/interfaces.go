@@ -119,6 +119,19 @@ type AuthRepository interface {
 	RevokeToken(ctx context.Context, token string) error
 }
 
+// APIKeyRepository defines data access operations for API keys.
+type APIKeyRepository interface {
+	WithTx(tx pgx.Tx) APIKeyRepository
+	Create(ctx context.Context, params domain.CreateAPIKeyParams) (*domain.APIKey, string, error)
+	Get(ctx context.Context, id string) (*domain.APIKey, error)
+	GetByHash(ctx context.Context, keyHash string) (*domain.APIKey, error)
+	List(ctx context.Context, params domain.ListAPIKeysParams) (*domain.CursorPage[domain.APIKey], error)
+	Update(ctx context.Context, id string, params domain.UpdateAPIKeyParams) (*domain.APIKey, error)
+	Revoke(ctx context.Context, id string) error
+	SetRotated(ctx context.Context, oldKeyID, newKeyID string, gracePeriodEndsAt time.Time) error
+	UpdateUsage(ctx context.Context, id string) error
+}
+
 // EventStoreRepository defines data access for the service-level event store.
 type EventStoreRepository interface {
 	WithTx(tx pgx.Tx) EventStoreRepository
