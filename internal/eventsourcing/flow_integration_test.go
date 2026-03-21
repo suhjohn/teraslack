@@ -136,7 +136,31 @@ func strPtr(s string) *string { return &s }
 // ---------------------------------------------------------------------------
 // Flow 1: Workspace Bootstrap & Team Collaboration
 // ---------------------------------------------------------------------------
-
+//
+// Scenario: A brand-new workspace is set up from scratch and exercises every
+//           core collaboration primitive in a single end-to-end sequence.
+//
+// Steps:
+//  1. Create an admin user (human principal, is_admin=true).
+//  2. Create a second user "alice" (human principal).
+//  3. Create a public channel "general" — verify creator is auto-joined (num_members=1).
+//  4. Invite alice to general — verify num_members=2.
+//  5. Admin posts a message in general.
+//  6. Alice replies in a thread — verify thread_ts references parent.
+//  7. Alice adds a :thumbsup: reaction to admin's message.
+//  8. Admin pins the message.
+//  9. Admin creates a bookmark (link type) in general.
+// 10. List channel members — verify 2 members.
+// 11. Verify the full event sequence in service_events:
+//     [user.created x2, conversation.created, member.joined,
+//      message.posted x2, reaction.added, pin.added, bookmark.created]
+// 12. (Unhappy) Duplicate reaction → expect silent upsert or ErrAlreadyReacted.
+// 13. (Unhappy) Duplicate invite → expect ErrAlreadyInChannel.
+// 14. (Unhappy) Duplicate pin → expect error.
+// 15. (Unhappy) Post to nonexistent channel → expect error.
+// 16. (Unhappy) Create user with empty team_id → expect ErrInvalidArgument.
+// 17. Verify bookmark list returns the created bookmark.
+//
 func TestFlow_WorkspaceBootstrap(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test")
@@ -311,7 +335,28 @@ func TestFlow_WorkspaceBootstrap(t *testing.T) {
 // ---------------------------------------------------------------------------
 // Flow 2: Channel Lifecycle & Archival
 // ---------------------------------------------------------------------------
-
+//
+// Scenario: A channel goes through its full lifecycle — creation, metadata
+//           updates, posting, archival, and unarchival — verifying that
+//           archived channels block writes and unarchiving restores them.
+//
+// Steps:
+//  1. Create a user and a public channel "project-alpha".
+//  2. Set the channel topic to "Alpha discussion" — verify.
+//  3. Set the channel purpose to "Coordinate alpha" — verify.
+//  4. Rename the channel to "project-beta" — verify.
+//  5. Post a message before archiving.
+//  6. Archive the channel.
+//  7. (Unhappy) Post to archived channel → expect ErrChannelArchived.
+//  8. (Unhappy) Set topic on archived channel → expect ErrChannelArchived.
+//  9. Unarchive the channel.
+// 10. Post a message after unarchiving — verify it succeeds.
+// 11. List conversations with exclude_archived=true — verify unarchived channel appears.
+// 12. Verify old message (posted before archive) is still accessible.
+// 13. Verify event sequence: [user.created, conversation.created,
+//     topic_set, purpose_set, updated, message.posted, archived,
+//     unarchived, message.posted]
+//
 func TestFlow_ChannelLifecycle(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test")
@@ -446,7 +491,27 @@ func TestFlow_ChannelLifecycle(t *testing.T) {
 // ---------------------------------------------------------------------------
 // Flow 3: Agent Delegation & API Key Authentication
 // ---------------------------------------------------------------------------
-
+//
+// Scenario: A human creates an AI agent and issues a delegated API key,
+//           then exercises the full key lifecycle (create → validate →
+//           update → list → revoke) including delegation chain tracking.
+//
+// Steps:
+//  1. Create a human user.
+//  2. Create an agent user owned by the human (principal_type=agent, owner_id=human).
+//  3. Create a live API key for the agent with on_behalf_of=human — verify sk_live_ prefix.
+//  4. Validate the API key — verify principal_id=agent, on_behalf_of=human.
+//  5. Get the key — verify key_hash is redacted (empty).
+//  6. Update the key description — verify.
+//  7. List keys for the team — verify count=1.
+//  8. Revoke the key — verify subsequent validation returns ErrTokenRevoked.
+//  9. List with include_revoked=true — verify the revoked key appears.
+// 10. Verify the revoke event payload contains revoked_at.
+// 11. (Unhappy) Create key with nonexistent principal → expect error.
+// 12. (Unhappy) Create key with empty name → expect ErrInvalidArgument.
+// 13. (Unhappy) Validate garbage key → expect ErrInvalidAuth.
+// 14. Verify api_key event count: 3 (created, updated, revoked).
+//
 func TestFlow_AgentDelegation(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test")
@@ -599,7 +664,21 @@ func TestFlow_AgentDelegation(t *testing.T) {
 // ---------------------------------------------------------------------------
 // Flow 4: Key Rotation with Grace Period
 // ---------------------------------------------------------------------------
-
+//
+// Scenario: An API key is rotated with a 24h grace period, during which
+//           both old and new keys are valid. After revoking the new key,
+//           rotation of a revoked key is rejected.
+//
+// Steps:
+//  1. Create a user and a live API key — validate it works.
+//  2. Rotate the key with a 24h grace period — verify new key has different ID and raw value.
+//  3. Validate BOTH old and new keys during grace period — both succeed.
+//  4. Get old key — verify rotated_to_id points to new key and grace_period_ends_at is set.
+//  5. List keys — verify count=2 (old + new).
+//  6. Verify event counts: 2 api_key.created + 1 api_key.rotated.
+//  7. (Unhappy) Revoke the new key, then try to rotate it → expect ErrInvalidArgument.
+//  8. Validate revoked new key → expect ErrTokenRevoked.
+//
 func TestFlow_KeyRotation(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test")
@@ -701,7 +780,25 @@ func TestFlow_KeyRotation(t *testing.T) {
 // ---------------------------------------------------------------------------
 // Flow 5: Message Threading, Editing & Deletion
 // ---------------------------------------------------------------------------
-
+//
+// Scenario: Two users in a channel exercise the full message lifecycle —
+//           posting, threading, editing, deleting, reactions, and removal.
+//
+// Steps:
+//  1. Create 2 users and a public channel; invite user2.
+//  2. Post a parent message.
+//  3. Post 3 replies from user2 — verify thread_ts references parent.
+//  4. Fetch thread replies — verify count >= 3.
+//  5. Edit the first reply text — verify updated text.
+//  6. Delete the last reply — verify it's marked deleted or returns ErrNotFound.
+//  7. Add 3 different reactions (:fire:, :rocket:, :heart:) on the parent.
+//  8. Verify reaction count = 3.
+//  9. Remove the :fire: reaction — verify count = 2.
+// 10. (Unhappy) Edit nonexistent message → expect error.
+// 11. (Unhappy) Delete already-deleted message → expect error.
+// 12. Verify event counts: message.posted, message.updated, message.deleted,
+//     reaction.added, reaction.removed.
+//
 func TestFlow_MessageThreading(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test")
@@ -868,7 +965,23 @@ func TestFlow_MessageThreading(t *testing.T) {
 // ---------------------------------------------------------------------------
 // Flow 6: Usergroups & Membership Management
 // ---------------------------------------------------------------------------
-
+//
+// Scenario: A usergroup is created, populated, renamed, disabled, re-enabled,
+//           and its membership is updated — covering the full CRUD lifecycle.
+//
+// Steps:
+//  1. Create 3 users (admin, u1, u2).
+//  2. Create usergroup "Engineers" with handle "engineers".
+//  3. Set members to [u1, u2] — verify count=2.
+//  4. Update name to "Senior Engineers" — verify.
+//  5. Disable the usergroup — verify enabled=false.
+//  6. List with include_disabled=true — verify count=1.
+//  7. List with include_disabled=false — verify count=0.
+//  8. Re-enable the usergroup.
+//  9. Update membership to [u1] only — verify count=1.
+// 10. Verify usergroup event count = 6:
+//     [created, users_set, updated, disabled, enabled, users_set]
+//
 func TestFlow_Usergroups(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test")
@@ -978,7 +1091,22 @@ func TestFlow_Usergroups(t *testing.T) {
 // ---------------------------------------------------------------------------
 // Flow 7: File Lifecycle (Remote Files)
 // ---------------------------------------------------------------------------
-
+//
+// Scenario: Remote files are added, shared to channels, listed, and deleted.
+//           Also verifies that S3 upload fails gracefully when no S3 client is configured.
+//
+// Steps:
+//  1. Create a user and a public channel.
+//  2. Add a remote file "Design Doc" (type=gdoc) — verify is_external=true.
+//  3. Share the file to the channel.
+//  4. Get file by ID — verify title.
+//  5. Add a second remote file "Spec".
+//  6. List all files — verify count >= 2.
+//  7. Delete the spec file — verify Get returns ErrNotFound.
+//  8. (Unhappy) Request S3 upload URL with nil S3 client → expect error.
+//  9. (Unhappy) Add file with no title → expect ErrInvalidArgument.
+// 10. (Unhappy) Get nonexistent file → expect ErrNotFound.
+//
 func TestFlow_FileLifecycle(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test")
@@ -1075,7 +1203,24 @@ func TestFlow_FileLifecycle(t *testing.T) {
 // ---------------------------------------------------------------------------
 // Flow 8: Event Subscription & Webhook Lifecycle
 // ---------------------------------------------------------------------------
-
+//
+// Scenario: Webhook subscriptions are created, updated, disabled, listed,
+//           and deleted. Verifies that plaintext secrets are not stored in
+//           event payloads (Redacted() clears the secret field).
+//
+// Steps:
+//  1. Create subscription for [message.posted, reaction.added] — verify enabled=true.
+//  2. Get subscription — verify URL.
+//  3. Update the URL — verify.
+//  4. Disable the subscription (enabled=false).
+//  5. Create a second subscription for [channel.created].
+//  6. List subscriptions — verify count=2.
+//  7. Delete the second subscription — verify count=1.
+//  8. Verify event count = 5: [created, updated, updated(disable), created, deleted]
+//  9. Verify no plaintext secret in any event payload (Redacted()).
+// 10. (Unhappy) Create subscription with no URL → expect ErrInvalidArgument.
+// 11. (Unhappy) Create subscription with no event types → expect ErrInvalidArgument.
+//
 func TestFlow_EventSubscriptions(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test")
@@ -1194,7 +1339,24 @@ func TestFlow_EventSubscriptions(t *testing.T) {
 // ---------------------------------------------------------------------------
 // Flow 9: Auth Token Lifecycle
 // ---------------------------------------------------------------------------
-
+//
+// Scenario: Bearer tokens are created, validated (with and without "Bearer "
+//           prefix), revoked, and verified that raw tokens never appear in
+//           event payloads.
+//
+// Steps:
+//  1. Create a user.
+//  2. Create a token with scopes [read, write] — verify raw token is non-empty.
+//  3. Validate the token — verify user_id and team_id.
+//  4. Validate with "Bearer " prefix — verify same user.
+//  5. Create a second token with scope [read].
+//  6. Revoke the first token — verify validation fails.
+//  7. Validate the second token — still works.
+//  8. Verify token event count = 3: [created, created, revoked].
+//  9. Verify no raw token string appears in event payloads.
+// 10. (Unhappy) Create token for nonexistent user → expect error.
+// 11. (Unhappy) Validate garbage token → expect error.
+//
 func TestFlow_AuthTokenLifecycle(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test")
@@ -1303,7 +1465,30 @@ func TestFlow_AuthTokenLifecycle(t *testing.T) {
 // ---------------------------------------------------------------------------
 // Flow 10: Cross-Cutting Consistency — Full Workspace Lifecycle
 // ---------------------------------------------------------------------------
-
+//
+// Scenario: Exercises one operation from every aggregate type in a single
+//           workspace, then verifies that all 10 events are recorded and
+//           that a full projection rebuild preserves all state.
+//
+// Steps:
+//  1. Record event count before the test.
+//  2. Create a user.
+//  3. Create a public channel.
+//  4. Post a message.
+//  5. Add a reaction.
+//  6. Pin the message.
+//  7. Create a bookmark.
+//  8. Create a usergroup.
+//  9. Create a token.
+// 10. Create an API key.
+// 11. Create a webhook subscription.
+// 12. Verify exactly 10 new events were recorded.
+// 13. Verify each aggregate type (user, conversation, message, pin,
+//     bookmark, usergroup, token, api_key, subscription) has >= 1 event.
+// 14. Perform full projection rebuild (TRUNCATE + replay).
+// 15. Verify user, conversation, bookmark, usergroup, and token
+//     all survive the rebuild with correct state.
+//
 func TestFlow_CrossCuttingConsistency(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test")
@@ -1433,7 +1618,22 @@ func TestFlow_CrossCuttingConsistency(t *testing.T) {
 // ---------------------------------------------------------------------------
 // Flow 11: Pagination & Listing Edge Cases
 // ---------------------------------------------------------------------------
-
+//
+// Scenario: Verifies cursor-based pagination across users, messages, and
+//           conversations. Checks that pages don't overlap, HasMore is
+//           correct, and empty results return cleanly.
+//
+// Steps:
+//  1. Create 6 users (1 + 5 more) in the same team.
+//  2. Paginate users with limit=2 — verify page1 has 2 items and HasMore=true.
+//  3. Fetch page2 with the cursor — verify 2 items.
+//  4. Verify no user ID overlap between page1 and page2.
+//  5. Create a channel and post 5 messages.
+//  6. Paginate message history with limit=2 — verify 2 items.
+//  7. Create 3 more channels.
+//  8. Paginate conversations with limit=2 — verify 2 items and HasMore=true.
+//  9. Query a nonexistent team — verify empty result with HasMore=false.
+//
 func TestFlow_Pagination(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test")
@@ -1547,7 +1747,21 @@ func TestFlow_Pagination(t *testing.T) {
 // ---------------------------------------------------------------------------
 // Flow 12: Conversation Types — DMs and Group DMs
 // ---------------------------------------------------------------------------
-
+//
+// Scenario: Creates each conversation type (IM, MPIM, private channel) and
+//           verifies type-specific behavior: posting, inviting, kicking,
+//           and listing with type filters.
+//
+// Steps:
+//  1. Create 3 users (alice, bob, charlie).
+//  2. Create a DM (IM) — invite bob, post a message.
+//  3. Create a Group DM (MPIM) — invite bob and charlie, post a message.
+//  4. Create a private channel.
+//  5. List by type=public_channel — verify none of our conversations appear.
+//  6. List by type=im — verify count=1.
+//  7. Kick charlie from the MPIM — verify he's no longer in the member list.
+//  8. Verify event counts: 3 conversation.created, >= 3 member events.
+//
 func TestFlow_ConversationTypes(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test")
@@ -1683,7 +1897,21 @@ func TestFlow_ConversationTypes(t *testing.T) {
 // ---------------------------------------------------------------------------
 // Flow 13: Concurrent Access & Edge Cases
 // ---------------------------------------------------------------------------
-
+//
+// Scenario: Stress-tests rapid sequential operations to verify timestamp
+//           uniqueness, multi-user reactions, and immediate create→revoke
+//           sequences.
+//
+// Steps:
+//  1. Create a user and a public channel.
+//  2. Rapid-fire post 10 messages — verify all 10 timestamps are unique.
+//  3. Create a second user.
+//  4. Both users add :wave: reaction to the same message — verify count=2.
+//  5. Create an API key and immediately revoke it — verify validation
+//     returns ErrTokenRevoked.
+//  6. Update user name — verify lookup by ID returns updated name.
+//  7. Verify event count is reasonable (>= 15).
+//
 func TestFlow_ConcurrentEdgeCases(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test")
@@ -1802,7 +2030,32 @@ func TestFlow_ConcurrentEdgeCases(t *testing.T) {
 // ---------------------------------------------------------------------------
 // Flow 14: User Profile Management — CRUD, profile fields, principal types
 // ---------------------------------------------------------------------------
-
+//
+// Scenario: Exercises the full user profile lifecycle — creation with rich
+//           profile data, lookup by ID and email, incremental field updates,
+//           role changes, soft-delete/reactivation, and principal type
+//           variations (human, system, agent).
+//
+// Steps:
+//  1. Create a human user with full profile fields (real_name, display_name,
+//     email, profile.title, profile.phone, profile.status_text, profile.status_emoji).
+//  2. Verify real_name, display_name, and default principal_type=human.
+//  3. Get user by ID — verify email.
+//  4. Get user by email — verify same ID.
+//  5. Update real_name — verify.
+//  6. Update display_name — verify.
+//  7. Update email — verify.
+//  8. Verify old email lookup returns ErrNotFound; new email resolves to same user.
+//  9. Promote to admin (is_admin=true) — verify.
+// 10. Mark as restricted (is_restricted=true) — verify.
+// 11. Soft-delete (deleted=true) — verify.
+// 12. Reactivate (deleted=false) — verify.
+// 13. Update the profile struct (title, phone, status) — verify.
+// 14. Create a system principal (principal_type=system, is_bot=true).
+// 15. Create an agent principal with owner_id pointing to the human user.
+// 16. List all users for the team — verify count=3.
+// 17. Verify event counts: 3 user.created, >= 8 user.updated.
+//
 func TestFlow_UserProfileManagement(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test")
@@ -2018,7 +2271,27 @@ func TestFlow_UserProfileManagement(t *testing.T) {
 // ---------------------------------------------------------------------------
 // Flow 15: Multi-Channel Workspace — user active across many channels
 // ---------------------------------------------------------------------------
-
+//
+// Scenario: Three users operate across 4 channels with varying membership,
+//           testing cross-channel posting, threading, reactions, member
+//           removal, archival, and filtered listing.
+//
+// Steps:
+//  1. Create 3 users (alice, bob, charlie).
+//  2. Create 4 public channels: general, engineering, random, announcements.
+//  3. Invite bob to general, engineering, random (3 channels).
+//  4. Invite charlie to general and random (2 channels).
+//  5. Verify member counts: general=3, engineering=2, random=3, announcements=1.
+//  6. Alice posts a message in each of the 4 channels.
+//  7. Bob posts in engineering.
+//  8. Alice posts a discussion topic in general; charlie replies in thread.
+//  9. Alice reacts :rocket: to bob's engineering message.
+// 10. Kick alice from random — verify num_members=2.
+// 11. Verify alice is not in random's member list.
+// 12. List all channels — verify count=4.
+// 13. Archive announcements — list with exclude_archived — verify count=3.
+// 14. Verify engineering history has >= 2 messages.
+//
 func TestFlow_MultiChannelWorkspace(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test")
@@ -2177,7 +2450,28 @@ func TestFlow_MultiChannelWorkspace(t *testing.T) {
 // ---------------------------------------------------------------------------
 // Flow 16: Deep Threading — reply chains, counts, thread participants
 // ---------------------------------------------------------------------------
-
+//
+// Scenario: Three users participate in a deep thread with 5 replies, then
+//           exercise in-thread editing, deletion, reactions, a second
+//           independent thread, and thread-level pagination.
+//
+// Steps:
+//  1. Create 3 users (alice, bob, charlie) and a public channel; invite all.
+//  2. Alice posts a parent message about architecture.
+//  3. Post 5 replies from alternating users (bob, charlie, alice, bob, charlie).
+//  4. Verify all replies have thread_ts == parent.TS.
+//  5. Fetch thread replies — verify count >= 5.
+//  6. Edit the first reply (bob) — verify updated text.
+//  7. Delete the third reply (alice) — verify it's gone or marked deleted.
+//  8. Add reactions to multiple thread messages:
+//     :thinking: on parent, :thumbsup: on reply[1].
+//  9. Verify reaction counts on each message.
+// 10. Bob posts a second parent message ("Separate topic").
+// 11. Charlie replies to the second thread.
+// 12. Verify thread 2 has 1 reply (independent from thread 1).
+// 13. Verify channel history shows >= 2 top-level messages.
+// 14. Paginate thread 1 replies with limit=2 — verify HasMore=true.
+//
 func TestFlow_DeepThreading(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test")
@@ -2347,7 +2641,22 @@ func TestFlow_DeepThreading(t *testing.T) {
 // ---------------------------------------------------------------------------
 // Flow 17: Bookmark Full CRUD — multiple bookmarks, updates, emojis
 // ---------------------------------------------------------------------------
-
+//
+// Scenario: Multiple bookmarks are created with emojis, updated (title, link,
+//           emoji), deleted, and verified to be scoped per-channel.
+//
+// Steps:
+//  1. Create 2 users and a public channel.
+//  2. Create 3 bookmarks with emojis (:book:, :art:, none) — verify emoji on bm1.
+//  3. List bookmarks — verify count=3.
+//  4. Update bm1 title and link (by user2) — verify title, link, and updated_by.
+//  5. Update bm2 emoji to :paintbrush: — verify.
+//  6. Delete bm3 — verify list count=2 and bm3 ID is absent.
+//  7. Create a second channel and add a bookmark to it.
+//  8. Verify bookmarks are scoped: ch1 has 2, ch2 has 1.
+//  9. Verify bookmark event count = 7:
+//     [3 created + 2 updated + 1 deleted + 1 created]
+//
 func TestFlow_BookmarkFullCRUD(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test")
@@ -2502,7 +2811,21 @@ func TestFlow_BookmarkFullCRUD(t *testing.T) {
 // ---------------------------------------------------------------------------
 // Flow 18: Pin Lifecycle — pin multiple, list, unpin, re-pin
 // ---------------------------------------------------------------------------
-
+//
+// Scenario: Messages are pinned, unpinned, re-pinned, and bulk-unpinned,
+//           verifying the pin list at each step and the final event count.
+//
+// Steps:
+//  1. Create a user and a public channel.
+//  2. Post 4 messages (A, B, C, D).
+//  3. Pin messages A, B, C — verify pin list count=3.
+//  4. Unpin message B — verify count=2 and B is absent.
+//  5. Re-pin message B — verify count=3.
+//  6. Pin message D — verify count=4.
+//  7. Unpin all 4 messages — verify count=0.
+//  8. Verify pin event count = 10:
+//     [3 add + 1 remove + 1 re-add + 1 add + 4 remove]
+//
 func TestFlow_PinLifecycle(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test")
@@ -2623,7 +2946,24 @@ func TestFlow_PinLifecycle(t *testing.T) {
 // ---------------------------------------------------------------------------
 // Flow 19: File Sharing Across Channels
 // ---------------------------------------------------------------------------
-
+//
+// Scenario: Three remote files are shared across multiple channels with
+//           varying distribution, then one file is deleted while verifying
+//           the others remain intact.
+//
+// Steps:
+//  1. Create a user and 3 public channels (design, dev, product).
+//  2. Add 3 remote files: Design System (figma), API Spec (gdoc), README (markdown).
+//  3. Share Design System to design + product (2 channels).
+//  4. Share API Spec to all 3 channels.
+//  5. Share README to dev only.
+//  6. Get Design System — verify title and is_external=true.
+//  7. List all files — verify count >= 3.
+//  8. Delete the API Spec file — verify Get returns ErrNotFound.
+//  9. Verify Design System and README still exist.
+// 10. Verify file event count >= 7:
+//     [3 created + 3 shared + 1 deleted]
+//
 func TestFlow_FileSharingAcrossChannels(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test")
@@ -2751,7 +3091,29 @@ func TestFlow_FileSharingAcrossChannels(t *testing.T) {
 // ---------------------------------------------------------------------------
 // Flow 20: Multiple API Keys Per Principal — environments, permissions, listing
 // ---------------------------------------------------------------------------
-
+//
+// Scenario: A single user creates multiple API keys across different
+//           environments (live, test) and types (persistent, restricted),
+//           exercises validation, permission updates, revocation, and
+//           filtered listing.
+//
+// Steps:
+//  1. Create a user.
+//  2. Create a live key (sk_live_) with [read, write] — verify prefix.
+//  3. Create a test key (sk_test_) with [read] — verify prefix.
+//  4. Create a restricted key with [deploy] permission.
+//  5. Validate each key — verify environment and permissions match.
+//  6. List all keys — verify count=3.
+//  7. Update live key description — verify via Get.
+//  8. Update test key permissions to [read, write, admin] — re-validate
+//     and verify 3 permissions.
+//  9. Revoke the restricted key.
+// 10. List without revoked — verify count=2.
+// 11. List with include_revoked — verify count=3.
+// 12. Validate revoked key — expect ErrTokenRevoked.
+// 13. Validate live and test keys — both still work.
+// 14. Verify event counts: 3 created, 2 updated, 1 revoked.
+//
 func TestFlow_MultipleAPIKeys(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test")
@@ -2924,7 +3286,27 @@ func TestFlow_MultipleAPIKeys(t *testing.T) {
 // ---------------------------------------------------------------------------
 // Flow 21: Subscription Event Type Matching — overlapping subscriptions
 // ---------------------------------------------------------------------------
-
+//
+// Scenario: Multiple webhook subscriptions with overlapping event types are
+//           created, updated (add types, change URL), disabled/re-enabled,
+//           and deleted — verifying independent lifecycle management.
+//
+// Steps:
+//  1. Create a "messages" subscription for [message.posted, message.updated,
+//     message.deleted] — verify 3 event types.
+//  2. Create a "channels" subscription for [channel.created, channel.archive,
+//     member.joined_channel].
+//  3. Create a "catch-all" subscription for [message.posted, channel.created,
+//     reaction.added, pin.added].
+//  4. List subscriptions — verify count=3.
+//  5. Update the messages subscription to add reaction.added (now 4 types).
+//  6. Disable the catch-all subscription — verify enabled=false.
+//  7. Re-enable the catch-all — verify enabled=true.
+//  8. Change the channels subscription URL to /channels/v2 — verify.
+//  9. Delete the channels subscription — verify list count=2.
+// 10. Verify subscription event count = 8:
+//     [3 created + 1 update(types) + 1 disable + 1 enable + 1 update(url) + 1 deleted]
+//
 func TestFlow_SubscriptionEventTypeMatching(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test")
@@ -3056,7 +3438,40 @@ func TestFlow_SubscriptionEventTypeMatching(t *testing.T) {
 // ---------------------------------------------------------------------------
 // Flow 22: Complex Projection Rebuild — verify all state survives TRUNCATE+replay
 // ---------------------------------------------------------------------------
-
+//
+// Scenario: Builds a rich workspace state touching every aggregate type, then
+//           performs a full projection rebuild (TRUNCATE all projection tables
+//           + replay all events) and verifies that every piece of state
+//           is faithfully recreated.
+//
+// Steps:
+//  1. Create an admin (human, is_admin=true) and an agent (owned by admin).
+//  2. Create a public channel with topic and purpose; invite the agent.
+//  3. Post a parent message and a threaded reply.
+//  4. Add a :star: reaction to the parent.
+//  5. Pin the parent message.
+//  6. Create a bookmark in the channel.
+//  7. Create a usergroup and set members to [admin, agent].
+//  8. Add a remote file.
+//  9. Create an auth token.
+// 10. Create an API key.
+// 11. Create a webhook subscription.
+// 12. Count events before rebuild — verify >= 15.
+// 13. Perform full RebuildAll().
+// 14. Verify event count is unchanged after rebuild.
+// 15. Verify admin user: name, is_admin, principal_type.
+// 16. Verify agent user: principal_type, owner_id.
+// 17. Verify channel: topic, purpose, num_members=2.
+// 18. Verify message text.
+// 19. Verify reactions on the message.
+// 20. Verify pins list.
+// 21. Verify bookmarks list.
+// 22. Verify usergroup membership.
+// 23. Verify file still accessible.
+// 24. Verify auth token validates successfully.
+// 25. Verify API key validates successfully.
+// 26. Verify subscription URL and enabled state.
+//
 func TestFlow_ComplexProjectionRebuild(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test")
@@ -3272,7 +3687,24 @@ func TestFlow_ComplexProjectionRebuild(t *testing.T) {
 // ---------------------------------------------------------------------------
 // Flow 23: Message Metadata & Blocks — rich message content
 // ---------------------------------------------------------------------------
-
+//
+// Scenario: Messages with structured Block Kit content and arbitrary metadata
+//           are posted, retrieved, updated, and verified through history.
+//
+// Steps:
+//  1. Create a user and a public channel.
+//  2. Post a message with Block Kit blocks (section with mrkdwn) and fallback text.
+//  3. Get the message — verify blocks are present and text matches fallback.
+//  4. Post a message with metadata (event_type + event_payload JSON).
+//  5. Get the metadata message — verify metadata is present.
+//  6. Update the blocks on the first message — verify blocks are updated.
+//  7. Update only the text (not blocks) — verify text changes while blocks
+//     remain from the previous update.
+//  8. Post a message with BOTH blocks and metadata.
+//  9. Get it — verify both blocks and metadata are present.
+// 10. Fetch channel history — verify >= 3 messages.
+// 11. Verify message event count = 5: [3 posted + 2 updated].
+//
 func TestFlow_MessageMetadataAndBlocks(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test")
@@ -3394,7 +3826,29 @@ func TestFlow_MessageMetadataAndBlocks(t *testing.T) {
 // ---------------------------------------------------------------------------
 // Flow 24: Conversation with Initial Topic/Purpose + Full Update Lifecycle
 // ---------------------------------------------------------------------------
-
+//
+// Scenario: A channel is created with an initial topic and purpose, then goes
+//           through multiple topic updates, a rename, member churn (invite,
+//           kick, re-invite), archive/unarchive, and a projection rebuild.
+//
+// Steps:
+//  1. Create a user.
+//  2. Create a public channel with topic="Initial Topic" and purpose="Initial Purpose".
+//  3. Update the topic 3 times ("Second Topic" → "Third Topic" → "Final Topic").
+//  4. Update the purpose to "Updated Purpose".
+//  5. Rename the channel to "renamed-channel".
+//  6. Create 3 additional users and invite all to the channel.
+//  7. Verify num_members=4 (creator + 3).
+//  8. Kick one member — verify num_members=3.
+//  9. Re-invite the kicked member — verify num_members=4.
+// 10. Archive the channel — verify is_archived=true.
+// 11. Unarchive — verify is_archived=false.
+// 12. Verify conversation event count >= 13:
+//     [created + 3 topic_set + purpose_set + updated + 3 member_joined
+//      + member_left + member_joined + archived + unarchived]
+// 13. Perform projection rebuild — verify name, topic, purpose, and
+//     num_members all survive.
+//
 func TestFlow_ConversationCreationWithTopicPurpose(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test")
@@ -3553,7 +4007,30 @@ func TestFlow_ConversationCreationWithTopicPurpose(t *testing.T) {
 // ---------------------------------------------------------------------------
 // Flow 25: Usergroup Full Lifecycle — handle updates, description, membership churn
 // ---------------------------------------------------------------------------
-
+//
+// Scenario: A usergroup goes through its full lifecycle — creation, metadata
+//           updates (name, handle, description), membership churn, disable/
+//           re-enable, a second group for cross-membership, and rebuild.
+//
+// Steps:
+//  1. Create 5 users (A, B, C, D, E).
+//  2. Create usergroup "Frontend Team" with handle="frontend".
+//  3. Set initial members to [A, B, C] — verify count=3.
+//  4. Update name to "Frontend & Mobile Team".
+//  5. Update handle to "frontend-mobile".
+//  6. Update description to "Frontend and Mobile developers".
+//  7. Verify all 3 fields via Get.
+//  8. Change membership: remove B, add D and E → [A, C, D, E] — verify count=4.
+//  9. Verify B is NOT in the group; D and E ARE.
+// 10. Disable the usergroup.
+// 11. List with include_disabled=false — verify count=0.
+// 12. List with include_disabled=true — verify count=1.
+// 13. Re-enable the usergroup.
+// 14. Create a second usergroup "Backend Team" with members [B, C].
+// 15. List all groups — verify count=2.
+// 16. Verify user C is in BOTH groups.
+// 17. Perform projection rebuild — verify name and handle survive.
+//
 func TestFlow_UsergroupFullLifecycle(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test")
