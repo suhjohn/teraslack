@@ -148,8 +148,15 @@ func AuthMiddleware(authSvc *service.AuthService, apiKeySvc *service.APIKeyServi
 				return
 			}
 
-					// Legacy Bearer token validation
-				resp, err := authSvc.ValidateToken(ctx, token)
+			// Legacy Bearer token validation
+			if authSvc == nil {
+				httputil.WriteJSON(w, http.StatusUnauthorized, httputil.SlackResponse{
+					OK:    false,
+					Error: "token_auth_not_configured",
+				})
+				return
+			}
+			resp, err := authSvc.ValidateToken(ctx, token)
 			if err != nil {
 				httputil.WriteJSON(w, http.StatusUnauthorized, httputil.SlackResponse{
 					OK:    false,
