@@ -6,6 +6,7 @@ This repo is a multi-process deployment, not a single web process.
 
 Minimum useful deployment:
 
+- `frontend`
 - `server`
 - `external-event-projector`
 
@@ -16,7 +17,7 @@ Add these if you want the corresponding features:
 
 ## Start commands
 
-Use the root `Dockerfile` for every Railway service and set `APP_ROLE` per service.
+Use the root `Dockerfile` for every Go service and set `APP_ROLE` per service.
 
 - `server`: `APP_ROLE=server`
 - `external-event-projector`: `APP_ROLE=external-event-projector`
@@ -24,23 +25,32 @@ Use the root `Dockerfile` for every Railway service and set `APP_ROLE` per servi
 - `webhook-worker`: `APP_ROLE=webhook-worker`
 - `indexer`: `APP_ROLE=indexer`
 
+Deploy `frontend` from the `frontend/` directory. It is a separate TanStack Start app and uses its own `package.json` and `nixpacks.toml`.
+
 ## Healthcheck
 
 For the `server` service, use:
 
 - path: `/healthz`
 
+For the `frontend` service, use:
+
+- path: `/`
+
 ## Shared env
 
-See [.env.railway.example](/Users/johnsuh/teraslack/.env.railway.example).
+Ask the user which .env file to use. Provide the template of all env variables we need.
 
 Important notes:
 
-- `DATABASE_URL` must be reachable from Railway and should include SSL.
+- `DATABASE_URL` should be the pooled app connection for normal queries.
+- `MIGRATION_DATABASE_URL` should be the direct Postgres connection for startup migrations.
 - `BASE_URL` must be the public HTTPS URL of the `server` service.
+- `FRONTEND_URL` must be the public HTTPS URL of the `frontend` service.
 - `ENCRYPTION_KEY` is required by the API server and webhook worker.
 - `AUTH_STATE_SECRET` is only needed if you enable OAuth login flows.
 - File uploads, webhook queues, and indexing queues all rely on S3-compatible storage.
+- `VITE_API_BASE_URL` should point the frontend at the API, for example `https://api.teraslack.ai`.
 
 ## Storage layout
 
@@ -54,13 +64,17 @@ Suggested key layout:
 
 ## PlanetScale Postgres
 
-Use a Postgres connection string with SSL enabled.
+Use Postgres connection strings with SSL enabled.
 
-Because the API server currently runs migrations on startup, using the direct Postgres connection is the safest default for now.
+Recommended split:
+
+- `DATABASE_URL`: pooled PlanetScale URL on port `6432`
+- `MIGRATION_DATABASE_URL`: direct PlanetScale URL on port `5432`
 
 ## Operational notes
 
 - The API server runs migrations on startup.
+- The API server now expects `FRONTEND_URL` so CORS can allow the browser app.
 - `external-event-projector` should always be running if you depend on `/events` or webhooks.
 - `webhook-producer` and `webhook-worker` should be deployed together.
 - `indexer` can be omitted entirely if search indexing is not needed.

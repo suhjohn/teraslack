@@ -42,7 +42,7 @@ func run(logger *slog.Logger) error {
 
 	// Run migrations
 	logger.Info("running migrations")
-	m, err := migrate.New("file://internal/repository/migrations", cfg.DatabaseURL)
+	m, err := migrate.New("file://internal/repository/migrations", cfg.MigrationDatabaseURL)
 	if err != nil {
 		return fmt.Errorf("create migrator: %w", err)
 	}
@@ -201,6 +201,7 @@ func run(logger *slog.Logger) error {
 	// Set up router
 	router := handler.Router(
 		logger,
+		cfg.FrontendURL,
 		authSvc,
 		apiKeySvc,
 		workspaceHandler,

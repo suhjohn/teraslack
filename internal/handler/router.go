@@ -17,6 +17,7 @@ import (
 // Router sets up all HTTP routes.
 func Router(
 	logger *slog.Logger,
+	frontendURL string,
 	authSvc *service.AuthService,
 	apiKeySvc *service.APIKeyService,
 	workspaceH *WorkspaceHandler,
@@ -136,6 +137,7 @@ func Router(
 	root.Handle("/", validator(apiHandler))
 
 	var h http.Handler = root
+	h = CORS(frontendURL)(h)
 	h = AuthMiddleware(authSvc, apiKeySvc)(h)
 	h = Logger(logger)(h)
 	h = Recovery(logger)(h)

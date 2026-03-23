@@ -10,7 +10,9 @@ import (
 type Config struct {
 	Port                    int
 	DatabaseURL             string
+	MigrationDatabaseURL    string
 	BaseURL                 string
+	FrontendURL             string
 	AuthStateSecret         string
 	GitHubOAuthClientID     string
 	GitHubOAuthClientSecret string
@@ -55,11 +57,17 @@ func Load() (*Config, error) {
 	if baseURL == "" {
 		baseURL = fmt.Sprintf("http://localhost:%d", port)
 	}
+	frontendURL := os.Getenv("FRONTEND_URL")
+	if frontendURL == "" {
+		frontendURL = "http://localhost:3000"
+	}
 
 	return &Config{
 		Port:                    port,
 		DatabaseURL:             dbURL,
+		MigrationDatabaseURL:    getEnv("MIGRATION_DATABASE_URL", dbURL),
 		BaseURL:                 baseURL,
+		FrontendURL:             frontendURL,
 		AuthStateSecret:         os.Getenv("AUTH_STATE_SECRET"),
 		GitHubOAuthClientID:     os.Getenv("GITHUB_OAUTH_CLIENT_ID"),
 		GitHubOAuthClientSecret: os.Getenv("GITHUB_OAUTH_CLIENT_SECRET"),
