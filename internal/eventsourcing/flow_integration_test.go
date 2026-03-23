@@ -10,6 +10,8 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	internalcrypto "github.com/suhjohn/teraslack/internal/crypto"
+	"github.com/suhjohn/teraslack/internal/ctxutil"
 	"github.com/suhjohn/teraslack/internal/domain"
 	"github.com/suhjohn/teraslack/internal/eventsourcing"
 	pgRepo "github.com/suhjohn/teraslack/internal/repository/postgres"
@@ -38,17 +40,13 @@ type testEnv struct {
 func setupAllServices(t *testing.T) *testEnv {
 	t.Helper()
 	pool := setupTestDB(t)
-	ctx := context.Background()
-
-	migrationsDir := getMigrationsDir(t)
-	for _, mig := range []string{"000007_api_keys_principal_type.up.sql", "000008_drop_outbox.up.sql"} {
-		data := readMigration(t, migrationsDir, mig)
-		if _, err := pool.Exec(ctx, string(data)); err != nil {
-			t.Fatalf("run migration %s: %v", mig, err)
-		}
-	}
 
 	logger := newTestLogger()
+	provider, err := internalcrypto.NewEnvKeyProvider("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", nil)
+	if err != nil {
+		t.Fatalf("new key provider: %v", err)
+	}
+	encryptor := internalcrypto.NewEncryptor(provider)
 
 	userRepo := pgRepo.NewUserRepo(pool)
 	convRepo := pgRepo.NewConversationRepo(pool)
@@ -58,7 +56,7 @@ func setupAllServices(t *testing.T) *testEnv {
 	usergroupRepo := pgRepo.NewUsergroupRepo(pool)
 	fileRepo := pgRepo.NewFileRepo(pool)
 	authRepo := pgRepo.NewAuthRepo(pool)
-	eventRepo := pgRepo.NewEventRepo(pool, nil)
+	eventRepo := pgRepo.NewEventRepo(pool, encryptor)
 	apiKeyRepo := pgRepo.NewAPIKeyRepo(pool)
 	eventStoreRepo := pgRepo.NewEventStoreRepo(pool)
 	recorder := service.NewEventRecorder(eventStoreRepo)
@@ -71,12 +69,30 @@ func setupAllServices(t *testing.T) *testEnv {
 		pinSvc:      service.NewPinService(pinRepo, convRepo, msgRepo, recorder, pool, logger),
 		bookmarkSvc: service.NewBookmarkService(bookmarkRepo, convRepo, recorder, pool, logger),
 		ugSvc:       service.NewUsergroupService(usergroupRepo, userRepo, recorder, pool, logger),
-		fileSvc:     service.NewFileService(fileRepo, nil, "http://localhost:8080", recorder, pool, logger),
-		authSvc:     service.NewAuthService(authRepo, userRepo, recorder, pool, logger),
-		eventSvc:    service.NewEventService(eventRepo, recorder, pool, logger),
-		apiKeySvc:   service.NewAPIKeyService(apiKeyRepo, userRepo, recorder, pool, logger),
-		projector:   eventsourcing.NewProjector(pool, logger),
+		fileSvc:     service.NewFileService(fileRepo, nil, "", "http://localhost:8080", recorder, pool, logger),
+		authSvc: service.NewAuthService(authRepo, userRepo, recorder, pool, logger, service.AuthConfig{
+			BaseURL:     "http://localhost:8080",
+			StateSecret: "test-state-secret",
+			HTTPClient:  nil,
+		}),
+		eventSvc:  service.NewEventService(eventRepo, userRepo, recorder, pool, logger),
+		apiKeySvc: service.NewAPIKeyService(apiKeyRepo, userRepo, recorder, pool, logger),
+		projector: eventsourcing.NewProjector(pool, logger),
 	}
+}
+
+func createSession(t *testing.T, env *testEnv, teamID, userID string) *domain.AuthSession {
+	t.Helper()
+	session, err := pgRepo.NewAuthRepo(env.pool).CreateSession(context.Background(), domain.CreateAuthSessionParams{
+		TeamID:    teamID,
+		UserID:    userID,
+		Provider:  domain.AuthProviderGitHub,
+		ExpiresAt: time.Now().UTC().Add(24 * time.Hour),
+	})
+	if err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+	return session
 }
 
 // ---------------------------------------------------------------------------
@@ -86,7 +102,7 @@ func setupAllServices(t *testing.T) *testEnv {
 func queryEventTypes(t *testing.T, env *testEnv, teamID string) []string {
 	t.Helper()
 	rows, err := env.pool.Query(context.Background(),
-		"SELECT event_type FROM service_events WHERE team_id = $1 ORDER BY id ASC", teamID)
+		"SELECT event_type FROM internal_events WHERE team_id = $1 ORDER BY id ASC", teamID)
 	if err != nil {
 		t.Fatalf("query events: %v", err)
 	}
@@ -105,7 +121,7 @@ func queryEventTypes(t *testing.T, env *testEnv, teamID string) []string {
 func countEvents(t *testing.T, env *testEnv) int {
 	t.Helper()
 	var count int
-	if err := env.pool.QueryRow(context.Background(), "SELECT COUNT(*) FROM service_events").Scan(&count); err != nil {
+	if err := env.pool.QueryRow(context.Background(), "SELECT COUNT(*) FROM internal_events").Scan(&count); err != nil {
 		t.Fatalf("count events: %v", err)
 	}
 	return count
@@ -114,7 +130,7 @@ func countEvents(t *testing.T, env *testEnv) int {
 func queryPayloads(t *testing.T, env *testEnv, aggType, aggID string) []json.RawMessage {
 	t.Helper()
 	rows, err := env.pool.Query(context.Background(),
-		"SELECT payload FROM service_events WHERE aggregate_type = $1 AND aggregate_id = $2 ORDER BY id ASC",
+		"SELECT payload FROM internal_events WHERE aggregate_type = $1 AND aggregate_id = $2 ORDER BY id ASC",
 		aggType, aggID)
 	if err != nil {
 		t.Fatalf("query payloads: %v", err)
@@ -131,6 +147,61 @@ func queryPayloads(t *testing.T, env *testEnv, aggType, aggID string) []json.Raw
 	return payloads
 }
 
+func queryServiceEvent(t *testing.T, env *testEnv, eventType, aggType, aggID string) domain.InternalEvent {
+	t.Helper()
+
+	var evt domain.InternalEvent
+	err := env.pool.QueryRow(context.Background(),
+		`SELECT id, event_type, aggregate_type, aggregate_id, team_id, actor_id, payload, metadata, created_at
+		 FROM internal_events
+		 WHERE event_type = $1 AND aggregate_type = $2 AND aggregate_id = $3
+		 ORDER BY id DESC
+		 LIMIT 1`,
+		eventType, aggType, aggID,
+	).Scan(
+		&evt.ID,
+		&evt.EventType,
+		&evt.AggregateType,
+		&evt.AggregateID,
+		&evt.TeamID,
+		&evt.ActorID,
+		&evt.Payload,
+		&evt.Metadata,
+		&evt.CreatedAt,
+	)
+	if err != nil {
+		t.Fatalf("query service event: %v", err)
+	}
+	return evt
+}
+
+func assertJSONEqual(t *testing.T, got, want []byte) {
+	t.Helper()
+
+	var gotV any
+	if err := json.Unmarshal(got, &gotV); err != nil {
+		t.Fatalf("unmarshal got json: %v", err)
+	}
+
+	var wantV any
+	if err := json.Unmarshal(want, &wantV); err != nil {
+		t.Fatalf("unmarshal want json: %v", err)
+	}
+
+	gotNorm, err := json.Marshal(gotV)
+	if err != nil {
+		t.Fatalf("marshal got normalized json: %v", err)
+	}
+	wantNorm, err := json.Marshal(wantV)
+	if err != nil {
+		t.Fatalf("marshal want normalized json: %v", err)
+	}
+
+	if string(gotNorm) != string(wantNorm) {
+		t.Fatalf("json mismatch\ngot:  %s\nwant: %s", gotNorm, wantNorm)
+	}
+}
+
 func strPtr(s string) *string { return &s }
 
 // ---------------------------------------------------------------------------
@@ -138,10 +209,11 @@ func strPtr(s string) *string { return &s }
 // ---------------------------------------------------------------------------
 //
 // Scenario: A brand-new workspace is set up from scratch and exercises every
-//           core collaboration primitive in a single end-to-end sequence.
+//
+//	core collaboration primitive in a single end-to-end sequence.
 //
 // Steps:
-//  1. Create an admin user (human principal, is_admin=true).
+//  1. Create an admin user (human principal, account_type=admin).
 //  2. Create a second user "alice" (human principal).
 //  3. Create a public channel "general" — verify creator is auto-joined (num_members=1).
 //  4. Invite alice to general — verify num_members=2.
@@ -150,17 +222,16 @@ func strPtr(s string) *string { return &s }
 //  7. Alice adds a :thumbsup: reaction to admin's message.
 //  8. Admin pins the message.
 //  9. Admin creates a bookmark (link type) in general.
-// 10. List channel members — verify 2 members.
-// 11. Verify the full event sequence in service_events:
+//  10. List channel members — verify 2 members.
+//  11. Verify the full event sequence in internal_events:
 //     [user.created x2, conversation.created, member.joined,
-//      message.posted x2, reaction.added, pin.added, bookmark.created]
-// 12. (Unhappy) Duplicate reaction → expect silent upsert or ErrAlreadyReacted.
-// 13. (Unhappy) Duplicate invite → expect ErrAlreadyInChannel.
-// 14. (Unhappy) Duplicate pin → expect error.
-// 15. (Unhappy) Post to nonexistent channel → expect error.
-// 16. (Unhappy) Create user with empty team_id → expect ErrInvalidArgument.
-// 17. Verify bookmark list returns the created bookmark.
-//
+//     message.posted x2, reaction.added, pin.added, bookmark.created]
+//  12. (Unhappy) Duplicate reaction → expect silent upsert or ErrAlreadyReacted.
+//  13. (Unhappy) Duplicate invite → expect ErrAlreadyInChannel.
+//  14. (Unhappy) Duplicate pin → expect error.
+//  15. (Unhappy) Post to nonexistent channel → expect error.
+//  16. (Unhappy) Create user with empty team_id → expect ErrInvalidArgument.
+//  17. Verify bookmark list returns the created bookmark.
 func TestFlow_WorkspaceBootstrap(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test")
@@ -172,7 +243,7 @@ func TestFlow_WorkspaceBootstrap(t *testing.T) {
 	// Step 1: Create admin (human)
 	admin, err := env.userSvc.Create(ctx, domain.CreateUserParams{
 		TeamID: teamID, Name: "admin", Email: "admin@example.com",
-		PrincipalType: domain.PrincipalTypeHuman, IsAdmin: true,
+		PrincipalType: domain.PrincipalTypeHuman, AccountType: domain.AccountTypeAdmin,
 	})
 	if err != nil {
 		t.Fatalf("create admin: %v", err)
@@ -265,7 +336,7 @@ func TestFlow_WorkspaceBootstrap(t *testing.T) {
 	// Verify event sequence — some events (reaction, bookmark) have empty team_id,
 	// so query all events in the DB, not just by team
 	var allEvents []string
-	eRows, _ := env.pool.Query(ctx, "SELECT event_type FROM service_events ORDER BY id ASC")
+	eRows, _ := env.pool.Query(ctx, "SELECT event_type FROM internal_events ORDER BY id ASC")
 	for eRows.Next() {
 		var et string
 		eRows.Scan(&et)
@@ -337,8 +408,9 @@ func TestFlow_WorkspaceBootstrap(t *testing.T) {
 // ---------------------------------------------------------------------------
 //
 // Scenario: A channel goes through its full lifecycle — creation, metadata
-//           updates, posting, archival, and unarchival — verifying that
-//           archived channels block writes and unarchiving restores them.
+//
+//	updates, posting, archival, and unarchival — verifying that
+//	archived channels block writes and unarchiving restores them.
 //
 // Steps:
 //  1. Create a user and a public channel "project-alpha".
@@ -350,13 +422,12 @@ func TestFlow_WorkspaceBootstrap(t *testing.T) {
 //  7. (Unhappy) Post to archived channel → expect ErrChannelArchived.
 //  8. (Unhappy) Set topic on archived channel → expect ErrChannelArchived.
 //  9. Unarchive the channel.
-// 10. Post a message after unarchiving — verify it succeeds.
-// 11. List conversations with exclude_archived=true — verify unarchived channel appears.
-// 12. Verify old message (posted before archive) is still accessible.
-// 13. Verify event sequence: [user.created, conversation.created,
+//  10. Post a message after unarchiving — verify it succeeds.
+//  11. List conversations with exclude_archived=true — verify unarchived channel appears.
+//  12. Verify old message (posted before archive) is still accessible.
+//  13. Verify event sequence: [user.created, conversation.created,
 //     topic_set, purpose_set, updated, message.posted, archived,
 //     unarchived, message.posted]
-//
 func TestFlow_ChannelLifecycle(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test")
@@ -367,6 +438,7 @@ func TestFlow_ChannelLifecycle(t *testing.T) {
 
 	user, err := env.userSvc.Create(ctx, domain.CreateUserParams{
 		TeamID: teamID, Name: "owner", Email: "owner@example.com",
+		PrincipalType: domain.PrincipalTypeHuman,
 	})
 	if err != nil {
 		t.Fatalf("create user: %v", err)
@@ -493,8 +565,9 @@ func TestFlow_ChannelLifecycle(t *testing.T) {
 // ---------------------------------------------------------------------------
 //
 // Scenario: A human creates an AI agent and issues a delegated API key,
-//           then exercises the full key lifecycle (create → validate →
-//           update → list → revoke) including delegation chain tracking.
+//
+//	then exercises the full key lifecycle (create → validate →
+//	update → list → revoke) including delegation chain tracking.
 //
 // Steps:
 //  1. Create a human user.
@@ -506,12 +579,12 @@ func TestFlow_ChannelLifecycle(t *testing.T) {
 //  7. List keys for the team — verify count=1.
 //  8. Revoke the key — verify subsequent validation returns ErrTokenRevoked.
 //  9. List with include_revoked=true — verify the revoked key appears.
+//
 // 10. Verify the revoke event payload contains revoked_at.
 // 11. (Unhappy) Create key with nonexistent principal → expect error.
 // 12. (Unhappy) Create key with empty name → expect ErrInvalidArgument.
 // 13. (Unhappy) Validate garbage key → expect ErrInvalidAuth.
 // 14. Verify api_key event count: 3 (created, updated, revoked).
-//
 func TestFlow_AgentDelegation(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test")
@@ -666,8 +739,9 @@ func TestFlow_AgentDelegation(t *testing.T) {
 // ---------------------------------------------------------------------------
 //
 // Scenario: An API key is rotated with a 24h grace period, during which
-//           both old and new keys are valid. After revoking the new key,
-//           rotation of a revoked key is rejected.
+//
+//	both old and new keys are valid. After revoking the new key,
+//	rotation of a revoked key is rejected.
 //
 // Steps:
 //  1. Create a user and a live API key — validate it works.
@@ -678,7 +752,6 @@ func TestFlow_AgentDelegation(t *testing.T) {
 //  6. Verify event counts: 2 api_key.created + 1 api_key.rotated.
 //  7. (Unhappy) Revoke the new key, then try to rotate it → expect ErrInvalidArgument.
 //  8. Validate revoked new key → expect ErrTokenRevoked.
-//
 func TestFlow_KeyRotation(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test")
@@ -689,6 +762,7 @@ func TestFlow_KeyRotation(t *testing.T) {
 
 	user, err := env.userSvc.Create(ctx, domain.CreateUserParams{
 		TeamID: teamID, Name: "rotator", Email: "rotator@example.com",
+		PrincipalType: domain.PrincipalTypeHuman,
 	})
 	if err != nil {
 		t.Fatalf("create user: %v", err)
@@ -782,7 +856,8 @@ func TestFlow_KeyRotation(t *testing.T) {
 // ---------------------------------------------------------------------------
 //
 // Scenario: Two users in a channel exercise the full message lifecycle —
-//           posting, threading, editing, deleting, reactions, and removal.
+//
+//	posting, threading, editing, deleting, reactions, and removal.
 //
 // Steps:
 //  1. Create 2 users and a public channel; invite user2.
@@ -794,11 +869,10 @@ func TestFlow_KeyRotation(t *testing.T) {
 //  7. Add 3 different reactions (:fire:, :rocket:, :heart:) on the parent.
 //  8. Verify reaction count = 3.
 //  9. Remove the :fire: reaction — verify count = 2.
-// 10. (Unhappy) Edit nonexistent message → expect error.
-// 11. (Unhappy) Delete already-deleted message → expect error.
-// 12. Verify event counts: message.posted, message.updated, message.deleted,
+//  10. (Unhappy) Edit nonexistent message → expect error.
+//  11. (Unhappy) Delete already-deleted message → expect error.
+//  12. Verify event counts: message.posted, message.updated, message.deleted,
 //     reaction.added, reaction.removed.
-//
 func TestFlow_MessageThreading(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test")
@@ -809,6 +883,7 @@ func TestFlow_MessageThreading(t *testing.T) {
 
 	user, err := env.userSvc.Create(ctx, domain.CreateUserParams{
 		TeamID: teamID, Name: "threader", Email: "threader@example.com",
+		PrincipalType: domain.PrincipalTypeHuman,
 	})
 	if err != nil {
 		t.Fatalf("create user: %v", err)
@@ -822,6 +897,7 @@ func TestFlow_MessageThreading(t *testing.T) {
 	}
 	user2, err := env.userSvc.Create(ctx, domain.CreateUserParams{
 		TeamID: teamID, Name: "replier", Email: "replier@example.com",
+		PrincipalType: domain.PrincipalTypeHuman,
 	})
 	if err != nil {
 		t.Fatalf("create user2: %v", err)
@@ -934,7 +1010,7 @@ func TestFlow_MessageThreading(t *testing.T) {
 
 	// Verify event types present — message events use empty team_id, so query all events
 	var allEventTypes []string
-	rows, err := env.pool.Query(ctx, "SELECT event_type FROM service_events ORDER BY id ASC")
+	rows, err := env.pool.Query(ctx, "SELECT event_type FROM internal_events ORDER BY id ASC")
 	if err != nil {
 		t.Fatalf("query all events: %v", err)
 	}
@@ -967,7 +1043,8 @@ func TestFlow_MessageThreading(t *testing.T) {
 // ---------------------------------------------------------------------------
 //
 // Scenario: A usergroup is created, populated, renamed, disabled, re-enabled,
-//           and its membership is updated — covering the full CRUD lifecycle.
+//
+//	and its membership is updated — covering the full CRUD lifecycle.
 //
 // Steps:
 //  1. Create 3 users (admin, u1, u2).
@@ -979,9 +1056,8 @@ func TestFlow_MessageThreading(t *testing.T) {
 //  7. List with include_disabled=false — verify count=0.
 //  8. Re-enable the usergroup.
 //  9. Update membership to [u1] only — verify count=1.
-// 10. Verify usergroup event count = 6:
+//  10. Verify usergroup event count = 6:
 //     [created, users_set, updated, disabled, enabled, users_set]
-//
 func TestFlow_Usergroups(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test")
@@ -992,18 +1068,21 @@ func TestFlow_Usergroups(t *testing.T) {
 
 	admin, err := env.userSvc.Create(ctx, domain.CreateUserParams{
 		TeamID: teamID, Name: "ug-admin", Email: "ugadmin@example.com",
+		PrincipalType: domain.PrincipalTypeHuman,
 	})
 	if err != nil {
 		t.Fatalf("create admin: %v", err)
 	}
 	u1, err := env.userSvc.Create(ctx, domain.CreateUserParams{
 		TeamID: teamID, Name: "m1", Email: "m1@example.com",
+		PrincipalType: domain.PrincipalTypeHuman,
 	})
 	if err != nil {
 		t.Fatalf("create u1: %v", err)
 	}
 	u2, err := env.userSvc.Create(ctx, domain.CreateUserParams{
 		TeamID: teamID, Name: "m2", Email: "m2@example.com",
+		PrincipalType: domain.PrincipalTypeHuman,
 	})
 	if err != nil {
 		t.Fatalf("create u2: %v", err)
@@ -1093,7 +1172,8 @@ func TestFlow_Usergroups(t *testing.T) {
 // ---------------------------------------------------------------------------
 //
 // Scenario: Remote files are added, shared to channels, listed, and deleted.
-//           Also verifies that S3 upload fails gracefully when no S3 client is configured.
+//
+//	Also verifies that S3 upload fails gracefully when no S3 client is configured.
 //
 // Steps:
 //  1. Create a user and a public channel.
@@ -1105,8 +1185,8 @@ func TestFlow_Usergroups(t *testing.T) {
 //  7. Delete the spec file — verify Get returns ErrNotFound.
 //  8. (Unhappy) Request S3 upload URL with nil S3 client → expect error.
 //  9. (Unhappy) Add file with no title → expect ErrInvalidArgument.
-// 10. (Unhappy) Get nonexistent file → expect ErrNotFound.
 //
+// 10. (Unhappy) Get nonexistent file → expect ErrNotFound.
 func TestFlow_FileLifecycle(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test")
@@ -1117,10 +1197,12 @@ func TestFlow_FileLifecycle(t *testing.T) {
 
 	user, err := env.userSvc.Create(ctx, domain.CreateUserParams{
 		TeamID: teamID, Name: "uploader", Email: "up@example.com",
+		PrincipalType: domain.PrincipalTypeHuman,
 	})
 	if err != nil {
 		t.Fatalf("create user: %v", err)
 	}
+	ctx = ctxutil.WithUser(ctx, user.ID, teamID)
 	ch, err := env.convSvc.Create(ctx, domain.CreateConversationParams{
 		TeamID: teamID, Name: "files",
 		Type: domain.ConversationTypePublicChannel, CreatorID: user.ID,
@@ -1205,22 +1287,23 @@ func TestFlow_FileLifecycle(t *testing.T) {
 // ---------------------------------------------------------------------------
 //
 // Scenario: Webhook subscriptions are created, updated, disabled, listed,
-//           and deleted. Verifies that plaintext secrets are not stored in
-//           event payloads (Redacted() clears the secret field).
+//
+//	and deleted. Verifies that plaintext secrets are not stored in
+//	event payloads (Redacted() clears the secret field).
 //
 // Steps:
-//  1. Create subscription for [message.posted, reaction.added] — verify enabled=true.
+//  1. Create a message subscription — verify enabled=true.
 //  2. Get subscription — verify URL.
 //  3. Update the URL — verify.
 //  4. Disable the subscription (enabled=false).
-//  5. Create a second subscription for [channel.created].
+//  5. Create a second subscription for conversation.created.
 //  6. List subscriptions — verify count=2.
 //  7. Delete the second subscription — verify count=1.
 //  8. Verify event count = 5: [created, updated, updated(disable), created, deleted]
 //  9. Verify no plaintext secret in any event payload (Redacted()).
+//
 // 10. (Unhappy) Create subscription with no URL → expect ErrInvalidArgument.
 // 11. (Unhappy) Create subscription with no event types → expect ErrInvalidArgument.
-//
 func TestFlow_EventSubscriptions(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test")
@@ -1231,8 +1314,8 @@ func TestFlow_EventSubscriptions(t *testing.T) {
 
 	sub, err := env.eventSvc.CreateSubscription(ctx, domain.CreateEventSubscriptionParams{
 		TeamID: teamID, URL: "https://hooks.example.com/events",
-		EventTypes: []string{domain.EventTypeMessagePosted, domain.EventTypeReactionAdded},
-		Secret:     "secret-123",
+		Type:   domain.EventTypeConversationMessageCreated,
+		Secret: "secret-123",
 	})
 	if err != nil {
 		t.Fatalf("create sub: %v", err)
@@ -1270,7 +1353,7 @@ func TestFlow_EventSubscriptions(t *testing.T) {
 	// Create second subscription
 	sub2, err := env.eventSvc.CreateSubscription(ctx, domain.CreateEventSubscriptionParams{
 		TeamID: teamID, URL: "https://hooks2.example.com",
-		EventTypes: []string{domain.EventTypeChannelCreated}, Secret: "s2",
+		Type: domain.EventTypeConversationCreated, Secret: "s2",
 	})
 	if err != nil {
 		t.Fatalf("create sub2: %v", err)
@@ -1295,7 +1378,7 @@ func TestFlow_EventSubscriptions(t *testing.T) {
 	events := queryEventTypes(t, env, teamID)
 	subEvents := 0
 	for _, e := range events {
-		if strings.HasPrefix(e, "subscription.") {
+		if strings.HasPrefix(e, "event_subscription.") {
 			subEvents++
 		}
 	}
@@ -1304,10 +1387,7 @@ func TestFlow_EventSubscriptions(t *testing.T) {
 		t.Errorf("sub events = %d, want 5", subEvents)
 	}
 
-	// Verify the Redacted() method clears the Secret field in payloads
-	// Note: with nil encryptor, EncryptedSecret will contain the plaintext value
-	// (this is by design — encryption is optional). We verify that the "secret"
-	// JSON key is empty (Redacted clears it), not the encrypted_secret field.
+	// Verify the Redacted() method clears the plaintext secret field in payloads.
 	payloads := queryPayloads(t, env, domain.AggregateSubscription, sub.ID)
 	for _, p := range payloads {
 		var parsed map[string]interface{}
@@ -1321,18 +1401,115 @@ func TestFlow_EventSubscriptions(t *testing.T) {
 	// --- Unhappy paths ---
 	// No URL
 	_, err = env.eventSvc.CreateSubscription(ctx, domain.CreateEventSubscriptionParams{
-		TeamID: teamID, EventTypes: []string{"message.posted"},
+		TeamID: teamID, Type: domain.EventTypeConversationMessageCreated,
 	})
 	if !errors.Is(err, domain.ErrInvalidArgument) {
 		t.Errorf("no url: got %v", err)
 	}
 
-	// No event types
-	_, err = env.eventSvc.CreateSubscription(ctx, domain.CreateEventSubscriptionParams{
-		TeamID: teamID, URL: "https://x.com",
+}
+
+func TestFlow_WebhookEnvelopeContract(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test")
+	}
+	env := setupAllServices(t)
+	baseCtx := context.Background()
+	teamID := "T-webhook-envelope"
+
+	user, err := env.userSvc.Create(baseCtx, domain.CreateUserParams{
+		TeamID: teamID, Name: "hook-user", Email: "hook@example.com",
+		PrincipalType: domain.PrincipalTypeHuman, AccountType: domain.AccountTypeAdmin,
 	})
-	if !errors.Is(err, domain.ErrInvalidArgument) {
-		t.Errorf("no types: got %v", err)
+	if err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+
+	ctx := ctxutil.WithUser(baseCtx, user.ID, teamID)
+
+	ch, err := env.convSvc.Create(ctx, domain.CreateConversationParams{
+		TeamID: teamID, Name: "hooks",
+		Type: domain.ConversationTypePublicChannel, CreatorID: user.ID,
+	})
+	if err != nil {
+		t.Fatalf("create channel: %v", err)
+	}
+
+	msg, err := env.msgSvc.PostMessage(ctx, domain.PostMessageParams{
+		ChannelID: ch.ID, UserID: user.ID, Text: "hello webhooks",
+	})
+	if err != nil {
+		t.Fatalf("post message: %v", err)
+	}
+
+	msgEvent := queryServiceEvent(t, env, domain.EventMessagePosted, domain.AggregateMessage, msg.TS)
+	if msgEvent.TeamID != teamID {
+		t.Fatalf("message event team_id = %q, want %q", msgEvent.TeamID, teamID)
+	}
+	if msgEvent.ActorID != user.ID {
+		t.Fatalf("message event actor_id = %q, want %q", msgEvent.ActorID, user.ID)
+	}
+	if msgEvent.CreatedAt.IsZero() {
+		t.Fatal("message event created_at is zero")
+	}
+
+	body, err := json.Marshal(msgEvent)
+	if err != nil {
+		t.Fatalf("marshal message event envelope: %v", err)
+	}
+	var msgEnvelope domain.InternalEvent
+	if err := json.Unmarshal(body, &msgEnvelope); err != nil {
+		t.Fatalf("unmarshal message envelope: %v", err)
+	}
+	if msgEnvelope.ID != msgEvent.ID || msgEnvelope.EventType != domain.EventMessagePosted ||
+		msgEnvelope.AggregateType != domain.AggregateMessage || msgEnvelope.AggregateID != msg.TS {
+		t.Fatalf("unexpected message envelope: %+v", msgEnvelope)
+	}
+	assertJSONEqual(t, msgEnvelope.Payload, msgEvent.Payload)
+
+	var msgPayload domain.Message
+	if err := json.Unmarshal(msgEnvelope.Payload, &msgPayload); err != nil {
+		t.Fatalf("unmarshal message payload: %v", err)
+	}
+	if msgPayload.TS != msg.TS || msgPayload.ChannelID != ch.ID || msgPayload.Text != "hello webhooks" {
+		t.Fatalf("unexpected message payload: %+v", msgPayload)
+	}
+
+	sub, err := env.eventSvc.CreateSubscription(ctx, domain.CreateEventSubscriptionParams{
+		TeamID: teamID,
+		URL:    "https://hooks.example.com/events",
+		Type:   domain.EventTypeConversationMessageCreated,
+		Secret: "super-secret",
+	})
+	if err != nil {
+		t.Fatalf("create subscription: %v", err)
+	}
+
+	if err := env.eventSvc.DeleteSubscription(ctx, sub.ID); err != nil {
+		t.Fatalf("delete subscription: %v", err)
+	}
+
+	delEvent := queryServiceEvent(t, env, domain.EventSubscriptionDeleted, domain.AggregateSubscription, sub.ID)
+	if delEvent.ActorID != user.ID {
+		t.Fatalf("delete event actor_id = %q, want %q", delEvent.ActorID, user.ID)
+	}
+
+	delBody, err := json.Marshal(delEvent)
+	if err != nil {
+		t.Fatalf("marshal delete event envelope: %v", err)
+	}
+	var delEnvelope domain.InternalEvent
+	if err := json.Unmarshal(delBody, &delEnvelope); err != nil {
+		t.Fatalf("unmarshal delete envelope: %v", err)
+	}
+	assertJSONEqual(t, delEnvelope.Payload, delEvent.Payload)
+
+	var deletePayload map[string]string
+	if err := json.Unmarshal(delEnvelope.Payload, &deletePayload); err != nil {
+		t.Fatalf("unmarshal delete payload: %v", err)
+	}
+	if deletePayload["id"] != sub.ID {
+		t.Fatalf("delete payload id = %q, want %q", deletePayload["id"], sub.ID)
 	}
 }
 
@@ -1341,8 +1518,9 @@ func TestFlow_EventSubscriptions(t *testing.T) {
 // ---------------------------------------------------------------------------
 //
 // Scenario: Bearer tokens are created, validated (with and without "Bearer "
-//           prefix), revoked, and verified that raw tokens never appear in
-//           event payloads.
+//
+//	prefix), revoked, and verified that raw tokens never appear in
+//	event payloads.
 //
 // Steps:
 //  1. Create a user.
@@ -1354,10 +1532,10 @@ func TestFlow_EventSubscriptions(t *testing.T) {
 //  7. Validate the second token — still works.
 //  8. Verify token event count = 3: [created, created, revoked].
 //  9. Verify no raw token string appears in event payloads.
+//
 // 10. (Unhappy) Create token for nonexistent user → expect error.
 // 11. (Unhappy) Validate garbage token → expect error.
-//
-func TestFlow_AuthTokenLifecycle(t *testing.T) {
+func TestFlow_AuthSessionLifecycle(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test")
 	}
@@ -1367,25 +1545,19 @@ func TestFlow_AuthTokenLifecycle(t *testing.T) {
 
 	user, err := env.userSvc.Create(ctx, domain.CreateUserParams{
 		TeamID: teamID, Name: "auth-user", Email: "auth@example.com",
+		PrincipalType: domain.PrincipalTypeHuman,
 	})
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
 
-	// Create token
-	token, err := env.authSvc.CreateToken(ctx, domain.CreateTokenParams{
-		TeamID: teamID, UserID: user.ID, Scopes: []string{"read", "write"},
-	})
-	if err != nil {
-		t.Fatalf("create token: %v", err)
+	session := createSession(t, env, teamID, user.ID)
+	if session.Token == "" {
+		t.Fatal("raw session token empty")
 	}
-	if token.Token == "" {
-		t.Error("raw token empty")
-	}
-	rawToken := token.Token
 
 	// Validate
-	auth, err := env.authSvc.ValidateToken(ctx, rawToken)
+	auth, err := env.authSvc.ValidateSession(ctx, session.Token)
 	if err != nil {
 		t.Fatalf("validate: %v", err)
 	}
@@ -1397,7 +1569,7 @@ func TestFlow_AuthTokenLifecycle(t *testing.T) {
 	}
 
 	// Validate with Bearer prefix
-	auth2, err := env.authSvc.ValidateToken(ctx, "Bearer "+rawToken)
+	auth2, err := env.authSvc.ValidateSession(ctx, "Bearer "+session.Token)
 	if err != nil {
 		t.Fatalf("validate bearer: %v", err)
 	}
@@ -1405,60 +1577,32 @@ func TestFlow_AuthTokenLifecycle(t *testing.T) {
 		t.Errorf("bearer user_id = %q", auth2.UserID)
 	}
 
-	// Second token
-	token2, err := env.authSvc.CreateToken(ctx, domain.CreateTokenParams{
-		TeamID: teamID, UserID: user.ID, Scopes: []string{"read"},
-	})
-	if err != nil {
-		t.Fatalf("create token2: %v", err)
-	}
+	session2 := createSession(t, env, teamID, user.ID)
 
 	// Revoke first
-	if err := env.authSvc.RevokeToken(ctx, rawToken); err != nil {
+	if err := env.authSvc.RevokeSession(ctx, session.Token); err != nil {
 		t.Fatalf("revoke: %v", err)
 	}
 
 	// Validate revoked fails
-	_, err = env.authSvc.ValidateToken(ctx, rawToken)
+	_, err = env.authSvc.ValidateSession(ctx, session.Token)
 	if err == nil {
 		t.Error("validate revoked: expected error")
 	}
 
+	if !errors.Is(err, domain.ErrSessionRevoked) {
+		t.Fatalf("validate revoked: %v", err)
+	}
+
 	// Second still works
-	if _, err := env.authSvc.ValidateToken(ctx, token2.Token); err != nil {
-		t.Fatalf("validate token2: %v", err)
-	}
-
-	// Verify events — token events may have empty team_id (revoke uses token_hash as aggregate_id)
-	// so query all events in the DB for token types
-	var tokenEvents int
-	env.pool.QueryRow(ctx, "SELECT COUNT(*) FROM service_events WHERE event_type LIKE 'token.%'").Scan(&tokenEvents)
-	// created + created + revoked = 3
-	if tokenEvents != 3 {
-		t.Errorf("token events = %d, want 3", tokenEvents)
-	}
-
-	// Verify no raw token in payloads
-	allPayloads := queryPayloads(t, env, domain.AggregateToken, token.ID)
-	for _, p := range allPayloads {
-		if strings.Contains(string(p), rawToken) {
-			t.Error("raw token in payload")
-		}
+	if _, err := env.authSvc.ValidateSession(ctx, session2.Token); err != nil {
+		t.Fatalf("validate session2: %v", err)
 	}
 
 	// --- Unhappy paths ---
-	// Nonexistent user
-	_, err = env.authSvc.CreateToken(ctx, domain.CreateTokenParams{
-		TeamID: teamID, UserID: "nonexistent",
-	})
+	_, err = env.authSvc.ValidateSession(ctx, "garbage")
 	if err == nil {
-		t.Error("nonexistent user: expected error")
-	}
-
-	// Garbage token
-	_, err = env.authSvc.ValidateToken(ctx, "garbage")
-	if err == nil {
-		t.Error("garbage token: expected error")
+		t.Error("garbage session token: expected error")
 	}
 }
 
@@ -1467,8 +1611,9 @@ func TestFlow_AuthTokenLifecycle(t *testing.T) {
 // ---------------------------------------------------------------------------
 //
 // Scenario: Exercises one operation from every aggregate type in a single
-//           workspace, then verifies that all 10 events are recorded and
-//           that a full projection rebuild preserves all state.
+//
+//	workspace, then verifies that all 10 events are recorded and
+//	that a full projection rebuild preserves all state.
 //
 // Steps:
 //  1. Record event count before the test.
@@ -1479,16 +1624,14 @@ func TestFlow_AuthTokenLifecycle(t *testing.T) {
 //  6. Pin the message.
 //  7. Create a bookmark.
 //  8. Create a usergroup.
-//  9. Create a token.
-// 10. Create an API key.
-// 11. Create a webhook subscription.
-// 12. Verify exactly 10 new events were recorded.
-// 13. Verify each aggregate type (user, conversation, message, pin,
-//     bookmark, usergroup, token, api_key, subscription) has >= 1 event.
-// 14. Perform full projection rebuild (TRUNCATE + replay).
-// 15. Verify user, conversation, bookmark, usergroup, and token
+//  9. Create an API key.
+//  10. Create a webhook subscription.
+//  11. Verify exactly 9 new events were recorded.
+//  13. Verify each aggregate type (user, conversation, message, pin,
+//     bookmark, usergroup, api_key, subscription) has >= 1 event.
+//  14. Perform full projection rebuild (TRUNCATE + replay).
+//  15. Verify user, conversation, bookmark, and usergroup
 //     all survive the rebuild with correct state.
-//
 func TestFlow_CrossCuttingConsistency(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test")
@@ -1501,6 +1644,7 @@ func TestFlow_CrossCuttingConsistency(t *testing.T) {
 
 	user, err := env.userSvc.Create(ctx, domain.CreateUserParams{
 		TeamID: teamID, Name: "cc-user", Email: "cc@example.com",
+		PrincipalType: domain.PrincipalTypeHuman,
 	})
 	if err != nil {
 		t.Fatalf("create user: %v", err)
@@ -1548,13 +1692,6 @@ func TestFlow_CrossCuttingConsistency(t *testing.T) {
 		t.Fatalf("usergroup: %v", err)
 	}
 
-	token, err := env.authSvc.CreateToken(ctx, domain.CreateTokenParams{
-		TeamID: teamID, UserID: user.ID, Scopes: []string{"read"},
-	})
-	if err != nil {
-		t.Fatalf("token: %v", err)
-	}
-
 	_, _, err = env.apiKeySvc.Create(ctx, domain.CreateAPIKeyParams{
 		Name: "cc-key", TeamID: teamID, PrincipalID: user.ID,
 		Type: domain.APIKeyTypePersistent, Environment: domain.APIKeyEnvLive,
@@ -1565,25 +1702,25 @@ func TestFlow_CrossCuttingConsistency(t *testing.T) {
 
 	if _, err := env.eventSvc.CreateSubscription(ctx, domain.CreateEventSubscriptionParams{
 		TeamID: teamID, URL: "https://hooks.example.com",
-		EventTypes: []string{domain.EventTypeMessagePosted}, Secret: "s",
+		Type: domain.EventTypeConversationMessageCreated, Secret: "s",
 	}); err != nil {
 		t.Fatalf("subscription: %v", err)
 	}
 
-	// 10 events: user + conv + msg + reaction + pin + bookmark + ug + token + api_key + sub
+	// 9 events: user + conv + msg + reaction + pin + bookmark + ug + api_key + sub
 	after := countEvents(t, env)
-	if after-before != 10 {
-		t.Errorf("new events = %d, want 10", after-before)
+	if after-before != 9 {
+		t.Errorf("new events = %d, want 9", after-before)
 	}
 
 	// Each aggregate type has events (some services record empty team_id, so don't filter by it)
 	for _, agg := range []string{
 		domain.AggregateUser, domain.AggregateConversation, domain.AggregateMessage,
 		domain.AggregatePin, domain.AggregateBookmark, domain.AggregateUsergroup,
-		domain.AggregateToken, domain.AggregateAPIKey, domain.AggregateSubscription,
+		domain.AggregateAPIKey, domain.AggregateSubscription,
 	} {
 		var c int
-		env.pool.QueryRow(ctx, "SELECT COUNT(*) FROM service_events WHERE aggregate_type = $1", agg).Scan(&c)
+		env.pool.QueryRow(ctx, "SELECT COUNT(*) FROM internal_events WHERE aggregate_type = $1", agg).Scan(&c)
 		if c == 0 {
 			t.Errorf("no events for %q", agg)
 		}
@@ -1610,9 +1747,6 @@ func TestFlow_CrossCuttingConsistency(t *testing.T) {
 	if ugGot.Name != "Team" {
 		t.Errorf("ug after rebuild = %q", ugGot.Name)
 	}
-	if _, err := env.authSvc.ValidateToken(ctx, token.Token); err != nil {
-		t.Fatalf("token after rebuild: %v", err)
-	}
 }
 
 // ---------------------------------------------------------------------------
@@ -1620,8 +1754,9 @@ func TestFlow_CrossCuttingConsistency(t *testing.T) {
 // ---------------------------------------------------------------------------
 //
 // Scenario: Verifies cursor-based pagination across users, messages, and
-//           conversations. Checks that pages don't overlap, HasMore is
-//           correct, and empty results return cleanly.
+//
+//	conversations. Checks that pages don't overlap, HasMore is
+//	correct, and empty results return cleanly.
 //
 // Steps:
 //  1. Create 6 users (1 + 5 more) in the same team.
@@ -1633,7 +1768,6 @@ func TestFlow_CrossCuttingConsistency(t *testing.T) {
 //  7. Create 3 more channels.
 //  8. Paginate conversations with limit=2 — verify 2 items and HasMore=true.
 //  9. Query a nonexistent team — verify empty result with HasMore=false.
-//
 func TestFlow_Pagination(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test")
@@ -1644,6 +1778,7 @@ func TestFlow_Pagination(t *testing.T) {
 
 	user, err := env.userSvc.Create(ctx, domain.CreateUserParams{
 		TeamID: teamID, Name: "paginator", Email: "pag@example.com",
+		PrincipalType: domain.PrincipalTypeHuman,
 	})
 	if err != nil {
 		t.Fatalf("create user: %v", err)
@@ -1654,6 +1789,7 @@ func TestFlow_Pagination(t *testing.T) {
 		ts := time.Now().Format("150405.000000")
 		if _, err := env.userSvc.Create(ctx, domain.CreateUserParams{
 			TeamID: teamID, Name: "pu-" + ts, Email: "pu" + ts + "@x.com",
+			PrincipalType: domain.PrincipalTypeHuman,
 		}); err != nil {
 			t.Fatalf("create user %d: %v", i, err)
 		}
@@ -1749,8 +1885,9 @@ func TestFlow_Pagination(t *testing.T) {
 // ---------------------------------------------------------------------------
 //
 // Scenario: Creates each conversation type (IM, MPIM, private channel) and
-//           verifies type-specific behavior: posting, inviting, kicking,
-//           and listing with type filters.
+//
+//	verifies type-specific behavior: posting, inviting, kicking,
+//	and listing with type filters.
 //
 // Steps:
 //  1. Create 3 users (alice, bob, charlie).
@@ -1761,7 +1898,6 @@ func TestFlow_Pagination(t *testing.T) {
 //  6. List by type=im — verify count=1.
 //  7. Kick charlie from the MPIM — verify he's no longer in the member list.
 //  8. Verify event counts: 3 conversation.created, >= 3 member events.
-//
 func TestFlow_ConversationTypes(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test")
@@ -1772,18 +1908,21 @@ func TestFlow_ConversationTypes(t *testing.T) {
 
 	alice, err := env.userSvc.Create(ctx, domain.CreateUserParams{
 		TeamID: teamID, Name: "alice", Email: "alice-dm@example.com",
+		PrincipalType: domain.PrincipalTypeHuman,
 	})
 	if err != nil {
 		t.Fatalf("create alice: %v", err)
 	}
 	bob, err := env.userSvc.Create(ctx, domain.CreateUserParams{
 		TeamID: teamID, Name: "bob", Email: "bob-dm@example.com",
+		PrincipalType: domain.PrincipalTypeHuman,
 	})
 	if err != nil {
 		t.Fatalf("create bob: %v", err)
 	}
 	charlie, err := env.userSvc.Create(ctx, domain.CreateUserParams{
 		TeamID: teamID, Name: "charlie", Email: "charlie-dm@example.com",
+		PrincipalType: domain.PrincipalTypeHuman,
 	})
 	if err != nil {
 		t.Fatalf("create charlie: %v", err)
@@ -1899,8 +2038,9 @@ func TestFlow_ConversationTypes(t *testing.T) {
 // ---------------------------------------------------------------------------
 //
 // Scenario: Stress-tests rapid sequential operations to verify timestamp
-//           uniqueness, multi-user reactions, and immediate create→revoke
-//           sequences.
+//
+//	uniqueness, multi-user reactions, and immediate create→revoke
+//	sequences.
 //
 // Steps:
 //  1. Create a user and a public channel.
@@ -1911,7 +2051,6 @@ func TestFlow_ConversationTypes(t *testing.T) {
 //     returns ErrTokenRevoked.
 //  6. Update user name — verify lookup by ID returns updated name.
 //  7. Verify event count is reasonable (>= 15).
-//
 func TestFlow_ConcurrentEdgeCases(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test")
@@ -1922,6 +2061,7 @@ func TestFlow_ConcurrentEdgeCases(t *testing.T) {
 
 	user, err := env.userSvc.Create(ctx, domain.CreateUserParams{
 		TeamID: teamID, Name: "conc", Email: "conc@example.com",
+		PrincipalType: domain.PrincipalTypeHuman,
 	})
 	if err != nil {
 		t.Fatalf("create user: %v", err)
@@ -1959,6 +2099,7 @@ func TestFlow_ConcurrentEdgeCases(t *testing.T) {
 	// Multi-user reactions on same message
 	user2, _ := env.userSvc.Create(ctx, domain.CreateUserParams{
 		TeamID: teamID, Name: "conc2", Email: "conc2@example.com",
+		PrincipalType: domain.PrincipalTypeHuman,
 	})
 	env.msgSvc.AddReaction(ctx, domain.AddReactionParams{
 		ChannelID: ch.ID, MessageTS: msgTSes[0], UserID: user.ID, Emoji: "wave",
@@ -1992,7 +2133,7 @@ func TestFlow_ConcurrentEdgeCases(t *testing.T) {
 	// Update user and verify lookup
 	newName := "updated-conc"
 	env.userSvc.Update(ctx, user.ID, domain.UpdateUserParams{RealName: &newName})
-	byEmail, _ := env.userSvc.GetByEmail(ctx, "conc@example.com")
+	byEmail, _ := env.userSvc.GetByEmail(ctxutil.WithUser(ctx, user.ID, teamID), "conc@example.com")
 	if byEmail.RealName != "updated-conc" {
 		t.Errorf("real_name = %q", byEmail.RealName)
 	}
@@ -2032,9 +2173,10 @@ func TestFlow_ConcurrentEdgeCases(t *testing.T) {
 // ---------------------------------------------------------------------------
 //
 // Scenario: Exercises the full user profile lifecycle — creation with rich
-//           profile data, lookup by ID and email, incremental field updates,
-//           role changes, soft-delete/reactivation, and principal type
-//           variations (human, system, agent).
+//
+//	profile data, lookup by ID and email, incremental field updates,
+//	role changes, soft-delete/reactivation, and principal type
+//	variations (human, system, agent).
 //
 // Steps:
 //  1. Create a human user with full profile fields (real_name, display_name,
@@ -2046,8 +2188,9 @@ func TestFlow_ConcurrentEdgeCases(t *testing.T) {
 //  6. Update display_name — verify.
 //  7. Update email — verify.
 //  8. Verify old email lookup returns ErrNotFound; new email resolves to same user.
-//  9. Promote to admin (is_admin=true) — verify.
-// 10. Mark as restricted (is_restricted=true) — verify.
+//  9. Promote to admin (account_type=admin) — verify.
+//
+// 10. Soft-delete the user (deleted=true) — verify.
 // 11. Soft-delete (deleted=true) — verify.
 // 12. Reactivate (deleted=false) — verify.
 // 13. Update the profile struct (title, phone, status) — verify.
@@ -2055,7 +2198,6 @@ func TestFlow_ConcurrentEdgeCases(t *testing.T) {
 // 15. Create an agent principal with owner_id pointing to the human user.
 // 16. List all users for the team — verify count=3.
 // 17. Verify event counts: 3 user.created, >= 8 user.updated.
-//
 func TestFlow_UserProfileManagement(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test")
@@ -2066,12 +2208,13 @@ func TestFlow_UserProfileManagement(t *testing.T) {
 
 	// Step 1: Create user with full profile
 	user, err := env.userSvc.Create(ctx, domain.CreateUserParams{
-		TeamID:      teamID,
-		Name:        "fullprofile",
-		RealName:    "Full Profile User",
-		DisplayName: "FPU",
-		Email:       "full@example.com",
-		IsAdmin:     false,
+		TeamID:        teamID,
+		Name:          "fullprofile",
+		RealName:      "Full Profile User",
+		DisplayName:   "FPU",
+		Email:         "full@example.com",
+		PrincipalType: domain.PrincipalTypeHuman,
+		AccountType:   domain.AccountTypeMember,
 		Profile: domain.UserProfile{
 			Title:       "Senior Engineer",
 			Phone:       "+1-555-1234",
@@ -2102,7 +2245,8 @@ func TestFlow_UserProfileManagement(t *testing.T) {
 	}
 
 	// Step 3: Get by email
-	byEmail, err := env.userSvc.GetByEmail(ctx, "full@example.com")
+	emailCtx := ctxutil.WithUser(ctx, user.ID, teamID)
+	byEmail, err := env.userSvc.GetByEmail(emailCtx, "full@example.com")
 	if err != nil {
 		t.Fatalf("get by email: %v", err)
 	}
@@ -2141,11 +2285,11 @@ func TestFlow_UserProfileManagement(t *testing.T) {
 	}
 
 	// Step 7: Verify old email lookup fails, new one works
-	_, err = env.userSvc.GetByEmail(ctx, "full@example.com")
+	_, err = env.userSvc.GetByEmail(emailCtx, "full@example.com")
 	if !errors.Is(err, domain.ErrNotFound) {
 		t.Errorf("old email should not resolve: got %v", err)
 	}
-	byEmail, err = env.userSvc.GetByEmail(ctx, "newemail@example.com")
+	byEmail, err = env.userSvc.GetByEmail(emailCtx, "newemail@example.com")
 	if err != nil {
 		t.Fatalf("new email lookup: %v", err)
 	}
@@ -2154,26 +2298,16 @@ func TestFlow_UserProfileManagement(t *testing.T) {
 	}
 
 	// Step 8: Promote to admin
-	isAdmin := true
-	updated, err = env.userSvc.Update(ctx, user.ID, domain.UpdateUserParams{IsAdmin: &isAdmin})
+	accountTypeAdmin := domain.AccountTypeAdmin
+	updated, err = env.userSvc.Update(ctx, user.ID, domain.UpdateUserParams{AccountType: &accountTypeAdmin})
 	if err != nil {
 		t.Fatalf("promote admin: %v", err)
 	}
-	if !updated.IsAdmin {
+	if updated.EffectiveAccountType() != domain.AccountTypeAdmin {
 		t.Error("should be admin")
 	}
 
-	// Step 9: Mark restricted
-	isRestricted := true
-	updated, err = env.userSvc.Update(ctx, user.ID, domain.UpdateUserParams{IsRestricted: &isRestricted})
-	if err != nil {
-		t.Fatalf("restrict: %v", err)
-	}
-	if !updated.IsRestricted {
-		t.Error("should be restricted")
-	}
-
-	// Step 10: Soft delete (deactivate)
+	// Step 9: Soft delete (deactivate)
 	deleted := true
 	updated, err = env.userSvc.Update(ctx, user.ID, domain.UpdateUserParams{Deleted: &deleted})
 	if err != nil {
@@ -2262,9 +2396,9 @@ func TestFlow_UserProfileManagement(t *testing.T) {
 	if userCreated != 3 {
 		t.Errorf("user.created = %d, want 3", userCreated)
 	}
-	// real_name + display_name + email + admin + restricted + delete + reactivate + profile = 8
-	if userUpdated < 8 {
-		t.Errorf("user.updated = %d, want >= 8", userUpdated)
+	// real_name + display_name + email + admin + delete + reactivate + profile = 7
+	if userUpdated < 7 {
+		t.Errorf("user.updated = %d, want >= 7", userUpdated)
 	}
 }
 
@@ -2273,8 +2407,9 @@ func TestFlow_UserProfileManagement(t *testing.T) {
 // ---------------------------------------------------------------------------
 //
 // Scenario: Three users operate across 4 channels with varying membership,
-//           testing cross-channel posting, threading, reactions, member
-//           removal, archival, and filtered listing.
+//
+//	testing cross-channel posting, threading, reactions, member
+//	removal, archival, and filtered listing.
 //
 // Steps:
 //  1. Create 3 users (alice, bob, charlie).
@@ -2286,12 +2421,12 @@ func TestFlow_UserProfileManagement(t *testing.T) {
 //  7. Bob posts in engineering.
 //  8. Alice posts a discussion topic in general; charlie replies in thread.
 //  9. Alice reacts :rocket: to bob's engineering message.
+//
 // 10. Kick alice from random — verify num_members=2.
 // 11. Verify alice is not in random's member list.
 // 12. List all channels — verify count=4.
 // 13. Archive announcements — list with exclude_archived — verify count=3.
 // 14. Verify engineering history has >= 2 messages.
-//
 func TestFlow_MultiChannelWorkspace(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test")
@@ -2302,18 +2437,21 @@ func TestFlow_MultiChannelWorkspace(t *testing.T) {
 
 	alice, err := env.userSvc.Create(ctx, domain.CreateUserParams{
 		TeamID: teamID, Name: "alice", Email: "alice-mc@example.com",
+		PrincipalType: domain.PrincipalTypeHuman,
 	})
 	if err != nil {
 		t.Fatalf("create alice: %v", err)
 	}
 	bob, err := env.userSvc.Create(ctx, domain.CreateUserParams{
 		TeamID: teamID, Name: "bob", Email: "bob-mc@example.com",
+		PrincipalType: domain.PrincipalTypeHuman,
 	})
 	if err != nil {
 		t.Fatalf("create bob: %v", err)
 	}
 	charlie, err := env.userSvc.Create(ctx, domain.CreateUserParams{
 		TeamID: teamID, Name: "charlie", Email: "charlie-mc@example.com",
+		PrincipalType: domain.PrincipalTypeHuman,
 	})
 	if err != nil {
 		t.Fatalf("create charlie: %v", err)
@@ -2452,8 +2590,9 @@ func TestFlow_MultiChannelWorkspace(t *testing.T) {
 // ---------------------------------------------------------------------------
 //
 // Scenario: Three users participate in a deep thread with 5 replies, then
-//           exercise in-thread editing, deletion, reactions, a second
-//           independent thread, and thread-level pagination.
+//
+//	exercise in-thread editing, deletion, reactions, a second
+//	independent thread, and thread-level pagination.
 //
 // Steps:
 //  1. Create 3 users (alice, bob, charlie) and a public channel; invite all.
@@ -2466,12 +2605,12 @@ func TestFlow_MultiChannelWorkspace(t *testing.T) {
 //  8. Add reactions to multiple thread messages:
 //     :thinking: on parent, :thumbsup: on reply[1].
 //  9. Verify reaction counts on each message.
+//
 // 10. Bob posts a second parent message ("Separate topic").
 // 11. Charlie replies to the second thread.
 // 12. Verify thread 2 has 1 reply (independent from thread 1).
 // 13. Verify channel history shows >= 2 top-level messages.
 // 14. Paginate thread 1 replies with limit=2 — verify HasMore=true.
-//
 func TestFlow_DeepThreading(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test")
@@ -2485,6 +2624,7 @@ func TestFlow_DeepThreading(t *testing.T) {
 	for i, name := range []string{"alice", "bob", "charlie"} {
 		u, err := env.userSvc.Create(ctx, domain.CreateUserParams{
 			TeamID: teamID, Name: name, Email: name + "-dt@example.com",
+			PrincipalType: domain.PrincipalTypeHuman,
 		})
 		if err != nil {
 			t.Fatalf("create %s: %v", name, err)
@@ -2643,7 +2783,8 @@ func TestFlow_DeepThreading(t *testing.T) {
 // ---------------------------------------------------------------------------
 //
 // Scenario: Multiple bookmarks are created with emojis, updated (title, link,
-//           emoji), deleted, and verified to be scoped per-channel.
+//
+//	emoji), deleted, and verified to be scoped per-channel.
 //
 // Steps:
 //  1. Create 2 users and a public channel.
@@ -2656,7 +2797,6 @@ func TestFlow_DeepThreading(t *testing.T) {
 //  8. Verify bookmarks are scoped: ch1 has 2, ch2 has 1.
 //  9. Verify bookmark event count = 7:
 //     [3 created + 2 updated + 1 deleted + 1 created]
-//
 func TestFlow_BookmarkFullCRUD(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test")
@@ -2667,12 +2807,14 @@ func TestFlow_BookmarkFullCRUD(t *testing.T) {
 
 	user, err := env.userSvc.Create(ctx, domain.CreateUserParams{
 		TeamID: teamID, Name: "bookmarker", Email: "bm@example.com",
+		PrincipalType: domain.PrincipalTypeHuman,
 	})
 	if err != nil {
 		t.Fatalf("create user: %v", err)
 	}
 	user2, err := env.userSvc.Create(ctx, domain.CreateUserParams{
 		TeamID: teamID, Name: "bookmarker2", Email: "bm2@example.com",
+		PrincipalType: domain.PrincipalTypeHuman,
 	})
 	if err != nil {
 		t.Fatalf("create user2: %v", err)
@@ -2800,7 +2942,7 @@ func TestFlow_BookmarkFullCRUD(t *testing.T) {
 
 	// Verify events
 	var bmEvents int
-	env.pool.QueryRow(ctx, "SELECT COUNT(*) FROM service_events WHERE aggregate_type = $1",
+	env.pool.QueryRow(ctx, "SELECT COUNT(*) FROM internal_events WHERE aggregate_type = $1",
 		domain.AggregateBookmark).Scan(&bmEvents)
 	// 3 created + 2 updated + 1 deleted + 1 created = 7
 	if bmEvents != 7 {
@@ -2813,7 +2955,8 @@ func TestFlow_BookmarkFullCRUD(t *testing.T) {
 // ---------------------------------------------------------------------------
 //
 // Scenario: Messages are pinned, unpinned, re-pinned, and bulk-unpinned,
-//           verifying the pin list at each step and the final event count.
+//
+//	verifying the pin list at each step and the final event count.
 //
 // Steps:
 //  1. Create a user and a public channel.
@@ -2825,7 +2968,6 @@ func TestFlow_BookmarkFullCRUD(t *testing.T) {
 //  7. Unpin all 4 messages — verify count=0.
 //  8. Verify pin event count = 10:
 //     [3 add + 1 remove + 1 re-add + 1 add + 4 remove]
-//
 func TestFlow_PinLifecycle(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test")
@@ -2836,6 +2978,7 @@ func TestFlow_PinLifecycle(t *testing.T) {
 
 	user, err := env.userSvc.Create(ctx, domain.CreateUserParams{
 		TeamID: teamID, Name: "pinner", Email: "pinner@example.com",
+		PrincipalType: domain.PrincipalTypeHuman,
 	})
 	if err != nil {
 		t.Fatalf("create user: %v", err)
@@ -2935,7 +3078,7 @@ func TestFlow_PinLifecycle(t *testing.T) {
 
 	// Verify events
 	var pinEvents int
-	env.pool.QueryRow(ctx, "SELECT COUNT(*) FROM service_events WHERE aggregate_type = $1",
+	env.pool.QueryRow(ctx, "SELECT COUNT(*) FROM internal_events WHERE aggregate_type = $1",
 		domain.AggregatePin).Scan(&pinEvents)
 	// 3 add + 1 remove + 1 re-add + 1 add + 4 remove = 10
 	if pinEvents != 10 {
@@ -2948,8 +3091,9 @@ func TestFlow_PinLifecycle(t *testing.T) {
 // ---------------------------------------------------------------------------
 //
 // Scenario: Three remote files are shared across multiple channels with
-//           varying distribution, then one file is deleted while verifying
-//           the others remain intact.
+//
+//	varying distribution, then one file is deleted while verifying
+//	the others remain intact.
 //
 // Steps:
 //  1. Create a user and 3 public channels (design, dev, product).
@@ -2961,9 +3105,8 @@ func TestFlow_PinLifecycle(t *testing.T) {
 //  7. List all files — verify count >= 3.
 //  8. Delete the API Spec file — verify Get returns ErrNotFound.
 //  9. Verify Design System and README still exist.
-// 10. Verify file event count >= 7:
+//  10. Verify file event count >= 7:
 //     [3 created + 3 shared + 1 deleted]
-//
 func TestFlow_FileSharingAcrossChannels(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test")
@@ -2974,10 +3117,12 @@ func TestFlow_FileSharingAcrossChannels(t *testing.T) {
 
 	user, err := env.userSvc.Create(ctx, domain.CreateUserParams{
 		TeamID: teamID, Name: "sharer", Email: "sharer@example.com",
+		PrincipalType: domain.PrincipalTypeHuman,
 	})
 	if err != nil {
 		t.Fatalf("create user: %v", err)
 	}
+	ctx = ctxutil.WithUser(ctx, user.ID, teamID)
 
 	// Create 3 channels
 	ch1, _ := env.convSvc.Create(ctx, domain.CreateConversationParams{
@@ -3080,7 +3225,7 @@ func TestFlow_FileSharingAcrossChannels(t *testing.T) {
 
 	// Verify events
 	var fileEvents int
-	env.pool.QueryRow(ctx, "SELECT COUNT(*) FROM service_events WHERE aggregate_type = $1",
+	env.pool.QueryRow(ctx, "SELECT COUNT(*) FROM internal_events WHERE aggregate_type = $1",
 		domain.AggregateFile).Scan(&fileEvents)
 	// 3 created + 3 shared (updated+shared events) + 1 deleted
 	if fileEvents < 7 {
@@ -3093,9 +3238,10 @@ func TestFlow_FileSharingAcrossChannels(t *testing.T) {
 // ---------------------------------------------------------------------------
 //
 // Scenario: A single user creates multiple API keys across different
-//           environments (live, test) and types (persistent, restricted),
-//           exercises validation, permission updates, revocation, and
-//           filtered listing.
+//
+//	environments (live, test) and types (persistent, restricted),
+//	exercises validation, permission updates, revocation, and
+//	filtered listing.
 //
 // Steps:
 //  1. Create a user.
@@ -3108,12 +3254,12 @@ func TestFlow_FileSharingAcrossChannels(t *testing.T) {
 //  8. Update test key permissions to [read, write, admin] — re-validate
 //     and verify 3 permissions.
 //  9. Revoke the restricted key.
+//
 // 10. List without revoked — verify count=2.
 // 11. List with include_revoked — verify count=3.
 // 12. Validate revoked key — expect ErrTokenRevoked.
 // 13. Validate live and test keys — both still work.
 // 14. Verify event counts: 3 created, 2 updated, 1 revoked.
-//
 func TestFlow_MultipleAPIKeys(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test")
@@ -3124,6 +3270,7 @@ func TestFlow_MultipleAPIKeys(t *testing.T) {
 
 	user, err := env.userSvc.Create(ctx, domain.CreateUserParams{
 		TeamID: teamID, Name: "multikey", Email: "multikey@example.com",
+		PrincipalType: domain.PrincipalTypeHuman,
 	})
 	if err != nil {
 		t.Fatalf("create user: %v", err)
@@ -3288,25 +3435,22 @@ func TestFlow_MultipleAPIKeys(t *testing.T) {
 // ---------------------------------------------------------------------------
 //
 // Scenario: Multiple webhook subscriptions with overlapping event types are
-//           created, updated (add types, change URL), disabled/re-enabled,
-//           and deleted — verifying independent lifecycle management.
+//
+//	created, updated (add types, change URL), disabled/re-enabled,
+//	and deleted — verifying independent lifecycle management.
 //
 // Steps:
-//  1. Create a "messages" subscription for [message.posted, message.updated,
-//     message.deleted] — verify 3 event types.
-//  2. Create a "channels" subscription for [channel.created, channel.archive,
-//     member.joined_channel].
-//  3. Create a "catch-all" subscription for [message.posted, channel.created,
-//     reaction.added, pin.added].
+//  1. Create a message-created subscription.
+//  2. Create a conversation-created subscription.
+//  3. Create a catch-all subscription with no type filter.
 //  4. List subscriptions — verify count=3.
 //  5. Update the messages subscription to add reaction.added (now 4 types).
 //  6. Disable the catch-all subscription — verify enabled=false.
 //  7. Re-enable the catch-all — verify enabled=true.
 //  8. Change the channels subscription URL to /channels/v2 — verify.
 //  9. Delete the channels subscription — verify list count=2.
-// 10. Verify subscription event count = 8:
+//  10. Verify subscription event count = 8:
 //     [3 created + 1 update(types) + 1 disable + 1 enable + 1 update(url) + 1 deleted]
-//
 func TestFlow_SubscriptionEventTypeMatching(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test")
@@ -3317,24 +3461,24 @@ func TestFlow_SubscriptionEventTypeMatching(t *testing.T) {
 
 	// Create subscription for message events only
 	msgSub, err := env.eventSvc.CreateSubscription(ctx, domain.CreateEventSubscriptionParams{
-		TeamID:     teamID,
-		URL:        "https://hooks.example.com/messages",
-		EventTypes: []string{domain.EventTypeMessagePosted, domain.EventTypeMessageUpdated, domain.EventTypeMessageDeleted},
-		Secret:     "msg-secret",
+		TeamID: teamID,
+		URL:    "https://hooks.example.com/messages",
+		Type:   domain.EventTypeConversationMessageCreated,
+		Secret: "msg-secret",
 	})
 	if err != nil {
 		t.Fatalf("create msg sub: %v", err)
 	}
-	if len(msgSub.EventTypes) != 3 {
-		t.Errorf("msg event types = %d", len(msgSub.EventTypes))
+	if msgSub.Type != domain.EventTypeConversationMessageCreated {
+		t.Errorf("msg type = %q, want %q", msgSub.Type, domain.EventTypeConversationMessageCreated)
 	}
 
 	// Create subscription for channel events only
 	chSub, err := env.eventSvc.CreateSubscription(ctx, domain.CreateEventSubscriptionParams{
-		TeamID:     teamID,
-		URL:        "https://hooks.example.com/channels",
-		EventTypes: []string{domain.EventTypeChannelCreated, domain.EventTypeChannelArchive, domain.EventTypeMemberJoinedChannel},
-		Secret:     "ch-secret",
+		TeamID: teamID,
+		URL:    "https://hooks.example.com/channels",
+		Type:   domain.EventTypeConversationCreated,
+		Secret: "ch-secret",
 	})
 	if err != nil {
 		t.Fatalf("create ch sub: %v", err)
@@ -3344,10 +3488,7 @@ func TestFlow_SubscriptionEventTypeMatching(t *testing.T) {
 	allSub, err := env.eventSvc.CreateSubscription(ctx, domain.CreateEventSubscriptionParams{
 		TeamID: teamID,
 		URL:    "https://hooks.example.com/all",
-		EventTypes: []string{
-			domain.EventTypeMessagePosted, domain.EventTypeChannelCreated,
-			domain.EventTypeReactionAdded, domain.EventTypePinAdded,
-		},
+		Type:   domain.EventTypeConversationMessageCreated,
 		Secret: "all-secret",
 	})
 	if err != nil {
@@ -3361,18 +3502,15 @@ func TestFlow_SubscriptionEventTypeMatching(t *testing.T) {
 	}
 
 	// Update msg subscription — add reaction events
-	newTypes := []string{
-		domain.EventTypeMessagePosted, domain.EventTypeMessageUpdated,
-		domain.EventTypeMessageDeleted, domain.EventTypeReactionAdded,
-	}
+	newType := domain.EventTypeConversationMessageCreated
 	updatedSub, err := env.eventSvc.UpdateSubscription(ctx, msgSub.ID, domain.UpdateEventSubscriptionParams{
-		EventTypes: newTypes,
+		Type: &newType,
 	})
 	if err != nil {
 		t.Fatalf("update msg sub: %v", err)
 	}
-	if len(updatedSub.EventTypes) != 4 {
-		t.Errorf("updated types = %d", len(updatedSub.EventTypes))
+	if updatedSub.Type != domain.EventTypeConversationMessageCreated {
+		t.Errorf("updated type = %q, want %q", updatedSub.Type, domain.EventTypeConversationMessageCreated)
 	}
 
 	// Disable the all-events subscription
@@ -3427,7 +3565,7 @@ func TestFlow_SubscriptionEventTypeMatching(t *testing.T) {
 
 	// Verify events
 	var subEvents int
-	env.pool.QueryRow(ctx, "SELECT COUNT(*) FROM service_events WHERE aggregate_type = $1",
+	env.pool.QueryRow(ctx, "SELECT COUNT(*) FROM internal_events WHERE aggregate_type = $1",
 		domain.AggregateSubscription).Scan(&subEvents)
 	// 3 created + 1 update(types) + 1 disable + 1 enable + 1 update(url) + 1 deleted = 8
 	if subEvents != 8 {
@@ -3440,12 +3578,13 @@ func TestFlow_SubscriptionEventTypeMatching(t *testing.T) {
 // ---------------------------------------------------------------------------
 //
 // Scenario: Builds a rich workspace state touching every aggregate type, then
-//           performs a full projection rebuild (TRUNCATE all projection tables
-//           + replay all events) and verifies that every piece of state
-//           is faithfully recreated.
+//
+//	performs a full projection rebuild (TRUNCATE all projection tables
+//	+ replay all events) and verifies that every piece of state
+//	is faithfully recreated.
 //
 // Steps:
-//  1. Create an admin (human, is_admin=true) and an agent (owned by admin).
+//  1. Create an admin (human, account_type=admin) and an agent (owned by admin).
 //  2. Create a public channel with topic and purpose; invite the agent.
 //  3. Post a parent message and a threaded reply.
 //  4. Add a :star: reaction to the parent.
@@ -3454,12 +3593,13 @@ func TestFlow_SubscriptionEventTypeMatching(t *testing.T) {
 //  7. Create a usergroup and set members to [admin, agent].
 //  8. Add a remote file.
 //  9. Create an auth token.
+//
 // 10. Create an API key.
 // 11. Create a webhook subscription.
 // 12. Count events before rebuild — verify >= 15.
 // 13. Perform full RebuildAll().
 // 14. Verify event count is unchanged after rebuild.
-// 15. Verify admin user: name, is_admin, principal_type.
+// 15. Verify admin user: name, account_type, principal_type.
 // 16. Verify agent user: principal_type, owner_id.
 // 17. Verify channel: topic, purpose, num_members=2.
 // 18. Verify message text.
@@ -3471,7 +3611,6 @@ func TestFlow_SubscriptionEventTypeMatching(t *testing.T) {
 // 24. Verify auth token validates successfully.
 // 25. Verify API key validates successfully.
 // 26. Verify subscription URL and enabled state.
-//
 func TestFlow_ComplexProjectionRebuild(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test")
@@ -3483,11 +3622,12 @@ func TestFlow_ComplexProjectionRebuild(t *testing.T) {
 	// Build a rich workspace state
 	admin, err := env.userSvc.Create(ctx, domain.CreateUserParams{
 		TeamID: teamID, Name: "admin", Email: "admin-rb@example.com",
-		PrincipalType: domain.PrincipalTypeHuman, IsAdmin: true,
+		PrincipalType: domain.PrincipalTypeHuman, AccountType: domain.AccountTypeAdmin,
 	})
 	if err != nil {
 		t.Fatalf("create admin: %v", err)
 	}
+	ctx = ctxutil.WithUser(ctx, admin.ID, teamID)
 
 	agent, err := env.userSvc.Create(ctx, domain.CreateUserParams{
 		TeamID: teamID, Name: "agent", Email: "agent-rb@example.com",
@@ -3549,11 +3689,6 @@ func TestFlow_ComplexProjectionRebuild(t *testing.T) {
 		Filetype: "pdf", UserID: admin.ID,
 	})
 
-	// Token
-	token, _ := env.authSvc.CreateToken(ctx, domain.CreateTokenParams{
-		TeamID: teamID, UserID: admin.ID, Scopes: []string{"read", "write"},
-	})
-
 	// API key
 	apiKey, apiKeyRaw, _ := env.apiKeySvc.Create(ctx, domain.CreateAPIKeyParams{
 		Name: "rebuild-key", TeamID: teamID, PrincipalID: admin.ID,
@@ -3564,7 +3699,7 @@ func TestFlow_ComplexProjectionRebuild(t *testing.T) {
 	// Subscription
 	sub, _ := env.eventSvc.CreateSubscription(ctx, domain.CreateEventSubscriptionParams{
 		TeamID: teamID, URL: "https://hooks.rebuild.com",
-		EventTypes: []string{domain.EventTypeMessagePosted}, Secret: "rebuild-secret",
+		Type: domain.EventTypeConversationMessageCreated, Secret: "rebuild-secret",
 	})
 
 	// Count events before rebuild
@@ -3589,8 +3724,8 @@ func TestFlow_ComplexProjectionRebuild(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get admin: %v", err)
 	}
-	if gotAdmin.Name != "admin" || !gotAdmin.IsAdmin || gotAdmin.PrincipalType != domain.PrincipalTypeHuman {
-		t.Errorf("admin state wrong: name=%q isAdmin=%v type=%q", gotAdmin.Name, gotAdmin.IsAdmin, gotAdmin.PrincipalType)
+	if gotAdmin.Name != "admin" || gotAdmin.EffectiveAccountType() != domain.AccountTypeAdmin || gotAdmin.PrincipalType != domain.PrincipalTypeHuman {
+		t.Errorf("admin state wrong: name=%q accountType=%q type=%q", gotAdmin.Name, gotAdmin.EffectiveAccountType(), gotAdmin.PrincipalType)
 	}
 
 	// Verify agent survives with owner
@@ -3660,11 +3795,6 @@ func TestFlow_ComplexProjectionRebuild(t *testing.T) {
 		t.Errorf("file title = %q", gotFile.Title)
 	}
 
-	// Verify token still validates
-	if _, err := env.authSvc.ValidateToken(ctx, token.Token); err != nil {
-		t.Fatalf("token invalid after rebuild: %v", err)
-	}
-
 	// Verify API key still validates
 	akVal, err := env.apiKeySvc.ValidateAPIKey(ctx, apiKeyRaw)
 	if err != nil {
@@ -3689,7 +3819,8 @@ func TestFlow_ComplexProjectionRebuild(t *testing.T) {
 // ---------------------------------------------------------------------------
 //
 // Scenario: Messages with structured Block Kit content and arbitrary metadata
-//           are posted, retrieved, updated, and verified through history.
+//
+//	are posted, retrieved, updated, and verified through history.
 //
 // Steps:
 //  1. Create a user and a public channel.
@@ -3702,9 +3833,9 @@ func TestFlow_ComplexProjectionRebuild(t *testing.T) {
 //     remain from the previous update.
 //  8. Post a message with BOTH blocks and metadata.
 //  9. Get it — verify both blocks and metadata are present.
+//
 // 10. Fetch channel history — verify >= 3 messages.
 // 11. Verify message event count = 5: [3 posted + 2 updated].
-//
 func TestFlow_MessageMetadataAndBlocks(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test")
@@ -3715,6 +3846,7 @@ func TestFlow_MessageMetadataAndBlocks(t *testing.T) {
 
 	user, err := env.userSvc.Create(ctx, domain.CreateUserParams{
 		TeamID: teamID, Name: "richcontent", Email: "rich@example.com",
+		PrincipalType: domain.PrincipalTypeHuman,
 	})
 	if err != nil {
 		t.Fatalf("create user: %v", err)
@@ -3816,7 +3948,7 @@ func TestFlow_MessageMetadataAndBlocks(t *testing.T) {
 
 	// Verify events
 	var msgEvents int
-	env.pool.QueryRow(ctx, "SELECT COUNT(*) FROM service_events WHERE event_type LIKE 'message.%'").Scan(&msgEvents)
+	env.pool.QueryRow(ctx, "SELECT COUNT(*) FROM internal_events WHERE event_type LIKE 'message.%'").Scan(&msgEvents)
 	// 3 posted + 2 updated = 5
 	if msgEvents != 5 {
 		t.Errorf("message events = %d, want 5", msgEvents)
@@ -3828,8 +3960,9 @@ func TestFlow_MessageMetadataAndBlocks(t *testing.T) {
 // ---------------------------------------------------------------------------
 //
 // Scenario: A channel is created with an initial topic and purpose, then goes
-//           through multiple topic updates, a rename, member churn (invite,
-//           kick, re-invite), archive/unarchive, and a projection rebuild.
+//
+//	through multiple topic updates, a rename, member churn (invite,
+//	kick, re-invite), archive/unarchive, and a projection rebuild.
 //
 // Steps:
 //  1. Create a user.
@@ -3841,14 +3974,13 @@ func TestFlow_MessageMetadataAndBlocks(t *testing.T) {
 //  7. Verify num_members=4 (creator + 3).
 //  8. Kick one member — verify num_members=3.
 //  9. Re-invite the kicked member — verify num_members=4.
-// 10. Archive the channel — verify is_archived=true.
-// 11. Unarchive — verify is_archived=false.
-// 12. Verify conversation event count >= 13:
+//  10. Archive the channel — verify is_archived=true.
+//  11. Unarchive — verify is_archived=false.
+//  12. Verify conversation event count >= 13:
 //     [created + 3 topic_set + purpose_set + updated + 3 member_joined
-//      + member_left + member_joined + archived + unarchived]
-// 13. Perform projection rebuild — verify name, topic, purpose, and
+//     + member_left + member_joined + archived + unarchived]
+//  13. Perform projection rebuild — verify name, topic, purpose, and
 //     num_members all survive.
-//
 func TestFlow_ConversationCreationWithTopicPurpose(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test")
@@ -3859,6 +3991,7 @@ func TestFlow_ConversationCreationWithTopicPurpose(t *testing.T) {
 
 	user, err := env.userSvc.Create(ctx, domain.CreateUserParams{
 		TeamID: teamID, Name: "creator", Email: "creator@example.com",
+		PrincipalType: domain.PrincipalTypeHuman,
 	})
 	if err != nil {
 		t.Fatalf("create user: %v", err)
@@ -3925,6 +4058,7 @@ func TestFlow_ConversationCreationWithTopicPurpose(t *testing.T) {
 		ts := time.Now().Format("150405.000000")
 		u, err := env.userSvc.Create(ctx, domain.CreateUserParams{
 			TeamID: teamID, Name: "member-" + ts, Email: "m" + ts + "@x.com",
+			PrincipalType: domain.PrincipalTypeHuman,
 		})
 		if err != nil {
 			t.Fatalf("create member %d: %v", i, err)
@@ -4009,8 +4143,9 @@ func TestFlow_ConversationCreationWithTopicPurpose(t *testing.T) {
 // ---------------------------------------------------------------------------
 //
 // Scenario: A usergroup goes through its full lifecycle — creation, metadata
-//           updates (name, handle, description), membership churn, disable/
-//           re-enable, a second group for cross-membership, and rebuild.
+//
+//	updates (name, handle, description), membership churn, disable/
+//	re-enable, a second group for cross-membership, and rebuild.
 //
 // Steps:
 //  1. Create 5 users (A, B, C, D, E).
@@ -4022,6 +4157,7 @@ func TestFlow_ConversationCreationWithTopicPurpose(t *testing.T) {
 //  7. Verify all 3 fields via Get.
 //  8. Change membership: remove B, add D and E → [A, C, D, E] — verify count=4.
 //  9. Verify B is NOT in the group; D and E ARE.
+//
 // 10. Disable the usergroup.
 // 11. List with include_disabled=false — verify count=0.
 // 12. List with include_disabled=true — verify count=1.
@@ -4030,7 +4166,6 @@ func TestFlow_ConversationCreationWithTopicPurpose(t *testing.T) {
 // 15. List all groups — verify count=2.
 // 16. Verify user C is in BOTH groups.
 // 17. Perform projection rebuild — verify name and handle survive.
-//
 func TestFlow_UsergroupFullLifecycle(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test")
@@ -4044,7 +4179,8 @@ func TestFlow_UsergroupFullLifecycle(t *testing.T) {
 	for i := 0; i < 5; i++ {
 		u, err := env.userSvc.Create(ctx, domain.CreateUserParams{
 			TeamID: teamID, Name: "ug-user-" + string(rune('A'+i)),
-			Email: "ug" + string(rune('a'+i)) + "@example.com",
+			Email:         "ug" + string(rune('a'+i)) + "@example.com",
+			PrincipalType: domain.PrincipalTypeHuman,
 		})
 		if err != nil {
 			t.Fatalf("create user %d: %v", i, err)

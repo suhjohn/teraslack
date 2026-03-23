@@ -23,55 +23,84 @@ func NewAuthRepo(db DBTX) *AuthRepo {
 	return &AuthRepo{q: sqlcgen.New(db), db: db}
 }
 
-// WithTx returns a new AuthRepo that operates within the given transaction.
 func (r *AuthRepo) WithTx(tx pgx.Tx) repository.AuthRepository {
 	return &AuthRepo{q: sqlcgen.New(tx), db: tx}
 }
 
-func (r *AuthRepo) CreateToken(ctx context.Context, params domain.CreateTokenParams) (*domain.Token, error) {
-	id := generateID("TK")
+func (r *AuthRepo) CreateSession(ctx context.Context, params domain.CreateAuthSessionParams) (*domain.AuthSession, error) {
+	id := generateID("AS")
 
-	tokenBytes := make([]byte, 32)
-	if _, err := rand.Read(tokenBytes); err != nil {
-		return nil, fmt.Errorf("generate token: %w", err)
+	raw, err := randomSessionToken()
+	if err != nil {
+		return nil, err
 	}
-	prefix := "xoxb-"
-	if !params.IsBot {
-		prefix = "xoxp-"
-	}
-	rawToken := prefix + hex.EncodeToString(tokenBytes)
-	tokenHash := crypto.HashToken(rawToken)
 
-	row, err := r.q.CreateToken(ctx, sqlcgen.CreateTokenParams{
-		ID:        id,
-		TeamID:    params.TeamID,
-		UserID:    params.UserID,
-		Token:     rawToken,
-		TokenHash: tokenHash,
-		Scopes:    params.Scopes,
-		IsBot:     params.IsBot,
+	row, err := r.q.CreateAuthSession(ctx, sqlcgen.CreateAuthSessionParams{
+		ID:          id,
+		TeamID:      params.TeamID,
+		UserID:      params.UserID,
+		SessionHash: crypto.HashToken(raw),
+		Provider:    string(params.Provider),
+		ExpiresAt:   params.ExpiresAt,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("insert token: %w", err)
+		return nil, fmt.Errorf("insert auth session: %w", err)
 	}
 
-	// Return the token with the raw value so the caller can give it to the user.
-	// This is the ONLY time the raw token is available.
-	return createTokenRowToDomain(row), nil
+	session := authSessionToDomain(row)
+	session.Token = raw
+	return session, nil
 }
 
-func (r *AuthRepo) GetByTokenHash(ctx context.Context, tokenHash string) (*domain.Token, error) {
-	row, err := r.q.GetByTokenHash(ctx, tokenHash)
+func (r *AuthRepo) GetSessionByHash(ctx context.Context, sessionHash string) (*domain.AuthSession, error) {
+	row, err := r.q.GetAuthSessionByHash(ctx, sessionHash)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, domain.ErrInvalidAuth
 		}
-		return nil, fmt.Errorf("get token by hash: %w", err)
+		return nil, fmt.Errorf("get auth session by hash: %w", err)
 	}
-	return tokenHashRowToDomain(row), nil
+	return authSessionToDomain(row), nil
 }
 
-func (r *AuthRepo) RevokeToken(ctx context.Context, token string) error {
-	tokenHash := crypto.HashToken(token)
-	return r.q.RevokeTokenByHash(ctx, tokenHash)
+func (r *AuthRepo) RevokeSessionByHash(ctx context.Context, sessionHash string) error {
+	return r.q.RevokeAuthSessionByHash(ctx, sessionHash)
+}
+
+func (r *AuthRepo) GetOAuthAccount(ctx context.Context, teamID string, provider domain.AuthProvider, providerSubject string) (*domain.OAuthAccount, error) {
+	row, err := r.q.GetOAuthAccount(ctx, sqlcgen.GetOAuthAccountParams{
+		TeamID:          teamID,
+		Provider:        string(provider),
+		ProviderSubject: providerSubject,
+	})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, domain.ErrNotFound
+		}
+		return nil, fmt.Errorf("get oauth account: %w", err)
+	}
+	return oauthAccountToDomain(row), nil
+}
+
+func (r *AuthRepo) UpsertOAuthAccount(ctx context.Context, params domain.UpsertOAuthAccountParams) (*domain.OAuthAccount, error) {
+	row, err := r.q.UpsertOAuthAccount(ctx, sqlcgen.UpsertOAuthAccountParams{
+		ID:              generateID("OA"),
+		TeamID:          params.TeamID,
+		UserID:          params.UserID,
+		Provider:        string(params.Provider),
+		ProviderSubject: params.ProviderSubject,
+		Email:           params.Email,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("upsert oauth account: %w", err)
+	}
+	return oauthAccountToDomain(row), nil
+}
+
+func randomSessionToken() (string, error) {
+	buf := make([]byte, 32)
+	if _, err := rand.Read(buf); err != nil {
+		return "", fmt.Errorf("generate session token: %w", err)
+	}
+	return "sess_" + hex.EncodeToString(buf), nil
 }

@@ -3,6 +3,7 @@ package crypto
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"strings"
 	"testing"
 )
@@ -78,7 +79,7 @@ func TestEncryptDecrypt_DifferentCiphertexts(t *testing.T) {
 	}
 }
 
-func TestDecrypt_PlaintextPassthrough(t *testing.T) {
+func TestDecrypt_RejectsPlaintext(t *testing.T) {
 	keyHex := generateTestKey(t)
 	provider, err := NewEnvKeyProvider(keyHex, nil)
 	if err != nil {
@@ -88,37 +89,28 @@ func TestDecrypt_PlaintextPassthrough(t *testing.T) {
 	enc := NewEncryptor(provider)
 	plaintext := "not-encrypted-value"
 
-	// Decrypting a non-prefixed value should return it as-is.
-	result, err := enc.Decrypt(plaintext)
-	if err != nil {
-		t.Fatalf("decrypt plaintext: %v", err)
-	}
-	if result != plaintext {
-		t.Errorf("result = %q, want %q", result, plaintext)
+	_, err = enc.Decrypt(plaintext)
+	if err == nil {
+		t.Fatal("expected plaintext decrypt to fail")
 	}
 }
 
-func TestNilEncryptor(t *testing.T) {
+func TestMissingKeyProvider(t *testing.T) {
 	enc := NewEncryptor(nil)
-	if enc != nil {
-		t.Fatal("expected nil encryptor")
+	_, err := enc.Encrypt("hello")
+	if err == nil {
+		t.Fatal("expected encrypt to fail")
 	}
-
-	// nil encryptor should pass through values unchanged.
-	result, err := enc.Encrypt("hello")
-	if err != nil {
+	if !errors.Is(err, ErrKeyNotConfigured) {
 		t.Fatalf("encrypt: %v", err)
 	}
-	if result != "hello" {
-		t.Errorf("result = %q, want %q", result, "hello")
-	}
 
-	result, err = enc.Decrypt("hello")
-	if err != nil {
-		t.Fatalf("decrypt: %v", err)
+	_, err = enc.Decrypt("hello")
+	if err == nil {
+		t.Fatal("expected decrypt to fail")
 	}
-	if result != "hello" {
-		t.Errorf("result = %q, want %q", result, "hello")
+	if !errors.Is(err, ErrKeyNotConfigured) {
+		t.Fatalf("decrypt: %v", err)
 	}
 }
 

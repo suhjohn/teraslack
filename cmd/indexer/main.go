@@ -1,5 +1,5 @@
 // cmd/indexer is a standalone process that runs both the IndexProducer
-// (tails service_events → S3 queue) and the IndexWorker (claims jobs from
+// (tails internal_events → S3 queue) and the IndexWorker (claims jobs from
 // S3 queue → Turbopuffer). It runs separately from the API server so
 // multiple server replicas don't contend over indexing.
 //
@@ -20,6 +20,7 @@ import (
 	"github.com/suhjohn/teraslack/internal/queue"
 	"github.com/suhjohn/teraslack/internal/search"
 	"github.com/suhjohn/teraslack/internal/service"
+	"github.com/turbopuffer/turbopuffer-go/option"
 )
 
 func main() {
@@ -32,7 +33,7 @@ func main() {
 func run() error {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
 
-	// Database connection (needed by IndexProducer to tail service_events)
+	// Database connection (needed by IndexProducer to tail internal_events)
 	dbURL := os.Getenv("DATABASE_URL")
 	if dbURL == "" {
 		return fmt.Errorf("DATABASE_URL is required")
@@ -74,7 +75,7 @@ func run() error {
 
 	workerID := getEnv("WORKER_ID", "")
 
-	// Start IndexProducer (tails service_events → S3 queue)
+	// Start IndexProducer (tails internal_events → S3 queue)
 	producer := queue.NewIndexProducer(pool, s3Queue, logger, queue.ProducerConfig{})
 	producerErrCh := make(chan error, 1)
 	go func() {
@@ -85,8 +86,9 @@ func run() error {
 	var tpClient service.TurbopufferClient
 	if apiKey := os.Getenv("TURBOPUFFER_API_KEY"); apiKey != "" {
 		nsPrefix := getEnv("TURBOPUFFER_NS_PREFIX", "teraslack")
-		tpClient = search.NewClient(apiKey, nsPrefix)
-		logger.Info("turbopuffer client initialized", "ns_prefix", nsPrefix)
+		region := getEnv("TURBOPUFFER_REGION", "aws-us-west-2")
+		tpClient = search.NewClient(apiKey, nsPrefix, option.WithRegion(region))
+		logger.Info("turbopuffer client initialized", "ns_prefix", nsPrefix, "region", region)
 	} else {
 		logger.Warn("TURBOPUFFER_API_KEY not set — indexer running in dry-run mode")
 	}

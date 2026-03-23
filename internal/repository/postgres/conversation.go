@@ -36,11 +36,13 @@ func (r *ConversationRepo) Create(ctx context.Context, params domain.CreateConve
 	}
 	id := generateID(prefix)
 
-	tx, err := r.db.Begin(ctx)
+	tx, ownTx, err := beginOwnedTx(ctx, r.db)
 	if err != nil {
 		return nil, fmt.Errorf("begin tx: %w", err)
 	}
-	defer tx.Rollback(ctx)
+	if ownTx {
+		defer tx.Rollback(ctx)
+	}
 
 	qtx := r.q.WithTx(tx)
 
@@ -72,8 +74,10 @@ func (r *ConversationRepo) Create(ctx context.Context, params domain.CreateConve
 		return nil, fmt.Errorf("update member count: %w", err)
 	}
 
-	if err := tx.Commit(ctx); err != nil {
-		return nil, fmt.Errorf("commit tx: %w", err)
+	if ownTx {
+		if err := tx.Commit(ctx); err != nil {
+			return nil, fmt.Errorf("commit tx: %w", err)
+		}
 	}
 
 	c := convToDomain(row)
@@ -276,11 +280,13 @@ func (r *ConversationRepo) listWithTypes(ctx context.Context, params domain.List
 }
 
 func (r *ConversationRepo) AddMember(ctx context.Context, conversationID, userID string) error {
-	tx, err := r.db.Begin(ctx)
+	tx, ownTx, err := beginOwnedTx(ctx, r.db)
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
 	}
-	defer tx.Rollback(ctx)
+	if ownTx {
+		defer tx.Rollback(ctx)
+	}
 	qtx := r.q.WithTx(tx)
 
 	// Lock the conversation row to prevent concurrent member count races
@@ -288,25 +294,36 @@ func (r *ConversationRepo) AddMember(ctx context.Context, conversationID, userID
 		return fmt.Errorf("lock conversation: %w", err)
 	}
 
-	if err := qtx.AddConversationMember(ctx, sqlcgen.AddConversationMemberParams{
-		ConversationID: conversationID,
-		UserID:         userID,
-	}); err != nil {
+	tag, err := tx.Exec(ctx,
+		`INSERT INTO conversation_members (conversation_id, user_id)
+		 VALUES ($1, $2)
+		 ON CONFLICT DO NOTHING`,
+		conversationID, userID,
+	)
+	if err != nil {
 		return fmt.Errorf("add member: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return domain.ErrAlreadyInChannel
 	}
 	if err := qtx.UpdateConversationMemberCount(ctx, conversationID); err != nil {
 		return fmt.Errorf("update member count: %w", err)
 	}
 
-	return tx.Commit(ctx)
+	if ownTx {
+		return tx.Commit(ctx)
+	}
+	return nil
 }
 
 func (r *ConversationRepo) RemoveMember(ctx context.Context, conversationID, userID string) error {
-	tx, err := r.db.Begin(ctx)
+	tx, ownTx, err := beginOwnedTx(ctx, r.db)
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
 	}
-	defer tx.Rollback(ctx)
+	if ownTx {
+		defer tx.Rollback(ctx)
+	}
 	qtx := r.q.WithTx(tx)
 
 	// Lock the conversation row to prevent concurrent member count races
@@ -338,7 +355,10 @@ func (r *ConversationRepo) RemoveMember(ctx context.Context, conversationID, use
 		return fmt.Errorf("update member count: %w", err)
 	}
 
-	return tx.Commit(ctx)
+	if ownTx {
+		return tx.Commit(ctx)
+	}
+	return nil
 }
 
 func (r *ConversationRepo) ListMembers(ctx context.Context, conversationID string, cursor string, limit int) (*domain.CursorPage[domain.ConversationMember], error) {
@@ -360,7 +380,7 @@ func (r *ConversationRepo) ListMembers(ctx context.Context, conversationID strin
 		members = append(members, domain.ConversationMember{
 			ConversationID: row.ConversationID,
 			UserID:         row.UserID,
-			JoinedAt:       tsToTime(row.JoinedAt),
+			JoinedAt:       row.JoinedAt,
 		})
 	}
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/suhjohn/teraslack/internal/ctxutil"
 	"github.com/suhjohn/teraslack/internal/domain"
@@ -11,174 +12,210 @@ import (
 	"github.com/suhjohn/teraslack/pkg/httputil"
 )
 
+const (
+	sessionCookieName    = "teraslack_session"
+	oauthNonceCookieName = "teraslack_oauth_nonce"
+)
 
-// AuthHandler handles HTTP requests for authentication operations.
 type AuthHandler struct {
 	svc *service.AuthService
 }
 
-// NewAuthHandler creates a new AuthHandler.
 func NewAuthHandler(svc *service.AuthService) *AuthHandler {
 	return &AuthHandler{svc: svc}
 }
 
-// CreateToken handles POST /tokens
-func (h *AuthHandler) CreateToken(w http.ResponseWriter, r *http.Request) {
-	var params domain.CreateTokenParams
-	if err := httputil.DecodeJSON(r, &params); err != nil {
-		httputil.WriteError(w, domain.ErrInvalidArgument)
-		return
-	}
-
-	token, err := h.svc.CreateToken(r.Context(), params)
+func (h *AuthHandler) StartOAuth(w http.ResponseWriter, r *http.Request) {
+	provider := domain.AuthProvider(r.PathValue("provider"))
+	result, err := h.svc.StartOAuth(r.Context(), domain.StartOAuthParams{
+		Provider:   provider,
+		TeamID:     r.URL.Query().Get("team_id"),
+		RedirectTo: r.URL.Query().Get("redirect_to"),
+	})
 	if err != nil {
-		httputil.WriteError(w, err)
+		httputil.WriteError(w, r, err)
 		return
 	}
 
-	httputil.WriteOK(w, map[string]any{
-		"token":   token.Token,
-		"user_id": token.UserID,
-		"team_id": token.TeamID,
-		"is_bot":  token.IsBot,
+	http.SetCookie(w, &http.Cookie{
+		Name:     oauthNonceCookieName,
+		Value:    result.Nonce,
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   r.TLS != nil,
+		SameSite: http.SameSiteLaxMode,
+		MaxAge:   600,
+	})
+	http.Redirect(w, r, result.AuthorizationURL, http.StatusFound)
+}
+
+func (h *AuthHandler) CompleteOAuth(w http.ResponseWriter, r *http.Request) {
+	nonceCookie, err := r.Cookie(oauthNonceCookieName)
+	if err != nil {
+		httputil.WriteError(w, r, domain.ErrInvalidArgument)
+		return
+	}
+
+	provider := domain.AuthProvider(r.PathValue("provider"))
+	result, err := h.svc.CompleteOAuth(r.Context(), domain.CompleteOAuthParams{
+		Provider: provider,
+		Code:     r.URL.Query().Get("code"),
+		State:    r.URL.Query().Get("state"),
+		Nonce:    nonceCookie.Value,
+	})
+	if err != nil {
+		httputil.WriteError(w, r, err)
+		return
+	}
+
+	http.SetCookie(w, expiredCookie(oauthNonceCookieName))
+	http.SetCookie(w, &http.Cookie{
+		Name:     sessionCookieName,
+		Value:    result.Session.Token,
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   r.TLS != nil,
+		SameSite: http.SameSiteLaxMode,
+		Expires:  result.Session.ExpiresAt,
+	})
+
+	if result.RedirectTo != "" {
+		http.Redirect(w, r, result.RedirectTo, http.StatusFound)
+		return
+	}
+
+	httputil.WriteResource(w, http.StatusOK, result.Session)
+}
+
+func (h *AuthHandler) Me(w http.ResponseWriter, r *http.Request) {
+	httputil.WriteResource(w, http.StatusOK, domain.AuthContext{
+		TeamID:        ctxutil.GetTeamID(r.Context()),
+		UserID:        ctxutil.GetUserID(r.Context()),
+		PrincipalType: ctxutil.GetPrincipalType(r.Context()),
+		AccountType:   ctxutil.GetAccountType(r.Context()),
+		IsBot:         ctxutil.GetIsBot(r.Context()),
 	})
 }
 
-// Test handles GET /auth/test
-func (h *AuthHandler) Test(w http.ResponseWriter, r *http.Request) {
-	authHeader := r.Header.Get("Authorization")
-	if authHeader == "" {
-		httputil.WriteError(w, domain.ErrInvalidArgument)
+func (h *AuthHandler) RevokeCurrentSession(w http.ResponseWriter, r *http.Request) {
+	token, isAPIKey := authCredentialFromRequest(r)
+	if token == "" {
+		httputil.WriteErrorResponse(w, r, http.StatusUnauthorized, "authentication_required", "Authentication is required.")
+		return
+	}
+	if isAPIKey {
+		httputil.WriteErrorResponse(w, r, http.StatusBadRequest, "invalid_request", "API keys cannot be revoked from this endpoint.")
 		return
 	}
 
-	resp, err := h.svc.ValidateToken(r.Context(), authHeader)
-	if err != nil {
-		httputil.WriteError(w, err)
+	if err := h.svc.RevokeSession(r.Context(), token); err != nil {
+		httputil.WriteError(w, r, err)
 		return
 	}
 
-	httputil.WriteOK(w, map[string]any{
-		"team_id": resp.TeamID,
-		"user_id": resp.UserID,
-		"is_bot":  resp.IsBot,
-	})
+	http.SetCookie(w, expiredCookie(sessionCookieName))
+	httputil.WriteNoContent(w)
 }
 
-// Revoke handles DELETE /tokens
-func (h *AuthHandler) Revoke(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Token string `json:"token"`
-	}
-	if err := httputil.DecodeJSON(r, &req); err != nil {
-		httputil.WriteError(w, domain.ErrInvalidArgument)
-		return
-	}
-
-	if err := h.svc.RevokeToken(r.Context(), req.Token); err != nil {
-		httputil.WriteError(w, err)
-		return
-	}
-
-	httputil.WriteOK(w, nil)
-}
-
-// authBypassPaths are endpoints that bypass auth entirely (any method).
 var authBypassPaths = map[string]bool{
-	"/auth/test": true,
-	"/healthz":   true,
+	"/healthz":      true,
+	"/openapi.json": true,
+	"/openapi.yaml": true,
 }
 
-// authBypassMethodPaths are method+path combos that bypass auth.
-var authBypassMethodPaths = map[string]bool{
-	"POST /tokens": true,
-}
-
-// AuthMiddleware validates Bearer token or API key and injects user context.
-// Supports two auth mechanisms:
-//   - Bearer token: "Authorization: Bearer xoxb-..." or "Authorization: Bearer xoxp-..."
-//   - API key: "Authorization: Bearer sk_live_..." or "Authorization: Bearer sk_test_..."
 func AuthMiddleware(authSvc *service.AuthService, apiKeySvc *service.APIKeyService) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// Skip middleware for endpoints that handle auth themselves
-			if authBypassPaths[r.URL.Path] || authBypassMethodPaths[r.Method+" "+r.URL.Path] {
+			if isAuthBypassRequest(r) {
 				next.ServeHTTP(w, r)
 				return
 			}
 
-			authHeader := r.Header.Get("Authorization")
-			if authHeader == "" || !strings.HasPrefix(authHeader, "Bearer ") {
-				httputil.WriteJSON(w, http.StatusUnauthorized, httputil.TeraslackResponse{
-					OK:    false,
-					Error: "not_authed",
-				})
+			token, isAPIKey := authCredentialFromRequest(r)
+			if token == "" {
+				httputil.WriteErrorResponse(w, r, http.StatusUnauthorized, "authentication_required", "Authentication is required.")
 				return
 			}
 
-			token := strings.TrimPrefix(authHeader, "Bearer ")
-			token = strings.TrimSpace(token)
-
 			ctx := r.Context()
-
-			// Route to API key validation if token starts with sk_live_ or sk_test_
-			if strings.HasPrefix(token, "sk_live_") || strings.HasPrefix(token, "sk_test_") {
+			if isAPIKey {
 				if apiKeySvc == nil {
-					httputil.WriteJSON(w, http.StatusUnauthorized, httputil.TeraslackResponse{
-						OK:    false,
-						Error: "api_keys_not_configured",
-					})
+					httputil.WriteErrorResponse(w, r, http.StatusUnauthorized, "invalid_authentication", "Authentication credentials are invalid.")
 					return
 				}
 
 				validation, err := apiKeySvc.ValidateAPIKey(ctx, token)
 				if err != nil {
-					httputil.WriteJSON(w, http.StatusUnauthorized, httputil.TeraslackResponse{
-						OK:    false,
-						Error: "invalid_auth",
-					})
+					httputil.WriteErrorResponse(w, r, http.StatusUnauthorized, "invalid_authentication", "Authentication credentials are invalid.")
 					return
 				}
 
 				ctx = context.WithValue(ctx, ctxutil.ContextKeyTeamID, validation.TeamID)
 				ctx = context.WithValue(ctx, ctxutil.ContextKeyUserID, validation.PrincipalID)
-				ctx = context.WithValue(ctx, ctxutil.ContextKeyIsBot, false)
+				ctx = ctxutil.WithPrincipal(ctx, validation.PrincipalType, validation.AccountType, validation.IsBot)
 				ctx = ctxutil.WithDelegation(ctx, validation.OnBehalfOf, validation.KeyID)
+				ctx = ctxutil.WithPermissions(ctx, validation.Permissions)
 				next.ServeHTTP(w, r.WithContext(ctx))
 				return
 			}
 
-			// Legacy Bearer token validation
 			if authSvc == nil {
-				httputil.WriteJSON(w, http.StatusUnauthorized, httputil.TeraslackResponse{
-					OK:    false,
-					Error: "token_auth_not_configured",
-				})
-				return
-			}
-			resp, err := authSvc.ValidateToken(ctx, token)
-			if err != nil {
-				httputil.WriteJSON(w, http.StatusUnauthorized, httputil.TeraslackResponse{
-					OK:    false,
-					Error: "invalid_auth",
-				})
+				httputil.WriteErrorResponse(w, r, http.StatusUnauthorized, "invalid_authentication", "Authentication credentials are invalid.")
 				return
 			}
 
-			ctx = context.WithValue(ctx, ctxutil.ContextKeyTeamID, resp.TeamID)
-			ctx = context.WithValue(ctx, ctxutil.ContextKeyUserID, resp.UserID)
-			ctx = context.WithValue(ctx, ctxutil.ContextKeyIsBot, resp.IsBot)
+			auth, err := authSvc.ValidateSession(ctx, token)
+			if err != nil {
+				httputil.WriteErrorResponse(w, r, http.StatusUnauthorized, "invalid_authentication", "Authentication credentials are invalid.")
+				return
+			}
+
+			ctx = context.WithValue(ctx, ctxutil.ContextKeyTeamID, auth.TeamID)
+			ctx = context.WithValue(ctx, ctxutil.ContextKeyUserID, auth.UserID)
+			ctx = ctxutil.WithPrincipal(ctx, auth.PrincipalType, auth.AccountType, auth.IsBot)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
 }
 
-// GetTeamID extracts team_id from context (set by AuthMiddleware).
 func GetTeamID(ctx context.Context) string {
 	return ctxutil.GetTeamID(ctx)
 }
 
-// GetUserID extracts user_id from context (set by AuthMiddleware).
 func GetUserID(ctx context.Context) string {
 	return ctxutil.GetUserID(ctx)
+}
+
+func isAuthBypassRequest(r *http.Request) bool {
+	if authBypassPaths[r.URL.Path] {
+		return true
+	}
+	return strings.HasPrefix(r.URL.Path, "/auth/oauth/")
+}
+
+func authCredentialFromRequest(r *http.Request) (token string, isAPIKey bool) {
+	authHeader := strings.TrimSpace(r.Header.Get("Authorization"))
+	if strings.HasPrefix(authHeader, "Bearer ") {
+		token = strings.TrimSpace(strings.TrimPrefix(authHeader, "Bearer "))
+		return token, strings.HasPrefix(token, "sk_live_") || strings.HasPrefix(token, "sk_test_")
+	}
+
+	cookie, err := r.Cookie(sessionCookieName)
+	if err != nil {
+		return "", false
+	}
+	return cookie.Value, false
+}
+
+func expiredCookie(name string) *http.Cookie {
+	return &http.Cookie{
+		Name:     name,
+		Value:    "",
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   false,
+		SameSite: http.SameSiteLaxMode,
+		Expires:  time.Unix(0, 0),
+		MaxAge:   -1,
+	}
 }

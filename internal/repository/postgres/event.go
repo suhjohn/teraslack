@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/suhjohn/teraslack/internal/crypto"
 	"github.com/suhjohn/teraslack/internal/domain"
 	"github.com/suhjohn/teraslack/internal/repository"
@@ -40,8 +41,9 @@ func (r *EventRepo) CreateSubscription(ctx context.Context, params domain.Create
 		ID:              id,
 		TeamID:          params.TeamID,
 		Url:             params.URL,
-		EventTypes:      params.EventTypes,
-		Secret:          "",
+		EventType:       params.Type,
+		ResourceType:    params.ResourceType,
+		ResourceID:      params.ResourceID,
 		EncryptedSecret: encryptedSecret,
 	})
 	if err != nil {
@@ -59,15 +61,7 @@ func (r *EventRepo) GetSubscription(ctx context.Context, id string) (*domain.Eve
 		}
 		return nil, fmt.Errorf("get subscription: %w", err)
 	}
-	sub := getEventSubRowToDomain(row)
-	// Decrypt the secret for runtime use.
-	if sub.EncryptedSecret != "" {
-		decrypted, decErr := r.encryptor.Decrypt(sub.EncryptedSecret)
-		if decErr == nil {
-			sub.Secret = decrypted
-		}
-	}
-	return sub, nil
+	return getEventSubRowToDomain(row), nil
 }
 
 func (r *EventRepo) UpdateSubscription(ctx context.Context, id string, params domain.UpdateEventSubscriptionParams) (*domain.EventSubscription, error) {
@@ -80,9 +74,17 @@ func (r *EventRepo) UpdateSubscription(ctx context.Context, id string, params do
 	if params.URL != nil {
 		url = *params.URL
 	}
-	eventTypes := existing.EventTypes
-	if params.EventTypes != nil {
-		eventTypes = params.EventTypes
+	eventType := existing.Type
+	if params.Type != nil {
+		eventType = *params.Type
+	}
+	resourceType := existing.ResourceType
+	if params.ResourceType != nil {
+		resourceType = *params.ResourceType
+	}
+	resourceID := existing.ResourceID
+	if params.ResourceID != nil {
+		resourceID = *params.ResourceID
 	}
 	enabled := existing.Enabled
 	if params.Enabled != nil {
@@ -90,10 +92,12 @@ func (r *EventRepo) UpdateSubscription(ctx context.Context, id string, params do
 	}
 
 	row, err := r.q.UpdateEventSubscription(ctx, sqlcgen.UpdateEventSubscriptionParams{
-		ID:         id,
-		Url:        url,
-		EventTypes: eventTypes,
-		Enabled:    enabled,
+		ID:           id,
+		Url:          url,
+		EventType:    eventType,
+		ResourceType: resourceType,
+		ResourceID:   resourceID,
+		Enabled:      enabled,
 	})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -117,23 +121,17 @@ func (r *EventRepo) ListSubscriptions(ctx context.Context, params domain.ListEve
 
 	subs := make([]domain.EventSubscription, 0, len(rows))
 	for _, row := range rows {
-		sub := listEventSubRowToDomain(row)
-		// Decrypt secrets for runtime use.
-		if sub.EncryptedSecret != "" {
-			decrypted, decErr := r.encryptor.Decrypt(sub.EncryptedSecret)
-			if decErr == nil {
-				sub.Secret = decrypted
-			}
-		}
-		subs = append(subs, *sub)
+		subs = append(subs, *listEventSubRowToDomain(row))
 	}
 	return subs, nil
 }
 
-func (r *EventRepo) ListSubscriptionsByTeamAndEvent(ctx context.Context, teamID, eventType string) ([]domain.EventSubscription, error) {
+func (r *EventRepo) ListSubscriptionsByEvent(ctx context.Context, teamID, eventType, resourceType, resourceID string) ([]domain.EventSubscription, error) {
 	rows, err := r.q.ListEventSubscriptionsByTeamAndEvent(ctx, sqlcgen.ListEventSubscriptionsByTeamAndEventParams{
-		TeamID:  teamID,
-		Column2: eventType,
+		TeamID:       teamID,
+		EventType:    eventType,
+		ResourceType: textValue(resourceType),
+		ResourceID:   textValue(resourceID),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("list subscriptions by event: %w", err)
@@ -141,15 +139,14 @@ func (r *EventRepo) ListSubscriptionsByTeamAndEvent(ctx context.Context, teamID,
 
 	subs := make([]domain.EventSubscription, 0, len(rows))
 	for _, row := range rows {
-		sub := listEventSubByTeamEventRowToDomain(row)
-		// Decrypt secrets for webhook dispatch.
-		if sub.EncryptedSecret != "" {
-			decrypted, decErr := r.encryptor.Decrypt(sub.EncryptedSecret)
-			if decErr == nil {
-				sub.Secret = decrypted
-			}
-		}
-		subs = append(subs, *sub)
+		subs = append(subs, *listEventSubByTeamEventRowToDomain(row))
 	}
 	return subs, nil
+}
+
+func textValue(value string) pgtype.Text {
+	if value == "" {
+		return pgtype.Text{}
+	}
+	return pgtype.Text{String: value, Valid: true}
 }

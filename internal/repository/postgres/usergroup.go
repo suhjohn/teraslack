@@ -28,11 +28,13 @@ func (r *UsergroupRepo) WithTx(tx pgx.Tx) repository.UsergroupRepository {
 func (r *UsergroupRepo) Create(ctx context.Context, params domain.CreateUsergroupParams) (*domain.Usergroup, error) {
 	id := generateID("S")
 
-	tx, err := r.db.Begin(ctx)
+	tx, ownTx, err := beginOwnedTx(ctx, r.db)
 	if err != nil {
 		return nil, fmt.Errorf("begin tx: %w", err)
 	}
-	defer tx.Rollback(ctx)
+	if ownTx {
+		defer tx.Rollback(ctx)
+	}
 	qtx := r.q.WithTx(tx)
 
 	row, err := qtx.CreateUsergroup(ctx, sqlcgen.CreateUsergroupParams{
@@ -61,8 +63,10 @@ func (r *UsergroupRepo) Create(ctx context.Context, params domain.CreateUsergrou
 		}
 	}
 
-	if err := tx.Commit(ctx); err != nil {
-		return nil, fmt.Errorf("commit tx: %w", err)
+	if ownTx {
+		if err := tx.Commit(ctx); err != nil {
+			return nil, fmt.Errorf("commit tx: %w", err)
+		}
 	}
 
 	ug := usergroupToDomain(row)
@@ -164,11 +168,13 @@ func (r *UsergroupRepo) ListUsers(ctx context.Context, usergroupID string) ([]st
 }
 
 func (r *UsergroupRepo) SetUsers(ctx context.Context, usergroupID string, userIDs []string) error {
-	tx, err := r.db.Begin(ctx)
+	tx, ownTx, err := beginOwnedTx(ctx, r.db)
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
 	}
-	defer tx.Rollback(ctx)
+	if ownTx {
+		defer tx.Rollback(ctx)
+	}
 	qtx := r.q.WithTx(tx)
 
 	if err := qtx.DeleteUsergroupMembers(ctx, usergroupID); err != nil {
@@ -191,5 +197,8 @@ func (r *UsergroupRepo) SetUsers(ctx context.Context, usergroupID string, userID
 		return fmt.Errorf("set user count: %w", err)
 	}
 
-	return tx.Commit(ctx)
+	if ownTx {
+		return tx.Commit(ctx)
+	}
+	return nil
 }

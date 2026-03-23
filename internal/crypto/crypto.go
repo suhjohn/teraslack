@@ -27,8 +27,7 @@ var (
 	ErrKeyTooShort       = errors.New("crypto: key must be 32 bytes for AES-256")
 )
 
-// ciphertextPrefix identifies encrypted values so we can distinguish them
-// from plaintext (important during migration / rollout).
+// ciphertextPrefix identifies encrypted values.
 const ciphertextPrefix = "enc:v1:"
 
 // KeyProvider abstracts the source of encryption keys.
@@ -53,19 +52,15 @@ type Encryptor struct {
 }
 
 // NewEncryptor creates an Encryptor with the given key provider.
-// Returns nil if provider is nil (encryption disabled).
 func NewEncryptor(provider KeyProvider) *Encryptor {
-	if provider == nil {
-		return nil
-	}
 	return &Encryptor{provider: provider}
 }
 
 // Encrypt encrypts plaintext using AES-256-GCM and returns a prefixed,
 // base64-encoded ciphertext string: "enc:v1:<keyID>:<base64(nonce+ciphertext)>"
 func (e *Encryptor) Encrypt(plaintext string) (string, error) {
-	if e == nil {
-		return plaintext, nil // no-op when encryption is disabled
+	if e == nil || e.provider == nil {
+		return "", ErrKeyNotConfigured
 	}
 
 	key, err := e.provider.GetKey()
@@ -96,16 +91,13 @@ func (e *Encryptor) Encrypt(plaintext string) (string, error) {
 }
 
 // Decrypt decrypts a value produced by Encrypt.
-// If the value is not prefixed with "enc:v1:", it is returned as-is
-// (plaintext passthrough for backward compatibility / migration).
 func (e *Encryptor) Decrypt(value string) (string, error) {
-	if e == nil {
-		return value, nil // no-op when encryption is disabled
+	if e == nil || e.provider == nil {
+		return "", ErrKeyNotConfigured
 	}
 
 	if !strings.HasPrefix(value, ciphertextPrefix) {
-		// Not encrypted — return as-is (backward compat).
-		return value, nil
+		return "", ErrInvalidCiphertext
 	}
 
 	// Parse: "enc:v1:<keyID>:<base64>"

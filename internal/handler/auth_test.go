@@ -58,7 +58,7 @@ func TestAuthMiddleware_NoHeader(t *testing.T) {
 
 func TestAuthMiddleware_BypassPaths(t *testing.T) {
 	// Path-only bypasses (any method)
-	for _, path := range []string{"/auth/test", "/healthz"} {
+	for _, path := range []string{"/healthz"} {
 		called := false
 		next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			called = true
@@ -80,34 +80,34 @@ func TestAuthMiddleware_BypassPaths(t *testing.T) {
 		}
 	}
 
-	// Method+path bypass: POST /tokens should bypass
+	// OAuth routes should bypass auth
 	called := false
 	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		called = true
 		w.WriteHeader(http.StatusOK)
 	})
 	middleware := AuthMiddleware(nil, nil)(next)
-	req := httptest.NewRequest(http.MethodPost, "/tokens", nil)
+	req := httptest.NewRequest(http.MethodGet, "/auth/oauth/github/start", nil)
 	w := httptest.NewRecorder()
 	middleware.ServeHTTP(w, req)
 	if !called {
-		t.Fatal("expected POST /tokens to bypass auth")
+		t.Fatal("expected oauth start to bypass auth")
 	}
 
-	// DELETE /tokens should NOT bypass auth
+	// GET /auth/me should NOT bypass auth
 	called = false
 	next = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		called = true
 		w.WriteHeader(http.StatusOK)
 	})
 	middleware = AuthMiddleware(nil, nil)(next)
-	req = httptest.NewRequest(http.MethodDelete, "/tokens", nil)
+	req = httptest.NewRequest(http.MethodGet, "/auth/me", nil)
 	w = httptest.NewRecorder()
 	middleware.ServeHTTP(w, req)
 	if called {
-		t.Fatal("expected DELETE /tokens to require auth")
+		t.Fatal("expected GET /auth/me to require auth")
 	}
 	if w.Code != http.StatusUnauthorized {
-		t.Errorf("expected 401 for DELETE /tokens, got %d", w.Code)
+		t.Errorf("expected 401 for GET /auth/me, got %d", w.Code)
 	}
 }

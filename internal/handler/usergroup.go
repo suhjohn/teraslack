@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/suhjohn/teraslack/internal/ctxutil"
 	"github.com/suhjohn/teraslack/internal/domain"
 	"github.com/suhjohn/teraslack/internal/service"
 	"github.com/suhjohn/teraslack/pkg/httputil"
@@ -19,159 +20,150 @@ func NewUsergroupHandler(svc *service.UsergroupService) *UsergroupHandler {
 	return &UsergroupHandler{svc: svc}
 }
 
-// Create handles POST /usergroups
+// Create handles POST /usergroups.
 func (h *UsergroupHandler) Create(w http.ResponseWriter, r *http.Request) {
 	var params domain.CreateUsergroupParams
 	if err := httputil.DecodeJSON(r, &params); err != nil {
-		httputil.WriteError(w, domain.ErrInvalidArgument)
+		httputil.WriteError(w, r, domain.ErrInvalidArgument)
 		return
+	}
+	if teamID := ctxutil.GetTeamID(r.Context()); teamID != "" {
+		params.TeamID = teamID
+	}
+	if actorID := ctxutil.GetActingUserID(r.Context()); actorID != "" {
+		params.CreatedBy = actorID
 	}
 
 	ug, err := h.svc.Create(r.Context(), params)
 	if err != nil {
-		httputil.WriteError(w, err)
+		httputil.WriteError(w, r, err)
 		return
 	}
 
-	httputil.WriteOK(w, map[string]any{"usergroup": ug})
+	httputil.WriteCreated(w, "/usergroups/"+ug.ID, ug)
 }
 
-// Update handles POST /usergroups/{id}
+// Update handles PATCH /usergroups/{id}.
 func (h *UsergroupHandler) Update(w http.ResponseWriter, r *http.Request) {
 	ugID := r.PathValue("id")
 	if ugID == "" {
-		httputil.WriteError(w, domain.ErrInvalidArgument)
+		httputil.WriteError(w, r, domain.ErrInvalidArgument)
 		return
 	}
 
-	var req struct {
-		Name        *string `json:"name,omitempty"`
-		Handle      *string `json:"handle,omitempty"`
-		Description *string `json:"description,omitempty"`
-		UpdatedBy   string  `json:"updated_by"`
-	}
+	var req UsergroupUpdateRequest
 	if err := httputil.DecodeJSON(r, &req); err != nil {
-		httputil.WriteError(w, domain.ErrInvalidArgument)
+		httputil.WriteError(w, r, domain.ErrInvalidArgument)
 		return
 	}
+	if actorID := ctxutil.GetActingUserID(r.Context()); actorID != "" {
+		req.UpdatedBy = actorID
+	}
 
-	ug, err := h.svc.Update(r.Context(), ugID, domain.UpdateUsergroupParams{
-		Name:        req.Name,
-		Handle:      req.Handle,
-		Description: req.Description,
-		UpdatedBy:   req.UpdatedBy,
-	})
+	if req.Name != nil || req.Handle != nil || req.Description != nil {
+		if _, err := h.svc.Update(r.Context(), ugID, domain.UpdateUsergroupParams{
+			Name:        req.Name,
+			Handle:      req.Handle,
+			Description: req.Description,
+			UpdatedBy:   req.UpdatedBy,
+		}); err != nil {
+			httputil.WriteError(w, r, err)
+			return
+		}
+	}
+	if req.Enabled != nil {
+		var err error
+		if *req.Enabled {
+			err = h.svc.Enable(r.Context(), ugID)
+		} else {
+			err = h.svc.Disable(r.Context(), ugID)
+		}
+		if err != nil {
+			httputil.WriteError(w, r, err)
+			return
+		}
+	}
+	ug, err := h.svc.Get(r.Context(), ugID)
 	if err != nil {
-		httputil.WriteError(w, err)
+		httputil.WriteError(w, r, err)
 		return
 	}
-
-	httputil.WriteOK(w, map[string]any{"usergroup": ug})
+	httputil.WriteResource(w, http.StatusOK, ug)
 }
 
-// List handles GET /usergroups?team_id=T123&include_disabled=true
+// List handles GET /usergroups.
 func (h *UsergroupHandler) List(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	includeDisabled, _ := strconv.ParseBool(q.Get("include_disabled"))
 
-	groups, err := h.svc.List(r.Context(), domain.ListUsergroupsParams{
+	params := domain.ListUsergroupsParams{
 		TeamID:          q.Get("team_id"),
 		IncludeDisabled: includeDisabled,
-	})
+	}
+	if teamID := ctxutil.GetTeamID(r.Context()); teamID != "" {
+		params.TeamID = teamID
+	}
+	groups, err := h.svc.List(r.Context(), params)
 	if err != nil {
-		httputil.WriteError(w, err)
+		httputil.WriteError(w, r, err)
 		return
 	}
 
-	httputil.WriteOK(w, map[string]any{"usergroups": groups})
+	httputil.WriteCollection(w, http.StatusOK, groups, "")
 }
 
-// Enable handles POST /usergroups/{id}/enable
-func (h *UsergroupHandler) Enable(w http.ResponseWriter, r *http.Request) {
-	ugID := r.PathValue("id")
-	if ugID == "" {
-		httputil.WriteError(w, domain.ErrInvalidArgument)
-		return
-	}
-
-	if err := h.svc.Enable(r.Context(), ugID); err != nil {
-		httputil.WriteError(w, err)
-		return
-	}
-
-	httputil.WriteOK(w, nil)
-}
-
-// Disable handles POST /usergroups/{id}/disable
-func (h *UsergroupHandler) Disable(w http.ResponseWriter, r *http.Request) {
-	ugID := r.PathValue("id")
-	if ugID == "" {
-		httputil.WriteError(w, domain.ErrInvalidArgument)
-		return
-	}
-
-	if err := h.svc.Disable(r.Context(), ugID); err != nil {
-		httputil.WriteError(w, err)
-		return
-	}
-
-	httputil.WriteOK(w, nil)
-}
-
-// ListUsers handles GET /usergroups/{id}/users
+// ListUsers handles GET /usergroups/{id}/members.
 func (h *UsergroupHandler) ListUsers(w http.ResponseWriter, r *http.Request) {
 	ugID := r.PathValue("id")
 	if ugID == "" {
-		httputil.WriteError(w, domain.ErrInvalidArgument)
+		httputil.WriteError(w, r, domain.ErrInvalidArgument)
 		return
 	}
 
 	users, err := h.svc.ListUsers(r.Context(), ugID)
 	if err != nil {
-		httputil.WriteError(w, err)
+		httputil.WriteError(w, r, err)
 		return
 	}
 
-	httputil.WriteOK(w, map[string]any{"users": users})
+	httputil.WriteCollection(w, http.StatusOK, users, "")
 }
 
-// Info handles GET /usergroups/{id}
+// Info handles GET /usergroups/{id}.
 func (h *UsergroupHandler) Info(w http.ResponseWriter, r *http.Request) {
 	ugID := r.PathValue("id")
 	if ugID == "" {
-		httputil.WriteError(w, domain.ErrInvalidArgument)
+		httputil.WriteError(w, r, domain.ErrInvalidArgument)
 		return
 	}
 
 	ug, err := h.svc.Get(r.Context(), ugID)
 	if err != nil {
-		httputil.WriteError(w, err)
+		httputil.WriteError(w, r, err)
 		return
 	}
 
-	httputil.WriteOK(w, map[string]any{"usergroup": ug})
+	httputil.WriteResource(w, http.StatusOK, ug)
 }
 
-// SetUsers handles POST /usergroups/{id}/users
+// SetUsers handles PUT /usergroups/{id}/members.
 func (h *UsergroupHandler) SetUsers(w http.ResponseWriter, r *http.Request) {
 	ugID := r.PathValue("id")
 	if ugID == "" {
-		httputil.WriteError(w, domain.ErrInvalidArgument)
+		httputil.WriteError(w, r, domain.ErrInvalidArgument)
 		return
 	}
 
-	var req struct {
-		Users []string `json:"users"`
-	}
+	var req UsergroupMembersUpdateRequest
 	if err := httputil.DecodeJSON(r, &req); err != nil {
-		httputil.WriteError(w, domain.ErrInvalidArgument)
+		httputil.WriteError(w, r, domain.ErrInvalidArgument)
 		return
 	}
 
 	if err := h.svc.SetUsers(r.Context(), ugID, req.Users); err != nil {
-		httputil.WriteError(w, err)
+		httputil.WriteError(w, r, err)
 		return
 	}
 
-	httputil.WriteOK(w, map[string]any{"usergroup_id": ugID, "users": req.Users})
+	httputil.WriteNoContent(w)
 }

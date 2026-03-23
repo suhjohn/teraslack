@@ -2,9 +2,11 @@ package service
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/suhjohn/teraslack/internal/ctxutil"
 	"github.com/suhjohn/teraslack/internal/domain"
 	"github.com/suhjohn/teraslack/internal/repository"
 )
@@ -24,14 +26,14 @@ func newMockUsergroupRepo() *mockUsergroupRepo {
 
 func (m *mockUsergroupRepo) Create(_ context.Context, params domain.CreateUsergroupParams) (*domain.Usergroup, error) {
 	ug := &domain.Usergroup{
-		ID:        "S123",
-		TeamID:    params.TeamID,
-		Name:      params.Name,
-		Handle:    params.Handle,
+		ID:          "S123",
+		TeamID:      params.TeamID,
+		Name:        params.Name,
+		Handle:      params.Handle,
 		Description: params.Description,
-		Enabled:   true,
-		CreatedBy: params.CreatedBy,
-		UpdatedBy: params.CreatedBy,
+		Enabled:     true,
+		CreatedBy:   params.CreatedBy,
+		UpdatedBy:   params.CreatedBy,
 	}
 	m.groups[ug.ID] = ug
 	return ug, nil
@@ -123,9 +125,13 @@ func (m *mockUserRepoForUG) Create(_ context.Context, _ domain.CreateUserParams)
 	return nil, nil
 }
 func (m *mockUserRepoForUG) Get(_ context.Context, id string) (*domain.User, error) {
-	return &domain.User{ID: id}, nil
+	return &domain.User{
+		ID:            id,
+		PrincipalType: domain.PrincipalTypeHuman,
+		AccountType:   domain.AccountTypeMember,
+	}, nil
 }
-func (m *mockUserRepoForUG) GetByEmail(_ context.Context, _ string) (*domain.User, error) {
+func (m *mockUserRepoForUG) GetByTeamEmail(_ context.Context, _, _ string) (*domain.User, error) {
 	return nil, domain.ErrNotFound
 }
 func (m *mockUserRepoForUG) Update(_ context.Context, _ string, _ domain.UpdateUserParams) (*domain.User, error) {
@@ -135,6 +141,31 @@ func (m *mockUserRepoForUG) List(_ context.Context, _ domain.ListUsersParams) (*
 	return nil, nil
 }
 func (m *mockUserRepoForUG) WithTx(_ pgx.Tx) repository.UserRepository { return m }
+
+type mockUserRepoForUGRoles struct {
+	users map[string]*domain.User
+}
+
+func (m *mockUserRepoForUGRoles) Create(_ context.Context, _ domain.CreateUserParams) (*domain.User, error) {
+	return nil, nil
+}
+func (m *mockUserRepoForUGRoles) Get(_ context.Context, id string) (*domain.User, error) {
+	u, ok := m.users[id]
+	if !ok {
+		return nil, domain.ErrNotFound
+	}
+	return u, nil
+}
+func (m *mockUserRepoForUGRoles) GetByTeamEmail(_ context.Context, _, _ string) (*domain.User, error) {
+	return nil, domain.ErrNotFound
+}
+func (m *mockUserRepoForUGRoles) Update(_ context.Context, _ string, _ domain.UpdateUserParams) (*domain.User, error) {
+	return nil, nil
+}
+func (m *mockUserRepoForUGRoles) List(_ context.Context, _ domain.ListUsersParams) (*domain.CursorPage[domain.User], error) {
+	return nil, nil
+}
+func (m *mockUserRepoForUGRoles) WithTx(_ pgx.Tx) repository.UserRepository { return m }
 
 func TestUsergroupService_Create(t *testing.T) {
 	repo := newMockUsergroupRepo()
@@ -280,5 +311,55 @@ func TestUsergroupService_EnableDisable(t *testing.T) {
 	}
 	if err := svc.Disable(context.Background(), ""); err == nil {
 		t.Fatal("expected error for empty id")
+	}
+}
+
+func TestUsergroupService_TenantAccessDenied(t *testing.T) {
+	repo := newMockUsergroupRepo()
+	repo.groups["S123"] = &domain.Usergroup{ID: "S123", TeamID: "T999", Name: "Secret", Handle: "secret", Enabled: true}
+	svc := NewUsergroupService(repo, &mockUserRepoForUG{}, nil, mockTxBeginner{}, nil)
+
+	ctx := context.WithValue(context.Background(), ctxutil.ContextKeyTeamID, "T123")
+	ctx = context.WithValue(ctx, ctxutil.ContextKeyUserID, "U123")
+
+	if _, err := svc.Get(ctx, "S123"); err == nil || !errors.Is(err, domain.ErrForbidden) {
+		t.Fatalf("expected forbidden from Get, got %v", err)
+	}
+	if _, err := svc.Update(ctx, "S123", domain.UpdateUsergroupParams{}); err == nil || !errors.Is(err, domain.ErrForbidden) {
+		t.Fatalf("expected forbidden from Update, got %v", err)
+	}
+	if err := svc.Enable(ctx, "S123"); err == nil || !errors.Is(err, domain.ErrForbidden) {
+		t.Fatalf("expected forbidden from Enable, got %v", err)
+	}
+	if err := svc.Disable(ctx, "S123"); err == nil || !errors.Is(err, domain.ErrForbidden) {
+		t.Fatalf("expected forbidden from Disable, got %v", err)
+	}
+	if _, err := svc.ListUsers(ctx, "S123"); err == nil || !errors.Is(err, domain.ErrForbidden) {
+		t.Fatalf("expected forbidden from ListUsers, got %v", err)
+	}
+	if err := svc.SetUsers(ctx, "S123", []string{"U1"}); err == nil || !errors.Is(err, domain.ErrForbidden) {
+		t.Fatalf("expected forbidden from SetUsers, got %v", err)
+	}
+}
+
+func TestUsergroupService_MutationsRequireWorkspaceAdmin(t *testing.T) {
+	repo := newMockUsergroupRepo()
+	repo.groups["S123"] = &domain.Usergroup{ID: "S123", TeamID: "T123", Name: "Team", Handle: "team", Enabled: true}
+	userRepo := &mockUserRepoForUGRoles{
+		users: map[string]*domain.User{
+			"U_MEMBER": {ID: "U_MEMBER", TeamID: "T123", PrincipalType: domain.PrincipalTypeHuman, AccountType: domain.AccountTypeMember},
+			"U_ADMIN":  {ID: "U_ADMIN", TeamID: "T123", PrincipalType: domain.PrincipalTypeHuman, AccountType: domain.AccountTypeAdmin},
+		},
+	}
+	svc := NewUsergroupService(repo, userRepo, nil, mockTxBeginner{}, nil)
+
+	memberCtx := ctxutil.WithUser(context.Background(), "U_MEMBER", "T123")
+	if _, err := svc.Create(memberCtx, domain.CreateUsergroupParams{TeamID: "T123", Name: "Eng", Handle: "eng"}); err == nil || !errors.Is(err, domain.ErrForbidden) {
+		t.Fatalf("expected forbidden for member create, got %v", err)
+	}
+
+	adminCtx := ctxutil.WithUser(context.Background(), "U_ADMIN", "T123")
+	if _, err := svc.Update(adminCtx, "S123", domain.UpdateUsergroupParams{}); err != nil {
+		t.Fatalf("admin update should succeed: %v", err)
 	}
 }

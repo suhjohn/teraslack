@@ -2,38 +2,83 @@ package domain
 
 import "time"
 
-// Token represents an API token for authentication.
-type Token struct {
-	ID        string     `json:"id"`
-	TeamID    string     `json:"team_id"`
-	UserID    string     `json:"user_id"`
-	Token     string     `json:"token,omitempty"`      // Raw token — only populated on creation, never persisted in event_data
-	TokenHash string     `json:"token_hash,omitempty"` // SHA-256 hash of the raw token
-	Scopes    []string   `json:"scopes"`
-	IsBot     bool       `json:"is_bot"`
-	ExpiresAt *time.Time `json:"expires_at,omitempty"`
-	CreatedAt time.Time  `json:"created_at"`
+type AuthProvider string
+
+const (
+	AuthProviderGitHub AuthProvider = "github"
+	AuthProviderGoogle AuthProvider = "google"
+)
+
+type AuthSession struct {
+	ID        string       `json:"id"`
+	TeamID    string       `json:"team_id"`
+	UserID    string       `json:"user_id"`
+	Provider  AuthProvider `json:"provider"`
+	Token     string       `json:"token,omitempty"`
+	ExpiresAt time.Time    `json:"expires_at"`
+	RevokedAt *time.Time   `json:"revoked_at,omitempty"`
+	CreatedAt time.Time    `json:"created_at"`
 }
 
-// Redacted returns a copy of the token with sensitive fields cleared
-// for safe serialization into event_data.
-func (t *Token) Redacted() *Token {
-	copy := *t
-	copy.Token = "" // never store raw token in event log
+func (s *AuthSession) Redacted() *AuthSession {
+	copy := *s
+	copy.Token = ""
 	return &copy
 }
 
-// AuthTestResponse represents the response from auth.test.
-type AuthTestResponse struct {
-	TeamID string `json:"team_id"`
-	UserID string `json:"user_id"`
-	IsBot  bool   `json:"is_bot"`
+type AuthContext struct {
+	TeamID        string        `json:"team_id"`
+	UserID        string        `json:"user_id"`
+	PrincipalType PrincipalType `json:"principal_type"`
+	AccountType   AccountType   `json:"account_type,omitempty"`
+	IsBot         bool          `json:"is_bot"`
 }
 
-// CreateTokenParams holds the parameters for creating a token.
-type CreateTokenParams struct {
-	TeamID string   `json:"team_id"`
-	UserID string   `json:"user_id"`
-	Scopes []string `json:"scopes"`
-	IsBot  bool     `json:"is_bot"`
+type StartOAuthParams struct {
+	Provider   AuthProvider `json:"provider"`
+	TeamID     string       `json:"team_id"`
+	RedirectTo string       `json:"redirect_to"`
+}
+
+type CompleteOAuthParams struct {
+	Provider AuthProvider `json:"provider"`
+	Code     string       `json:"code"`
+	State    string       `json:"state"`
+	Nonce    string       `json:"nonce"`
+}
+
+type StartOAuthResult struct {
+	AuthorizationURL string
+	Nonce            string
+}
+
+type CompleteOAuthResult struct {
+	Session    *AuthSession
+	RedirectTo string
+}
+
+type OAuthAccount struct {
+	ID              string       `json:"id"`
+	TeamID          string       `json:"team_id"`
+	UserID          string       `json:"user_id"`
+	Provider        AuthProvider `json:"provider"`
+	ProviderSubject string       `json:"provider_subject"`
+	Email           string       `json:"email"`
+	CreatedAt       time.Time    `json:"created_at"`
+	UpdatedAt       time.Time    `json:"updated_at"`
+}
+
+type CreateAuthSessionParams struct {
+	TeamID    string
+	UserID    string
+	Provider  AuthProvider
+	ExpiresAt time.Time
+}
+
+type UpsertOAuthAccountParams struct {
+	TeamID          string
+	UserID          string
+	Provider        AuthProvider
+	ProviderSubject string
+	Email           string
 }

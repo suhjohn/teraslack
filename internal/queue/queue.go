@@ -43,43 +43,43 @@ const (
 // Job represents a single job in an S3-backed queue.
 // Used for both index jobs (Turbopuffer) and webhook delivery jobs.
 type Job struct {
-	ID            string          `json:"id"`             // Unique job ID (e.g., "evt-123")
-	EventID       int64           `json:"event_id"`       // Source service_event ID
-	TeamID        string          `json:"team_id"`        // Team context
-	EventType     string          `json:"event_type"`     // "user.created", "message.posted", etc.
-	Status        JobStatus       `json:"status"`         // Current job state
+	ID        string    `json:"id"`         // Unique job ID (e.g., "evt-123")
+	EventID   int64     `json:"event_id"`   // Source service_event ID
+	TeamID    string    `json:"team_id"`    // Team context
+	EventType string    `json:"event_type"` // "user.created", "message.posted", etc.
+	Status    JobStatus `json:"status"`     // Current job state
 
 	// Index-specific fields
-	ResourceType  string          `json:"resource_type,omitempty"`  // "user", "message", "conversation", "file"
-	ResourceID    string          `json:"resource_id,omitempty"`    // Entity ID
-	Content       string          `json:"content,omitempty"`        // Searchable text content for embedding
-	Data          json.RawMessage `json:"data,omitempty"`           // Full entity snapshot for Turbopuffer metadata
+	ResourceType string          `json:"resource_type,omitempty"` // "user", "message", "conversation", "file"
+	ResourceID   string          `json:"resource_id,omitempty"`   // Entity ID
+	Content      string          `json:"content,omitempty"`       // Searchable text content for embedding
+	Data         json.RawMessage `json:"data,omitempty"`          // Full entity snapshot for Turbopuffer metadata
 
 	// Webhook-specific fields
-	SubscriptionID string         `json:"subscription_id,omitempty"` // Target subscription
-	URL            string         `json:"url,omitempty"`             // Webhook delivery URL
-	Secret         string         `json:"secret,omitempty"`          // Encrypted HMAC signing secret
-	Payload        json.RawMessage `json:"payload,omitempty"`        // Webhook payload body
+	SubscriptionID string          `json:"subscription_id,omitempty"` // Target subscription
+	URL            string          `json:"url,omitempty"`             // Webhook delivery URL
+	Secret         string          `json:"secret,omitempty"`          // Encrypted HMAC signing secret
+	Payload        json.RawMessage `json:"payload,omitempty"`         // Webhook request body (full service event envelope)
 
 	// Retry tracking
-	Attempts      int             `json:"attempts,omitempty"`       // Number of delivery attempts so far
-	MaxAttempts   int             `json:"max_attempts,omitempty"`   // Max delivery attempts before permanent failure
-	LastError     string          `json:"last_error,omitempty"`     // Last error message
-	NextAttemptAt *time.Time      `json:"next_attempt_at,omitempty"` // Earliest time this job can be claimed (for backoff)
+	Attempts      int        `json:"attempts,omitempty"`        // Number of delivery attempts so far
+	MaxAttempts   int        `json:"max_attempts,omitempty"`    // Max delivery attempts before permanent failure
+	LastError     string     `json:"last_error,omitempty"`      // Last error message
+	NextAttemptAt *time.Time `json:"next_attempt_at,omitempty"` // Earliest time this job can be claimed (for backoff)
 
 	// Worker coordination
-	ClaimedBy     string          `json:"claimed_by,omitempty"`   // Worker ID that claimed this job
-	Heartbeat     *time.Time      `json:"heartbeat,omitempty"`    // Last heartbeat from claiming worker
-	CompletedAt   *time.Time      `json:"completed_at,omitempty"` // When job was completed
-	CreatedAt     time.Time       `json:"created_at"`             // When job was enqueued
+	ClaimedBy   string     `json:"claimed_by,omitempty"`   // Worker ID that claimed this job
+	Heartbeat   *time.Time `json:"heartbeat,omitempty"`    // Last heartbeat from claiming worker
+	CompletedAt *time.Time `json:"completed_at,omitempty"` // When job was completed
+	CreatedAt   time.Time  `json:"created_at"`             // When job was enqueued
 }
 
 // QueueState represents the full state of the queue file on S3.
 type QueueState struct {
 	// Cursor is the last service_event ID that was processed by the producer.
 	// Used to resume tailing from the correct position after restart.
-	Cursor int64  `json:"cursor"`
-	Jobs   []Job  `json:"jobs"`
+	Cursor int64 `json:"cursor"`
+	Jobs   []Job `json:"jobs"`
 }
 
 // GCRetention is the default retention period for completed jobs before garbage collection.

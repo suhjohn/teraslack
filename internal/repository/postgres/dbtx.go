@@ -17,3 +17,17 @@ type DBTX interface {
 	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
 	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
 }
+
+// beginOwnedTx returns the current transaction when db already is a pgx.Tx.
+// The bool reports whether the caller owns the returned tx and therefore must
+// commit or roll it back.
+func beginOwnedTx(ctx context.Context, db DBTX) (pgx.Tx, bool, error) {
+	if tx, ok := db.(pgx.Tx); ok {
+		return tx, false, nil
+	}
+	tx, err := db.Begin(ctx)
+	if err != nil {
+		return nil, false, err
+	}
+	return tx, true, nil
+}

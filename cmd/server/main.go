@@ -14,6 +14,7 @@ import (
 	_ "github.com/golang-migrate/migrate/v4/database/postgres"
 	_ "github.com/golang-migrate/migrate/v4/source/file"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/turbopuffer/turbopuffer-go/option"
 
 	"github.com/suhjohn/teraslack/internal/config"
 	"github.com/suhjohn/teraslack/internal/crypto"
@@ -92,46 +93,78 @@ func run(logger *slog.Logger) error {
 		}
 	}
 
-	// Initialize encryption (optional — if ENCRYPTION_KEY is set, secrets are encrypted at rest)
-	var encryptor *crypto.Encryptor
-	if cfg.EncryptionKey != "" {
-		keyProvider, keyErr := crypto.NewEnvKeyProvider(cfg.EncryptionKey, nil)
-		if keyErr != nil {
-			return fmt.Errorf("init encryption: %w", keyErr)
-		}
-		encryptor = crypto.NewEncryptor(keyProvider)
-		logger.Info("encryption enabled", "key_id", keyProvider.CurrentKeyID())
-	} else {
-		logger.Warn("ENCRYPTION_KEY not set — webhook secrets will NOT be encrypted at rest")
+	if cfg.EncryptionKey == "" {
+		return fmt.Errorf("ENCRYPTION_KEY is required")
 	}
+	keyProvider, keyErr := crypto.NewEnvKeyProvider(cfg.EncryptionKey, nil)
+	if keyErr != nil {
+		return fmt.Errorf("init encryption: %w", keyErr)
+	}
+	encryptor := crypto.NewEncryptor(keyProvider)
+	logger.Info("encryption enabled", "key_id", keyProvider.CurrentKeyID())
 
 	// Initialize repositories
+	workspaceRepo := pgRepo.NewWorkspaceRepo(pool)
 	userRepo := pgRepo.NewUserRepo(pool)
 	convRepo := pgRepo.NewConversationRepo(pool)
+	convAccessRepo := pgRepo.NewConversationAccessRepo(pool)
+	externalAccessRepo := pgRepo.NewExternalPrincipalAccessRepo(pool)
 	msgRepo := pgRepo.NewMessageRepo(pool)
+	conversationReadRepo := pgRepo.NewConversationReadRepo(pool)
 	ugRepo := pgRepo.NewUsergroupRepo(pool)
 	pinRepo := pgRepo.NewPinRepo(pool)
 	bookmarkRepo := pgRepo.NewBookmarkRepo(pool)
 	fileRepo := pgRepo.NewFileRepo(pool)
 	eventRepo := pgRepo.NewEventRepo(pool, encryptor)
+	roleRepo := pgRepo.NewRoleAssignmentRepo(pool)
 	authRepo := pgRepo.NewAuthRepo(pool)
 	eventStoreRepo := pgRepo.NewEventStoreRepo(pool)
+	externalEventRepo := pgRepo.NewExternalEventRepo(pool)
 	apiKeyRepo := pgRepo.NewAPIKeyRepo(pool)
+	auditRepo := pgRepo.NewAuthorizationAuditRepo(pool)
 
 	// Initialize EventRecorder
 	recorder := service.NewEventRecorder(eventStoreRepo)
 
 	// Initialize services
-	eventSvc := service.NewEventService(eventRepo, recorder, pool, logger)
+	workspaceSvc := service.NewWorkspaceService(workspaceRepo, userRepo, recorder, pool, logger)
+	workspaceSvc.SetAuthorizationAuditRepository(auditRepo)
+	eventSvc := service.NewEventService(eventRepo, userRepo, recorder, pool, logger)
 	userSvc := service.NewUserService(userRepo, recorder, pool, logger)
+	userSvc.SetExternalAccessRepository(externalAccessRepo)
+	userSvc.SetAuthorizationAuditRepository(auditRepo)
+	roleSvc := service.NewRoleService(roleRepo, userRepo)
+	roleSvc.SetRecorder(recorder, pool, logger)
+	roleSvc.SetAuthorizationAuditRepository(auditRepo)
 	convSvc := service.NewConversationService(convRepo, userRepo, recorder, pool, logger)
+	convAccessSvc := service.NewConversationAccessService(convAccessRepo, convRepo, userRepo, roleRepo, ugRepo, recorder, pool, logger)
+	convAccessSvc.SetAuthorizationAuditRepository(auditRepo)
+	convSvc.SetAccessService(convAccessSvc)
+	convSvc.SetExternalAccessRepository(externalAccessRepo)
 	msgSvc := service.NewMessageService(msgRepo, convRepo, recorder, pool, logger)
+	msgSvc.SetAccessService(convAccessSvc)
+	msgSvc.SetExternalAccessRepository(externalAccessRepo)
+	externalEventSvc := service.NewExternalEventService(externalEventRepo)
+	conversationReadSvc := service.NewConversationReadService(conversationReadRepo, convRepo)
 	ugSvc := service.NewUsergroupService(ugRepo, userRepo, recorder, pool, logger)
 	pinSvc := service.NewPinService(pinRepo, convRepo, msgRepo, recorder, pool, logger)
 	bookmarkSvc := service.NewBookmarkService(bookmarkRepo, convRepo, recorder, pool, logger)
-	fileSvc := service.NewFileService(fileRepo, s3, cfg.BaseURL, recorder, pool, logger)
-	authSvc := service.NewAuthService(authRepo, userRepo, recorder, pool, logger)
+	fileSvc := service.NewFileService(fileRepo, s3, cfg.S3KeyPrefix, cfg.BaseURL, recorder, pool, logger)
+	fileSvc.SetExternalAccessRepository(externalAccessRepo)
+	authSvc := service.NewAuthService(authRepo, userRepo, recorder, pool, logger, service.AuthConfig{
+		BaseURL:                 cfg.BaseURL,
+		StateSecret:             cfg.AuthStateSecret,
+		GitHubOAuthClientID:     cfg.GitHubOAuthClientID,
+		GitHubOAuthClientSecret: cfg.GitHubOAuthClientSecret,
+		GoogleOAuthClientID:     cfg.GoogleOAuthClientID,
+		GoogleOAuthClientSecret: cfg.GoogleOAuthClientSecret,
+	})
+	authSvc.SetAuthorizationAuditRepository(auditRepo)
 	apiKeySvc := service.NewAPIKeyService(apiKeyRepo, userRepo, recorder, pool, logger)
+	apiKeySvc.SetExternalAccessRepository(externalAccessRepo)
+	apiKeySvc.SetAuthorizationAuditRepository(auditRepo)
+	externalAccessSvc := service.NewExternalPrincipalAccessService(externalAccessRepo, userRepo, convRepo, recorder, pool, logger)
+	externalAccessSvc.SetAuthorizationAuditRepository(auditRepo)
 	// Initialize TurbopufferClient (optional — nil means search is disabled)
 	var tpClient service.TurbopufferClient
 	if cfg.TurbopufferAPIKey != "" {
@@ -139,29 +172,38 @@ func run(logger *slog.Logger) error {
 		if v := os.Getenv("TURBOPUFFER_NS_PREFIX"); v != "" {
 			nsPrefix = v
 		}
-		tpClient = search.NewClient(cfg.TurbopufferAPIKey, nsPrefix)
-		logger.Info("turbopuffer client initialized", "ns_prefix", nsPrefix)
+		tpClient = search.NewClient(
+			cfg.TurbopufferAPIKey,
+			nsPrefix,
+			option.WithRegion(cfg.TurbopufferRegion),
+		)
+		logger.Info("turbopuffer client initialized", "ns_prefix", nsPrefix, "region", cfg.TurbopufferRegion)
 	}
 	searchSvc := service.NewSearchService(tpClient)
-
+	searchSvc.SetExternalAccessRepository(externalAccessRepo)
 	// Initialize handlers
-	userHandler := handler.NewUserHandler(userSvc)
-	convHandler := handler.NewConversationHandler(convSvc)
+	workspaceHandler := handler.NewWorkspaceHandler(workspaceSvc)
+	userHandler := handler.NewUserHandler(userSvc, roleSvc)
+	convHandler := handler.NewConversationHandler(convSvc, convAccessSvc)
 	msgHandler := handler.NewMessageHandler(msgSvc)
 	ugHandler := handler.NewUsergroupHandler(ugSvc)
 	pinHandler := handler.NewPinHandler(pinSvc)
 	bookmarkHandler := handler.NewBookmarkHandler(bookmarkSvc)
 	fileHandler := handler.NewFileHandler(fileSvc)
+	externalEventHandler := handler.NewExternalEventHandler(externalEventSvc)
+	externalAccessHandler := handler.NewExternalPrincipalAccessHandler(externalAccessSvc)
 	eventHandler := handler.NewEventHandler(eventSvc)
 	authHandler := handler.NewAuthHandler(authSvc)
 	apiKeyHandler := handler.NewAPIKeyHandler(apiKeySvc)
 	searchHandler := handler.NewSearchHandler(searchSvc)
+	conversationReadHandler := handler.NewConversationReadHandler(conversationReadSvc)
 
 	// Set up router
 	router := handler.Router(
 		logger,
 		authSvc,
 		apiKeySvc,
+		workspaceHandler,
 		userHandler,
 		convHandler,
 		msgHandler,
@@ -169,10 +211,13 @@ func run(logger *slog.Logger) error {
 		pinHandler,
 		bookmarkHandler,
 		fileHandler,
+		externalEventHandler,
+		externalAccessHandler,
 		eventHandler,
 		authHandler,
 		searchHandler,
 		apiKeyHandler,
+		conversationReadHandler,
 	)
 
 	// Start server
@@ -201,7 +246,7 @@ func run(logger *slog.Logger) error {
 		return fmt.Errorf("server error: %w", err)
 	}
 
-	// Stop background workers before shutting down the server
+	// Cancel root context before shutting down the server.
 	cancelWorkers()
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)

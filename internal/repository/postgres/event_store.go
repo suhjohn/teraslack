@@ -10,7 +10,7 @@ import (
 	"github.com/suhjohn/teraslack/internal/repository/sqlcgen"
 )
 
-// EventStoreRepo implements repository.EventStoreRepository using Postgres.
+// EventStoreRepo implements repository.InternalEventStoreRepository using Postgres.
 type EventStoreRepo struct {
 	db DBTX
 	q  *sqlcgen.Queries
@@ -22,15 +22,15 @@ func NewEventStoreRepo(db DBTX) *EventStoreRepo {
 }
 
 // WithTx returns a new EventStoreRepo that operates within the given transaction.
-func (r *EventStoreRepo) WithTx(tx pgx.Tx) repository.EventStoreRepository {
+func (r *EventStoreRepo) WithTx(tx pgx.Tx) repository.InternalEventStoreRepository {
 	return &EventStoreRepo{db: tx, q: sqlcgen.New(tx)}
 }
 
-// Append writes a service event to the event store.
+// Append writes an internal event to the event store.
 // This is a pure INSERT — webhook fan-out is handled by the WebhookProducer process
-// which tails service_events independently via S3 queue.
-func (r *EventStoreRepo) Append(ctx context.Context, event domain.ServiceEvent) (*domain.ServiceEvent, error) {
-	row, err := r.q.InsertServiceEvent(ctx, sqlcgen.InsertServiceEventParams{
+// which tails external_events independently via S3 queue.
+func (r *EventStoreRepo) Append(ctx context.Context, event domain.InternalEvent) (*domain.InternalEvent, error) {
+	row, err := r.q.InsertInternalEvent(ctx, sqlcgen.InsertInternalEventParams{
 		EventType:     event.EventType,
 		AggregateType: event.AggregateType,
 		AggregateID:   event.AggregateID,
@@ -40,47 +40,47 @@ func (r *EventStoreRepo) Append(ctx context.Context, event domain.ServiceEvent) 
 		Metadata:      event.Metadata,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("insert service event: %w", err)
+		return nil, fmt.Errorf("insert internal event: %w", err)
 	}
 
-	result := serviceEventToDomain(row)
+	result := internalEventToDomain(row)
 	return &result, nil
 }
 
 // GetByAggregate returns all events for an aggregate ordered by ID.
-func (r *EventStoreRepo) GetByAggregate(ctx context.Context, aggregateType, aggregateID string) ([]domain.ServiceEvent, error) {
-	rows, err := r.q.GetServiceEventsByAggregate(ctx, sqlcgen.GetServiceEventsByAggregateParams{
+func (r *EventStoreRepo) GetByAggregate(ctx context.Context, aggregateType, aggregateID string) ([]domain.InternalEvent, error) {
+	rows, err := r.q.GetInternalEventsByAggregate(ctx, sqlcgen.GetInternalEventsByAggregateParams{
 		AggregateType: aggregateType,
 		AggregateID:   aggregateID,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("get events by aggregate: %w", err)
 	}
-	events := make([]domain.ServiceEvent, len(rows))
+	events := make([]domain.InternalEvent, len(rows))
 	for i, row := range rows {
-		events[i] = serviceEventToDomain(row)
+		events[i] = internalEventToDomain(row)
 	}
 	return events, nil
 }
 
 // GetAllSince returns events since a given ID for incremental projection rebuilds.
-func (r *EventStoreRepo) GetAllSince(ctx context.Context, sinceID int64, limit int) ([]domain.ServiceEvent, error) {
-	rows, err := r.q.GetServiceEventsSince(ctx, sqlcgen.GetServiceEventsSinceParams{
+func (r *EventStoreRepo) GetAllSince(ctx context.Context, sinceID int64, limit int) ([]domain.InternalEvent, error) {
+	rows, err := r.q.GetInternalEventsSince(ctx, sqlcgen.GetInternalEventsSinceParams{
 		ID:    sinceID,
 		Limit: int32(limit),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("get events since: %w", err)
 	}
-	events := make([]domain.ServiceEvent, len(rows))
+	events := make([]domain.InternalEvent, len(rows))
 	for i, row := range rows {
-		events[i] = serviceEventToDomain(row)
+		events[i] = internalEventToDomain(row)
 	}
 	return events, nil
 }
 
-func serviceEventToDomain(e sqlcgen.ServiceEvent) domain.ServiceEvent {
-	return domain.ServiceEvent{
+func internalEventToDomain(e sqlcgen.InternalEvent) domain.InternalEvent {
+	return domain.InternalEvent{
 		ID:            e.ID,
 		EventType:     e.EventType,
 		AggregateType: e.AggregateType,

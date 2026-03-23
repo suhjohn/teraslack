@@ -6,13 +6,15 @@ import (
 
 // EventSubscription represents a webhook subscription for events.
 type EventSubscription struct {
-	ID              string   `json:"id"`
-	TeamID          string   `json:"team_id"`
-	URL             string   `json:"url"`
-	EventTypes      []string `json:"event_types"`
-	Secret          string   `json:"secret,omitempty"`           // Plaintext secret — only for runtime use, never persisted in event_data
-	EncryptedSecret string   `json:"encrypted_secret,omitempty"` // AES-256-GCM encrypted secret stored in DB
-	Enabled         bool     `json:"enabled"`
+	ID              string    `json:"id"`
+	TeamID          string    `json:"team_id"`
+	URL             string    `json:"url"`
+	Type            string    `json:"type,omitempty"`
+	ResourceType    string    `json:"resource_type,omitempty"`
+	ResourceID      string    `json:"resource_id,omitempty"`
+	Secret          string    `json:"secret,omitempty"`           // Plaintext secret — only for runtime use, never persisted in event_data
+	EncryptedSecret string    `json:"encrypted_secret,omitempty"` // AES-256-GCM encrypted secret stored in DB
+	Enabled         bool      `json:"enabled"`
 	CreatedAt       time.Time `json:"created_at"`
 	UpdatedAt       time.Time `json:"updated_at"`
 }
@@ -30,17 +32,21 @@ func (s *EventSubscription) Redacted() *EventSubscription {
 
 // CreateEventSubscriptionParams holds the parameters for creating a subscription.
 type CreateEventSubscriptionParams struct {
-	TeamID     string   `json:"team_id"`
-	URL        string   `json:"url"`
-	EventTypes []string `json:"event_types"`
-	Secret     string   `json:"secret"`
+	TeamID       string `json:"team_id"`
+	URL          string `json:"url"`
+	Type         string `json:"type,omitempty"`
+	ResourceType string `json:"resource_type,omitempty"`
+	ResourceID   string `json:"resource_id,omitempty"`
+	Secret       string `json:"secret"`
 }
 
 // UpdateEventSubscriptionParams holds the parameters for updating a subscription.
 type UpdateEventSubscriptionParams struct {
-	URL        *string  `json:"url,omitempty"`
-	EventTypes []string `json:"event_types,omitempty"`
-	Enabled    *bool    `json:"enabled,omitempty"`
+	URL          *string `json:"url,omitempty"`
+	Type         *string `json:"type,omitempty"`
+	ResourceType *string `json:"resource_type,omitempty"`
+	ResourceID   *string `json:"resource_id,omitempty"`
+	Enabled      *bool   `json:"enabled,omitempty"`
 }
 
 // ListEventSubscriptionsParams holds the parameters for listing subscriptions.
@@ -48,23 +54,135 @@ type ListEventSubscriptionsParams struct {
 	TeamID string `json:"team_id"`
 }
 
-// Subscription event types — these must match the service event type constants
-// in service_event.go so that subscription matching can compare them via
-// exact equality ($2::TEXT = ANY(event_types)).
+// Public event types supported by webhook filters.
 const (
-	EventTypeMessagePosted       = "message.posted"
-	EventTypeMessageUpdated      = "message.updated"
-	EventTypeMessageDeleted      = "message.deleted"
-	EventTypeReactionAdded       = "reaction.added"
-	EventTypeReactionRemoved     = "reaction.removed"
-	EventTypeMemberJoinedChannel = "conversation.member_joined"
-	EventTypeMemberLeftChannel   = "conversation.member_left"
-	EventTypeChannelCreated      = "conversation.created"
-	EventTypeChannelArchive      = "conversation.archived"
-	EventTypeChannelUnarchive    = "conversation.unarchived"
-	EventTypeChannelUpdated      = "conversation.updated"
-	EventTypeFileShared          = "file.shared"
-	EventTypeFileCreated         = "file.created"
-	EventTypePinAdded            = "pin.added"
-	EventTypePinRemoved          = "pin.removed"
+	EventTypeTeamCreated                      = "team.created"
+	EventTypeTeamUpdated                      = "team.updated"
+	EventTypeUserCreated                      = "user.created"
+	EventTypeUserUpdated                      = "user.updated"
+	EventTypeUserDeleted                      = "user.deleted"
+	EventTypeUserRolesUpdated                 = "user.roles.updated"
+	EventTypeConversationCreated              = "conversation.created"
+	EventTypeConversationUpdated              = "conversation.updated"
+	EventTypeConversationArchived             = "conversation.archived"
+	EventTypeConversationUnarchived           = "conversation.unarchived"
+	EventTypeConversationManagerAdded         = "conversation.manager.added"
+	EventTypeConversationManagerRemoved       = "conversation.manager.removed"
+	EventTypeConversationPostingPolicyUpdated = "conversation.posting_policy.updated"
+	EventTypeConversationMemberAdded          = "conversation.member.added"
+	EventTypeConversationMemberRemoved        = "conversation.member.removed"
+	EventTypeConversationMessageCreated       = "conversation.message.created"
+	EventTypeConversationMessageUpdated       = "conversation.message.updated"
+	EventTypeConversationMessageDeleted       = "conversation.message.deleted"
+	EventTypeConversationReactionAdded        = "conversation.message.reaction.added"
+	EventTypeConversationReactionRemoved      = "conversation.message.reaction.removed"
+	EventTypeConversationPinAdded             = "conversation.pin.added"
+	EventTypeConversationPinRemoved           = "conversation.pin.removed"
+	EventTypeConversationBookmarkCreated      = "conversation.bookmark.created"
+	EventTypeConversationBookmarkUpdated      = "conversation.bookmark.updated"
+	EventTypeConversationBookmarkDeleted      = "conversation.bookmark.deleted"
+	EventTypeUsergroupCreated                 = "usergroup.created"
+	EventTypeUsergroupUpdated                 = "usergroup.updated"
+	EventTypeUsergroupEnabled                 = "usergroup.enabled"
+	EventTypeUsergroupDisabled                = "usergroup.disabled"
+	EventTypeUsergroupMembersUpdated          = "usergroup.members.updated"
+	EventTypeFileCreated                      = "file.created"
+	EventTypeFileUpdated                      = "file.updated"
+	EventTypeFileDeleted                      = "file.deleted"
+	EventTypeFileShared                       = "file.shared"
+	EventTypeEventSubscriptionCreated         = "event_subscription.created"
+	EventTypeEventSubscriptionUpdated         = "event_subscription.updated"
+	EventTypeEventSubscriptionDeleted         = "event_subscription.deleted"
+	EventTypeExternalPrincipalAccessGranted   = "external_principal_access.granted"
+	EventTypeExternalPrincipalAccessUpdated   = "external_principal_access.updated"
+	EventTypeExternalPrincipalAccessRevoked   = "external_principal_access.revoked"
 )
+
+func IsSupportedSubscriptionEventType(eventType string) bool {
+	switch eventType {
+	case "":
+		return true
+	case EventTypeTeamCreated:
+		return true
+	case EventTypeTeamUpdated:
+		return true
+	case EventTypeUserCreated:
+		return true
+	case EventTypeUserUpdated:
+		return true
+	case EventTypeUserDeleted:
+		return true
+	case EventTypeUserRolesUpdated:
+		return true
+	case EventTypeConversationCreated:
+		return true
+	case EventTypeConversationUpdated:
+		return true
+	case EventTypeConversationArchived:
+		return true
+	case EventTypeConversationUnarchived:
+		return true
+	case EventTypeConversationManagerAdded:
+		return true
+	case EventTypeConversationManagerRemoved:
+		return true
+	case EventTypeConversationPostingPolicyUpdated:
+		return true
+	case EventTypeConversationMemberAdded:
+		return true
+	case EventTypeConversationMemberRemoved:
+		return true
+	case EventTypeConversationMessageCreated:
+		return true
+	case EventTypeConversationMessageUpdated:
+		return true
+	case EventTypeConversationMessageDeleted:
+		return true
+	case EventTypeConversationReactionAdded:
+		return true
+	case EventTypeConversationReactionRemoved:
+		return true
+	case EventTypeConversationPinAdded:
+		return true
+	case EventTypeConversationPinRemoved:
+		return true
+	case EventTypeConversationBookmarkCreated:
+		return true
+	case EventTypeConversationBookmarkUpdated:
+		return true
+	case EventTypeConversationBookmarkDeleted:
+		return true
+	case EventTypeUsergroupCreated:
+		return true
+	case EventTypeUsergroupUpdated:
+		return true
+	case EventTypeUsergroupEnabled:
+		return true
+	case EventTypeUsergroupDisabled:
+		return true
+	case EventTypeUsergroupMembersUpdated:
+		return true
+	case EventTypeFileCreated:
+		return true
+	case EventTypeFileUpdated:
+		return true
+	case EventTypeFileDeleted:
+		return true
+	case EventTypeFileShared:
+		return true
+	case EventTypeEventSubscriptionCreated:
+		return true
+	case EventTypeEventSubscriptionUpdated:
+		return true
+	case EventTypeEventSubscriptionDeleted:
+		return true
+	case EventTypeExternalPrincipalAccessGranted:
+		return true
+	case EventTypeExternalPrincipalAccessUpdated:
+		return true
+	case EventTypeExternalPrincipalAccessRevoked:
+		return true
+	default:
+		return false
+	}
+}

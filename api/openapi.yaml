@@ -1,0 +1,3169 @@
+openapi: 3.0.3
+info:
+  title: Teraslack API
+  version: 1.0.0
+  description: Canonical HTTP API for Teraslack.
+security:
+  - bearerAuth: []
+tags:
+  - name: Health
+  - name: Teams
+  - name: Users
+  - name: Access
+  - name: Conversations
+  - name: Messages
+  - name: Usergroups
+  - name: Files
+  - name: Events
+  - name: Event Subscriptions
+  - name: Auth
+  - name: API Keys
+  - name: Search
+paths:
+  /healthz:
+    get:
+      tags: [Health]
+      operationId: getHealth
+      security: []
+      responses:
+        "200":
+          description: Service health.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthStatusResponse"
+        default:
+          $ref: "#/components/responses/ApiErrorResponse"
+  /teams:
+    get:
+      tags: [Teams]
+      operationId: listTeams
+      responses:
+        "200":
+          description: Teams.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkspacesCollection"
+        default:
+          $ref: "#/components/responses/ApiErrorResponse"
+    post:
+      tags: [Teams]
+      operationId: createTeam
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateWorkspaceRequest"
+      responses:
+        "201":
+          description: Team created.
+          headers:
+            Location:
+              $ref: "#/components/headers/Location"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Workspace"
+        default:
+          $ref: "#/components/responses/ApiErrorResponse"
+  /teams/{id}:
+    get:
+      tags: [Teams]
+      operationId: getTeam
+      parameters:
+        - $ref: "#/components/parameters/TeamIDPath"
+      responses:
+        "200":
+          description: Team.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Workspace"
+        default:
+          $ref: "#/components/responses/ApiErrorResponse"
+    patch:
+      tags: [Teams]
+      operationId: updateTeam
+      parameters:
+        - $ref: "#/components/parameters/TeamIDPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateWorkspaceRequest"
+      responses:
+        "200":
+          description: Team updated.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Workspace"
+        default:
+          $ref: "#/components/responses/ApiErrorResponse"
+  /teams/{id}/admins:
+    get:
+      tags: [Teams]
+      operationId: listTeamAdmins
+      parameters:
+        - $ref: "#/components/parameters/TeamIDPath"
+      responses:
+        "200":
+          description: Team admins.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UsersCollection"
+        default:
+          $ref: "#/components/responses/ApiErrorResponse"
+  /teams/{id}/owners:
+    get:
+      tags: [Teams]
+      operationId: listTeamOwners
+      parameters:
+        - $ref: "#/components/parameters/TeamIDPath"
+      responses:
+        "200":
+          description: Team owners.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UsersCollection"
+        default:
+          $ref: "#/components/responses/ApiErrorResponse"
+  /teams/{id}/access-logs:
+    get:
+      tags: [Teams]
+      operationId: listTeamAccessLogs
+      parameters:
+        - $ref: "#/components/parameters/TeamIDPath"
+        - $ref: "#/components/parameters/LimitQuery"
+      responses:
+        "200":
+          description: Team access logs.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkspaceAccessLogsCollection"
+        default:
+          $ref: "#/components/responses/ApiErrorResponse"
+  /teams/{id}/authorization-audit-logs:
+    get:
+      tags: [Teams]
+      operationId: listTeamAuthorizationAuditLogs
+      parameters:
+        - $ref: "#/components/parameters/TeamIDPath"
+        - $ref: "#/components/parameters/LimitQuery"
+      responses:
+        "200":
+          description: Team authorization audit logs.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthorizationAuditLogsCollection"
+        default:
+          $ref: "#/components/responses/ApiErrorResponse"
+  /teams/{id}/billable-info:
+    get:
+      tags: [Teams]
+      operationId: getTeamBillableInfo
+      parameters:
+        - $ref: "#/components/parameters/TeamIDPath"
+      responses:
+        "200":
+          description: Team billable info.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkspaceBillableInfoMap"
+        default:
+          $ref: "#/components/responses/ApiErrorResponse"
+  /teams/{id}/billing:
+    get:
+      tags: [Teams]
+      operationId: getTeamBilling
+      parameters:
+        - $ref: "#/components/parameters/TeamIDPath"
+      responses:
+        "200":
+          description: Team billing.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkspaceBilling"
+        default:
+          $ref: "#/components/responses/ApiErrorResponse"
+  /teams/{id}/external-teams:
+    get:
+      tags: [Teams]
+      operationId: listExternalTeams
+      parameters:
+        - $ref: "#/components/parameters/TeamIDPath"
+      responses:
+        "200":
+          description: External team connections.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExternalTeamsCollection"
+        default:
+          $ref: "#/components/responses/ApiErrorResponse"
+  /teams/{id}/external-teams/{external_team_id}:
+    delete:
+      tags: [Teams]
+      operationId: disconnectExternalTeam
+      parameters:
+        - $ref: "#/components/parameters/TeamIDPath"
+        - $ref: "#/components/parameters/ExternalTeamIDPath"
+      responses:
+        "204":
+          $ref: "#/components/responses/NoContent"
+        default:
+          $ref: "#/components/responses/ApiErrorResponse"
+  /teams/{id}/integration-logs:
+    get:
+      tags: [Teams]
+      operationId: listTeamIntegrationLogs
+      parameters:
+        - $ref: "#/components/parameters/TeamIDPath"
+        - $ref: "#/components/parameters/LimitQuery"
+      responses:
+        "200":
+          description: Team integration logs.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkspaceIntegrationLogsCollection"
+        default:
+          $ref: "#/components/responses/ApiErrorResponse"
+  /teams/{id}/primary-admin:
+    post:
+      tags: [Teams]
+      operationId: transferPrimaryAdmin
+      parameters:
+        - $ref: "#/components/parameters/TeamIDPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TransferPrimaryAdminRequest"
+      responses:
+        "200":
+          description: Updated primary admin.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        default:
+          $ref: "#/components/responses/ApiErrorResponse"
+  /teams/{id}/preferences:
+    get:
+      tags: [Teams]
+      operationId: getTeamPreferences
+      parameters:
+        - $ref: "#/components/parameters/TeamIDPath"
+      responses:
+        "200":
+          description: Team preferences.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FreeFormObject"
+        default:
+          $ref: "#/components/responses/ApiErrorResponse"
+  /teams/{id}/profile-fields:
+    get:
+      tags: [Teams]
+      operationId: listTeamProfileFields
+      parameters:
+        - $ref: "#/components/parameters/TeamIDPath"
+      responses:
+        "200":
+          description: Team profile fields.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkspaceProfileFieldsCollection"
+        default:
+          $ref: "#/components/responses/ApiErrorResponse"
+  /users:
+    get:
+      tags: [Users]
+      operationId: listUsers
+      parameters:
+        - $ref: "#/components/parameters/TeamIDQuery"
+        - $ref: "#/components/parameters/CursorQuery"
+        - $ref: "#/components/parameters/LimitQuery"
+        - name: email
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Users.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UsersCollection"
+        default:
+          $ref: "#/components/responses/ApiErrorResponse"
+    post:
+      tags: [Users]
+      operationId: createUser
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateUserRequest"
+      responses:
+        "201":
+          description: User created.
+          headers:
+            Location:
+              $ref: "#/components/headers/Location"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        default:
+          $ref: "#/components/responses/ApiErrorResponse"
+  /users/{id}:
+    get:
+      tags: [Users]
+      operationId: getUser
+      parameters:
+        - $ref: "#/components/parameters/UserIDPath"
+      responses:
+        "200":
+          description: User.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        default:
+          $ref: "#/components/responses/ApiErrorResponse"
+    patch:
+      tags: [Users]
+      operationId: updateUser
+      parameters:
+        - $ref: "#/components/parameters/UserIDPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateUserRequest"
+      responses:
+        "200":
+          description: User updated.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        default:
+          $ref: "#/components/responses/ApiErrorResponse"
+  /users/{id}/roles:
+    get:
+      tags: [Users]
+      operationId: getUserRoles
+      parameters:
+        - $ref: "#/components/parameters/UserIDPath"
+      responses:
+        "200":
+          description: Delegated roles for the user.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserRolesResponse"
+        default:
+          $ref: "#/components/responses/ApiErrorResponse"
+    put:
+      tags: [Users]
+      operationId: updateUserRoles
+      parameters:
+        - $ref: "#/components/parameters/UserIDPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateUserRolesRequest"
+      responses:
+        "200":
+          description: Delegated roles updated.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserRolesResponse"
+        default:
+          $ref: "#/components/responses/ApiErrorResponse"
+  /external-principal-access:
+    get:
+      tags: [Access]
+      operationId: listExternalPrincipalAccess
+      parameters:
+        - name: host_team_id
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: External principal access grants.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExternalPrincipalAccessCollection"
+        default:
+          $ref: "#/components/responses/ApiErrorResponse"
+    post:
+      tags: [Access]
+      operationId: createExternalPrincipalAccess
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateExternalPrincipalAccessRequest"
+      responses:
+        "201":
+          description: External principal access granted.
+          headers:
+            Location:
+              $ref: "#/components/headers/Location"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExternalPrincipalAccess"
+        default:
+          $ref: "#/components/responses/ApiErrorResponse"
+  /external-principal-access/{id}:
+    get:
+      tags: [Access]
+      operationId: getExternalPrincipalAccess
+      parameters:
+        - $ref: "#/components/parameters/ExternalPrincipalAccessIDPath"
+      responses:
+        "200":
+          description: External principal access grant.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExternalPrincipalAccess"
+        default:
+          $ref: "#/components/responses/ApiErrorResponse"
+    patch:
+      tags: [Access]
+      operationId: updateExternalPrincipalAccess
+      parameters:
+        - $ref: "#/components/parameters/ExternalPrincipalAccessIDPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateExternalPrincipalAccessRequest"
+      responses:
+        "200":
+          description: External principal access updated.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExternalPrincipalAccess"
+        default:
+          $ref: "#/components/responses/ApiErrorResponse"
+    delete:
+      tags: [Access]
+      operationId: deleteExternalPrincipalAccess
+      parameters:
+        - $ref: "#/components/parameters/ExternalPrincipalAccessIDPath"
+      responses:
+        "204":
+          $ref: "#/components/responses/NoContent"
+        default:
+          $ref: "#/components/responses/ApiErrorResponse"
+  /conversations:
+    get:
+      tags: [Conversations]
+      operationId: listConversations
+      parameters:
+        - $ref: "#/components/parameters/TeamIDQuery"
+        - $ref: "#/components/parameters/CursorQuery"
+        - $ref: "#/components/parameters/LimitQuery"
+        - name: types
+          in: query
+          style: form
+          explode: false
+          schema:
+            type: array
+            items:
+              $ref: "#/components/schemas/ConversationType"
+        - name: exclude_archived
+          in: query
+          schema:
+            type: boolean
+      responses:
+        "200":
+          description: Conversations.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConversationsCollection"
+        default:
+          $ref: "#/components/responses/ApiErrorResponse"
+    post:
+      tags: [Conversations]
+      operationId: createConversation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateConversationRequest"
+      responses:
+        "201":
+          description: Conversation created.
+          headers:
+            Location:
+              $ref: "#/components/headers/Location"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Conversation"
+        default:
+          $ref: "#/components/responses/ApiErrorResponse"
+  /conversations/{id}:
+    get:
+      tags: [Conversations]
+      operationId: getConversation
+      parameters:
+        - $ref: "#/components/parameters/ConversationIDPath"
+      responses:
+        "200":
+          description: Conversation.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Conversation"
+        default:
+          $ref: "#/components/responses/ApiErrorResponse"
+    patch:
+      tags: [Conversations]
+      operationId: updateConversation
+      parameters:
+        - $ref: "#/components/parameters/ConversationIDPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ConversationUpdateRequest"
+      responses:
+        "200":
+          description: Conversation updated.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Conversation"
+        default:
+          $ref: "#/components/responses/ApiErrorResponse"
+  /conversations/{id}/members:
+    get:
+      tags: [Conversations]
+      operationId: listConversationMembers
+      parameters:
+        - $ref: "#/components/parameters/ConversationIDPath"
+        - $ref: "#/components/parameters/CursorQuery"
+        - $ref: "#/components/parameters/LimitQuery"
+      responses:
+        "200":
+          description: Conversation member ids.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StringsCollection"
+        default:
+          $ref: "#/components/responses/ApiErrorResponse"
+    post:
+      tags: [Conversations]
+      operationId: addConversationMembers
+      parameters:
+        - $ref: "#/components/parameters/ConversationIDPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ConversationInviteRequest"
+      responses:
+        "200":
+          description: Conversation membership updated.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Conversation"
+        default:
+          $ref: "#/components/responses/ApiErrorResponse"
+  /conversations/{id}/members/{user_id}:
+    delete:
+      tags: [Conversations]
+      operationId: removeConversationMember
+      parameters:
+        - $ref: "#/components/parameters/ConversationIDPath"
+        - $ref: "#/components/parameters/UserIDPathNamed"
+      responses:
+        "204":
+          $ref: "#/components/responses/NoContent"
+        default:
+          $ref: "#/components/responses/ApiErrorResponse"
+  /conversations/{id}/managers:
+    get:
+      tags: [Conversations]
+      operationId: getConversationManagers
+      parameters:
+        - $ref: "#/components/parameters/ConversationIDPath"
+      responses:
+        "200":
+          description: Conversation managers.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConversationManagersResponse"
+        default:
+          $ref: "#/components/responses/ApiErrorResponse"
+    put:
+      tags: [Conversations]
+      operationId: updateConversationManagers
+      parameters:
+        - $ref: "#/components/parameters/ConversationIDPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ConversationManagersUpdateRequest"
+      responses:
+        "200":
+          description: Conversation managers updated.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConversationManagersResponse"
+        default:
+          $ref: "#/components/responses/ApiErrorResponse"
+  /conversations/{id}/posting-policy:
+    get:
+      tags: [Conversations]
+      operationId: getConversationPostingPolicy
+      parameters:
+        - $ref: "#/components/parameters/ConversationIDPath"
+      responses:
+        "200":
+          description: Conversation posting policy.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConversationPostingPolicyResponse"
+        default:
+          $ref: "#/components/responses/ApiErrorResponse"
+    put:
+      tags: [Conversations]
+      operationId: updateConversationPostingPolicy
+      parameters:
+        - $ref: "#/components/parameters/ConversationIDPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ConversationPostingPolicyUpdateRequest"
+      responses:
+        "200":
+          description: Conversation posting policy updated.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConversationPostingPolicyResponse"
+        default:
+          $ref: "#/components/responses/ApiErrorResponse"
+  /conversations/{id}/read-state:
+    put:
+      tags: [Conversations]
+      operationId: updateConversationReadState
+      parameters:
+        - $ref: "#/components/parameters/ConversationIDPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ConversationReadUpdateRequest"
+      responses:
+        "204":
+          $ref: "#/components/responses/NoContent"
+        default:
+          $ref: "#/components/responses/ApiErrorResponse"
+  /conversations/{id}/pins:
+    get:
+      tags: [Conversations]
+      operationId: listPins
+      parameters:
+        - $ref: "#/components/parameters/ConversationIDPath"
+      responses:
+        "200":
+          description: Pins.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PinsCollection"
+        default:
+          $ref: "#/components/responses/ApiErrorResponse"
+    post:
+      tags: [Conversations]
+      operationId: createPin
+      parameters:
+        - $ref: "#/components/parameters/ConversationIDPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PinCreateRequest"
+      responses:
+        "201":
+          description: Pin created.
+          headers:
+            Location:
+              $ref: "#/components/headers/Location"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Pin"
+        default:
+          $ref: "#/components/responses/ApiErrorResponse"
+  /conversations/{id}/pins/{message_ts}:
+    delete:
+      tags: [Conversations]
+      operationId: deletePin
+      parameters:
+        - $ref: "#/components/parameters/ConversationIDPath"
+        - $ref: "#/components/parameters/MessageTSPath"
+      responses:
+        "204":
+          $ref: "#/components/responses/NoContent"
+        default:
+          $ref: "#/components/responses/ApiErrorResponse"
+  /conversations/{id}/bookmarks:
+    get:
+      tags: [Conversations]
+      operationId: listBookmarks
+      parameters:
+        - $ref: "#/components/parameters/ConversationIDPath"
+      responses:
+        "200":
+          description: Bookmarks.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BookmarksCollection"
+        default:
+          $ref: "#/components/responses/ApiErrorResponse"
+    post:
+      tags: [Conversations]
+      operationId: createBookmark
+      parameters:
+        - $ref: "#/components/parameters/ConversationIDPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateBookmarkRequest"
+      responses:
+        "201":
+          description: Bookmark created.
+          headers:
+            Location:
+              $ref: "#/components/headers/Location"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Bookmark"
+        default:
+          $ref: "#/components/responses/ApiErrorResponse"
+  /conversations/{conversation_id}/bookmarks/{bookmark_id}:
+    patch:
+      tags: [Conversations]
+      operationId: updateBookmark
+      parameters:
+        - $ref: "#/components/parameters/ConversationIDPathNamed"
+        - $ref: "#/components/parameters/BookmarkIDPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BookmarkUpdateRequest"
+      responses:
+        "200":
+          description: Bookmark updated.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Bookmark"
+        default:
+          $ref: "#/components/responses/ApiErrorResponse"
+    delete:
+      tags: [Conversations]
+      operationId: deleteBookmark
+      parameters:
+        - $ref: "#/components/parameters/ConversationIDPathNamed"
+        - $ref: "#/components/parameters/BookmarkIDPath"
+      responses:
+        "204":
+          $ref: "#/components/responses/NoContent"
+        default:
+          $ref: "#/components/responses/ApiErrorResponse"
+  /messages:
+    get:
+      tags: [Messages]
+      operationId: listMessages
+      parameters:
+        - name: conversation_id
+          in: query
+          schema:
+            type: string
+        - name: thread_ts
+          in: query
+          schema:
+            type: string
+        - name: latest
+          in: query
+          schema:
+            type: string
+        - name: oldest
+          in: query
+          schema:
+            type: string
+        - name: inclusive
+          in: query
+          schema:
+            type: boolean
+        - name: include_all_metadata
+          in: query
+          schema:
+            type: boolean
+        - $ref: "#/components/parameters/CursorQuery"
+        - $ref: "#/components/parameters/LimitQuery"
+      responses:
+        "200":
+          description: Messages.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessagesCollection"
+        default:
+          $ref: "#/components/responses/ApiErrorResponse"
+    post:
+      tags: [Messages]
+      operationId: createMessage
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PostMessageRequest"
+      responses:
+        "201":
+          description: Message created.
+          headers:
+            Location:
+              $ref: "#/components/headers/Location"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Message"
+        default:
+          $ref: "#/components/responses/ApiErrorResponse"
+  /messages/{conversation_id}/{message_ts}:
+    patch:
+      tags: [Messages]
+      operationId: updateMessage
+      parameters:
+        - $ref: "#/components/parameters/ConversationIDPathNamed"
+        - $ref: "#/components/parameters/MessageTSPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateMessageRequest"
+      responses:
+        "200":
+          description: Message updated.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Message"
+        default:
+          $ref: "#/components/responses/ApiErrorResponse"
+    delete:
+      tags: [Messages]
+      operationId: deleteMessage
+      parameters:
+        - $ref: "#/components/parameters/ConversationIDPathNamed"
+        - $ref: "#/components/parameters/MessageTSPath"
+      responses:
+        "204":
+          $ref: "#/components/responses/NoContent"
+        default:
+          $ref: "#/components/responses/ApiErrorResponse"
+  /messages/{conversation_id}/{message_ts}/reactions:
+    get:
+      tags: [Messages]
+      operationId: listMessageReactions
+      parameters:
+        - $ref: "#/components/parameters/ConversationIDPathNamed"
+        - $ref: "#/components/parameters/MessageTSPath"
+      responses:
+        "200":
+          description: Message reactions.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Reaction"
+        default:
+          $ref: "#/components/responses/ApiErrorResponse"
+    post:
+      tags: [Messages]
+      operationId: createMessageReaction
+      parameters:
+        - $ref: "#/components/parameters/ConversationIDPathNamed"
+        - $ref: "#/components/parameters/MessageTSPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MessageReactionRequest"
+      responses:
+        "204":
+          $ref: "#/components/responses/NoContent"
+        default:
+          $ref: "#/components/responses/ApiErrorResponse"
+  /messages/{conversation_id}/{message_ts}/reactions/{reaction_name}:
+    delete:
+      tags: [Messages]
+      operationId: deleteMessageReaction
+      parameters:
+        - $ref: "#/components/parameters/ConversationIDPathNamed"
+        - $ref: "#/components/parameters/MessageTSPath"
+        - $ref: "#/components/parameters/ReactionNamePath"
+      responses:
+        "204":
+          $ref: "#/components/responses/NoContent"
+        default:
+          $ref: "#/components/responses/ApiErrorResponse"
+  /usergroups:
+    get:
+      tags: [Usergroups]
+      operationId: listUsergroups
+      parameters:
+        - $ref: "#/components/parameters/TeamIDQuery"
+        - name: include_disabled
+          in: query
+          schema:
+            type: boolean
+      responses:
+        "200":
+          description: Usergroups.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UsergroupsCollection"
+        default:
+          $ref: "#/components/responses/ApiErrorResponse"
+    post:
+      tags: [Usergroups]
+      operationId: createUsergroup
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateUsergroupRequest"
+      responses:
+        "201":
+          description: Usergroup created.
+          headers:
+            Location:
+              $ref: "#/components/headers/Location"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Usergroup"
+        default:
+          $ref: "#/components/responses/ApiErrorResponse"
+  /usergroups/{id}:
+    get:
+      tags: [Usergroups]
+      operationId: getUsergroup
+      parameters:
+        - $ref: "#/components/parameters/UsergroupIDPath"
+      responses:
+        "200":
+          description: Usergroup.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Usergroup"
+        default:
+          $ref: "#/components/responses/ApiErrorResponse"
+    patch:
+      tags: [Usergroups]
+      operationId: updateUsergroup
+      parameters:
+        - $ref: "#/components/parameters/UsergroupIDPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UsergroupUpdateRequest"
+      responses:
+        "200":
+          description: Usergroup updated.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Usergroup"
+        default:
+          $ref: "#/components/responses/ApiErrorResponse"
+  /usergroups/{id}/members:
+    get:
+      tags: [Usergroups]
+      operationId: listUsergroupMembers
+      parameters:
+        - $ref: "#/components/parameters/UsergroupIDPath"
+      responses:
+        "200":
+          description: Usergroup members.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UsersCollection"
+        default:
+          $ref: "#/components/responses/ApiErrorResponse"
+    put:
+      tags: [Usergroups]
+      operationId: replaceUsergroupMembers
+      parameters:
+        - $ref: "#/components/parameters/UsergroupIDPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UsergroupMembersUpdateRequest"
+      responses:
+        "204":
+          $ref: "#/components/responses/NoContent"
+        default:
+          $ref: "#/components/responses/ApiErrorResponse"
+  /file-uploads:
+    post:
+      tags: [Files]
+      operationId: createFileUpload
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GetUploadURLRequest"
+      responses:
+        "201":
+          description: Upload slot created.
+          headers:
+            Location:
+              $ref: "#/components/headers/Location"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetUploadURLResponse"
+        default:
+          $ref: "#/components/responses/ApiErrorResponse"
+  /file-uploads/{id}/complete:
+    post:
+      tags: [Files]
+      operationId: completeFileUpload
+      parameters:
+        - $ref: "#/components/parameters/FileIDPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CompleteUploadRequest"
+      responses:
+        "200":
+          description: Uploaded file completed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/File"
+        default:
+          $ref: "#/components/responses/ApiErrorResponse"
+  /files:
+    get:
+      tags: [Files]
+      operationId: listFiles
+      parameters:
+        - name: conversation_id
+          in: query
+          schema:
+            type: string
+        - name: user_id
+          in: query
+          schema:
+            type: string
+        - $ref: "#/components/parameters/CursorQuery"
+        - $ref: "#/components/parameters/LimitQuery"
+      responses:
+        "200":
+          description: Files.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FilesCollection"
+        default:
+          $ref: "#/components/responses/ApiErrorResponse"
+    post:
+      tags: [Files]
+      operationId: createRemoteFile
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AddRemoteFileRequest"
+      responses:
+        "201":
+          description: Remote file created.
+          headers:
+            Location:
+              $ref: "#/components/headers/Location"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/File"
+        default:
+          $ref: "#/components/responses/ApiErrorResponse"
+  /files/{id}:
+    get:
+      tags: [Files]
+      operationId: getFile
+      parameters:
+        - $ref: "#/components/parameters/FileIDPath"
+      responses:
+        "200":
+          description: File.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/File"
+        default:
+          $ref: "#/components/responses/ApiErrorResponse"
+    delete:
+      tags: [Files]
+      operationId: deleteFile
+      parameters:
+        - $ref: "#/components/parameters/FileIDPath"
+      responses:
+        "204":
+          $ref: "#/components/responses/NoContent"
+        default:
+          $ref: "#/components/responses/ApiErrorResponse"
+  /files/{id}/shares:
+    post:
+      tags: [Files]
+      operationId: createFileShare
+      parameters:
+        - $ref: "#/components/parameters/FileIDPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ShareRemoteFileRequest"
+      responses:
+        "204":
+          $ref: "#/components/responses/NoContent"
+        default:
+          $ref: "#/components/responses/ApiErrorResponse"
+  /event-subscriptions:
+    get:
+      tags: [Event Subscriptions]
+      operationId: listEventSubscriptions
+      parameters:
+        - $ref: "#/components/parameters/TeamIDQuery"
+      responses:
+        "200":
+          description: Event subscriptions.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EventSubscriptionsCollection"
+        default:
+          $ref: "#/components/responses/ApiErrorResponse"
+    post:
+      tags: [Event Subscriptions]
+      operationId: createEventSubscription
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateEventSubscriptionRequest"
+      responses:
+        "201":
+          description: Event subscription created.
+          headers:
+            Location:
+              $ref: "#/components/headers/Location"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EventSubscription"
+        default:
+          $ref: "#/components/responses/ApiErrorResponse"
+  /event-subscriptions/{id}:
+    get:
+      tags: [Event Subscriptions]
+      operationId: getEventSubscription
+      parameters:
+        - $ref: "#/components/parameters/EventSubscriptionIDPath"
+      responses:
+        "200":
+          description: Event subscription.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EventSubscription"
+        default:
+          $ref: "#/components/responses/ApiErrorResponse"
+    patch:
+      tags: [Event Subscriptions]
+      operationId: updateEventSubscription
+      parameters:
+        - $ref: "#/components/parameters/EventSubscriptionIDPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EventSubscriptionUpdateRequest"
+      responses:
+        "200":
+          description: Event subscription updated.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EventSubscription"
+        default:
+          $ref: "#/components/responses/ApiErrorResponse"
+    delete:
+      tags: [Event Subscriptions]
+      operationId: deleteEventSubscription
+      parameters:
+        - $ref: "#/components/parameters/EventSubscriptionIDPath"
+      responses:
+        "204":
+          $ref: "#/components/responses/NoContent"
+        default:
+          $ref: "#/components/responses/ApiErrorResponse"
+  /events:
+    get:
+      tags: [Events]
+      operationId: listEvents
+      parameters:
+        - name: after
+          in: query
+          description: Opaque pagination cursor returned as `next_cursor`.
+          schema:
+            type: string
+        - $ref: "#/components/parameters/LimitQuery"
+        - name: type
+          in: query
+          schema:
+            type: string
+        - name: resource_type
+          in: query
+          schema:
+            type: string
+            enum: [team, user, conversation, file, usergroup]
+        - name: resource_id
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Visible external events.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExternalEventsCollection"
+        default:
+          $ref: "#/components/responses/ApiErrorResponse"
+  /auth/oauth/{provider}/start:
+    get:
+      tags: [Auth]
+      operationId: startOAuth
+      security: []
+      parameters:
+        - $ref: "#/components/parameters/AuthProviderPath"
+        - $ref: "#/components/parameters/TeamIDQuery"
+        - name: redirect_to
+          in: query
+          schema:
+            type: string
+      responses:
+        "302":
+          description: Redirect to OAuth provider.
+        default:
+          $ref: "#/components/responses/ApiErrorResponse"
+  /auth/oauth/{provider}/callback:
+    get:
+      tags: [Auth]
+      operationId: completeOAuth
+      security: []
+      parameters:
+        - $ref: "#/components/parameters/AuthProviderPath"
+        - name: code
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: state
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Session created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthSession"
+        "302":
+          description: Session created and redirected.
+        default:
+          $ref: "#/components/responses/ApiErrorResponse"
+  /auth/sessions/current:
+    delete:
+      tags: [Auth]
+      operationId: deleteCurrentSession
+      responses:
+        "204":
+          $ref: "#/components/responses/NoContent"
+        default:
+          $ref: "#/components/responses/ApiErrorResponse"
+  /auth/me:
+    get:
+      tags: [Auth]
+      operationId: getAuthMe
+      responses:
+        "200":
+          description: Auth context.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthMeResponse"
+        default:
+          $ref: "#/components/responses/ApiErrorResponse"
+  /search:
+    post:
+      tags: [Search]
+      operationId: search
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SearchRequest"
+      responses:
+        "200":
+          description: Search results.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SearchResultsCollection"
+        default:
+          $ref: "#/components/responses/ApiErrorResponse"
+  /api-keys:
+    get:
+      tags: [API Keys]
+      operationId: listApiKeys
+      parameters:
+        - $ref: "#/components/parameters/TeamIDQuery"
+        - name: principal_id
+          in: query
+          schema:
+            type: string
+        - name: include_revoked
+          in: query
+          schema:
+            type: boolean
+        - $ref: "#/components/parameters/CursorQuery"
+        - $ref: "#/components/parameters/LimitQuery"
+      responses:
+        "200":
+          description: API keys.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/APIKeysCollection"
+        default:
+          $ref: "#/components/responses/ApiErrorResponse"
+    post:
+      tags: [API Keys]
+      operationId: createApiKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateAPIKeyRequest"
+      responses:
+        "201":
+          description: API key created.
+          headers:
+            Location:
+              $ref: "#/components/headers/Location"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/APIKeySecretResponse"
+        default:
+          $ref: "#/components/responses/ApiErrorResponse"
+  /api-keys/{id}:
+    get:
+      tags: [API Keys]
+      operationId: getApiKey
+      parameters:
+        - $ref: "#/components/parameters/APIKeyIDPath"
+      responses:
+        "200":
+          description: API key.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/APIKey"
+        default:
+          $ref: "#/components/responses/ApiErrorResponse"
+    patch:
+      tags: [API Keys]
+      operationId: updateApiKey
+      parameters:
+        - $ref: "#/components/parameters/APIKeyIDPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateAPIKeyRequest"
+      responses:
+        "200":
+          description: API key updated.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/APIKey"
+        default:
+          $ref: "#/components/responses/ApiErrorResponse"
+    delete:
+      tags: [API Keys]
+      operationId: deleteApiKey
+      parameters:
+        - $ref: "#/components/parameters/APIKeyIDPath"
+      responses:
+        "204":
+          $ref: "#/components/responses/NoContent"
+        default:
+          $ref: "#/components/responses/ApiErrorResponse"
+  /api-keys/{id}/rotations:
+    post:
+      tags: [API Keys]
+      operationId: rotateApiKey
+      parameters:
+        - $ref: "#/components/parameters/APIKeyIDPath"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RotateAPIKeyRequest"
+      responses:
+        "201":
+          description: API key rotated.
+          headers:
+            Location:
+              $ref: "#/components/headers/Location"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/APIKeySecretResponse"
+        default:
+          $ref: "#/components/responses/ApiErrorResponse"
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: token
+  headers:
+    Location:
+      description: Resource URI.
+      schema:
+        type: string
+  responses:
+    NoContent:
+      description: No content.
+    ApiErrorResponse:
+      description: API error.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/APIError"
+  parameters:
+    TeamIDPath:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+    AuthProviderPath:
+      name: provider
+      in: path
+      required: true
+      schema:
+        $ref: "#/components/schemas/AuthProvider"
+    TeamIDQuery:
+      name: team_id
+      in: query
+      schema:
+        type: string
+    UserIDPath:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+    UserIDPathNamed:
+      name: user_id
+      in: path
+      required: true
+      schema:
+        type: string
+    ConversationIDPath:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+    ConversationIDPathNamed:
+      name: conversation_id
+      in: path
+      required: true
+      schema:
+        type: string
+    ExternalTeamIDPath:
+      name: external_team_id
+      in: path
+      required: true
+      schema:
+        type: string
+    ExternalPrincipalAccessIDPath:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+    BookmarkIDPath:
+      name: bookmark_id
+      in: path
+      required: true
+      schema:
+        type: string
+    MessageTSPath:
+      name: message_ts
+      in: path
+      required: true
+      schema:
+        type: string
+    ReactionNamePath:
+      name: reaction_name
+      in: path
+      required: true
+      schema:
+        type: string
+    UsergroupIDPath:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+    FileIDPath:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+    EventSubscriptionIDPath:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+    APIKeyIDPath:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+    CursorQuery:
+      name: cursor
+      in: query
+      schema:
+        type: string
+    LimitQuery:
+      name: limit
+      in: query
+      schema:
+        type: integer
+        format: int32
+        minimum: 0
+  schemas:
+    HealthStatusResponse:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [ok]
+    APIError:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+        message:
+          type: string
+        request_id:
+          type: string
+        errors:
+          type: array
+          items:
+            $ref: "#/components/schemas/FieldError"
+    FieldError:
+      type: object
+      required: [field, code, message]
+      properties:
+        field:
+          type: string
+        code:
+          type: string
+        message:
+          type: string
+    FreeFormJSON: {}
+    FreeFormObject:
+      type: object
+      additionalProperties: true
+    PrincipalType:
+      type: string
+      enum: [human, agent, system]
+    AccountType:
+      type: string
+      enum: [primary_admin, admin, member]
+    DelegatedRole:
+      type: string
+      enum: [channels_admin, roles_admin, security_admin, integrations_admin, usergroups_admin, support_readonly]
+    ExternalPrincipalAccessMode:
+      type: string
+      enum: [external_shared, external_shared_readonly]
+    ConversationPostingPolicyType:
+      type: string
+      enum: [everyone, admins_only, members_with_permission, custom]
+    AuthProvider:
+      type: string
+      enum: [github, google]
+    WorkspaceDiscoverability:
+      type: string
+      enum: [open, invite_only]
+    ConversationType:
+      type: string
+      enum: [public_channel, private_channel, im, mpim]
+    APIKeyType:
+      type: string
+      enum: [persistent, session, restricted]
+    APIKeyEnvironment:
+      type: string
+      enum: [live, test]
+    WorkspaceIcon:
+      type: object
+      properties:
+        image_original:
+          type: string
+        image_34:
+          type: string
+        image_44:
+          type: string
+    WorkspaceProfileField:
+      type: object
+      required: [id, label, type, ordering]
+      properties:
+        id:
+          type: string
+        label:
+          type: string
+        hint:
+          type: string
+        type:
+          type: string
+        options:
+          type: array
+          items:
+            type: string
+        ordering:
+          type: integer
+          format: int32
+    WorkspaceBilling:
+      type: object
+      required: [plan, status]
+      properties:
+        plan:
+          type: string
+        status:
+          type: string
+        billing_email:
+          type: string
+    Workspace:
+      type: object
+      required:
+        - id
+        - name
+        - domain
+        - email_domain
+        - description
+        - icon
+        - discoverability
+        - default_channels
+        - preferences
+        - profile_fields
+        - billing
+        - created_at
+        - updated_at
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        domain:
+          type: string
+        email_domain:
+          type: string
+        description:
+          type: string
+        icon:
+          $ref: "#/components/schemas/WorkspaceIcon"
+        discoverability:
+          $ref: "#/components/schemas/WorkspaceDiscoverability"
+        default_channels:
+          type: array
+          items:
+            type: string
+        preferences:
+          $ref: "#/components/schemas/FreeFormObject"
+        profile_fields:
+          type: array
+          items:
+            $ref: "#/components/schemas/WorkspaceProfileField"
+        billing:
+          $ref: "#/components/schemas/WorkspaceBilling"
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    WorkspaceBillableInfo:
+      type: object
+      required: [user_id, billing_active]
+      properties:
+        user_id:
+          type: string
+        billing_active:
+          type: boolean
+    WorkspaceBillableInfoMap:
+      type: object
+      additionalProperties:
+        $ref: "#/components/schemas/WorkspaceBillableInfo"
+    WorkspaceAccessLog:
+      type: object
+      required: [user_id, username, event_type, date_first, date_last]
+      properties:
+        user_id:
+          type: string
+        username:
+          type: string
+        event_type:
+          type: string
+        date_first:
+          type: string
+          format: date-time
+        date_last:
+          type: string
+          format: date-time
+    WorkspaceIntegrationLog:
+      type: object
+      required: [app_id, app_type, app_name, user_id, user_name, action, date]
+      properties:
+        app_id:
+          type: string
+        app_type:
+          type: string
+        app_name:
+          type: string
+        user_id:
+          type: string
+        user_name:
+          type: string
+        action:
+          type: string
+        date:
+          type: string
+          format: date-time
+    AuthorizationAuditLog:
+      type: object
+      required: [id, team_id, action, resource, resource_id, created_at]
+      properties:
+        id:
+          type: string
+        team_id:
+          type: string
+        actor_id:
+          type: string
+        api_key_id:
+          type: string
+        on_behalf_of:
+          type: string
+        action:
+          type: string
+        resource:
+          type: string
+        resource_id:
+          type: string
+        metadata:
+          $ref: "#/components/schemas/FreeFormObject"
+        created_at:
+          type: string
+          format: date-time
+    TransferPrimaryAdminRequest:
+      type: object
+      required: [user_id]
+      properties:
+        user_id:
+          type: string
+    ExternalTeam:
+      type: object
+      required: [id, external_team_id, name, connection_type, connected, created_at]
+      properties:
+        id:
+          type: string
+        external_team_id:
+          type: string
+        name:
+          type: string
+        connection_type:
+          type: string
+        connected:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+        disconnected_at:
+          type: string
+          format: date-time
+    UserProfileFieldValue:
+      type: object
+      required: [value, alt]
+      properties:
+        value:
+          type: string
+        alt:
+          type: string
+    UserProfile:
+      type: object
+      required:
+        - title
+        - phone
+        - status_text
+        - status_emoji
+        - status_expiration
+        - avatar_hash
+        - image_original
+        - image_48
+        - image_192
+        - image_512
+      properties:
+        title:
+          type: string
+        phone:
+          type: string
+        status_text:
+          type: string
+        status_emoji:
+          type: string
+        status_expiration:
+          type: integer
+          format: int64
+        avatar_hash:
+          type: string
+        image_original:
+          type: string
+        image_48:
+          type: string
+        image_192:
+          type: string
+        image_512:
+          type: string
+        fields:
+          type: object
+          additionalProperties:
+            $ref: "#/components/schemas/UserProfileFieldValue"
+    User:
+      type: object
+      required:
+        - id
+        - team_id
+        - name
+        - real_name
+        - display_name
+        - email
+        - principal_type
+        - account_type
+        - is_bot
+        - deleted
+        - profile
+        - created_at
+        - updated_at
+      properties:
+        id:
+          type: string
+        team_id:
+          type: string
+        name:
+          type: string
+        real_name:
+          type: string
+        display_name:
+          type: string
+        email:
+          type: string
+        principal_type:
+          $ref: "#/components/schemas/PrincipalType"
+        account_type:
+          $ref: "#/components/schemas/AccountType"
+        owner_id:
+          type: string
+        delegated_roles:
+          type: array
+          items:
+            $ref: "#/components/schemas/DelegatedRole"
+        is_bot:
+          type: boolean
+        deleted:
+          type: boolean
+        profile:
+          $ref: "#/components/schemas/UserProfile"
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    TopicPurpose:
+      type: object
+      required: [value, creator]
+      properties:
+        value:
+          type: string
+        creator:
+          type: string
+        last_set:
+          type: string
+          format: date-time
+    Conversation:
+      type: object
+      required:
+        - id
+        - team_id
+        - name
+        - type
+        - creator_id
+        - is_archived
+        - topic
+        - purpose
+        - num_members
+        - created_at
+        - updated_at
+      properties:
+        id:
+          type: string
+        team_id:
+          type: string
+        name:
+          type: string
+        type:
+          $ref: "#/components/schemas/ConversationType"
+        creator_id:
+          type: string
+        is_archived:
+          type: boolean
+        topic:
+          $ref: "#/components/schemas/TopicPurpose"
+        purpose:
+          $ref: "#/components/schemas/TopicPurpose"
+        num_members:
+          type: integer
+          format: int32
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    Reaction:
+      type: object
+      required: [name, users, count]
+      properties:
+        name:
+          type: string
+        users:
+          type: array
+          items:
+            type: string
+        count:
+          type: integer
+          format: int32
+    Message:
+      type: object
+      required:
+        - ts
+        - channel_id
+        - user_id
+        - text
+        - type
+        - reply_count
+        - reply_users_count
+        - is_deleted
+        - created_at
+        - updated_at
+      properties:
+        ts:
+          type: string
+        channel_id:
+          type: string
+        user_id:
+          type: string
+        text:
+          type: string
+        thread_ts:
+          type: string
+        type:
+          type: string
+        subtype:
+          type: string
+        blocks:
+          $ref: "#/components/schemas/FreeFormJSON"
+        metadata:
+          $ref: "#/components/schemas/FreeFormJSON"
+        edited_by:
+          type: string
+        edited_at:
+          type: string
+        reactions:
+          type: array
+          items:
+            $ref: "#/components/schemas/Reaction"
+        reply_count:
+          type: integer
+          format: int32
+        reply_users_count:
+          type: integer
+          format: int32
+        latest_reply:
+          type: string
+        is_deleted:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    Pin:
+      type: object
+      required: [channel_id, message_ts, pinned_by, pinned_at]
+      properties:
+        channel_id:
+          type: string
+        message_ts:
+          type: string
+        pinned_by:
+          type: string
+        pinned_at:
+          type: string
+          format: date-time
+    Bookmark:
+      type: object
+      required: [id, channel_id, title, type, link, created_by, updated_by, created_at, updated_at]
+      properties:
+        id:
+          type: string
+        channel_id:
+          type: string
+        title:
+          type: string
+        type:
+          type: string
+        link:
+          type: string
+        emoji:
+          type: string
+        created_by:
+          type: string
+        updated_by:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    Usergroup:
+      type: object
+      required:
+        - id
+        - team_id
+        - name
+        - handle
+        - description
+        - is_external
+        - enabled
+        - user_count
+        - created_by
+        - updated_by
+        - created_at
+        - updated_at
+      properties:
+        id:
+          type: string
+        team_id:
+          type: string
+        name:
+          type: string
+        handle:
+          type: string
+        description:
+          type: string
+        is_external:
+          type: boolean
+        enabled:
+          type: boolean
+        user_count:
+          type: integer
+          format: int32
+        created_by:
+          type: string
+        updated_by:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    File:
+      type: object
+      required:
+        - id
+        - team_id
+        - name
+        - title
+        - mimetype
+        - filetype
+        - size
+        - user_id
+        - url_private
+        - url_private_download
+        - permalink
+        - is_external
+        - created_at
+        - updated_at
+      properties:
+        id:
+          type: string
+        team_id:
+          type: string
+        name:
+          type: string
+        title:
+          type: string
+        mimetype:
+          type: string
+        filetype:
+          type: string
+        size:
+          type: integer
+          format: int64
+        user_id:
+          type: string
+        url_private:
+          type: string
+        url_private_download:
+          type: string
+        permalink:
+          type: string
+        is_external:
+          type: boolean
+        external_url:
+          type: string
+        channels:
+          type: array
+          items:
+            type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    EventSubscription:
+      type: object
+      required: [id, team_id, url, enabled, created_at, updated_at]
+      properties:
+        id:
+          type: string
+        team_id:
+          type: string
+        url:
+          type: string
+        type:
+          type: string
+        resource_type:
+          type: string
+          enum: [team, user, conversation, file, usergroup]
+        resource_id:
+          type: string
+        enabled:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    ExternalEvent:
+      type: object
+      required: [id, team_id, type, resource_type, resource_id, occurred_at, payload]
+      properties:
+        id:
+          type: integer
+          format: int64
+        team_id:
+          type: string
+        type:
+          type: string
+        resource_type:
+          type: string
+          enum: [team, user, conversation, file, usergroup]
+        resource_id:
+          type: string
+        occurred_at:
+          type: string
+          format: date-time
+        payload:
+          type: object
+          additionalProperties: true
+    AuthSession:
+      type: object
+      required: [id, team_id, user_id, provider, expires_at, created_at]
+      properties:
+        id:
+          type: string
+        team_id:
+          type: string
+        user_id:
+          type: string
+        provider:
+          $ref: "#/components/schemas/AuthProvider"
+        token:
+          type: string
+        expires_at:
+          type: string
+          format: date-time
+        revoked_at:
+          type: string
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+    AuthMeResponse:
+      type: object
+      required: [team_id, user_id, principal_type, is_bot]
+      properties:
+        team_id:
+          type: string
+        user_id:
+          type: string
+        principal_type:
+          $ref: "#/components/schemas/PrincipalType"
+        account_type:
+          $ref: "#/components/schemas/AccountType"
+        is_bot:
+          type: boolean
+    APIKey:
+      type: object
+      required:
+        - id
+        - name
+        - key_prefix
+        - key_hint
+        - team_id
+        - principal_id
+        - created_by
+        - type
+        - environment
+        - permissions
+        - request_count
+        - revoked
+        - created_at
+        - updated_at
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        key_hash:
+          type: string
+        key_prefix:
+          type: string
+        key_hint:
+          type: string
+        team_id:
+          type: string
+        principal_id:
+          type: string
+        created_by:
+          type: string
+        on_behalf_of:
+          type: string
+        type:
+          $ref: "#/components/schemas/APIKeyType"
+        environment:
+          $ref: "#/components/schemas/APIKeyEnvironment"
+        permissions:
+          type: array
+          items:
+            type: string
+        expires_at:
+          type: string
+          format: date-time
+        last_used_at:
+          type: string
+          format: date-time
+        request_count:
+          type: integer
+          format: int64
+        revoked:
+          type: boolean
+        revoked_at:
+          type: string
+          format: date-time
+        rotated_to_id:
+          type: string
+        grace_period_ends_at:
+          type: string
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    SearchResult:
+      type: object
+      required: [type, score, data]
+      properties:
+        type:
+          type: string
+        score:
+          type: number
+          format: double
+        data:
+          $ref: "#/components/schemas/FreeFormJSON"
+    CreateWorkspaceRequest:
+      type: object
+      required: [name, domain, email_domain, description, icon, discoverability, default_channels, preferences, profile_fields, billing]
+      properties:
+        name:
+          type: string
+        domain:
+          type: string
+        email_domain:
+          type: string
+        description:
+          type: string
+        icon:
+          $ref: "#/components/schemas/WorkspaceIcon"
+        discoverability:
+          $ref: "#/components/schemas/WorkspaceDiscoverability"
+        default_channels:
+          type: array
+          items:
+            type: string
+        preferences:
+          $ref: "#/components/schemas/FreeFormObject"
+        profile_fields:
+          type: array
+          items:
+            $ref: "#/components/schemas/WorkspaceProfileField"
+        billing:
+          $ref: "#/components/schemas/WorkspaceBilling"
+    UpdateWorkspaceRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        domain:
+          type: string
+        email_domain:
+          type: string
+        description:
+          type: string
+        icon:
+          $ref: "#/components/schemas/WorkspaceIcon"
+        discoverability:
+          $ref: "#/components/schemas/WorkspaceDiscoverability"
+        default_channels:
+          type: array
+          items:
+            type: string
+        preferences:
+          $ref: "#/components/schemas/FreeFormJSON"
+        profile_fields:
+          type: array
+          items:
+            $ref: "#/components/schemas/WorkspaceProfileField"
+        billing:
+          $ref: "#/components/schemas/WorkspaceBilling"
+    CreateUserRequest:
+      type: object
+      required: [team_id, name, real_name, display_name, email, principal_type, is_bot, profile]
+      properties:
+        team_id:
+          type: string
+        name:
+          type: string
+        real_name:
+          type: string
+        display_name:
+          type: string
+        email:
+          type: string
+        principal_type:
+          $ref: "#/components/schemas/PrincipalType"
+        account_type:
+          $ref: "#/components/schemas/AccountType"
+        owner_id:
+          type: string
+        is_bot:
+          type: boolean
+        profile:
+          $ref: "#/components/schemas/UserProfile"
+    UpdateUserRequest:
+      type: object
+      properties:
+        real_name:
+          type: string
+        display_name:
+          type: string
+        email:
+          type: string
+        account_type:
+          $ref: "#/components/schemas/AccountType"
+        deleted:
+          type: boolean
+        profile:
+          $ref: "#/components/schemas/UserProfile"
+    UserRolesResponse:
+      type: object
+      required: [user_id, delegated_roles]
+      properties:
+        user_id:
+          type: string
+        delegated_roles:
+          type: array
+          items:
+            $ref: "#/components/schemas/DelegatedRole"
+    ExternalPrincipalAccess:
+      type: object
+      required: [id, host_team_id, principal_id, principal_type, home_team_id, access_mode, granted_by, created_at]
+      properties:
+        id:
+          type: string
+        host_team_id:
+          type: string
+        principal_id:
+          type: string
+        principal_type:
+          $ref: "#/components/schemas/PrincipalType"
+        home_team_id:
+          type: string
+        access_mode:
+          $ref: "#/components/schemas/ExternalPrincipalAccessMode"
+        allowed_capabilities:
+          type: array
+          items:
+            type: string
+        conversation_ids:
+          type: array
+          items:
+            type: string
+        granted_by:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+        revoked_at:
+          type: string
+          format: date-time
+    CreateExternalPrincipalAccessRequest:
+      type: object
+      required: [host_team_id, principal_id, principal_type, home_team_id, access_mode]
+      properties:
+        host_team_id:
+          type: string
+        principal_id:
+          type: string
+        principal_type:
+          $ref: "#/components/schemas/PrincipalType"
+        home_team_id:
+          type: string
+        access_mode:
+          $ref: "#/components/schemas/ExternalPrincipalAccessMode"
+        allowed_capabilities:
+          type: array
+          items:
+            type: string
+        conversation_ids:
+          type: array
+          items:
+            type: string
+        expires_at:
+          type: string
+          format: date-time
+    UpdateExternalPrincipalAccessRequest:
+      type: object
+      properties:
+        access_mode:
+          $ref: "#/components/schemas/ExternalPrincipalAccessMode"
+        allowed_capabilities:
+          type: array
+          items:
+            type: string
+        conversation_ids:
+          type: array
+          items:
+            type: string
+        expires_at:
+          type: string
+          format: date-time
+    UpdateUserRolesRequest:
+      type: object
+      required: [delegated_roles]
+      properties:
+        delegated_roles:
+          type: array
+          items:
+            $ref: "#/components/schemas/DelegatedRole"
+    CreateConversationRequest:
+      type: object
+      required: [team_id, name, type, creator_id, topic, purpose]
+      properties:
+        team_id:
+          type: string
+        name:
+          type: string
+        type:
+          $ref: "#/components/schemas/ConversationType"
+        creator_id:
+          type: string
+        topic:
+          type: string
+        purpose:
+          type: string
+    ConversationUpdateRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        is_archived:
+          type: boolean
+        topic:
+          type: string
+        purpose:
+          type: string
+    ConversationInviteRequest:
+      type: object
+      required: [user_ids]
+      properties:
+        user_ids:
+          type: array
+          items:
+            type: string
+    ConversationManagersResponse:
+      type: object
+      required: [conversation_id, user_ids]
+      properties:
+        conversation_id:
+          type: string
+        user_ids:
+          type: array
+          items:
+            type: string
+    ConversationManagersUpdateRequest:
+      type: object
+      required: [user_ids]
+      properties:
+        user_ids:
+          type: array
+          items:
+            type: string
+    ConversationPostingPolicyResponse:
+      type: object
+      required: [conversation_id, policy_type]
+      properties:
+        conversation_id:
+          type: string
+        policy_type:
+          $ref: "#/components/schemas/ConversationPostingPolicyType"
+        allowed_account_types:
+          type: array
+          items:
+            $ref: "#/components/schemas/AccountType"
+        allowed_delegated_roles:
+          type: array
+          items:
+            $ref: "#/components/schemas/DelegatedRole"
+        allowed_user_ids:
+          type: array
+          items:
+            type: string
+        allowed_usergroup_ids:
+          type: array
+          items:
+            type: string
+        updated_by:
+          type: string
+        updated_at:
+          type: string
+          format: date-time
+    ConversationPostingPolicyUpdateRequest:
+      type: object
+      required: [policy_type]
+      properties:
+        policy_type:
+          $ref: "#/components/schemas/ConversationPostingPolicyType"
+        allowed_account_types:
+          type: array
+          items:
+            $ref: "#/components/schemas/AccountType"
+        allowed_delegated_roles:
+          type: array
+          items:
+            $ref: "#/components/schemas/DelegatedRole"
+        allowed_user_ids:
+          type: array
+          items:
+            type: string
+        allowed_usergroup_ids:
+          type: array
+          items:
+            type: string
+    ConversationReadUpdateRequest:
+      type: object
+      required: [last_read_ts]
+      properties:
+        last_read_ts:
+          type: string
+    PinCreateRequest:
+      type: object
+      required: [message_ts]
+      properties:
+        message_ts:
+          type: string
+        user_id:
+          type: string
+    CreateBookmarkRequest:
+      type: object
+      required: [title, type, link]
+      properties:
+        channel_id:
+          type: string
+        title:
+          type: string
+        type:
+          type: string
+        link:
+          type: string
+        emoji:
+          type: string
+        created_by:
+          type: string
+    BookmarkUpdateRequest:
+      type: object
+      properties:
+        title:
+          type: string
+        link:
+          type: string
+        emoji:
+          type: string
+        updated_by:
+          type: string
+    PostMessageRequest:
+      type: object
+      required: [channel_id, user_id, text]
+      properties:
+        channel_id:
+          type: string
+        user_id:
+          type: string
+        text:
+          type: string
+        thread_ts:
+          type: string
+        blocks:
+          $ref: "#/components/schemas/FreeFormJSON"
+        metadata:
+          $ref: "#/components/schemas/FreeFormJSON"
+        reply_broadcast:
+          type: boolean
+    UpdateMessageRequest:
+      type: object
+      properties:
+        text:
+          type: string
+        blocks:
+          $ref: "#/components/schemas/FreeFormJSON"
+        metadata:
+          $ref: "#/components/schemas/FreeFormJSON"
+    MessageReactionRequest:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+        user_id:
+          type: string
+    CreateUsergroupRequest:
+      type: object
+      required: [team_id, name, handle, description]
+      properties:
+        team_id:
+          type: string
+        name:
+          type: string
+        handle:
+          type: string
+        description:
+          type: string
+        created_by:
+          type: string
+        users:
+          type: array
+          items:
+            type: string
+    UsergroupUpdateRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        handle:
+          type: string
+        description:
+          type: string
+        enabled:
+          type: boolean
+        updated_by:
+          type: string
+    UsergroupMembersUpdateRequest:
+      type: object
+      required: [users]
+      properties:
+        users:
+          type: array
+          items:
+            type: string
+    GetUploadURLRequest:
+      type: object
+      required: [filename, length]
+      properties:
+        filename:
+          type: string
+        length:
+          type: integer
+          format: int64
+    GetUploadURLResponse:
+      type: object
+      required: [upload_url, file_id]
+      properties:
+        upload_url:
+          type: string
+        file_id:
+          type: string
+    CompleteUploadRequest:
+      type: object
+      properties:
+        file_id:
+          type: string
+        title:
+          type: string
+        channel_id:
+          type: string
+        thread_ts:
+          type: string
+    AddRemoteFileRequest:
+      type: object
+      required: [title, external_url, filetype]
+      properties:
+        title:
+          type: string
+        external_url:
+          type: string
+        filetype:
+          type: string
+        user_id:
+          type: string
+    ShareRemoteFileRequest:
+      type: object
+      required: [channels]
+      properties:
+        file_id:
+          type: string
+        channels:
+          type: array
+          items:
+            type: string
+    CreateEventSubscriptionRequest:
+      type: object
+      required: [team_id, url, secret]
+      properties:
+        team_id:
+          type: string
+        url:
+          type: string
+        type:
+          type: string
+        resource_type:
+          type: string
+          enum: [team, user, conversation, file, usergroup]
+        resource_id:
+          type: string
+        secret:
+          type: string
+    EventSubscriptionUpdateRequest:
+      type: object
+      properties:
+        url:
+          type: string
+        type:
+          type: string
+        resource_type:
+          type: string
+          enum: [team, user, conversation, file, usergroup]
+        resource_id:
+          type: string
+        enabled:
+          type: boolean
+    SearchRequest:
+      type: object
+      required: [team_id, query]
+      properties:
+        team_id:
+          type: string
+        query:
+          type: string
+        types:
+          type: array
+          items:
+            type: string
+        limit:
+          type: integer
+          format: int32
+        cursor:
+          type: string
+    CreateAPIKeyRequest:
+      type: object
+      required: [name, team_id, principal_id, type, environment]
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        team_id:
+          type: string
+        principal_id:
+          type: string
+        created_by:
+          type: string
+        on_behalf_of:
+          type: string
+        type:
+          $ref: "#/components/schemas/APIKeyType"
+        environment:
+          $ref: "#/components/schemas/APIKeyEnvironment"
+        permissions:
+          type: array
+          items:
+            type: string
+        expires_in:
+          type: string
+    UpdateAPIKeyRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        permissions:
+          type: array
+          items:
+            type: string
+    RotateAPIKeyRequest:
+      type: object
+      properties:
+        grace_period:
+          type: string
+    APIKeySecretResponse:
+      type: object
+      required: [api_key, secret]
+      properties:
+        api_key:
+          $ref: "#/components/schemas/APIKey"
+        secret:
+          type: string
+    WorkspacesCollection:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Workspace"
+        next_cursor:
+          type: string
+    UsersCollection:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/User"
+        next_cursor:
+          type: string
+    ExternalPrincipalAccessCollection:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/ExternalPrincipalAccess"
+        next_cursor:
+          type: string
+    ConversationsCollection:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Conversation"
+        next_cursor:
+          type: string
+    StringsCollection:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            type: string
+        next_cursor:
+          type: string
+    PinsCollection:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Pin"
+        next_cursor:
+          type: string
+    BookmarksCollection:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Bookmark"
+        next_cursor:
+          type: string
+    MessagesCollection:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Message"
+        next_cursor:
+          type: string
+    UsergroupsCollection:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Usergroup"
+        next_cursor:
+          type: string
+    FilesCollection:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/File"
+        next_cursor:
+          type: string
+    EventSubscriptionsCollection:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/EventSubscription"
+        next_cursor:
+          type: string
+    APIKeysCollection:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/APIKey"
+        next_cursor:
+          type: string
+    ExternalEventsCollection:
+      type: object
+      required: [items, has_more]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/ExternalEvent"
+        next_cursor:
+          type: string
+        has_more:
+          type: boolean
+    SearchResultsCollection:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/SearchResult"
+        next_cursor:
+          type: string
+    WorkspaceAccessLogsCollection:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/WorkspaceAccessLog"
+        next_cursor:
+          type: string
+    WorkspaceIntegrationLogsCollection:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/WorkspaceIntegrationLog"
+        next_cursor:
+          type: string
+    AuthorizationAuditLogsCollection:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/AuthorizationAuditLog"
+        next_cursor:
+          type: string
+    ExternalTeamsCollection:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/ExternalTeam"
+        next_cursor:
+          type: string
+    WorkspaceProfileFieldsCollection:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/WorkspaceProfileField"
+        next_cursor:
+          type: string

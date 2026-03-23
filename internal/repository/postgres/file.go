@@ -28,6 +28,7 @@ func (r *FileRepo) WithTx(tx pgx.Tx) repository.FileRepository {
 func (r *FileRepo) Create(ctx context.Context, f *domain.File) error {
 	return r.q.CreateFile(ctx, sqlcgen.CreateFileParams{
 		ID:                 f.ID,
+		TeamID:             f.TeamID,
 		Name:               f.Name,
 		Title:              f.Title,
 		Mimetype:           f.Mimetype,
@@ -44,8 +45,8 @@ func (r *FileRepo) Create(ctx context.Context, f *domain.File) error {
 	})
 }
 
-func (r *FileRepo) Get(ctx context.Context, id string) (*domain.File, error) {
-	row, err := r.q.GetFile(ctx, id)
+func (r *FileRepo) Get(ctx context.Context, teamID, id string) (*domain.File, error) {
+	row, err := r.q.GetFile(ctx, sqlcgen.GetFileParams{TeamID: teamID, ID: id})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, domain.ErrNotFound
@@ -64,8 +65,9 @@ func (r *FileRepo) Get(ctx context.Context, id string) (*domain.File, error) {
 	return f, nil
 }
 
-func (r *FileRepo) Update(ctx context.Context, f *domain.File) error {
+func (r *FileRepo) Update(ctx context.Context, teamID string, f *domain.File) error {
 	return r.q.UpdateFileComplete(ctx, sqlcgen.UpdateFileCompleteParams{
+		TeamID:             teamID,
 		ID:                 f.ID,
 		Title:              f.Title,
 		UrlPrivate:         f.URLPrivate,
@@ -74,8 +76,8 @@ func (r *FileRepo) Update(ctx context.Context, f *domain.File) error {
 	})
 }
 
-func (r *FileRepo) Delete(ctx context.Context, id string) error {
-	return r.q.DeleteFile(ctx, id)
+func (r *FileRepo) Delete(ctx context.Context, teamID, id string) error {
+	return r.q.DeleteFile(ctx, sqlcgen.DeleteFileParams{TeamID: teamID, ID: id})
 }
 
 func (r *FileRepo) List(ctx context.Context, params domain.ListFilesParams) (*domain.CursorPage[domain.File], error) {
@@ -89,6 +91,7 @@ func (r *FileRepo) List(ctx context.Context, params domain.ListFilesParams) (*do
 	switch {
 	case params.ChannelID != "" && params.UserID != "":
 		rows, err := r.q.ListFilesByChannelAndUser(ctx, sqlcgen.ListFilesByChannelAndUserParams{
+			TeamID:    params.TeamID,
 			ChannelID: params.ChannelID,
 			UserID:    params.UserID,
 			ID:        params.Cursor,
@@ -102,6 +105,7 @@ func (r *FileRepo) List(ctx context.Context, params domain.ListFilesParams) (*do
 		}
 	case params.ChannelID != "":
 		rows, err := r.q.ListFilesByChannel(ctx, sqlcgen.ListFilesByChannelParams{
+			TeamID:    params.TeamID,
 			ChannelID: params.ChannelID,
 			ID:        params.Cursor,
 			Limit:     int32(limit + 1),
@@ -114,6 +118,7 @@ func (r *FileRepo) List(ctx context.Context, params domain.ListFilesParams) (*do
 		}
 	case params.UserID != "":
 		rows, err := r.q.ListFilesByUser(ctx, sqlcgen.ListFilesByUserParams{
+			TeamID: params.TeamID,
 			UserID: params.UserID,
 			ID:     params.Cursor,
 			Limit:  int32(limit + 1),
@@ -126,8 +131,9 @@ func (r *FileRepo) List(ctx context.Context, params domain.ListFilesParams) (*do
 		}
 	default:
 		rows, err := r.q.ListFiles(ctx, sqlcgen.ListFilesParams{
-			ID:    params.Cursor,
-			Limit: int32(limit + 1),
+			TeamID: params.TeamID,
+			ID:     params.Cursor,
+			Limit:  int32(limit + 1),
 		})
 		if err != nil {
 			return nil, fmt.Errorf("list files: %w", err)
@@ -151,9 +157,36 @@ func (r *FileRepo) List(ctx context.Context, params domain.ListFilesParams) (*do
 	return page, nil
 }
 
-func (r *FileRepo) ShareToChannel(ctx context.Context, fileID, channelID string) error {
-	return r.q.ShareFileToChannel(ctx, sqlcgen.ShareFileToChannelParams{
-		FileID:    fileID,
-		ChannelID: channelID,
-	})
+func (r *FileRepo) ShareToChannel(ctx context.Context, teamID, fileID, channelID string) error {
+	if _, err := r.q.GetFile(ctx, sqlcgen.GetFileParams{TeamID: teamID, ID: fileID}); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return domain.ErrNotFound
+		}
+		return fmt.Errorf("get file: %w", err)
+	}
+
+	conv, err := r.q.GetConversation(ctx, channelID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return domain.ErrNotFound
+		}
+		return fmt.Errorf("get conversation: %w", err)
+	}
+	if conv.TeamID != teamID {
+		return domain.ErrNotFound
+	}
+
+	tag, err := r.db.Exec(ctx,
+		`INSERT INTO file_channels (file_id, channel_id)
+		 VALUES ($1, $2)
+		 ON CONFLICT DO NOTHING`,
+		fileID, channelID,
+	)
+	if err != nil {
+		return fmt.Errorf("share file to channel: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return domain.ErrAlreadyShared
+	}
+	return nil
 }

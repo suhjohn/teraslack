@@ -33,12 +33,12 @@ type APIKey struct {
 	ID           string            `json:"id"`
 	Name         string            `json:"name"`
 	Description  string            `json:"description,omitempty"`
-	KeyHash      string            `json:"key_hash,omitempty"`    // SHA-256 hash of the raw key
-	KeyPrefix    string            `json:"key_prefix"`            // e.g. "sk_live_" — stored for display
-	KeyHint      string            `json:"key_hint"`              // Last 4 chars for identification
+	KeyHash      string            `json:"key_hash,omitempty"` // SHA-256 hash of the raw key
+	KeyPrefix    string            `json:"key_prefix"`         // e.g. "sk_live_" — stored for display
+	KeyHint      string            `json:"key_hint"`           // Last 4 chars for identification
 	TeamID       string            `json:"team_id"`
-	PrincipalID  string            `json:"principal_id"`          // The principal this key acts as
-	CreatedBy    string            `json:"created_by"`            // The principal who created this key
+	PrincipalID  string            `json:"principal_id"`           // The principal this key acts as
+	CreatedBy    string            `json:"created_by"`             // The principal who created this key
 	OnBehalfOf   string            `json:"on_behalf_of,omitempty"` // Delegation — actions attributed to this principal
 	Type         APIKeyType        `json:"type"`
 	Environment  APIKeyEnvironment `json:"environment"`
@@ -94,19 +94,22 @@ type RotateAPIKeyParams struct {
 
 // ListAPIKeysParams holds pagination and filter options.
 type ListAPIKeysParams struct {
-	TeamID       string `json:"team_id"`
-	PrincipalID  string `json:"principal_id,omitempty"`
-	IncludeRevoked bool `json:"include_revoked,omitempty"`
-	Cursor       string `json:"cursor,omitempty"`
-	Limit        int    `json:"limit,omitempty"`
+	TeamID         string `json:"team_id"`
+	PrincipalID    string `json:"principal_id,omitempty"`
+	IncludeRevoked bool   `json:"include_revoked,omitempty"`
+	Cursor         string `json:"cursor,omitempty"`
+	Limit          int    `json:"limit,omitempty"`
 }
 
 // APIKeyValidation is the result of validating an API key.
 type APIKeyValidation struct {
-	TeamID      string   `json:"team_id"`
-	PrincipalID string   `json:"principal_id"`
-	OnBehalfOf  string   `json:"on_behalf_of,omitempty"`
-	KeyID       string   `json:"key_id"`
-	Permissions []string `json:"permissions"`
-	Environment APIKeyEnvironment `json:"environment"`
+	TeamID        string            `json:"team_id"`
+	PrincipalID   string            `json:"principal_id"`
+	PrincipalType PrincipalType     `json:"principal_type"`
+	AccountType   AccountType       `json:"account_type,omitempty"`
+	IsBot         bool              `json:"is_bot"`
+	OnBehalfOf    string            `json:"on_behalf_of,omitempty"`
+	KeyID         string            `json:"key_id"`
+	Permissions   []string          `json:"permissions"`
+	Environment   APIKeyEnvironment `json:"environment"`
 }

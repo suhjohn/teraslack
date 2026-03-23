@@ -3,13 +3,16 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"mime"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/suhjohn/teraslack/internal/ctxutil"
 	"github.com/suhjohn/teraslack/internal/domain"
 	"github.com/suhjohn/teraslack/internal/repository"
 	s3client "github.com/suhjohn/teraslack/internal/s3"
@@ -17,20 +20,34 @@ import (
 
 // FileService contains business logic for file operations.
 type FileService struct {
-	repo     repository.FileRepository
-	s3       *s3client.Client
-	baseURL  string
-	recorder EventRecorder
-	db       repository.TxBeginner
-	logger   *slog.Logger
+	repo           repository.FileRepository
+	externalAccess repository.ExternalPrincipalAccessRepository
+	s3             *s3client.Client
+	s3Prefix       string
+	baseURL        string
+	recorder       EventRecorder
+	db             repository.TxBeginner
+	logger         *slog.Logger
 }
 
 // NewFileService creates a new FileService.
-func NewFileService(repo repository.FileRepository, s3 *s3client.Client, baseURL string, recorder EventRecorder, db repository.TxBeginner, logger *slog.Logger) *FileService {
+func NewFileService(repo repository.FileRepository, s3 *s3client.Client, s3Prefix string, baseURL string, recorder EventRecorder, db repository.TxBeginner, logger *slog.Logger) *FileService {
 	if recorder == nil {
 		recorder = noopRecorder{}
 	}
-	return &FileService{repo: repo, s3: s3, baseURL: baseURL, recorder: recorder, db: db, logger: logger}
+	return &FileService{
+		repo:     repo,
+		s3:       s3,
+		s3Prefix: strings.Trim(strings.TrimSpace(s3Prefix), "/"),
+		baseURL:  baseURL,
+		recorder: recorder,
+		db:       db,
+		logger:   logger,
+	}
+}
+
+func (s *FileService) SetExternalAccessRepository(repo repository.ExternalPrincipalAccessRepository) {
+	s.externalAccess = repo
 }
 
 func (s *FileService) GetUploadURL(ctx context.Context, params domain.GetUploadURLParams) (*domain.GetUploadURLResponse, error) {
@@ -43,6 +60,10 @@ func (s *FileService) GetUploadURL(ctx context.Context, params domain.GetUploadU
 	if params.Length <= 0 {
 		return nil, fmt.Errorf("length: %w", domain.ErrInvalidArgument)
 	}
+	teamID, userID, err := fileContext(ctx)
+	if err != nil {
+		return nil, err
+	}
 
 	fileID := generateFileID()
 	ext := filepath.Ext(params.Filename)
@@ -51,7 +72,7 @@ func (s *FileService) GetUploadURL(ctx context.Context, params domain.GetUploadU
 		contentType = "application/octet-stream"
 	}
 
-	s3Key := fmt.Sprintf("files/%s/%s", fileID, params.Filename)
+	s3Key := s.objectKey(fileID, params.Filename)
 
 	// Generate presigned upload URL first to avoid orphaned DB records
 	uploadURL, err := s.s3.GeneratePresignedURL(ctx, s3Key, contentType, 15*time.Minute)
@@ -61,8 +82,10 @@ func (s *FileService) GetUploadURL(ctx context.Context, params domain.GetUploadU
 
 	// Create file record in DB only after URL generation succeeds
 	f := &domain.File{
+		TeamID:   teamID,
 		ID:       fileID,
 		Name:     params.Filename,
+		UserID:   userID,
 		Mimetype: contentType,
 		Filetype: ext,
 		Size:     params.Length,
@@ -79,11 +102,11 @@ func (s *FileService) GetUploadURL(ctx context.Context, params domain.GetUploadU
 	}
 
 	payload, _ := json.Marshal(f)
-	if err := s.recorder.WithTx(tx).Record(ctx, domain.ServiceEvent{
+	if err := s.recorder.WithTx(tx).Record(ctx, domain.InternalEvent{
 		EventType:     domain.EventFileCreated,
 		AggregateType: domain.AggregateFile,
 		AggregateID:   f.ID,
-		TeamID:        "",
+		TeamID:        f.TeamID,
 		Payload:       payload,
 	}); err != nil {
 		return nil, fmt.Errorf("record file.created event: %w", err)
@@ -107,8 +130,12 @@ func (s *FileService) CompleteUpload(ctx context.Context, params domain.Complete
 	if params.FileID == "" {
 		return nil, fmt.Errorf("file_id: %w", domain.ErrInvalidArgument)
 	}
+	teamID, err := fileTeamContext(ctx)
+	if err != nil {
+		return nil, err
+	}
 
-	f, err := s.repo.Get(ctx, params.FileID)
+	f, err := s.repo.Get(ctx, teamID, params.FileID)
 	if err != nil {
 		return nil, err
 	}
@@ -117,7 +144,7 @@ func (s *FileService) CompleteUpload(ctx context.Context, params domain.Complete
 		f.Title = params.Title
 	}
 
-	s3Key := fmt.Sprintf("files/%s/%s", f.ID, f.Name)
+	s3Key := s.objectKey(f.ID, f.Name)
 
 	// Generate download URLs
 	downloadURL, err := s.s3.GenerateDownloadURL(ctx, s3Key, 24*time.Hour)
@@ -137,39 +164,44 @@ func (s *FileService) CompleteUpload(ctx context.Context, params domain.Complete
 
 	txRepo := s.repo.WithTx(tx)
 	txRecorder := s.recorder.WithTx(tx)
+	sharedToChannel := false
 
-	if err := txRepo.Update(ctx, f); err != nil {
+	if err := txRepo.Update(ctx, teamID, f); err != nil {
 		return nil, fmt.Errorf("update file: %w", err)
 	}
 
 	// Share to channel if specified
 	if params.ChannelID != "" {
-		if err := txRepo.ShareToChannel(ctx, f.ID, params.ChannelID); err != nil {
-			return nil, fmt.Errorf("share to channel: %w", err)
+		if err := txRepo.ShareToChannel(ctx, teamID, f.ID, params.ChannelID); err != nil {
+			if !errors.Is(err, domain.ErrAlreadyShared) {
+				return nil, fmt.Errorf("share to channel: %w", err)
+			}
+		} else {
+			f.Channels = append(f.Channels, params.ChannelID)
+			sharedToChannel = true
 		}
-		f.Channels = append(f.Channels, params.ChannelID)
 	}
 
 	// Record file update event with full snapshot
 	payload, _ := json.Marshal(f)
-	if err := txRecorder.Record(ctx, domain.ServiceEvent{
+	if err := txRecorder.Record(ctx, domain.InternalEvent{
 		EventType:     domain.EventFileUpdated,
 		AggregateType: domain.AggregateFile,
 		AggregateID:   f.ID,
-		TeamID:        "",
+		TeamID:        f.TeamID,
 		Payload:       payload,
 	}); err != nil {
 		return nil, fmt.Errorf("record file.updated event: %w", err)
 	}
 
 	// Record file.shared event with the {file_id, channel_id} format the projector expects
-	if params.ChannelID != "" {
+	if params.ChannelID != "" && sharedToChannel {
 		sharePayload, _ := json.Marshal(map[string]string{"file_id": f.ID, "channel_id": params.ChannelID})
-		if err := txRecorder.Record(ctx, domain.ServiceEvent{
+		if err := txRecorder.Record(ctx, domain.InternalEvent{
 			EventType:     domain.EventFileShared,
 			AggregateType: domain.AggregateFile,
 			AggregateID:   f.ID,
-			TeamID:        "",
+			TeamID:        f.TeamID,
 			Payload:       sharePayload,
 		}); err != nil {
 			return nil, fmt.Errorf("record file.shared event: %w", err)
@@ -186,7 +218,18 @@ func (s *FileService) Get(ctx context.Context, id string) (*domain.File, error) 
 	if id == "" {
 		return nil, fmt.Errorf("file_id: %w", domain.ErrInvalidArgument)
 	}
-	return s.repo.Get(ctx, id)
+	teamID, err := fileTeamContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	f, err := s.repo.Get(ctx, teamID, id)
+	if err != nil {
+		return nil, err
+	}
+	if err := ensureExternalSharedFileAccess(ctx, s.externalAccess, f, domain.PermissionFilesRead, false); err != nil {
+		return nil, err
+	}
+	return f, nil
 }
 
 func (s *FileService) Delete(ctx context.Context, id string) error {
@@ -194,14 +237,25 @@ func (s *FileService) Delete(ctx context.Context, id string) error {
 		return fmt.Errorf("file_id: %w", domain.ErrInvalidArgument)
 	}
 
-	f, err := s.repo.Get(ctx, id)
+	teamID, err := fileTeamContext(ctx)
 	if err != nil {
+		return err
+	}
+
+	f, err := s.repo.Get(ctx, teamID, id)
+	if err != nil {
+		return err
+	}
+	if err := ensureExternalSharedFileAccess(ctx, s.externalAccess, f, domain.PermissionFilesWrite, true); err != nil {
+		return err
+	}
+	if err := ensureFileOwnerOrAdmin(ctx, f.UserID); err != nil {
 		return err
 	}
 
 	// Delete from S3 if configured
 	if s.s3 != nil {
-		s3Key := fmt.Sprintf("files/%s/%s", f.ID, f.Name)
+		s3Key := s.objectKey(f.ID, f.Name)
 		if err := s.s3.Delete(ctx, s3Key); err != nil {
 			// Log but don't fail - DB cleanup is more important
 			_ = err
@@ -214,15 +268,15 @@ func (s *FileService) Delete(ctx context.Context, id string) error {
 	}
 	defer tx.Rollback(ctx)
 
-	if err := s.repo.WithTx(tx).Delete(ctx, id); err != nil {
+	if err := s.repo.WithTx(tx).Delete(ctx, teamID, id); err != nil {
 		return err
 	}
 	payload, _ := json.Marshal(f)
-	if err := s.recorder.WithTx(tx).Record(ctx, domain.ServiceEvent{
+	if err := s.recorder.WithTx(tx).Record(ctx, domain.InternalEvent{
 		EventType:     domain.EventFileDeleted,
 		AggregateType: domain.AggregateFile,
 		AggregateID:   f.ID,
-		TeamID:        "",
+		TeamID:        f.TeamID,
 		Payload:       payload,
 	}); err != nil {
 		return fmt.Errorf("record file.deleted event: %w", err)
@@ -235,6 +289,25 @@ func (s *FileService) Delete(ctx context.Context, id string) error {
 }
 
 func (s *FileService) List(ctx context.Context, params domain.ListFilesParams) (*domain.CursorPage[domain.File], error) {
+	teamID, err := fileTeamContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	params.TeamID = teamID
+	if external, err := activeExternalSharedAccess(ctx, s.externalAccess); err != nil {
+		return nil, err
+	} else if external != nil {
+		if params.ChannelID == "" {
+			return nil, domain.ErrForbidden
+		}
+		ok, err := s.externalAccess.HasConversationAccess(ctx, external.ID, params.ChannelID)
+		if err != nil {
+			return nil, err
+		}
+		if !ok || !capabilityAllowed(external.AllowedCapabilities, domain.PermissionFilesRead) {
+			return nil, domain.ErrForbidden
+		}
+	}
 	return s.repo.List(ctx, params)
 }
 
@@ -245,14 +318,19 @@ func (s *FileService) AddRemoteFile(ctx context.Context, params domain.AddRemote
 	if params.Title == "" {
 		return nil, fmt.Errorf("title: %w", domain.ErrInvalidArgument)
 	}
+	teamID, userID, err := fileContext(ctx)
+	if err != nil {
+		return nil, err
+	}
 
 	fileID := generateFileID()
 	f := &domain.File{
+		TeamID:      teamID,
 		ID:          fileID,
 		Name:        params.Title,
 		Title:       params.Title,
 		Filetype:    params.Filetype,
-		UserID:      params.UserID,
+		UserID:      userID,
 		IsExternal:  true,
 		ExternalURL: params.ExternalURL,
 		Permalink:   params.ExternalURL,
@@ -269,11 +347,11 @@ func (s *FileService) AddRemoteFile(ctx context.Context, params domain.AddRemote
 	}
 
 	payload, _ := json.Marshal(f)
-	if err := s.recorder.WithTx(tx).Record(ctx, domain.ServiceEvent{
+	if err := s.recorder.WithTx(tx).Record(ctx, domain.InternalEvent{
 		EventType:     domain.EventFileCreated,
 		AggregateType: domain.AggregateFile,
 		AggregateID:   f.ID,
-		TeamID:        "",
+		TeamID:        f.TeamID,
 		Payload:       payload,
 	}); err != nil {
 		return nil, fmt.Errorf("record file.created event: %w", err)
@@ -298,6 +376,21 @@ func (s *FileService) ShareRemoteFile(ctx context.Context, params domain.ShareRe
 	if params.FileID == "" {
 		return fmt.Errorf("file_id: %w", domain.ErrInvalidArgument)
 	}
+	teamID, err := fileTeamContext(ctx)
+	if err != nil {
+		return err
+	}
+
+	f, err := s.repo.Get(ctx, teamID, params.FileID)
+	if err != nil {
+		return err
+	}
+	if err := ensureExternalSharedFileAccess(ctx, s.externalAccess, f, domain.PermissionFilesWrite, true); err != nil {
+		return err
+	}
+	if err := ensureFileOwnerOrAdmin(ctx, f.UserID); err != nil {
+		return err
+	}
 
 	tx, err := s.db.Begin(ctx)
 	if err != nil {
@@ -309,16 +402,19 @@ func (s *FileService) ShareRemoteFile(ctx context.Context, params domain.ShareRe
 	txRecorder := s.recorder.WithTx(tx)
 
 	for _, ch := range params.Channels {
-		if err := txRepo.ShareToChannel(ctx, params.FileID, ch); err != nil {
+		if err := txRepo.ShareToChannel(ctx, teamID, params.FileID, ch); err != nil {
+			if errors.Is(err, domain.ErrAlreadyShared) {
+				continue
+			}
 			return fmt.Errorf("share to channel %s: %w", ch, err)
 		}
 
 		sharePayload, _ := json.Marshal(map[string]string{"file_id": params.FileID, "channel_id": ch})
-		if err := txRecorder.Record(ctx, domain.ServiceEvent{
+		if err := txRecorder.Record(ctx, domain.InternalEvent{
 			EventType:     domain.EventFileShared,
 			AggregateType: domain.AggregateFile,
 			AggregateID:   params.FileID,
-			TeamID:        "",
+			TeamID:        teamID,
 			Payload:       sharePayload,
 		}); err != nil {
 			return fmt.Errorf("record file.shared event: %w", err)
@@ -329,4 +425,46 @@ func (s *FileService) ShareRemoteFile(ctx context.Context, params domain.ShareRe
 		return fmt.Errorf("commit tx: %w", err)
 	}
 	return nil
+}
+
+func fileTeamContext(ctx context.Context) (string, error) {
+	teamID := ctxutil.GetTeamID(ctx)
+	if teamID == "" {
+		return "", fmt.Errorf("team_id: %w", domain.ErrInvalidArgument)
+	}
+	return teamID, nil
+}
+
+func fileContext(ctx context.Context) (teamID, userID string, err error) {
+	teamID, err = fileTeamContext(ctx)
+	if err != nil {
+		return "", "", err
+	}
+	userID = ctxutil.GetActingUserID(ctx)
+	if userID == "" {
+		return "", "", fmt.Errorf("user_id: %w", domain.ErrInvalidArgument)
+	}
+	return teamID, userID, nil
+}
+
+func ensureFileOwnerOrAdmin(ctx context.Context, ownerUserID string) error {
+	if isInternalCallWithoutAuth(ctx) {
+		return nil
+	}
+	actorID := ctxutil.GetActingUserID(ctx)
+	if actorID != "" && actorID == ownerUserID {
+		return nil
+	}
+	if contextIsWorkspaceAdmin(ctx) {
+		return nil
+	}
+	return domain.ErrForbidden
+}
+
+func (s *FileService) objectKey(fileID, filename string) string {
+	base := fmt.Sprintf("files/%s/%s", fileID, filename)
+	if s.s3Prefix == "" {
+		return base
+	}
+	return s.s3Prefix + "/" + base
 }

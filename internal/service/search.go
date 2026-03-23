@@ -9,6 +9,7 @@ import (
 	"sync"
 
 	"github.com/suhjohn/teraslack/internal/domain"
+	"github.com/suhjohn/teraslack/internal/repository"
 )
 
 // SearchService contains business logic for unified search across all resource types.
@@ -16,7 +17,8 @@ import (
 // Documents are sharded across 256 namespaces based on the first 2 hex chars
 // of the UUID portion of entity IDs (e.g., "U_01abc..." → namespace "01").
 type SearchService struct {
-	turbopuffer TurbopufferClient
+	turbopuffer    TurbopufferClient
+	externalAccess repository.ExternalPrincipalAccessRepository
 }
 
 // TurbopufferClient defines the interface for vector search operations.
@@ -56,6 +58,11 @@ func NamespaceFromID(id string) string {
 	return strings.ToLower(id[idx+1 : idx+3])
 }
 
+// MessageSearchID returns the canonical search document ID for a message.
+func MessageSearchID(channelID, ts string) string {
+	return fmt.Sprintf("%s:%s", channelID, ts)
+}
+
 // AllNamespaces returns all 256 possible namespace prefixes (00-ff).
 func AllNamespaces() []string {
 	ns := make([]string, 256)
@@ -72,12 +79,26 @@ func NewSearchService(turbopuffer TurbopufferClient) *SearchService {
 	}
 }
 
+func (s *SearchService) SetExternalAccessRepository(repo repository.ExternalPrincipalAccessRepository) {
+	s.externalAccess = repo
+}
+
 // Search performs a unified search across all resource types using Turbopuffer.
 // Fans out queries across all 256 namespaces in parallel, merges and sorts
 // results by score, and returns the top-k.
 func (s *SearchService) Search(ctx context.Context, params domain.SearchParams) ([]domain.SearchResult, error) {
 	if params.Query == "" {
 		return nil, fmt.Errorf("query: %w", domain.ErrInvalidArgument)
+	}
+	teamID, err := resolveTeamID(ctx, params.TeamID)
+	if err != nil {
+		return nil, err
+	}
+	params.TeamID = teamID
+	if external, err := isExternalSharedActor(ctx, s.externalAccess); err != nil {
+		return nil, err
+	} else if external {
+		return nil, domain.ErrForbidden
 	}
 
 	limit := params.Limit
@@ -154,9 +175,7 @@ func (s *SearchService) Search(ctx context.Context, params domain.SearchParams) 
 	searchResults := make([]domain.SearchResult, 0, len(allResults))
 	for _, r := range allResults {
 		resultType, _ := r.Metadata["type"].(string)
-		data, _ := r.Metadata["data"]
-
-		dataJSON, err := json.Marshal(data)
+		dataJSON, err := normalizeSearchData(r.Metadata["data"])
 		if err != nil {
 			continue
 		}
@@ -169,6 +188,33 @@ func (s *SearchService) Search(ctx context.Context, params domain.SearchParams) 
 	}
 
 	return searchResults, nil
+}
+
+func normalizeSearchData(data any) (json.RawMessage, error) {
+	switch v := data.(type) {
+	case nil:
+		return json.RawMessage("null"), nil
+	case json.RawMessage:
+		out := make(json.RawMessage, len(v))
+		copy(out, v)
+		return out, nil
+	case []byte:
+		if json.Valid(v) {
+			out := make(json.RawMessage, len(v))
+			copy(out, v)
+			return out, nil
+		}
+		return json.Marshal(string(v))
+	case string:
+		if json.Valid([]byte(v)) {
+			out := make(json.RawMessage, len(v))
+			copy(out, v)
+			return out, nil
+		}
+		return json.Marshal(v)
+	default:
+		return json.Marshal(v)
+	}
 }
 
 // Index indexes any resource into the Turbopuffer search index.

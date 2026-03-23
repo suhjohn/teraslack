@@ -10,9 +10,10 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/suhjohn/teraslack/internal/domain"
+	"github.com/suhjohn/teraslack/internal/service"
 )
 
-// IndexProducer tails the service_events table and pushes index jobs to the
+// IndexProducer tails the internal_events table and pushes index jobs to the
 // S3-backed queue using group commit. It buffers jobs in memory and flushes
 // them to S3 on a timer or when the buffer reaches a threshold.
 type IndexProducer struct {
@@ -63,7 +64,7 @@ func NewIndexProducer(pool *pgxpool.Pool, queue *S3Queue, logger *slog.Logger, c
 	}
 }
 
-// Run starts the producer loop. It tails service_events, converts them to
+// Run starts the producer loop. It tails internal_events, converts them to
 // index jobs, buffers them in memory, and group-commits to S3 periodically.
 // Blocks until ctx is cancelled. On cancellation, drains the buffer before returning.
 func (p *IndexProducer) Run(ctx context.Context) error {
@@ -93,7 +94,7 @@ func (p *IndexProducer) Run(ctx context.Context) error {
 		case <-pollTicker.C:
 			newCursor, err := p.poll(ctx, cursor)
 			if err != nil {
-				p.logger.Error("poll service_events", "error", err)
+				p.logger.Error("poll internal_events", "error", err)
 				continue
 			}
 			cursor = newCursor
@@ -121,16 +122,16 @@ func (p *IndexProducer) Done() <-chan struct{} {
 	return p.done
 }
 
-// poll reads new events from service_events since the given cursor and buffers them.
+// poll reads new events from internal_events since the given cursor and buffers them.
 func (p *IndexProducer) poll(ctx context.Context, cursor int64) (int64, error) {
 	rows, err := p.pool.Query(ctx,
 		`SELECT id, event_type, aggregate_type, aggregate_id, team_id, payload
-		 FROM service_events
+		 FROM internal_events
 		 WHERE id > $1
 		 ORDER BY id ASC
 		 LIMIT 500`, cursor)
 	if err != nil {
-		return cursor, fmt.Errorf("query service_events: %w", err)
+		return cursor, fmt.Errorf("query internal_events: %w", err)
 	}
 	defer rows.Close()
 
@@ -138,7 +139,7 @@ func (p *IndexProducer) poll(ctx context.Context, cursor int64) (int64, error) {
 	var jobs []Job
 
 	for rows.Next() {
-		var evt domain.ServiceEvent
+		var evt domain.InternalEvent
 		if err := rows.Scan(&evt.ID, &evt.EventType, &evt.AggregateType, &evt.AggregateID, &evt.TeamID, &evt.Payload); err != nil {
 			return cursor, fmt.Errorf("scan event: %w", err)
 		}
@@ -165,7 +166,7 @@ func (p *IndexProducer) poll(ctx context.Context, cursor int64) (int64, error) {
 
 // eventToJob converts a service event into an index job.
 // Returns nil for events that don't need indexing (e.g., deletes, reactions).
-func (p *IndexProducer) eventToJob(evt domain.ServiceEvent) *Job {
+func (p *IndexProducer) eventToJob(evt domain.InternalEvent) *Job {
 	switch evt.EventType {
 	case domain.EventUserCreated, domain.EventUserUpdated:
 		var u domain.User
@@ -236,10 +237,48 @@ func (p *IndexProducer) eventToJob(evt domain.ServiceEvent) *Job {
 			ID:           fmt.Sprintf("evt-%d", evt.ID),
 			EventID:      evt.ID,
 			ResourceType: "message",
-			ResourceID:   fmt.Sprintf("%s:%s", m.ChannelID, m.TS),
+			ResourceID:   service.MessageSearchID(m.ChannelID, m.TS),
 			TeamID:       evt.TeamID,
 			EventType:    evt.EventType,
 			Content:      m.Text,
+			Data:         evt.Payload,
+			Status:       StatusPending,
+			CreatedAt:    time.Now(),
+		}
+
+	case domain.EventMessageDeleted:
+		var m domain.Message
+		if err := json.Unmarshal(evt.Payload, &m); err == nil && m.ChannelID != "" && m.TS != "" {
+			return &Job{
+				ID:           fmt.Sprintf("evt-%d", evt.ID),
+				EventID:      evt.ID,
+				ResourceType: "message",
+				ResourceID:   service.MessageSearchID(m.ChannelID, m.TS),
+				TeamID:       evt.TeamID,
+				EventType:    evt.EventType,
+				Content:      "",
+				Data:         evt.Payload,
+				Status:       StatusPending,
+				CreatedAt:    time.Now(),
+			}
+		}
+
+		var data struct {
+			ChannelID string `json:"channel_id"`
+			TS        string `json:"ts"`
+		}
+		if err := json.Unmarshal(evt.Payload, &data); err != nil {
+			p.logger.Warn("unmarshal deleted message for indexing", "error", err)
+			return nil
+		}
+		return &Job{
+			ID:           fmt.Sprintf("evt-%d", evt.ID),
+			EventID:      evt.ID,
+			ResourceType: "message",
+			ResourceID:   service.MessageSearchID(data.ChannelID, data.TS),
+			TeamID:       evt.TeamID,
+			EventType:    evt.EventType,
+			Content:      "",
 			Data:         evt.Payload,
 			Status:       StatusPending,
 			CreatedAt:    time.Now(),
@@ -268,7 +307,7 @@ func (p *IndexProducer) eventToJob(evt domain.ServiceEvent) *Job {
 			CreatedAt:    time.Now(),
 		}
 
-	case domain.EventUserDeleted, domain.EventMessageDeleted, domain.EventFileDeleted:
+	case domain.EventUserDeleted, domain.EventFileDeleted:
 		// For deletes, we still need to remove from the search index.
 		return &Job{
 			ID:           fmt.Sprintf("evt-%d", evt.ID),

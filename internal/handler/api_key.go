@@ -20,11 +20,11 @@ func NewAPIKeyHandler(svc *service.APIKeyService) *APIKeyHandler {
 	return &APIKeyHandler{svc: svc}
 }
 
-// Create handles POST /api_keys
+// Create handles POST /api-keys.
 func (h *APIKeyHandler) Create(w http.ResponseWriter, r *http.Request) {
 	var params domain.CreateAPIKeyParams
 	if err := httputil.DecodeJSON(r, &params); err != nil {
-		httputil.WriteError(w, domain.ErrInvalidArgument)
+		httputil.WriteError(w, r, domain.ErrInvalidArgument)
 		return
 	}
 
@@ -43,37 +43,34 @@ func (h *APIKeyHandler) Create(w http.ResponseWriter, r *http.Request) {
 
 	key, rawKey, err := h.svc.Create(r.Context(), params)
 	if err != nil {
-		httputil.WriteError(w, err)
+		httputil.WriteError(w, r, err)
 		return
 	}
 
-	httputil.WriteJSON(w, http.StatusCreated, map[string]any{
-		"ok":      true,
-		"api_key": key.Redacted(),
-		"key":     rawKey,
+	httputil.WriteCreated(w, "/api-keys/"+key.ID, APIKeySecretResponse{
+		APIKey: key.Redacted(),
+		Secret: rawKey,
 	})
 }
 
-// Get handles GET /api_keys/{id}
+// Get handles GET /api-keys/{id}.
 func (h *APIKeyHandler) Get(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	if id == "" {
-		httputil.WriteError(w, domain.ErrInvalidArgument)
+		httputil.WriteError(w, r, domain.ErrInvalidArgument)
 		return
 	}
 
 	key, err := h.svc.Get(r.Context(), id)
 	if err != nil {
-		httputil.WriteError(w, err)
+		httputil.WriteError(w, r, err)
 		return
 	}
 
-	httputil.WriteOK(w, map[string]any{
-		"api_key": key,
-	})
+	httputil.WriteResource(w, http.StatusOK, key)
 }
 
-// List handles GET /api_keys
+// List handles GET /api-keys.
 func (h *APIKeyHandler) List(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	limit, _ := strconv.Atoi(q.Get("limit"))
@@ -92,41 +89,38 @@ func (h *APIKeyHandler) List(w http.ResponseWriter, r *http.Request) {
 
 	page, err := h.svc.List(r.Context(), params)
 	if err != nil {
-		httputil.WriteError(w, err)
+		httputil.WriteError(w, r, err)
 		return
 	}
 
-	resp := map[string]any{
-		"api_keys": page.Items,
-		"has_more": page.HasMore,
-	}
+	nextCursor := ""
 	if page.NextCursor != "" {
-		resp["next_cursor"] = page.NextCursor
+		nextCursor = page.NextCursor
 	}
-	httputil.WriteOK(w, resp)
+	httputil.WriteCollection(w, http.StatusOK, page.Items, nextCursor)
 }
 
-// Delete handles DELETE /api_keys/{id}
+// Delete handles DELETE /api-keys/{id}.
 func (h *APIKeyHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	if id == "" {
-		httputil.WriteError(w, domain.ErrInvalidArgument)
+		httputil.WriteError(w, r, domain.ErrInvalidArgument)
 		return
 	}
 
 	if err := h.svc.Revoke(r.Context(), id); err != nil {
-		httputil.WriteError(w, err)
+		httputil.WriteError(w, r, err)
 		return
 	}
 
-	httputil.WriteOK(w, nil)
+	httputil.WriteNoContent(w)
 }
 
-// Rotate handles POST /api_keys/{id}/rotate
+// Rotate handles POST /api-keys/{id}/rotations.
 func (h *APIKeyHandler) Rotate(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	if id == "" {
-		httputil.WriteError(w, domain.ErrInvalidArgument)
+		httputil.WriteError(w, r, domain.ErrInvalidArgument)
 		return
 	}
 
@@ -138,38 +132,35 @@ func (h *APIKeyHandler) Rotate(w http.ResponseWriter, r *http.Request) {
 
 	newKey, rawKey, err := h.svc.Rotate(r.Context(), id, params)
 	if err != nil {
-		httputil.WriteError(w, err)
+		httputil.WriteError(w, r, err)
 		return
 	}
 
-	httputil.WriteJSON(w, http.StatusCreated, map[string]any{
-		"ok":      true,
-		"api_key": newKey.Redacted(),
-		"key":     rawKey,
+	httputil.WriteCreated(w, "/api-keys/"+newKey.ID, APIKeySecretResponse{
+		APIKey: newKey.Redacted(),
+		Secret: rawKey,
 	})
 }
 
-// Update handles PATCH /api_keys/{id}
+// Update handles PATCH /api-keys/{id}.
 func (h *APIKeyHandler) Update(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	if id == "" {
-		httputil.WriteError(w, domain.ErrInvalidArgument)
+		httputil.WriteError(w, r, domain.ErrInvalidArgument)
 		return
 	}
 
 	var params domain.UpdateAPIKeyParams
 	if err := httputil.DecodeJSON(r, &params); err != nil {
-		httputil.WriteError(w, domain.ErrInvalidArgument)
+		httputil.WriteError(w, r, domain.ErrInvalidArgument)
 		return
 	}
 
 	key, err := h.svc.Update(r.Context(), id, params)
 	if err != nil {
-		httputil.WriteError(w, err)
+		httputil.WriteError(w, r, err)
 		return
 	}
 
-	httputil.WriteOK(w, map[string]any{
-		"api_key": key,
-	})
+	httputil.WriteResource(w, http.StatusOK, key)
 }

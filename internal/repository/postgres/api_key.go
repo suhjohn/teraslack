@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/suhjohn/teraslack/internal/crypto"
 	"github.com/suhjohn/teraslack/internal/domain"
 	"github.com/suhjohn/teraslack/internal/repository"
@@ -70,14 +69,14 @@ func (r *APIKeyRepo) Create(ctx context.Context, params domain.CreateAPIKeyParam
 		permissions = []string{}
 	}
 
-	var expiresAt pgtype.Timestamptz
+	var expiresAt *time.Time
 	if params.ExpiresIn != "" {
 		d, err := parseDuration(params.ExpiresIn)
 		if err != nil {
 			return nil, "", fmt.Errorf("parse expires_in: %w", err)
 		}
 		t := time.Now().Add(d)
-		expiresAt = pgtype.Timestamptz{Time: t, Valid: true}
+		expiresAt = &t
 	}
 
 	row, err := r.q.CreateAPIKey(ctx, sqlcgen.CreateAPIKeyParams{
@@ -233,9 +232,7 @@ func (r *APIKeyRepo) Update(ctx context.Context, id string, params domain.Update
 		return nil, fmt.Errorf("update api key: %w", err)
 	}
 
-	key := apiKeyToDomain(row)
-	key.KeyHash = ""
-	return key, nil
+	return apiKeyToDomain(row), nil
 }
 
 // SetRotated marks an old key as rotated, pointing to the new key.
@@ -243,7 +240,7 @@ func (r *APIKeyRepo) SetRotated(ctx context.Context, oldKeyID, newKeyID string, 
 	return r.q.SetAPIKeyRotated(ctx, sqlcgen.SetAPIKeyRotatedParams{
 		ID:                oldKeyID,
 		RotatedToID:       newKeyID,
-		GracePeriodEndsAt: pgtype.Timestamptz{Time: gracePeriodEndsAt, Valid: true},
+		GracePeriodEndsAt: &gracePeriodEndsAt,
 	})
 }
 

@@ -1,115 +1,1867 @@
--- Users table
-CREATE TABLE IF NOT EXISTS users (
-    id          TEXT PRIMARY KEY,
-    team_id     TEXT NOT NULL,
-    name        TEXT NOT NULL,
-    real_name   TEXT NOT NULL DEFAULT '',
-    display_name TEXT NOT NULL DEFAULT '',
-    email       TEXT NOT NULL DEFAULT '',
-    is_bot      BOOLEAN NOT NULL DEFAULT FALSE,
-    is_admin    BOOLEAN NOT NULL DEFAULT FALSE,
-    is_owner    BOOLEAN NOT NULL DEFAULT FALSE,
-    is_restricted BOOLEAN NOT NULL DEFAULT FALSE,
-    deleted     BOOLEAN NOT NULL DEFAULT FALSE,
-    profile     JSONB NOT NULL DEFAULT '{}',
-    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
+--
+-- PostgreSQL database dump
+--
 
-CREATE INDEX IF NOT EXISTS idx_users_team_id ON users(team_id);
-CREATE INDEX IF NOT EXISTS idx_users_email ON users(email) WHERE email != '';
-CREATE INDEX IF NOT EXISTS idx_users_name ON users(name);
 
--- Conversations table
-CREATE TABLE IF NOT EXISTS conversations (
-    id          TEXT PRIMARY KEY,
-    team_id     TEXT NOT NULL,
-    name        TEXT NOT NULL DEFAULT '',
-    type        TEXT NOT NULL CHECK (type IN ('public_channel', 'private_channel', 'im', 'mpim')),
-    creator_id  TEXT NOT NULL REFERENCES users(id),
-    is_archived BOOLEAN NOT NULL DEFAULT FALSE,
-    topic_value TEXT NOT NULL DEFAULT '',
-    topic_creator TEXT NOT NULL DEFAULT '',
-    topic_last_set TIMESTAMPTZ,
-    purpose_value TEXT NOT NULL DEFAULT '',
-    purpose_creator TEXT NOT NULL DEFAULT '',
-    purpose_last_set TIMESTAMPTZ,
-    num_members INT NOT NULL DEFAULT 0,
-    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
+-- Dumped from database version 16.13 (Debian 16.13-1.pgdg13+1)
+-- Dumped by pg_dump version 16.13 (Debian 16.13-1.pgdg13+1)
 
-CREATE INDEX IF NOT EXISTS idx_conversations_team_id ON conversations(team_id);
-CREATE INDEX IF NOT EXISTS idx_conversations_type ON conversations(type);
-CREATE INDEX IF NOT EXISTS idx_conversations_name ON conversations(name);
+SET statement_timeout = 0;
+SET lock_timeout = 0;
+SET idle_in_transaction_session_timeout = 0;
+SET client_encoding = 'UTF8';
+SET standard_conforming_strings = on;
+SELECT pg_catalog.set_config('search_path', '', false);
+SET check_function_bodies = false;
+SET xmloption = content;
+SET client_min_messages = warning;
+SET row_security = off;
 
--- Conversation members join table
-CREATE TABLE IF NOT EXISTS conversation_members (
-    conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
-    user_id         TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    joined_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    PRIMARY KEY (conversation_id, user_id)
-);
+--
+-- Name: update_updated_at(); Type: FUNCTION; Schema: public; Owner: -
+--
 
-CREATE INDEX IF NOT EXISTS idx_conversation_members_user_id ON conversation_members(user_id);
-
--- Messages table
-CREATE TABLE IF NOT EXISTS messages (
-    ts          TEXT NOT NULL,
-    channel_id  TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
-    user_id     TEXT NOT NULL REFERENCES users(id),
-    text        TEXT NOT NULL DEFAULT '',
-    thread_ts   TEXT,
-    type        TEXT NOT NULL DEFAULT 'message',
-    subtype     TEXT,
-    blocks      JSONB,
-    metadata    JSONB,
-    edited_by   TEXT,
-    edited_at   TEXT,
-    reply_count       INT NOT NULL DEFAULT 0,
-    reply_users_count INT NOT NULL DEFAULT 0,
-    latest_reply      TEXT,
-    is_deleted  BOOLEAN NOT NULL DEFAULT FALSE,
-    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    PRIMARY KEY (channel_id, ts)
-);
-
-CREATE INDEX IF NOT EXISTS idx_messages_channel_ts ON messages(channel_id, ts DESC);
-CREATE INDEX IF NOT EXISTS idx_messages_thread ON messages(channel_id, thread_ts) WHERE thread_ts IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_messages_user_id ON messages(user_id);
-
--- Reactions table
-CREATE TABLE IF NOT EXISTS reactions (
-    id          BIGSERIAL PRIMARY KEY,
-    channel_id  TEXT NOT NULL,
-    message_ts  TEXT NOT NULL,
-    user_id     TEXT NOT NULL REFERENCES users(id),
-    emoji       TEXT NOT NULL,
-    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    FOREIGN KEY (channel_id, message_ts) REFERENCES messages(channel_id, ts) ON DELETE CASCADE,
-    UNIQUE (channel_id, message_ts, user_id, emoji)
-);
-
-CREATE INDEX IF NOT EXISTS idx_reactions_message ON reactions(channel_id, message_ts);
-
--- Function to update updated_at on row change
-CREATE OR REPLACE FUNCTION update_updated_at()
-RETURNS TRIGGER AS $$
+CREATE FUNCTION public.update_updated_at() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
 BEGIN
     NEW.updated_at = NOW();
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql;
+$$;
 
-CREATE TRIGGER trg_users_updated_at
-    BEFORE UPDATE ON users
-    FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 
-CREATE TRIGGER trg_conversations_updated_at
-    BEFORE UPDATE ON conversations
-    FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+SET default_tablespace = '';
 
-CREATE TRIGGER trg_messages_updated_at
-    BEFORE UPDATE ON messages
-    FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+SET default_table_access_method = heap;
+
+--
+-- Name: api_keys; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.api_keys (
+    id text NOT NULL,
+    name text NOT NULL,
+    description text DEFAULT ''::text NOT NULL,
+    key_hash text NOT NULL,
+    key_prefix text NOT NULL,
+    key_hint text NOT NULL,
+    team_id text NOT NULL,
+    principal_id text NOT NULL,
+    created_by text NOT NULL,
+    on_behalf_of text DEFAULT ''::text NOT NULL,
+    type text DEFAULT 'persistent'::text NOT NULL,
+    environment text DEFAULT 'live'::text NOT NULL,
+    permissions text[] DEFAULT '{}'::text[] NOT NULL,
+    expires_at timestamp with time zone,
+    last_used_at timestamp with time zone,
+    request_count bigint DEFAULT 0 NOT NULL,
+    revoked boolean DEFAULT false NOT NULL,
+    revoked_at timestamp with time zone,
+    rotated_to_id text DEFAULT ''::text NOT NULL,
+    grace_period_ends_at timestamp with time zone,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT api_keys_environment_check CHECK ((environment = ANY (ARRAY['live'::text, 'test'::text]))),
+    CONSTRAINT api_keys_type_check CHECK ((type = ANY (ARRAY['persistent'::text, 'session'::text, 'restricted'::text])))
+);
+
+
+--
+-- Name: auth_sessions; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.auth_sessions (
+    id text NOT NULL,
+    team_id text NOT NULL,
+    user_id text NOT NULL,
+    session_hash text NOT NULL,
+    provider text NOT NULL,
+    expires_at timestamp with time zone NOT NULL,
+    revoked_at timestamp with time zone,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT auth_sessions_provider_check CHECK ((provider = ANY (ARRAY['github'::text, 'google'::text])))
+);
+
+
+--
+-- Name: bookmarks; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.bookmarks (
+    id text NOT NULL,
+    channel_id text NOT NULL,
+    title text NOT NULL,
+    type text DEFAULT 'link'::text NOT NULL,
+    link text NOT NULL,
+    emoji text DEFAULT ''::text NOT NULL,
+    created_by text NOT NULL,
+    updated_by text DEFAULT ''::text NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
+-- Name: conversation_event_feed; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.conversation_event_feed (
+    feed_id bigint NOT NULL,
+    conversation_id text NOT NULL,
+    external_event_id bigint NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
+-- Name: conversation_event_feed_feed_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.conversation_event_feed_feed_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: conversation_event_feed_feed_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.conversation_event_feed_feed_id_seq OWNED BY public.conversation_event_feed.feed_id;
+
+
+--
+-- Name: conversation_members; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.conversation_members (
+    conversation_id text NOT NULL,
+    user_id text NOT NULL,
+    joined_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
+-- Name: conversation_reads; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.conversation_reads (
+    team_id text NOT NULL,
+    conversation_id text NOT NULL,
+    user_id text NOT NULL,
+    last_read_ts text NOT NULL,
+    last_read_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
+-- Name: conversations; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.conversations (
+    id text NOT NULL,
+    team_id text NOT NULL,
+    name text DEFAULT ''::text NOT NULL,
+    type text NOT NULL,
+    creator_id text NOT NULL,
+    is_archived boolean DEFAULT false NOT NULL,
+    topic_value text DEFAULT ''::text NOT NULL,
+    topic_creator text DEFAULT ''::text NOT NULL,
+    topic_last_set timestamp with time zone,
+    purpose_value text DEFAULT ''::text NOT NULL,
+    purpose_creator text DEFAULT ''::text NOT NULL,
+    purpose_last_set timestamp with time zone,
+    num_members integer DEFAULT 0 NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT conversations_type_check CHECK ((type = ANY (ARRAY['public_channel'::text, 'private_channel'::text, 'im'::text, 'mpim'::text])))
+);
+
+
+--
+-- Name: event_subscriptions; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.event_subscriptions (
+    id text NOT NULL,
+    team_id text NOT NULL,
+    url text NOT NULL,
+    enabled boolean DEFAULT true NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    encrypted_secret text DEFAULT ''::text NOT NULL,
+    event_type text DEFAULT ''::text NOT NULL,
+    resource_type text DEFAULT ''::text NOT NULL,
+    resource_id text DEFAULT ''::text NOT NULL,
+    CONSTRAINT chk_event_subscriptions_resource_filter CHECK (((resource_id = ''::text) OR (resource_type <> ''::text)))
+);
+
+
+--
+-- Name: external_event_projection_failures; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.external_event_projection_failures (
+    id bigint NOT NULL,
+    internal_event_id bigint NOT NULL,
+    error text NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
+-- Name: external_event_projection_failures_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.external_event_projection_failures_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: external_event_projection_failures_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.external_event_projection_failures_id_seq OWNED BY public.external_event_projection_failures.id;
+
+
+--
+-- Name: external_events; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.external_events (
+    id bigint NOT NULL,
+    team_id text NOT NULL,
+    type text NOT NULL,
+    resource_type text NOT NULL,
+    resource_id text NOT NULL,
+    occurred_at timestamp with time zone NOT NULL,
+    payload jsonb NOT NULL,
+    source_internal_event_id bigint,
+    source_internal_event_ids jsonb DEFAULT '[]'::jsonb NOT NULL,
+    dedupe_key text NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
+-- Name: external_events_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.external_events_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: external_events_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.external_events_id_seq OWNED BY public.external_events.id;
+
+
+--
+-- Name: file_channels; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.file_channels (
+    file_id text NOT NULL,
+    channel_id text NOT NULL,
+    shared_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
+-- Name: file_event_feed; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.file_event_feed (
+    feed_id bigint NOT NULL,
+    file_id text NOT NULL,
+    external_event_id bigint NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
+-- Name: file_event_feed_feed_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.file_event_feed_feed_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: file_event_feed_feed_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.file_event_feed_feed_id_seq OWNED BY public.file_event_feed.feed_id;
+
+
+--
+-- Name: files; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.files (
+    id text NOT NULL,
+    name text NOT NULL,
+    title text DEFAULT ''::text NOT NULL,
+    mimetype text DEFAULT ''::text NOT NULL,
+    filetype text DEFAULT ''::text NOT NULL,
+    size bigint DEFAULT 0 NOT NULL,
+    user_id text NOT NULL,
+    s3_key text DEFAULT ''::text NOT NULL,
+    url_private text DEFAULT ''::text NOT NULL,
+    url_private_download text DEFAULT ''::text NOT NULL,
+    permalink text DEFAULT ''::text NOT NULL,
+    is_external boolean DEFAULT false NOT NULL,
+    external_url text DEFAULT ''::text NOT NULL,
+    upload_complete boolean DEFAULT false NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    team_id text NOT NULL
+);
+
+
+--
+-- Name: internal_events; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.internal_events (
+    id bigint NOT NULL,
+    event_type text NOT NULL,
+    aggregate_type text NOT NULL,
+    aggregate_id text NOT NULL,
+    team_id text DEFAULT ''::text NOT NULL,
+    actor_id text DEFAULT ''::text NOT NULL,
+    payload jsonb NOT NULL,
+    metadata jsonb,
+    created_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
+-- Name: internal_events_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.internal_events_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: internal_events_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.internal_events_id_seq OWNED BY public.internal_events.id;
+
+
+--
+-- Name: messages; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.messages (
+    ts text NOT NULL,
+    channel_id text NOT NULL,
+    user_id text NOT NULL,
+    text text DEFAULT ''::text NOT NULL,
+    thread_ts text,
+    type text DEFAULT 'message'::text NOT NULL,
+    subtype text,
+    blocks jsonb,
+    metadata jsonb,
+    edited_by text,
+    edited_at text,
+    reply_count integer DEFAULT 0 NOT NULL,
+    reply_users_count integer DEFAULT 0 NOT NULL,
+    latest_reply text,
+    is_deleted boolean DEFAULT false NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
+-- Name: oauth_accounts; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.oauth_accounts (
+    id text NOT NULL,
+    team_id text NOT NULL,
+    user_id text NOT NULL,
+    provider text NOT NULL,
+    provider_subject text NOT NULL,
+    email text DEFAULT ''::text NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT oauth_accounts_provider_check CHECK ((provider = ANY (ARRAY['github'::text, 'google'::text])))
+);
+
+
+--
+-- Name: pins; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.pins (
+    channel_id text NOT NULL,
+    message_ts text NOT NULL,
+    pinned_by text NOT NULL,
+    pinned_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
+-- Name: projector_checkpoints; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.projector_checkpoints (
+    name text NOT NULL,
+    last_event_id bigint DEFAULT 0 NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
+-- Name: reactions; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.reactions (
+    id bigint NOT NULL,
+    channel_id text NOT NULL,
+    message_ts text NOT NULL,
+    user_id text NOT NULL,
+    emoji text NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
+-- Name: reactions_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.reactions_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: reactions_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.reactions_id_seq OWNED BY public.reactions.id;
+
+
+--
+-- Name: team_event_feed; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.team_event_feed (
+    feed_id bigint NOT NULL,
+    team_id text NOT NULL,
+    external_event_id bigint NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
+-- Name: team_event_feed_feed_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.team_event_feed_feed_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: team_event_feed_feed_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.team_event_feed_feed_id_seq OWNED BY public.team_event_feed.feed_id;
+
+
+--
+-- Name: user_event_feed; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.user_event_feed (
+    feed_id bigint NOT NULL,
+    user_id text NOT NULL,
+    external_event_id bigint NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
+-- Name: user_event_feed_feed_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.user_event_feed_feed_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: user_event_feed_feed_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.user_event_feed_feed_id_seq OWNED BY public.user_event_feed.feed_id;
+
+
+--
+-- Name: usergroup_event_feed; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.usergroup_event_feed (
+    feed_id bigint NOT NULL,
+    usergroup_id text NOT NULL,
+    external_event_id bigint NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
+-- Name: usergroup_event_feed_feed_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.usergroup_event_feed_feed_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: usergroup_event_feed_feed_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.usergroup_event_feed_feed_id_seq OWNED BY public.usergroup_event_feed.feed_id;
+
+
+--
+-- Name: usergroup_members; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.usergroup_members (
+    usergroup_id text NOT NULL,
+    user_id text NOT NULL,
+    added_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
+-- Name: usergroups; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.usergroups (
+    id text NOT NULL,
+    team_id text NOT NULL,
+    name text NOT NULL,
+    handle text NOT NULL,
+    description text DEFAULT ''::text NOT NULL,
+    is_external boolean DEFAULT false NOT NULL,
+    enabled boolean DEFAULT true NOT NULL,
+    user_count integer DEFAULT 0 NOT NULL,
+    created_by text NOT NULL,
+    updated_by text DEFAULT ''::text NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
+-- Name: users; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.users (
+    id text NOT NULL,
+    team_id text NOT NULL,
+    name text NOT NULL,
+    real_name text DEFAULT ''::text NOT NULL,
+    display_name text DEFAULT ''::text NOT NULL,
+    email text DEFAULT ''::text NOT NULL,
+    is_bot boolean DEFAULT false NOT NULL,
+    account_type text DEFAULT ''::text NOT NULL,
+    deleted boolean DEFAULT false NOT NULL,
+    profile jsonb DEFAULT '{}'::jsonb NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    principal_type text NOT NULL,
+    owner_id text DEFAULT ''::text NOT NULL
+);
+
+
+--
+-- Name: workspace_external_teams; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.workspace_external_teams (
+    id text NOT NULL,
+    workspace_id text NOT NULL,
+    external_team_id text NOT NULL,
+    external_team_name text DEFAULT ''::text NOT NULL,
+    connection_type text DEFAULT 'slack_connect'::text NOT NULL,
+    connected boolean DEFAULT true NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    disconnected_at timestamp with time zone
+);
+
+
+--
+-- Name: workspaces; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.workspaces (
+    id text NOT NULL,
+    name text NOT NULL,
+    domain text DEFAULT ''::text NOT NULL,
+    email_domain text DEFAULT ''::text NOT NULL,
+    description text DEFAULT ''::text NOT NULL,
+    icon_image_original text DEFAULT ''::text NOT NULL,
+    icon_image_34 text DEFAULT ''::text NOT NULL,
+    icon_image_44 text DEFAULT ''::text NOT NULL,
+    discoverability text DEFAULT 'invite_only'::text NOT NULL,
+    default_channels text[] DEFAULT '{}'::text[] NOT NULL,
+    preferences jsonb DEFAULT '{}'::jsonb NOT NULL,
+    profile_fields jsonb DEFAULT '[]'::jsonb NOT NULL,
+    billing_plan text DEFAULT 'free'::text NOT NULL,
+    billing_status text DEFAULT 'active'::text NOT NULL,
+    billing_email text DEFAULT ''::text NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT workspaces_discoverability_check CHECK ((discoverability = ANY (ARRAY['open'::text, 'invite_only'::text])))
+);
+
+
+--
+-- Name: conversation_event_feed feed_id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.conversation_event_feed ALTER COLUMN feed_id SET DEFAULT nextval('public.conversation_event_feed_feed_id_seq'::regclass);
+
+
+--
+-- Name: external_event_projection_failures id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.external_event_projection_failures ALTER COLUMN id SET DEFAULT nextval('public.external_event_projection_failures_id_seq'::regclass);
+
+
+--
+-- Name: external_events id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.external_events ALTER COLUMN id SET DEFAULT nextval('public.external_events_id_seq'::regclass);
+
+
+--
+-- Name: file_event_feed feed_id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.file_event_feed ALTER COLUMN feed_id SET DEFAULT nextval('public.file_event_feed_feed_id_seq'::regclass);
+
+
+--
+-- Name: internal_events id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.internal_events ALTER COLUMN id SET DEFAULT nextval('public.internal_events_id_seq'::regclass);
+
+
+--
+-- Name: reactions id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.reactions ALTER COLUMN id SET DEFAULT nextval('public.reactions_id_seq'::regclass);
+
+
+--
+-- Name: team_event_feed feed_id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.team_event_feed ALTER COLUMN feed_id SET DEFAULT nextval('public.team_event_feed_feed_id_seq'::regclass);
+
+
+--
+-- Name: user_event_feed feed_id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.user_event_feed ALTER COLUMN feed_id SET DEFAULT nextval('public.user_event_feed_feed_id_seq'::regclass);
+
+
+--
+-- Name: usergroup_event_feed feed_id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.usergroup_event_feed ALTER COLUMN feed_id SET DEFAULT nextval('public.usergroup_event_feed_feed_id_seq'::regclass);
+
+
+--
+-- Name: api_keys api_keys_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.api_keys
+    ADD CONSTRAINT api_keys_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: auth_sessions auth_sessions_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.auth_sessions
+    ADD CONSTRAINT auth_sessions_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: auth_sessions auth_sessions_session_hash_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.auth_sessions
+    ADD CONSTRAINT auth_sessions_session_hash_key UNIQUE (session_hash);
+
+
+--
+-- Name: bookmarks bookmarks_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.bookmarks
+    ADD CONSTRAINT bookmarks_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: conversation_event_feed conversation_event_feed_conversation_id_external_event_id_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.conversation_event_feed
+    ADD CONSTRAINT conversation_event_feed_conversation_id_external_event_id_key UNIQUE (conversation_id, external_event_id);
+
+
+--
+-- Name: conversation_event_feed conversation_event_feed_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.conversation_event_feed
+    ADD CONSTRAINT conversation_event_feed_pkey PRIMARY KEY (feed_id);
+
+
+--
+-- Name: conversation_members conversation_members_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.conversation_members
+    ADD CONSTRAINT conversation_members_pkey PRIMARY KEY (conversation_id, user_id);
+
+
+--
+-- Name: conversation_reads conversation_reads_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.conversation_reads
+    ADD CONSTRAINT conversation_reads_pkey PRIMARY KEY (conversation_id, user_id);
+
+
+--
+-- Name: conversations conversations_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.conversations
+    ADD CONSTRAINT conversations_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: event_subscriptions event_subscriptions_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.event_subscriptions
+    ADD CONSTRAINT event_subscriptions_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: external_event_projection_failures external_event_projection_failures_internal_event_id_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.external_event_projection_failures
+    ADD CONSTRAINT external_event_projection_failures_internal_event_id_key UNIQUE (internal_event_id);
+
+
+--
+-- Name: external_event_projection_failures external_event_projection_failures_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.external_event_projection_failures
+    ADD CONSTRAINT external_event_projection_failures_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: external_events external_events_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.external_events
+    ADD CONSTRAINT external_events_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: external_events external_events_team_id_dedupe_key_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.external_events
+    ADD CONSTRAINT external_events_team_id_dedupe_key_key UNIQUE (team_id, dedupe_key);
+
+
+--
+-- Name: file_channels file_channels_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.file_channels
+    ADD CONSTRAINT file_channels_pkey PRIMARY KEY (file_id, channel_id);
+
+
+--
+-- Name: file_event_feed file_event_feed_file_id_external_event_id_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.file_event_feed
+    ADD CONSTRAINT file_event_feed_file_id_external_event_id_key UNIQUE (file_id, external_event_id);
+
+
+--
+-- Name: file_event_feed file_event_feed_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.file_event_feed
+    ADD CONSTRAINT file_event_feed_pkey PRIMARY KEY (feed_id);
+
+
+--
+-- Name: files files_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.files
+    ADD CONSTRAINT files_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: internal_events internal_events_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.internal_events
+    ADD CONSTRAINT internal_events_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: messages messages_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.messages
+    ADD CONSTRAINT messages_pkey PRIMARY KEY (channel_id, ts);
+
+
+--
+-- Name: oauth_accounts oauth_accounts_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.oauth_accounts
+    ADD CONSTRAINT oauth_accounts_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: pins pins_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.pins
+    ADD CONSTRAINT pins_pkey PRIMARY KEY (channel_id, message_ts);
+
+
+--
+-- Name: projector_checkpoints projector_checkpoints_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.projector_checkpoints
+    ADD CONSTRAINT projector_checkpoints_pkey PRIMARY KEY (name);
+
+
+--
+-- Name: reactions reactions_channel_id_message_ts_user_id_emoji_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.reactions
+    ADD CONSTRAINT reactions_channel_id_message_ts_user_id_emoji_key UNIQUE (channel_id, message_ts, user_id, emoji);
+
+
+--
+-- Name: reactions reactions_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.reactions
+    ADD CONSTRAINT reactions_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: team_event_feed team_event_feed_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.team_event_feed
+    ADD CONSTRAINT team_event_feed_pkey PRIMARY KEY (feed_id);
+
+
+--
+-- Name: team_event_feed team_event_feed_team_id_external_event_id_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.team_event_feed
+    ADD CONSTRAINT team_event_feed_team_id_external_event_id_key UNIQUE (team_id, external_event_id);
+
+
+--
+-- Name: user_event_feed user_event_feed_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.user_event_feed
+    ADD CONSTRAINT user_event_feed_pkey PRIMARY KEY (feed_id);
+
+
+--
+-- Name: user_event_feed user_event_feed_user_id_external_event_id_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.user_event_feed
+    ADD CONSTRAINT user_event_feed_user_id_external_event_id_key UNIQUE (user_id, external_event_id);
+
+
+--
+-- Name: usergroup_event_feed usergroup_event_feed_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.usergroup_event_feed
+    ADD CONSTRAINT usergroup_event_feed_pkey PRIMARY KEY (feed_id);
+
+
+--
+-- Name: usergroup_event_feed usergroup_event_feed_usergroup_id_external_event_id_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.usergroup_event_feed
+    ADD CONSTRAINT usergroup_event_feed_usergroup_id_external_event_id_key UNIQUE (usergroup_id, external_event_id);
+
+
+--
+-- Name: usergroup_members usergroup_members_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.usergroup_members
+    ADD CONSTRAINT usergroup_members_pkey PRIMARY KEY (usergroup_id, user_id);
+
+
+--
+-- Name: usergroups usergroups_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.usergroups
+    ADD CONSTRAINT usergroups_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: users users_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.users
+    ADD CONSTRAINT users_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: workspace_external_teams workspace_external_teams_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.workspace_external_teams
+    ADD CONSTRAINT workspace_external_teams_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: workspace_external_teams workspace_external_teams_workspace_id_external_team_id_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.workspace_external_teams
+    ADD CONSTRAINT workspace_external_teams_workspace_id_external_team_id_key UNIQUE (workspace_id, external_team_id);
+
+
+--
+-- Name: workspaces workspaces_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.workspaces
+    ADD CONSTRAINT workspaces_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: idx_api_keys_created_by; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_api_keys_created_by ON public.api_keys USING btree (created_by);
+
+
+--
+-- Name: idx_api_keys_key_hash; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_api_keys_key_hash ON public.api_keys USING btree (key_hash);
+
+
+--
+-- Name: idx_api_keys_principal_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_api_keys_principal_id ON public.api_keys USING btree (principal_id);
+
+
+--
+-- Name: idx_api_keys_team_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_api_keys_team_id ON public.api_keys USING btree (team_id);
+
+
+--
+-- Name: idx_auth_sessions_user_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_auth_sessions_user_id ON public.auth_sessions USING btree (user_id);
+
+
+--
+-- Name: idx_bookmarks_channel_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_bookmarks_channel_id ON public.bookmarks USING btree (channel_id);
+
+
+--
+-- Name: idx_conversation_event_feed_conversation_id_external_event_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_conversation_event_feed_conversation_id_external_event_id ON public.conversation_event_feed USING btree (conversation_id, external_event_id);
+
+
+--
+-- Name: idx_conversation_event_feed_external_event_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_conversation_event_feed_external_event_id ON public.conversation_event_feed USING btree (external_event_id);
+
+
+--
+-- Name: idx_conversation_members_user_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_conversation_members_user_id ON public.conversation_members USING btree (user_id);
+
+
+--
+-- Name: idx_conversation_reads_team_id_user_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_conversation_reads_team_id_user_id ON public.conversation_reads USING btree (team_id, user_id);
+
+
+--
+-- Name: idx_conversations_name; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_conversations_name ON public.conversations USING btree (name);
+
+
+--
+-- Name: idx_conversations_team_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_conversations_team_id ON public.conversations USING btree (team_id);
+
+
+--
+-- Name: idx_conversations_type; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_conversations_type ON public.conversations USING btree (type);
+
+
+--
+-- Name: idx_event_subscriptions_team_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_event_subscriptions_team_id ON public.event_subscriptions USING btree (team_id);
+
+
+--
+-- Name: idx_external_event_projection_failures_internal_event_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_external_event_projection_failures_internal_event_id ON public.external_event_projection_failures USING btree (internal_event_id);
+
+
+--
+-- Name: idx_external_events_source_internal_event_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_external_events_source_internal_event_id ON public.external_events USING btree (source_internal_event_id);
+
+
+--
+-- Name: idx_external_events_team_id_desc; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_external_events_team_id_desc ON public.external_events USING btree (team_id, id DESC);
+
+
+--
+-- Name: idx_external_events_team_resource_id_desc; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_external_events_team_resource_id_desc ON public.external_events USING btree (team_id, resource_type, resource_id, id DESC);
+
+
+--
+-- Name: idx_external_events_team_type_id_desc; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_external_events_team_type_id_desc ON public.external_events USING btree (team_id, type, id DESC);
+
+
+--
+-- Name: idx_file_event_feed_external_event_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_file_event_feed_external_event_id ON public.file_event_feed USING btree (external_event_id);
+
+
+--
+-- Name: idx_file_event_feed_file_id_external_event_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_file_event_feed_file_id_external_event_id ON public.file_event_feed USING btree (file_id, external_event_id);
+
+
+--
+-- Name: idx_files_team_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_files_team_id ON public.files USING btree (team_id);
+
+
+--
+-- Name: idx_files_team_id_file_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_files_team_id_file_id ON public.files USING btree (team_id, id);
+
+
+--
+-- Name: idx_files_team_id_user_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_files_team_id_user_id ON public.files USING btree (team_id, user_id);
+
+
+--
+-- Name: idx_files_user_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_files_user_id ON public.files USING btree (user_id);
+
+
+--
+-- Name: idx_internal_events_aggregate; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_internal_events_aggregate ON public.internal_events USING btree (aggregate_type, aggregate_id, id);
+
+
+--
+-- Name: idx_internal_events_team; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_internal_events_team ON public.internal_events USING btree (team_id, created_at DESC);
+
+
+--
+-- Name: idx_internal_events_type; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_internal_events_type ON public.internal_events USING btree (event_type, created_at DESC);
+
+
+--
+-- Name: idx_messages_channel_ts; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_messages_channel_ts ON public.messages USING btree (channel_id, ts DESC);
+
+
+--
+-- Name: idx_messages_thread; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_messages_thread ON public.messages USING btree (channel_id, thread_ts) WHERE (thread_ts IS NOT NULL);
+
+
+--
+-- Name: idx_messages_user_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_messages_user_id ON public.messages USING btree (user_id);
+
+
+--
+-- Name: idx_oauth_accounts_identity; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX idx_oauth_accounts_identity ON public.oauth_accounts USING btree (team_id, provider, provider_subject);
+
+
+--
+-- Name: idx_oauth_accounts_user_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_oauth_accounts_user_id ON public.oauth_accounts USING btree (user_id);
+
+
+--
+-- Name: idx_reactions_message; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_reactions_message ON public.reactions USING btree (channel_id, message_ts);
+
+
+--
+-- Name: idx_team_event_feed_external_event_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_team_event_feed_external_event_id ON public.team_event_feed USING btree (external_event_id);
+
+
+--
+-- Name: idx_team_event_feed_team_id_external_event_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_team_event_feed_team_id_external_event_id ON public.team_event_feed USING btree (team_id, external_event_id);
+
+
+--
+-- Name: idx_user_event_feed_external_event_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_user_event_feed_external_event_id ON public.user_event_feed USING btree (external_event_id);
+
+
+--
+-- Name: idx_user_event_feed_user_id_external_event_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_user_event_feed_user_id_external_event_id ON public.user_event_feed USING btree (user_id, external_event_id);
+
+
+--
+-- Name: idx_usergroup_event_feed_external_event_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_usergroup_event_feed_external_event_id ON public.usergroup_event_feed USING btree (external_event_id);
+
+
+--
+-- Name: idx_usergroup_event_feed_usergroup_id_external_event_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_usergroup_event_feed_usergroup_id_external_event_id ON public.usergroup_event_feed USING btree (usergroup_id, external_event_id);
+
+
+--
+-- Name: idx_usergroups_team_handle; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX idx_usergroups_team_handle ON public.usergroups USING btree (team_id, handle);
+
+
+--
+-- Name: idx_usergroups_team_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_usergroups_team_id ON public.usergroups USING btree (team_id);
+
+
+--
+-- Name: idx_users_email; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_users_email ON public.users USING btree (email) WHERE (email <> ''::text);
+
+
+--
+-- Name: idx_users_name; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_users_name ON public.users USING btree (name);
+
+
+--
+-- Name: idx_users_owner_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_users_owner_id ON public.users USING btree (owner_id) WHERE (owner_id <> ''::text);
+
+
+--
+-- Name: idx_users_principal_type; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_users_principal_type ON public.users USING btree (principal_type);
+
+
+--
+-- Name: idx_users_team_email; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX idx_users_team_email ON public.users USING btree (team_id, email) WHERE (email <> ''::text);
+
+
+--
+-- Name: idx_users_team_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_users_team_id ON public.users USING btree (team_id);
+
+
+--
+-- Name: idx_workspace_external_teams_workspace_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_workspace_external_teams_workspace_id ON public.workspace_external_teams USING btree (workspace_id);
+
+
+--
+-- Name: idx_workspaces_domain; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_workspaces_domain ON public.workspaces USING btree (domain);
+
+
+--
+-- Name: idx_workspaces_name; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_workspaces_name ON public.workspaces USING btree (name);
+
+
+--
+-- Name: api_keys trg_api_keys_updated_at; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_api_keys_updated_at BEFORE UPDATE ON public.api_keys FOR EACH ROW EXECUTE FUNCTION public.update_updated_at();
+
+
+--
+-- Name: bookmarks trg_bookmarks_updated_at; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_bookmarks_updated_at BEFORE UPDATE ON public.bookmarks FOR EACH ROW EXECUTE FUNCTION public.update_updated_at();
+
+
+--
+-- Name: conversations trg_conversations_updated_at; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_conversations_updated_at BEFORE UPDATE ON public.conversations FOR EACH ROW EXECUTE FUNCTION public.update_updated_at();
+
+
+--
+-- Name: event_subscriptions trg_event_subscriptions_updated_at; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_event_subscriptions_updated_at BEFORE UPDATE ON public.event_subscriptions FOR EACH ROW EXECUTE FUNCTION public.update_updated_at();
+
+
+--
+-- Name: files trg_files_updated_at; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_files_updated_at BEFORE UPDATE ON public.files FOR EACH ROW EXECUTE FUNCTION public.update_updated_at();
+
+
+--
+-- Name: messages trg_messages_updated_at; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_messages_updated_at BEFORE UPDATE ON public.messages FOR EACH ROW EXECUTE FUNCTION public.update_updated_at();
+
+
+--
+-- Name: oauth_accounts trg_oauth_accounts_updated_at; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_oauth_accounts_updated_at BEFORE UPDATE ON public.oauth_accounts FOR EACH ROW EXECUTE FUNCTION public.update_updated_at();
+
+
+--
+-- Name: usergroups trg_usergroups_updated_at; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_usergroups_updated_at BEFORE UPDATE ON public.usergroups FOR EACH ROW EXECUTE FUNCTION public.update_updated_at();
+
+
+--
+-- Name: users trg_users_updated_at; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_users_updated_at BEFORE UPDATE ON public.users FOR EACH ROW EXECUTE FUNCTION public.update_updated_at();
+
+
+--
+-- Name: workspaces trg_workspaces_updated_at; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_workspaces_updated_at BEFORE UPDATE ON public.workspaces FOR EACH ROW EXECUTE FUNCTION public.update_updated_at();
+
+
+--
+-- Name: api_keys api_keys_created_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.api_keys
+    ADD CONSTRAINT api_keys_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.users(id);
+
+
+--
+-- Name: api_keys api_keys_principal_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.api_keys
+    ADD CONSTRAINT api_keys_principal_id_fkey FOREIGN KEY (principal_id) REFERENCES public.users(id);
+
+
+--
+-- Name: auth_sessions auth_sessions_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.auth_sessions
+    ADD CONSTRAINT auth_sessions_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id) ON DELETE CASCADE;
+
+
+--
+-- Name: bookmarks bookmarks_channel_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.bookmarks
+    ADD CONSTRAINT bookmarks_channel_id_fkey FOREIGN KEY (channel_id) REFERENCES public.conversations(id) ON DELETE CASCADE;
+
+
+--
+-- Name: bookmarks bookmarks_created_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.bookmarks
+    ADD CONSTRAINT bookmarks_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.users(id);
+
+
+--
+-- Name: conversation_event_feed conversation_event_feed_conversation_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.conversation_event_feed
+    ADD CONSTRAINT conversation_event_feed_conversation_id_fkey FOREIGN KEY (conversation_id) REFERENCES public.conversations(id) ON DELETE CASCADE;
+
+
+--
+-- Name: conversation_event_feed conversation_event_feed_external_event_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.conversation_event_feed
+    ADD CONSTRAINT conversation_event_feed_external_event_id_fkey FOREIGN KEY (external_event_id) REFERENCES public.external_events(id) ON DELETE CASCADE;
+
+
+--
+-- Name: conversation_members conversation_members_conversation_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.conversation_members
+    ADD CONSTRAINT conversation_members_conversation_id_fkey FOREIGN KEY (conversation_id) REFERENCES public.conversations(id) ON DELETE CASCADE;
+
+
+--
+-- Name: conversation_members conversation_members_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.conversation_members
+    ADD CONSTRAINT conversation_members_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id) ON DELETE CASCADE;
+
+
+--
+-- Name: conversations conversations_creator_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.conversations
+    ADD CONSTRAINT conversations_creator_id_fkey FOREIGN KEY (creator_id) REFERENCES public.users(id);
+
+
+--
+-- Name: external_event_projection_failures external_event_projection_failures_internal_event_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.external_event_projection_failures
+    ADD CONSTRAINT external_event_projection_failures_internal_event_id_fkey FOREIGN KEY (internal_event_id) REFERENCES public.internal_events(id) ON DELETE CASCADE;
+
+
+--
+-- Name: external_events external_events_source_internal_event_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.external_events
+    ADD CONSTRAINT external_events_source_internal_event_id_fkey FOREIGN KEY (source_internal_event_id) REFERENCES public.internal_events(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: file_channels file_channels_channel_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.file_channels
+    ADD CONSTRAINT file_channels_channel_id_fkey FOREIGN KEY (channel_id) REFERENCES public.conversations(id) ON DELETE CASCADE;
+
+
+--
+-- Name: file_channels file_channels_file_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.file_channels
+    ADD CONSTRAINT file_channels_file_id_fkey FOREIGN KEY (file_id) REFERENCES public.files(id) ON DELETE CASCADE;
+
+
+--
+-- Name: file_event_feed file_event_feed_external_event_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.file_event_feed
+    ADD CONSTRAINT file_event_feed_external_event_id_fkey FOREIGN KEY (external_event_id) REFERENCES public.external_events(id) ON DELETE CASCADE;
+
+
+--
+-- Name: file_event_feed file_event_feed_file_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.file_event_feed
+    ADD CONSTRAINT file_event_feed_file_id_fkey FOREIGN KEY (file_id) REFERENCES public.files(id) ON DELETE CASCADE;
+
+
+--
+-- Name: files files_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.files
+    ADD CONSTRAINT files_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id);
+
+
+--
+-- Name: messages messages_channel_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.messages
+    ADD CONSTRAINT messages_channel_id_fkey FOREIGN KEY (channel_id) REFERENCES public.conversations(id) ON DELETE CASCADE;
+
+
+--
+-- Name: messages messages_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.messages
+    ADD CONSTRAINT messages_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id);
+
+
+--
+-- Name: oauth_accounts oauth_accounts_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.oauth_accounts
+    ADD CONSTRAINT oauth_accounts_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id) ON DELETE CASCADE;
+
+
+--
+-- Name: pins pins_channel_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.pins
+    ADD CONSTRAINT pins_channel_id_fkey FOREIGN KEY (channel_id) REFERENCES public.conversations(id) ON DELETE CASCADE;
+
+
+--
+-- Name: pins pins_channel_id_message_ts_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.pins
+    ADD CONSTRAINT pins_channel_id_message_ts_fkey FOREIGN KEY (channel_id, message_ts) REFERENCES public.messages(channel_id, ts) ON DELETE CASCADE;
+
+
+--
+-- Name: pins pins_pinned_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.pins
+    ADD CONSTRAINT pins_pinned_by_fkey FOREIGN KEY (pinned_by) REFERENCES public.users(id);
+
+
+--
+-- Name: reactions reactions_channel_id_message_ts_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.reactions
+    ADD CONSTRAINT reactions_channel_id_message_ts_fkey FOREIGN KEY (channel_id, message_ts) REFERENCES public.messages(channel_id, ts) ON DELETE CASCADE;
+
+
+--
+-- Name: reactions reactions_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.reactions
+    ADD CONSTRAINT reactions_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id);
+
+
+--
+-- Name: team_event_feed team_event_feed_external_event_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.team_event_feed
+    ADD CONSTRAINT team_event_feed_external_event_id_fkey FOREIGN KEY (external_event_id) REFERENCES public.external_events(id) ON DELETE CASCADE;
+
+
+--
+-- Name: user_event_feed user_event_feed_external_event_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.user_event_feed
+    ADD CONSTRAINT user_event_feed_external_event_id_fkey FOREIGN KEY (external_event_id) REFERENCES public.external_events(id) ON DELETE CASCADE;
+
+
+--
+-- Name: user_event_feed user_event_feed_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.user_event_feed
+    ADD CONSTRAINT user_event_feed_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id) ON DELETE CASCADE;
+
+
+--
+-- Name: usergroup_event_feed usergroup_event_feed_external_event_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.usergroup_event_feed
+    ADD CONSTRAINT usergroup_event_feed_external_event_id_fkey FOREIGN KEY (external_event_id) REFERENCES public.external_events(id) ON DELETE CASCADE;
+
+
+--
+-- Name: usergroup_event_feed usergroup_event_feed_usergroup_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.usergroup_event_feed
+    ADD CONSTRAINT usergroup_event_feed_usergroup_id_fkey FOREIGN KEY (usergroup_id) REFERENCES public.usergroups(id) ON DELETE CASCADE;
+
+
+--
+-- Name: usergroup_members usergroup_members_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.usergroup_members
+    ADD CONSTRAINT usergroup_members_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id) ON DELETE CASCADE;
+
+
+--
+-- Name: usergroup_members usergroup_members_usergroup_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.usergroup_members
+    ADD CONSTRAINT usergroup_members_usergroup_id_fkey FOREIGN KEY (usergroup_id) REFERENCES public.usergroups(id) ON DELETE CASCADE;
+
+
+--
+-- Name: usergroups usergroups_created_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.usergroups
+    ADD CONSTRAINT usergroups_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.users(id);
+
+
+--
+-- Name: workspace_external_teams workspace_external_teams_workspace_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.workspace_external_teams
+    ADD CONSTRAINT workspace_external_teams_workspace_id_fkey FOREIGN KEY (workspace_id) REFERENCES public.workspaces(id) ON DELETE CASCADE;
+
+
+CREATE TABLE IF NOT EXISTS public.user_role_assignments (
+    id text NOT NULL,
+    team_id text NOT NULL,
+    user_id text NOT NULL,
+    role_key text NOT NULL,
+    assigned_by text NOT NULL,
+    created_at timestamptz DEFAULT now() NOT NULL
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_user_role_assignments_unique
+    ON public.user_role_assignments USING btree (team_id, user_id, role_key);
+
+CREATE INDEX IF NOT EXISTS idx_user_role_assignments_user
+    ON public.user_role_assignments USING btree (team_id, user_id);
+
+ALTER TABLE ONLY public.user_role_assignments
+    ADD CONSTRAINT user_role_assignments_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY public.user_role_assignments
+    ADD CONSTRAINT user_role_assignments_assigned_by_fkey FOREIGN KEY (assigned_by) REFERENCES public.users(id);
+
+
+CREATE TABLE IF NOT EXISTS public.conversation_manager_assignments (
+    conversation_id text NOT NULL,
+    user_id text NOT NULL,
+    assigned_by text NOT NULL,
+    created_at timestamptz DEFAULT now() NOT NULL
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_conversation_manager_assignments_unique
+    ON public.conversation_manager_assignments USING btree (conversation_id, user_id);
+
+CREATE INDEX IF NOT EXISTS idx_conversation_manager_assignments_user
+    ON public.conversation_manager_assignments USING btree (user_id);
+
+ALTER TABLE ONLY public.conversation_manager_assignments
+    ADD CONSTRAINT conversation_manager_assignments_conversation_id_fkey FOREIGN KEY (conversation_id) REFERENCES public.conversations(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY public.conversation_manager_assignments
+    ADD CONSTRAINT conversation_manager_assignments_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY public.conversation_manager_assignments
+    ADD CONSTRAINT conversation_manager_assignments_assigned_by_fkey FOREIGN KEY (assigned_by) REFERENCES public.users(id);
+
+
+CREATE TABLE IF NOT EXISTS public.conversation_posting_policies (
+    conversation_id text NOT NULL,
+    policy_type text NOT NULL,
+    policy_json jsonb DEFAULT '{}'::jsonb NOT NULL,
+    updated_by text NOT NULL,
+    updated_at timestamptz DEFAULT now() NOT NULL
+);
+
+ALTER TABLE ONLY public.conversation_posting_policies
+    ADD CONSTRAINT conversation_posting_policies_pkey PRIMARY KEY (conversation_id);
+
+ALTER TABLE ONLY public.conversation_posting_policies
+    ADD CONSTRAINT conversation_posting_policies_conversation_id_fkey FOREIGN KEY (conversation_id) REFERENCES public.conversations(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY public.conversation_posting_policies
+    ADD CONSTRAINT conversation_posting_policies_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES public.users(id);
+
+
+CREATE TABLE IF NOT EXISTS public.external_principal_access (
+    id text NOT NULL,
+    host_team_id text NOT NULL,
+    principal_id text NOT NULL,
+    principal_type text NOT NULL,
+    home_team_id text NOT NULL,
+    access_mode text NOT NULL,
+    allowed_capabilities jsonb DEFAULT '[]'::jsonb NOT NULL,
+    granted_by text NOT NULL,
+    created_at timestamptz DEFAULT now() NOT NULL,
+    expires_at timestamptz,
+    revoked_at timestamptz
+);
+
+ALTER TABLE ONLY public.external_principal_access
+    ADD CONSTRAINT external_principal_access_pkey PRIMARY KEY (id);
+
+CREATE INDEX IF NOT EXISTS idx_external_principal_access_principal
+    ON public.external_principal_access USING btree (host_team_id, principal_id);
+
+ALTER TABLE ONLY public.external_principal_access
+    ADD CONSTRAINT external_principal_access_host_team_id_fkey FOREIGN KEY (host_team_id) REFERENCES public.workspaces(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY public.external_principal_access
+    ADD CONSTRAINT external_principal_access_principal_id_fkey FOREIGN KEY (principal_id) REFERENCES public.users(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY public.external_principal_access
+    ADD CONSTRAINT external_principal_access_granted_by_fkey FOREIGN KEY (granted_by) REFERENCES public.users(id);
+
+
+CREATE TABLE IF NOT EXISTS public.external_principal_conversation_assignments (
+    access_id text NOT NULL,
+    conversation_id text NOT NULL,
+    granted_by text NOT NULL,
+    created_at timestamptz DEFAULT now() NOT NULL
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_external_principal_conversation_assignments_unique
+    ON public.external_principal_conversation_assignments USING btree (access_id, conversation_id);
+
+CREATE INDEX IF NOT EXISTS idx_external_principal_conversation_assignments_conversation
+    ON public.external_principal_conversation_assignments USING btree (conversation_id);
+
+ALTER TABLE ONLY public.external_principal_conversation_assignments
+    ADD CONSTRAINT external_principal_conversation_assignments_access_id_fkey FOREIGN KEY (access_id) REFERENCES public.external_principal_access(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY public.external_principal_conversation_assignments
+    ADD CONSTRAINT external_principal_conversation_assignments_conversation_id_fkey FOREIGN KEY (conversation_id) REFERENCES public.conversations(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY public.external_principal_conversation_assignments
+    ADD CONSTRAINT external_principal_conversation_assignments_granted_by_fkey FOREIGN KEY (granted_by) REFERENCES public.users(id);
+
+
+CREATE TABLE IF NOT EXISTS public.authorization_audit_log (
+    id text NOT NULL,
+    team_id text NOT NULL,
+    actor_id text,
+    api_key_id text,
+    on_behalf_of text,
+    action text NOT NULL,
+    resource text NOT NULL,
+    resource_id text NOT NULL,
+    metadata jsonb DEFAULT '{}'::jsonb NOT NULL,
+    created_at timestamptz DEFAULT now() NOT NULL
+);
+
+ALTER TABLE ONLY public.authorization_audit_log
+    ADD CONSTRAINT authorization_audit_log_pkey PRIMARY KEY (id);
+
+CREATE INDEX IF NOT EXISTS idx_authorization_audit_log_team_created
+    ON public.authorization_audit_log USING btree (team_id, created_at DESC, id DESC);
+
+ALTER TABLE ONLY public.authorization_audit_log
+    ADD CONSTRAINT authorization_audit_log_team_id_fkey FOREIGN KEY (team_id) REFERENCES public.workspaces(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY public.authorization_audit_log
+    ADD CONSTRAINT authorization_audit_log_actor_id_fkey FOREIGN KEY (actor_id) REFERENCES public.users(id) ON DELETE SET NULL;
+
+ALTER TABLE ONLY public.authorization_audit_log
+    ADD CONSTRAINT authorization_audit_log_on_behalf_of_fkey FOREIGN KEY (on_behalf_of) REFERENCES public.users(id) ON DELETE SET NULL;
+
+
+--
+-- PostgreSQL database dump complete
+--

@@ -3,12 +3,12 @@ package queue
 import (
 	"bytes"
 	"context"
-		"crypto/hmac"
-		"crypto/sha256"
-		"encoding/hex"
-		"fmt"
-		"io"
-		"log/slog"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
+	"fmt"
+	"io"
+	"log/slog"
 	"math"
 	"net/http"
 	"sync"
@@ -240,15 +240,16 @@ func (w *WebhookWorker) deliverWebhook(ctx context.Context, job Job) string {
 		return fmt.Sprintf("create request: %v", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Teraslack-Delivery-Id", job.ID)
+	req.Header.Set("X-Teraslack-Event-Id", fmt.Sprintf("%d", job.EventID))
+	req.Header.Set("X-Teraslack-Event-Type", job.EventType)
+	req.Header.Set("X-Teraslack-Team-Id", job.TeamID)
 
 	// HMAC-SHA256 signing
 	if job.Secret != "" {
-		signingKey := job.Secret
-		if w.encryptor != nil {
-			if decrypted, err := w.encryptor.Decrypt(job.Secret); err == nil {
-				signingKey = decrypted
-			}
-			// If decryption fails, it may be a plaintext secret; use as-is
+		signingKey, err := w.encryptor.Decrypt(job.Secret)
+		if err != nil {
+			return fmt.Sprintf("decrypt secret: %v", err)
 		}
 		timestamp := fmt.Sprintf("%d", time.Now().Unix())
 		sigBase := fmt.Sprintf("v0:%s:%s", timestamp, string(job.Payload))

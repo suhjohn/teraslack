@@ -53,16 +53,16 @@ func run() error {
 		return fmt.Errorf("create S3 queue: %w", err)
 	}
 
-	// Initialize encryption for HMAC secret decryption (optional)
-	var encryptor *crypto.Encryptor
-	if encKey := os.Getenv("ENCRYPTION_KEY"); encKey != "" {
-		keyProvider, keyErr := crypto.NewEnvKeyProvider(encKey, nil)
-		if keyErr != nil {
-			return fmt.Errorf("init encryption: %w", keyErr)
-		}
-		encryptor = crypto.NewEncryptor(keyProvider)
-		logger.Info("encryption enabled for webhook secret decryption")
+	encKey := os.Getenv("ENCRYPTION_KEY")
+	if encKey == "" {
+		return fmt.Errorf("ENCRYPTION_KEY is required")
 	}
+	keyProvider, keyErr := crypto.NewEnvKeyProvider(encKey, nil)
+	if keyErr != nil {
+		return fmt.Errorf("init encryption: %w", keyErr)
+	}
+	encryptor := crypto.NewEncryptor(keyProvider)
+	logger.Info("encryption enabled for webhook secret decryption")
 
 	workerID := getEnv("WORKER_ID", "")
 

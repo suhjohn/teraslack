@@ -11,31 +11,32 @@ import (
 	"github.com/suhjohn/teraslack/internal/repository"
 )
 
-// EventRecorder defines the interface for recording service-level events.
+// EventRecorder defines the interface for recording internal events.
 // Services call Record() after successful mutations to append events to
 // the event store with actor identity and explicit payload control.
 type EventRecorder interface {
-	Record(ctx context.Context, event domain.ServiceEvent) error
+	Record(ctx context.Context, event domain.InternalEvent) error
 	// WithTx returns an EventRecorder that operates within the given transaction.
 	WithTx(tx pgx.Tx) EventRecorder
 }
 
-// eventRecorder is the production implementation backed by EventStoreRepository.
+// eventRecorder is the production implementation backed by InternalEventStoreRepository.
 type eventRecorder struct {
-	store repository.EventStoreRepository
+	store repository.InternalEventStoreRepository
 }
 
-// NewEventRecorder creates a new EventRecorder backed by the given EventStoreRepository.
-func NewEventRecorder(store repository.EventStoreRepository) EventRecorder {
+// NewEventRecorder creates a new EventRecorder backed by the given InternalEventStoreRepository.
+func NewEventRecorder(store repository.InternalEventStoreRepository) EventRecorder {
 	return &eventRecorder{store: store}
 }
 
-// Record appends a service event to the event store.
+// Record appends an internal event to the event store.
 // It extracts the actor_id from the request context if not already set.
-func (r *eventRecorder) Record(ctx context.Context, event domain.ServiceEvent) error {
-	// Extract actor_id from auth context if not explicitly set
+func (r *eventRecorder) Record(ctx context.Context, event domain.InternalEvent) error {
+	// Extract actor_id from auth context if not explicitly set.
+	// This uses the effective actor for delegated API key requests.
 	if event.ActorID == "" {
-		event.ActorID = ctxutil.GetUserID(ctx)
+		event.ActorID = ctxutil.GetActingUserID(ctx)
 	}
 
 	// Ensure payload is valid JSON
@@ -58,7 +59,7 @@ func (r *eventRecorder) WithTx(tx pgx.Tx) EventRecorder {
 // noopRecorder is a no-op implementation used when no event recorder is configured.
 type noopRecorder struct{}
 
-func (noopRecorder) Record(ctx context.Context, event domain.ServiceEvent) error {
+func (noopRecorder) Record(ctx context.Context, event domain.InternalEvent) error {
 	return nil
 }
 

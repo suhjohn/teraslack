@@ -1,4 +1,4 @@
-// cmd/webhook-producer is a standalone process that tails service_events,
+// cmd/webhook-producer is a standalone process that tails external_events,
 // looks up matching webhook subscriptions, and fans out delivery jobs to an
 // S3-backed queue. It runs separately from both the API server and the
 // webhook worker.
@@ -30,7 +30,7 @@ func main() {
 func run() error {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
 
-	// Database connection (needed to tail service_events and query subscriptions)
+	// Database connection (needed to tail external_events and query subscriptions)
 	dbURL := os.Getenv("DATABASE_URL")
 	if dbURL == "" {
 		return fmt.Errorf("DATABASE_URL is required")

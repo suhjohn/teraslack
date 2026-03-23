@@ -39,11 +39,7 @@ func (r *UserRepo) Create(ctx context.Context, params domain.CreateUserParams) (
 	if err != nil {
 		return nil, fmt.Errorf("marshal profile: %w", err)
 	}
-
-	pt := string(params.PrincipalType)
-	if pt == "" {
-		pt = string(domain.PrincipalTypeHuman)
-	}
+	accountType := domain.NormalizeAccountType(params.PrincipalType, params.AccountType)
 
 	row, err := r.q.CreateUser(ctx, sqlcgen.CreateUserParams{
 		ID:            id,
@@ -52,10 +48,10 @@ func (r *UserRepo) Create(ctx context.Context, params domain.CreateUserParams) (
 		RealName:      params.RealName,
 		DisplayName:   params.DisplayName,
 		Email:         params.Email,
-		PrincipalType: pt,
+		PrincipalType: string(params.PrincipalType),
 		OwnerID:       params.OwnerID,
 		IsBot:         params.IsBot,
-		IsAdmin:       params.IsAdmin,
+		AccountType:   string(accountType),
 		Profile:       profileJSON,
 	})
 	if err != nil {
@@ -76,15 +72,18 @@ func (r *UserRepo) Get(ctx context.Context, id string) (*domain.User, error) {
 	return userFieldsToDomain(getUserRowToFields(row))
 }
 
-func (r *UserRepo) GetByEmail(ctx context.Context, email string) (*domain.User, error) {
-	row, err := r.q.GetUserByEmail(ctx, email)
+func (r *UserRepo) GetByTeamEmail(ctx context.Context, teamID, email string) (*domain.User, error) {
+	row, err := r.q.GetUserByTeamEmail(ctx, sqlcgen.GetUserByTeamEmailParams{
+		TeamID: teamID,
+		Email:  email,
+	})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, domain.ErrNotFound
 		}
-		return nil, fmt.Errorf("get user by email: %w", err)
+		return nil, fmt.Errorf("get user by team email: %w", err)
 	}
-	return userFieldsToDomain(getUserByEmailRowToFields(row))
+	return userFieldsToDomain(getUserByTeamEmailRowToFields(row))
 }
 
 func (r *UserRepo) Update(ctx context.Context, id string, params domain.UpdateUserParams) (*domain.User, error) {
@@ -105,13 +104,9 @@ func (r *UserRepo) Update(ctx context.Context, id string, params domain.UpdateUs
 	if params.Email != nil {
 		email = *params.Email
 	}
-	isAdmin := existing.IsAdmin
-	if params.IsAdmin != nil {
-		isAdmin = *params.IsAdmin
-	}
-	isRestricted := existing.IsRestricted
-	if params.IsRestricted != nil {
-		isRestricted = *params.IsRestricted
+	accountType := existing.EffectiveAccountType()
+	if params.AccountType != nil {
+		accountType = domain.NormalizeAccountType(existing.PrincipalType, *params.AccountType)
 	}
 	deleted := existing.Deleted
 	if params.Deleted != nil {
@@ -128,14 +123,13 @@ func (r *UserRepo) Update(ctx context.Context, id string, params domain.UpdateUs
 	}
 
 	row, err := r.q.UpdateUser(ctx, sqlcgen.UpdateUserParams{
-		ID:           id,
-		RealName:     realName,
-		DisplayName:  displayName,
-		Email:        email,
-		IsAdmin:      isAdmin,
-		IsRestricted: isRestricted,
-		Deleted:      deleted,
-		Profile:      profileJSON,
+		ID:          id,
+		RealName:    realName,
+		DisplayName: displayName,
+		Email:       email,
+		AccountType: string(accountType),
+		Deleted:     deleted,
+		Profile:     profileJSON,
 	})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {

@@ -9,18 +9,39 @@ import (
 	"github.com/suhjohn/teraslack/internal/repository/sqlcgen"
 )
 
-func tsToTime(ts pgtype.Timestamptz) time.Time {
-	if ts.Valid {
-		return ts.Time
+func tsToTime(ts any) time.Time {
+	switch v := ts.(type) {
+	case pgtype.Timestamptz:
+		if v.Valid {
+			return v.Time
+		}
+		return time.Time{}
+	case time.Time:
+		return v
+	case *time.Time:
+		if v != nil {
+			return *v
+		}
+		return time.Time{}
+	default:
+		return time.Time{}
 	}
-	return time.Time{}
 }
 
-func tsToTimePtr(ts pgtype.Timestamptz) *time.Time {
-	if ts.Valid {
-		return &ts.Time
+func tsToTimePtr(ts any) *time.Time {
+	switch v := ts.(type) {
+	case pgtype.Timestamptz:
+		if v.Valid {
+			return &v.Time
+		}
+		return nil
+	case time.Time:
+		return &v
+	case *time.Time:
+		return v
+	default:
+		return nil
 	}
-	return nil
 }
 
 func textToStringPtr(t pgtype.Text) *string {
@@ -47,10 +68,10 @@ func stringToText(s string) pgtype.Text {
 // userFields is a common struct for user row conversion.
 type userFields struct {
 	ID, TeamID, Name, RealName, DisplayName, Email string
-	PrincipalType, OwnerID                         string
-	IsBot, IsAdmin, IsOwner, IsRestricted, Deleted  bool
-	Profile                                         []byte
-	CreatedAt, UpdatedAt                            pgtype.Timestamptz
+	PrincipalType, OwnerID, AccountType            string
+	IsBot, Deleted                                 bool
+	Profile                                        []byte
+	CreatedAt, UpdatedAt                           time.Time
 }
 
 func userFieldsToDomain(u userFields) (*domain.User, error) {
@@ -60,10 +81,6 @@ func userFieldsToDomain(u userFields) (*domain.User, error) {
 			return nil, err
 		}
 	}
-	pt := domain.PrincipalType(u.PrincipalType)
-	if pt == "" {
-		pt = domain.PrincipalTypeHuman
-	}
 	return &domain.User{
 		ID:            u.ID,
 		TeamID:        u.TeamID,
@@ -71,16 +88,14 @@ func userFieldsToDomain(u userFields) (*domain.User, error) {
 		RealName:      u.RealName,
 		DisplayName:   u.DisplayName,
 		Email:         u.Email,
-		PrincipalType: pt,
+		PrincipalType: domain.PrincipalType(u.PrincipalType),
 		OwnerID:       u.OwnerID,
+		AccountType:   domain.AccountType(u.AccountType),
 		IsBot:         u.IsBot,
-		IsAdmin:       u.IsAdmin,
-		IsOwner:       u.IsOwner,
-		IsRestricted:  u.IsRestricted,
 		Deleted:       u.Deleted,
 		Profile:       profile,
-		CreatedAt:     tsToTime(u.CreatedAt),
-		UpdatedAt:     tsToTime(u.UpdatedAt),
+		CreatedAt:     u.CreatedAt,
+		UpdatedAt:     u.UpdatedAt,
 	}, nil
 }
 
@@ -88,8 +103,7 @@ func createUserRowToFields(r sqlcgen.CreateUserRow) userFields {
 	return userFields{
 		ID: r.ID, TeamID: r.TeamID, Name: r.Name, RealName: r.RealName,
 		DisplayName: r.DisplayName, Email: r.Email, PrincipalType: r.PrincipalType,
-		OwnerID: r.OwnerID, IsBot: r.IsBot, IsAdmin: r.IsAdmin, IsOwner: r.IsOwner,
-		IsRestricted: r.IsRestricted, Deleted: r.Deleted, Profile: r.Profile,
+		OwnerID: r.OwnerID, AccountType: r.AccountType, IsBot: r.IsBot, Deleted: r.Deleted, Profile: r.Profile,
 		CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt,
 	}
 }
@@ -98,18 +112,16 @@ func getUserRowToFields(r sqlcgen.GetUserRow) userFields {
 	return userFields{
 		ID: r.ID, TeamID: r.TeamID, Name: r.Name, RealName: r.RealName,
 		DisplayName: r.DisplayName, Email: r.Email, PrincipalType: r.PrincipalType,
-		OwnerID: r.OwnerID, IsBot: r.IsBot, IsAdmin: r.IsAdmin, IsOwner: r.IsOwner,
-		IsRestricted: r.IsRestricted, Deleted: r.Deleted, Profile: r.Profile,
+		OwnerID: r.OwnerID, AccountType: r.AccountType, IsBot: r.IsBot, Deleted: r.Deleted, Profile: r.Profile,
 		CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt,
 	}
 }
 
-func getUserByEmailRowToFields(r sqlcgen.GetUserByEmailRow) userFields {
+func getUserByTeamEmailRowToFields(r sqlcgen.GetUserByTeamEmailRow) userFields {
 	return userFields{
 		ID: r.ID, TeamID: r.TeamID, Name: r.Name, RealName: r.RealName,
 		DisplayName: r.DisplayName, Email: r.Email, PrincipalType: r.PrincipalType,
-		OwnerID: r.OwnerID, IsBot: r.IsBot, IsAdmin: r.IsAdmin, IsOwner: r.IsOwner,
-		IsRestricted: r.IsRestricted, Deleted: r.Deleted, Profile: r.Profile,
+		OwnerID: r.OwnerID, AccountType: r.AccountType, IsBot: r.IsBot, Deleted: r.Deleted, Profile: r.Profile,
 		CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt,
 	}
 }
@@ -118,8 +130,7 @@ func updateUserRowToFields(r sqlcgen.UpdateUserRow) userFields {
 	return userFields{
 		ID: r.ID, TeamID: r.TeamID, Name: r.Name, RealName: r.RealName,
 		DisplayName: r.DisplayName, Email: r.Email, PrincipalType: r.PrincipalType,
-		OwnerID: r.OwnerID, IsBot: r.IsBot, IsAdmin: r.IsAdmin, IsOwner: r.IsOwner,
-		IsRestricted: r.IsRestricted, Deleted: r.Deleted, Profile: r.Profile,
+		OwnerID: r.OwnerID, AccountType: r.AccountType, IsBot: r.IsBot, Deleted: r.Deleted, Profile: r.Profile,
 		CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt,
 	}
 }
@@ -128,8 +139,7 @@ func listUserRowToFields(r sqlcgen.ListUsersRow) userFields {
 	return userFields{
 		ID: r.ID, TeamID: r.TeamID, Name: r.Name, RealName: r.RealName,
 		DisplayName: r.DisplayName, Email: r.Email, PrincipalType: r.PrincipalType,
-		OwnerID: r.OwnerID, IsBot: r.IsBot, IsAdmin: r.IsAdmin, IsOwner: r.IsOwner,
-		IsRestricted: r.IsRestricted, Deleted: r.Deleted, Profile: r.Profile,
+		OwnerID: r.OwnerID, AccountType: r.AccountType, IsBot: r.IsBot, Deleted: r.Deleted, Profile: r.Profile,
 		CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt,
 	}
 }
@@ -251,6 +261,7 @@ func bookmarkToDomain(b sqlcgen.Bookmark) *domain.Bookmark {
 func fileToDomain(f sqlcgen.GetFileRow) *domain.File {
 	return &domain.File{
 		ID:                 f.ID,
+		TeamID:             f.TeamID,
 		Name:               f.Name,
 		Title:              f.Title,
 		Mimetype:           f.Mimetype,
@@ -270,6 +281,7 @@ func fileToDomain(f sqlcgen.GetFileRow) *domain.File {
 func fileListToDomain(f sqlcgen.ListFilesRow) *domain.File {
 	return &domain.File{
 		ID:                 f.ID,
+		TeamID:             f.TeamID,
 		Name:               f.Name,
 		Title:              f.Title,
 		Mimetype:           f.Mimetype,
@@ -289,6 +301,7 @@ func fileListToDomain(f sqlcgen.ListFilesRow) *domain.File {
 func fileByUserToDomain(f sqlcgen.ListFilesByUserRow) *domain.File {
 	return &domain.File{
 		ID:                 f.ID,
+		TeamID:             f.TeamID,
 		Name:               f.Name,
 		Title:              f.Title,
 		Mimetype:           f.Mimetype,
@@ -308,6 +321,7 @@ func fileByUserToDomain(f sqlcgen.ListFilesByUserRow) *domain.File {
 func fileByChannelToDomain(f sqlcgen.ListFilesByChannelRow) *domain.File {
 	return &domain.File{
 		ID:                 f.ID,
+		TeamID:             f.TeamID,
 		Name:               f.Name,
 		Title:              f.Title,
 		Mimetype:           f.Mimetype,
@@ -327,6 +341,7 @@ func fileByChannelToDomain(f sqlcgen.ListFilesByChannelRow) *domain.File {
 func fileByChannelAndUserToDomain(f sqlcgen.ListFilesByChannelAndUserRow) *domain.File {
 	return &domain.File{
 		ID:                 f.ID,
+		TeamID:             f.TeamID,
 		Name:               f.Name,
 		Title:              f.Title,
 		Mimetype:           f.Mimetype,
@@ -345,82 +360,65 @@ func fileByChannelAndUserToDomain(f sqlcgen.ListFilesByChannelAndUserRow) *domai
 
 func createEventSubRowToDomain(e sqlcgen.CreateEventSubscriptionRow) *domain.EventSubscription {
 	return &domain.EventSubscription{
-		ID: e.ID, TeamID: e.TeamID, URL: e.Url, EventTypes: e.EventTypes,
-		Secret: e.Secret, EncryptedSecret: e.EncryptedSecret, Enabled: e.Enabled,
+		ID: e.ID, TeamID: e.TeamID, URL: e.Url, Type: e.EventType, ResourceType: e.ResourceType, ResourceID: e.ResourceID,
+		EncryptedSecret: e.EncryptedSecret, Enabled: e.Enabled,
 		CreatedAt: tsToTime(e.CreatedAt), UpdatedAt: tsToTime(e.UpdatedAt),
 	}
 }
 
 func getEventSubRowToDomain(e sqlcgen.GetEventSubscriptionRow) *domain.EventSubscription {
 	return &domain.EventSubscription{
-		ID: e.ID, TeamID: e.TeamID, URL: e.Url, EventTypes: e.EventTypes,
-		Secret: e.Secret, EncryptedSecret: e.EncryptedSecret, Enabled: e.Enabled,
+		ID: e.ID, TeamID: e.TeamID, URL: e.Url, Type: e.EventType, ResourceType: e.ResourceType, ResourceID: e.ResourceID,
+		EncryptedSecret: e.EncryptedSecret, Enabled: e.Enabled,
 		CreatedAt: tsToTime(e.CreatedAt), UpdatedAt: tsToTime(e.UpdatedAt),
 	}
 }
 
 func updateEventSubRowToDomain(e sqlcgen.UpdateEventSubscriptionRow) *domain.EventSubscription {
 	return &domain.EventSubscription{
-		ID: e.ID, TeamID: e.TeamID, URL: e.Url, EventTypes: e.EventTypes,
-		Secret: e.Secret, EncryptedSecret: e.EncryptedSecret, Enabled: e.Enabled,
+		ID: e.ID, TeamID: e.TeamID, URL: e.Url, Type: e.EventType, ResourceType: e.ResourceType, ResourceID: e.ResourceID,
+		EncryptedSecret: e.EncryptedSecret, Enabled: e.Enabled,
 		CreatedAt: tsToTime(e.CreatedAt), UpdatedAt: tsToTime(e.UpdatedAt),
 	}
 }
 
 func listEventSubRowToDomain(e sqlcgen.ListEventSubscriptionsRow) *domain.EventSubscription {
 	return &domain.EventSubscription{
-		ID: e.ID, TeamID: e.TeamID, URL: e.Url, EventTypes: e.EventTypes,
-		Secret: e.Secret, EncryptedSecret: e.EncryptedSecret, Enabled: e.Enabled,
+		ID: e.ID, TeamID: e.TeamID, URL: e.Url, Type: e.EventType, ResourceType: e.ResourceType, ResourceID: e.ResourceID,
+		EncryptedSecret: e.EncryptedSecret, Enabled: e.Enabled,
 		CreatedAt: tsToTime(e.CreatedAt), UpdatedAt: tsToTime(e.UpdatedAt),
 	}
 }
 
 func listEventSubByTeamEventRowToDomain(e sqlcgen.ListEventSubscriptionsByTeamAndEventRow) *domain.EventSubscription {
 	return &domain.EventSubscription{
-		ID: e.ID, TeamID: e.TeamID, URL: e.Url, EventTypes: e.EventTypes,
-		Secret: e.Secret, EncryptedSecret: e.EncryptedSecret, Enabled: e.Enabled,
+		ID: e.ID, TeamID: e.TeamID, URL: e.Url, Type: e.EventType, ResourceType: e.ResourceType, ResourceID: e.ResourceID,
+		EncryptedSecret: e.EncryptedSecret, Enabled: e.Enabled,
 		CreatedAt: tsToTime(e.CreatedAt), UpdatedAt: tsToTime(e.UpdatedAt),
 	}
 }
 
-func createTokenRowToDomain(t sqlcgen.CreateTokenRow) *domain.Token {
-	return &domain.Token{
-		ID:        t.ID,
-		TeamID:    t.TeamID,
-		UserID:    t.UserID,
-		Token:     t.Token,
-		TokenHash: t.TokenHash,
-		Scopes:    t.Scopes,
-		IsBot:     t.IsBot,
-		ExpiresAt: tsToTimePtr(t.ExpiresAt),
-		CreatedAt: tsToTime(t.CreatedAt),
+func authSessionToDomain(s sqlcgen.AuthSession) *domain.AuthSession {
+	return &domain.AuthSession{
+		ID:        s.ID,
+		TeamID:    s.TeamID,
+		UserID:    s.UserID,
+		Provider:  domain.AuthProvider(s.Provider),
+		ExpiresAt: tsToTime(s.ExpiresAt),
+		RevokedAt: tsToTimePtr(s.RevokedAt),
+		CreatedAt: tsToTime(s.CreatedAt),
 	}
 }
 
-func tokenHashRowToDomain(t sqlcgen.GetByTokenHashRow) *domain.Token {
-	return &domain.Token{
-		ID:        t.ID,
-		TeamID:    t.TeamID,
-		UserID:    t.UserID,
-		Token:     t.Token,
-		TokenHash: t.TokenHash,
-		Scopes:    t.Scopes,
-		IsBot:     t.IsBot,
-		ExpiresAt: tsToTimePtr(t.ExpiresAt),
-		CreatedAt: tsToTime(t.CreatedAt),
-	}
-}
-
-func tokenByIDRowToDomain(t sqlcgen.GetTokenByIDRow) *domain.Token {
-	return &domain.Token{
-		ID:        t.ID,
-		TeamID:    t.TeamID,
-		UserID:    t.UserID,
-		Token:     t.Token,
-		TokenHash: t.TokenHash,
-		Scopes:    t.Scopes,
-		IsBot:     t.IsBot,
-		ExpiresAt: tsToTimePtr(t.ExpiresAt),
-		CreatedAt: tsToTime(t.CreatedAt),
+func oauthAccountToDomain(a sqlcgen.OauthAccount) *domain.OAuthAccount {
+	return &domain.OAuthAccount{
+		ID:              a.ID,
+		TeamID:          a.TeamID,
+		UserID:          a.UserID,
+		Provider:        domain.AuthProvider(a.Provider),
+		ProviderSubject: a.ProviderSubject,
+		Email:           a.Email,
+		CreatedAt:       tsToTime(a.CreatedAt),
+		UpdatedAt:       tsToTime(a.UpdatedAt),
 	}
 }

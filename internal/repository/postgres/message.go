@@ -34,11 +34,13 @@ func (r *MessageRepo) Create(ctx context.Context, params domain.PostMessageParam
 
 	if params.ThreadTS != "" {
 		// Thread reply requires updating parent stats in same tx
-		tx, err := r.db.Begin(ctx)
+		tx, ownTx, err := beginOwnedTx(ctx, r.db)
 		if err != nil {
 			return nil, fmt.Errorf("begin tx: %w", err)
 		}
-		defer tx.Rollback(ctx)
+		if ownTx {
+			defer tx.Rollback(ctx)
+		}
 		qtx := r.q.WithTx(tx)
 
 		row, err := qtx.CreateMessage(ctx, sqlcgen.CreateMessageParams{
@@ -63,8 +65,10 @@ func (r *MessageRepo) Create(ctx context.Context, params domain.PostMessageParam
 			return nil, fmt.Errorf("update parent reply stats: %w", err)
 		}
 
-		if err := tx.Commit(ctx); err != nil {
-			return nil, fmt.Errorf("commit tx: %w", err)
+		if ownTx {
+			if err := tx.Commit(ctx); err != nil {
+				return nil, fmt.Errorf("commit tx: %w", err)
+			}
 		}
 
 		return msgToDomain(row), nil
@@ -249,21 +253,34 @@ func (r *MessageRepo) ListReplies(ctx context.Context, params domain.ListReplies
 }
 
 func (r *MessageRepo) AddReaction(ctx context.Context, params domain.AddReactionParams) error {
-	return r.q.AddReaction(ctx, sqlcgen.AddReactionParams{
-		ChannelID: params.ChannelID,
-		MessageTs: params.MessageTS,
-		UserID:    params.UserID,
-		Emoji:     params.Emoji,
-	})
+	tag, err := r.db.Exec(ctx,
+		`INSERT INTO reactions (channel_id, message_ts, user_id, emoji)
+		 VALUES ($1, $2, $3, $4)
+		 ON CONFLICT (channel_id, message_ts, user_id, emoji) DO NOTHING`,
+		params.ChannelID, params.MessageTS, params.UserID, params.Emoji,
+	)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return domain.ErrAlreadyReacted
+	}
+	return nil
 }
 
 func (r *MessageRepo) RemoveReaction(ctx context.Context, params domain.RemoveReactionParams) error {
-	return r.q.RemoveReaction(ctx, sqlcgen.RemoveReactionParams{
-		ChannelID: params.ChannelID,
-		MessageTs: params.MessageTS,
-		UserID:    params.UserID,
-		Emoji:     params.Emoji,
-	})
+	tag, err := r.db.Exec(ctx,
+		`DELETE FROM reactions
+		 WHERE channel_id = $1 AND message_ts = $2 AND user_id = $3 AND emoji = $4`,
+		params.ChannelID, params.MessageTS, params.UserID, params.Emoji,
+	)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return domain.ErrNoReaction
+	}
+	return nil
 }
 
 func (r *MessageRepo) GetReactions(ctx context.Context, channelID, messageTS string) ([]domain.Reaction, error) {

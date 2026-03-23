@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 
+	"github.com/suhjohn/teraslack/internal/ctxutil"
 	"github.com/suhjohn/teraslack/internal/domain"
 	"github.com/suhjohn/teraslack/internal/repository"
 )
@@ -32,6 +33,11 @@ func (s *PinService) Add(ctx context.Context, params domain.PinParams) (*domain.
 	if params.ChannelID == "" || params.MessageTS == "" {
 		return nil, fmt.Errorf("channel and timestamp: %w", domain.ErrInvalidArgument)
 	}
+	actorID, err := resolveActorID(ctx, params.UserID)
+	if err != nil {
+		return nil, err
+	}
+	params.UserID = actorID
 
 	// Verify channel exists and is not archived
 	conv, err := s.convRepo.Get(ctx, params.ChannelID)
@@ -40,6 +46,9 @@ func (s *PinService) Add(ctx context.Context, params domain.PinParams) (*domain.
 	}
 	if conv.IsArchived {
 		return nil, domain.ErrChannelArchived
+	}
+	if err := ensureTeamAccess(ctx, conv.TeamID); err != nil {
+		return nil, err
 	}
 
 	// Verify message exists
@@ -58,11 +67,12 @@ func (s *PinService) Add(ctx context.Context, params domain.PinParams) (*domain.
 		return nil, err
 	}
 	payload, _ := json.Marshal(pin)
-	if err := s.recorder.WithTx(tx).Record(ctx, domain.ServiceEvent{
+	if err := s.recorder.WithTx(tx).Record(ctx, domain.InternalEvent{
 		EventType:     domain.EventPinAdded,
 		AggregateType: domain.AggregatePin,
 		AggregateID:   pin.ChannelID + ":" + pin.MessageTS,
 		TeamID:        conv.TeamID,
+		ActorID:       actorID,
 		Payload:       payload,
 	}); err != nil {
 		return nil, fmt.Errorf("record pin.added event: %w", err)
@@ -78,6 +88,13 @@ func (s *PinService) Remove(ctx context.Context, params domain.PinParams) error 
 	if params.ChannelID == "" || params.MessageTS == "" {
 		return fmt.Errorf("channel and timestamp: %w", domain.ErrInvalidArgument)
 	}
+	conv, err := s.convRepo.Get(ctx, params.ChannelID)
+	if err != nil {
+		return fmt.Errorf("channel: %w", err)
+	}
+	if err := ensureTeamAccess(ctx, conv.TeamID); err != nil {
+		return err
+	}
 
 	tx, err := s.db.Begin(ctx)
 	if err != nil {
@@ -89,11 +106,12 @@ func (s *PinService) Remove(ctx context.Context, params domain.PinParams) error 
 		return err
 	}
 	payload, _ := json.Marshal(params)
-	if err := s.recorder.WithTx(tx).Record(ctx, domain.ServiceEvent{
+	if err := s.recorder.WithTx(tx).Record(ctx, domain.InternalEvent{
 		EventType:     domain.EventPinRemoved,
 		AggregateType: domain.AggregatePin,
 		AggregateID:   params.ChannelID + ":" + params.MessageTS,
-		TeamID:        "",
+		TeamID:        conv.TeamID,
+		ActorID:       ctxutil.GetActingUserID(ctx),
 		Payload:       payload,
 	}); err != nil {
 		return fmt.Errorf("record pin.removed event: %w", err)
@@ -108,6 +126,13 @@ func (s *PinService) Remove(ctx context.Context, params domain.PinParams) error 
 func (s *PinService) List(ctx context.Context, channelID string) ([]domain.Pin, error) {
 	if channelID == "" {
 		return nil, fmt.Errorf("channel: %w", domain.ErrInvalidArgument)
+	}
+	conv, err := s.convRepo.Get(ctx, channelID)
+	if err != nil {
+		return nil, fmt.Errorf("channel: %w", err)
+	}
+	if err := ensureTeamAccess(ctx, conv.TeamID); err != nil {
+		return nil, err
 	}
 	return s.repo.List(ctx, domain.ListPinsParams{ChannelID: channelID})
 }

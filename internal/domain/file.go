@@ -5,6 +5,7 @@ import "time"
 // File represents an uploaded file.
 type File struct {
 	ID                 string    `json:"id"`
+	TeamID             string    `json:"team_id"`
 	Name               string    `json:"name"`
 	Title              string    `json:"title"`
 	Mimetype           string    `json:"mimetype"`
@@ -35,14 +36,15 @@ type GetUploadURLResponse struct {
 
 // CompleteUploadParams holds the parameters for completing a file upload.
 type CompleteUploadParams struct {
-	FileID    string   `json:"file_id"`
-	Title     string   `json:"title,omitempty"`
-	ChannelID string   `json:"channel_id,omitempty"`
-	ThreadTS  string   `json:"thread_ts,omitempty"`
+	FileID    string `json:"file_id"`
+	Title     string `json:"title,omitempty"`
+	ChannelID string `json:"channel_id,omitempty"`
+	ThreadTS  string `json:"thread_ts,omitempty"`
 }
 
 // ListFilesParams holds the parameters for listing files.
 type ListFilesParams struct {
+	TeamID    string `json:"team_id"`
 	ChannelID string `json:"channel_id,omitempty"`
 	UserID    string `json:"user_id,omitempty"`
 	Cursor    string `json:"cursor"`
@@ -59,6 +61,6 @@ type AddRemoteFileParams struct {
 
 // ShareRemoteFileParams holds the parameters for sharing a remote file.
 type ShareRemoteFileParams struct {
-	FileID    string   `json:"file_id"`
-	Channels  []string `json:"channels"`
+	FileID   string   `json:"file_id"`
+	Channels []string `json:"channels"`
 }

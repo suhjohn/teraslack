@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/suhjohn/teraslack/internal/ctxutil"
 	"github.com/suhjohn/teraslack/internal/domain"
 	"github.com/suhjohn/teraslack/internal/service"
 	"github.com/suhjohn/teraslack/pkg/httputil"
@@ -19,132 +20,128 @@ func NewFileHandler(svc *service.FileService) *FileHandler {
 	return &FileHandler{svc: svc}
 }
 
-// GetUploadURL handles POST /files/upload_url
+// GetUploadURL handles POST /file-uploads.
 func (h *FileHandler) GetUploadURL(w http.ResponseWriter, r *http.Request) {
 	var params domain.GetUploadURLParams
 	if err := httputil.DecodeJSON(r, &params); err != nil {
-		httputil.WriteError(w, domain.ErrInvalidArgument)
+		httputil.WriteError(w, r, domain.ErrInvalidArgument)
 		return
 	}
 
 	resp, err := h.svc.GetUploadURL(r.Context(), params)
 	if err != nil {
-		httputil.WriteError(w, err)
+		httputil.WriteError(w, r, err)
 		return
 	}
 
-	httputil.WriteOK(w, map[string]any{
-		"upload_url": resp.UploadURL,
-		"file_id":    resp.FileID,
-	})
+	httputil.WriteCreated(w, "/file-uploads/"+resp.FileID, resp)
 }
 
-// CompleteUpload handles POST /files/{id}/complete
+// CompleteUpload handles POST /file-uploads/{id}/complete.
 func (h *FileHandler) CompleteUpload(w http.ResponseWriter, r *http.Request) {
 	var params domain.CompleteUploadParams
 	if err := httputil.DecodeJSON(r, &params); err != nil {
-		httputil.WriteError(w, domain.ErrInvalidArgument)
+		httputil.WriteError(w, r, domain.ErrInvalidArgument)
 		return
 	}
+	params.FileID = r.PathValue("id")
 
 	file, err := h.svc.CompleteUpload(r.Context(), params)
 	if err != nil {
-		httputil.WriteError(w, err)
+		httputil.WriteError(w, r, err)
 		return
 	}
 
-	httputil.WriteOK(w, map[string]any{"file": file})
+	httputil.WriteResource(w, http.StatusOK, file)
 }
 
-// Info handles GET /files/{id}
+// Info handles GET /files/{id}.
 func (h *FileHandler) Info(w http.ResponseWriter, r *http.Request) {
 	fileID := r.PathValue("id")
 	if fileID == "" {
-		httputil.WriteError(w, domain.ErrInvalidArgument)
+		httputil.WriteError(w, r, domain.ErrInvalidArgument)
 		return
 	}
 
 	file, err := h.svc.Get(r.Context(), fileID)
 	if err != nil {
-		httputil.WriteError(w, err)
+		httputil.WriteError(w, r, err)
 		return
 	}
 
-	httputil.WriteOK(w, map[string]any{"file": file})
+	httputil.WriteResource(w, http.StatusOK, file)
 }
 
-// Delete handles DELETE /files/{id}
+// Delete handles DELETE /files/{id}.
 func (h *FileHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	fileID := r.PathValue("id")
 	if fileID == "" {
-		httputil.WriteError(w, domain.ErrInvalidArgument)
+		httputil.WriteError(w, r, domain.ErrInvalidArgument)
 		return
 	}
 
 	if err := h.svc.Delete(r.Context(), fileID); err != nil {
-		httputil.WriteError(w, err)
+		httputil.WriteError(w, r, err)
 		return
 	}
 
-	httputil.WriteOK(w, nil)
+	httputil.WriteNoContent(w)
 }
 
-// List handles GET /files?channel=C123&user=U123&cursor=...&limit=100
+// List handles GET /files.
 func (h *FileHandler) List(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	limit, _ := strconv.Atoi(q.Get("limit"))
 
 	page, err := h.svc.List(r.Context(), domain.ListFilesParams{
-		ChannelID: q.Get("channel"),
-		UserID:    q.Get("user"),
+		ChannelID: q.Get("conversation_id"),
+		UserID:    q.Get("user_id"),
 		Cursor:    q.Get("cursor"),
 		Limit:     limit,
 	})
 	if err != nil {
-		httputil.WriteError(w, err)
+		httputil.WriteError(w, r, err)
 		return
 	}
 
-	resp := map[string]any{
-		"files": page.Items,
-	}
+	nextCursor := ""
 	if page.HasMore {
-		resp["response_metadata"] = map[string]any{
-			"next_cursor": page.NextCursor,
-		}
+		nextCursor = page.NextCursor
 	}
-	httputil.WriteOK(w, resp)
+	httputil.WriteCollection(w, http.StatusOK, page.Items, nextCursor)
 }
 
-// AddRemoteFile handles POST /files/remote
+// AddRemoteFile handles POST /files.
 func (h *FileHandler) AddRemoteFile(w http.ResponseWriter, r *http.Request) {
 	var params domain.AddRemoteFileParams
 	if err := httputil.DecodeJSON(r, &params); err != nil {
-		httputil.WriteError(w, domain.ErrInvalidArgument)
+		httputil.WriteError(w, r, domain.ErrInvalidArgument)
 		return
 	}
+	params.UserID = ctxutil.GetActingUserID(r.Context())
 
 	file, err := h.svc.AddRemoteFile(r.Context(), params)
 	if err != nil {
-		httputil.WriteError(w, err)
+		httputil.WriteError(w, r, err)
 		return
 	}
 
-	httputil.WriteOK(w, map[string]any{"file": file})
+	httputil.WriteCreated(w, "/files/"+file.ID, file)
 }
 
-// ShareRemoteFile handles POST /files/{id}/share
+// ShareRemoteFile handles POST /files/{id}/shares.
 func (h *FileHandler) ShareRemoteFile(w http.ResponseWriter, r *http.Request) {
 	var params domain.ShareRemoteFileParams
 	if err := httputil.DecodeJSON(r, &params); err != nil {
-		httputil.WriteError(w, domain.ErrInvalidArgument)
+		httputil.WriteError(w, r, domain.ErrInvalidArgument)
 		return
 	}
+	params.FileID = r.PathValue("id")
 
 	if err := h.svc.ShareRemoteFile(r.Context(), params); err != nil {
-		httputil.WriteError(w, err)
+		httputil.WriteError(w, r, err)
 		return
 	}
 
-	httputil.WriteOK(w, nil)
+	httputil.WriteNoContent(w)
 }

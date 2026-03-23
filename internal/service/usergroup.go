@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 
+	"github.com/suhjohn/teraslack/internal/ctxutil"
 	"github.com/suhjohn/teraslack/internal/domain"
 	"github.com/suhjohn/teraslack/internal/repository"
 )
@@ -28,18 +29,27 @@ func NewUsergroupService(repo repository.UsergroupRepository, userRepo repositor
 }
 
 func (s *UsergroupService) Create(ctx context.Context, params domain.CreateUsergroupParams) (*domain.Usergroup, error) {
-	if params.TeamID == "" {
-		return nil, fmt.Errorf("team_id: %w", domain.ErrInvalidArgument)
+	if requiresAuthenticatedActor(ctx) {
+		if _, err := requireWorkspaceAdminActor(ctx, s.userRepo); err != nil {
+			return nil, err
+		}
 	}
+	teamID, err := resolveTeamID(ctx, params.TeamID)
+	if err != nil {
+		return nil, err
+	}
+	params.TeamID = teamID
 	if params.Name == "" {
 		return nil, fmt.Errorf("name: %w", domain.ErrInvalidArgument)
 	}
 	if params.Handle == "" {
 		return nil, fmt.Errorf("handle: %w", domain.ErrInvalidArgument)
 	}
-	if params.CreatedBy == "" {
-		return nil, fmt.Errorf("created_by: %w", domain.ErrInvalidArgument)
+	actorID, err := resolveActorID(ctx, params.CreatedBy)
+	if err != nil {
+		return nil, err
 	}
+	params.CreatedBy = actorID
 	tx, err := s.db.Begin(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("begin tx: %w", err)
@@ -51,11 +61,12 @@ func (s *UsergroupService) Create(ctx context.Context, params domain.CreateUserg
 		return nil, err
 	}
 	payload, _ := json.Marshal(ug)
-	if err := s.recorder.WithTx(tx).Record(ctx, domain.ServiceEvent{
+	if err := s.recorder.WithTx(tx).Record(ctx, domain.InternalEvent{
 		EventType:     domain.EventUsergroupCreated,
 		AggregateType: domain.AggregateUsergroup,
 		AggregateID:   ug.ID,
 		TeamID:        ug.TeamID,
+		ActorID:       actorID,
 		Payload:       payload,
 	}); err != nil {
 		return nil, fmt.Errorf("record usergroup.created event: %w", err)
@@ -71,12 +82,37 @@ func (s *UsergroupService) Get(ctx context.Context, id string) (*domain.Usergrou
 	if id == "" {
 		return nil, fmt.Errorf("usergroup: %w", domain.ErrInvalidArgument)
 	}
-	return s.repo.Get(ctx, id)
+	ug, err := s.repo.Get(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if err := ensureTeamAccess(ctx, ug.TeamID); err != nil {
+		return nil, err
+	}
+	return ug, nil
 }
 
 func (s *UsergroupService) Update(ctx context.Context, id string, params domain.UpdateUsergroupParams) (*domain.Usergroup, error) {
 	if id == "" {
 		return nil, fmt.Errorf("usergroup: %w", domain.ErrInvalidArgument)
+	}
+	if requiresAuthenticatedActor(ctx) {
+		if _, err := requireWorkspaceAdminActor(ctx, s.userRepo); err != nil {
+			return nil, err
+		}
+	}
+
+	actorID, err := resolveActorID(ctx, params.UpdatedBy)
+	if err != nil {
+		return nil, err
+	}
+	params.UpdatedBy = actorID
+	ug, err := s.repo.Get(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if err := ensureTeamAccess(ctx, ug.TeamID); err != nil {
+		return nil, err
 	}
 
 	tx, err := s.db.Begin(ctx)
@@ -85,16 +121,17 @@ func (s *UsergroupService) Update(ctx context.Context, id string, params domain.
 	}
 	defer tx.Rollback(ctx)
 
-	ug, err := s.repo.WithTx(tx).Update(ctx, id, params)
+	ug, err = s.repo.WithTx(tx).Update(ctx, id, params)
 	if err != nil {
 		return nil, err
 	}
 	payload, _ := json.Marshal(ug)
-	if err := s.recorder.WithTx(tx).Record(ctx, domain.ServiceEvent{
+	if err := s.recorder.WithTx(tx).Record(ctx, domain.InternalEvent{
 		EventType:     domain.EventUsergroupUpdated,
 		AggregateType: domain.AggregateUsergroup,
 		AggregateID:   ug.ID,
 		TeamID:        ug.TeamID,
+		ActorID:       actorID,
 		Payload:       payload,
 	}); err != nil {
 		return nil, fmt.Errorf("record usergroup.updated event: %w", err)
@@ -107,15 +144,30 @@ func (s *UsergroupService) Update(ctx context.Context, id string, params domain.
 }
 
 func (s *UsergroupService) List(ctx context.Context, params domain.ListUsergroupsParams) ([]domain.Usergroup, error) {
-	if params.TeamID == "" {
-		return nil, fmt.Errorf("team_id: %w", domain.ErrInvalidArgument)
+	teamID, err := resolveTeamID(ctx, params.TeamID)
+	if err != nil {
+		return nil, err
 	}
+	params.TeamID = teamID
 	return s.repo.List(ctx, params)
 }
 
 func (s *UsergroupService) Enable(ctx context.Context, id string) error {
 	if id == "" {
 		return fmt.Errorf("usergroup: %w", domain.ErrInvalidArgument)
+	}
+	if requiresAuthenticatedActor(ctx) {
+		if _, err := requireWorkspaceAdminActor(ctx, s.userRepo); err != nil {
+			return err
+		}
+	}
+
+	ug, err := s.repo.Get(ctx, id)
+	if err != nil {
+		return err
+	}
+	if err := ensureTeamAccess(ctx, ug.TeamID); err != nil {
+		return err
 	}
 
 	tx, err := s.db.Begin(ctx)
@@ -128,14 +180,15 @@ func (s *UsergroupService) Enable(ctx context.Context, id string) error {
 	if err := txRepo.Enable(ctx, id); err != nil {
 		return err
 	}
-	ug, _ := txRepo.Get(ctx, id)
-	if ug != nil {
-		payload, _ := json.Marshal(ug)
-		if err := s.recorder.WithTx(tx).Record(ctx, domain.ServiceEvent{
+	updatedUg, _ := txRepo.Get(ctx, id)
+	if updatedUg != nil {
+		payload, _ := json.Marshal(updatedUg)
+		if err := s.recorder.WithTx(tx).Record(ctx, domain.InternalEvent{
 			EventType:     domain.EventUsergroupEnabled,
 			AggregateType: domain.AggregateUsergroup,
 			AggregateID:   id,
-			TeamID:        ug.TeamID,
+			TeamID:        updatedUg.TeamID,
+			ActorID:       ctxutil.GetActingUserID(ctx),
 			Payload:       payload,
 		}); err != nil {
 			return fmt.Errorf("record usergroup.enabled event: %w", err)
@@ -152,6 +205,19 @@ func (s *UsergroupService) Disable(ctx context.Context, id string) error {
 	if id == "" {
 		return fmt.Errorf("usergroup: %w", domain.ErrInvalidArgument)
 	}
+	if requiresAuthenticatedActor(ctx) {
+		if _, err := requireWorkspaceAdminActor(ctx, s.userRepo); err != nil {
+			return err
+		}
+	}
+
+	ug, err := s.repo.Get(ctx, id)
+	if err != nil {
+		return err
+	}
+	if err := ensureTeamAccess(ctx, ug.TeamID); err != nil {
+		return err
+	}
 
 	tx, err := s.db.Begin(ctx)
 	if err != nil {
@@ -163,14 +229,15 @@ func (s *UsergroupService) Disable(ctx context.Context, id string) error {
 	if err := txRepo.Disable(ctx, id); err != nil {
 		return err
 	}
-	ug, _ := txRepo.Get(ctx, id)
-	if ug != nil {
-		payload, _ := json.Marshal(ug)
-		if err := s.recorder.WithTx(tx).Record(ctx, domain.ServiceEvent{
+	updatedUg, _ := txRepo.Get(ctx, id)
+	if updatedUg != nil {
+		payload, _ := json.Marshal(updatedUg)
+		if err := s.recorder.WithTx(tx).Record(ctx, domain.InternalEvent{
 			EventType:     domain.EventUsergroupDisabled,
 			AggregateType: domain.AggregateUsergroup,
 			AggregateID:   id,
-			TeamID:        ug.TeamID,
+			TeamID:        updatedUg.TeamID,
+			ActorID:       ctxutil.GetActingUserID(ctx),
 			Payload:       payload,
 		}); err != nil {
 			return fmt.Errorf("record usergroup.disabled event: %w", err)
@@ -187,6 +254,13 @@ func (s *UsergroupService) ListUsers(ctx context.Context, usergroupID string) ([
 	if usergroupID == "" {
 		return nil, fmt.Errorf("usergroup: %w", domain.ErrInvalidArgument)
 	}
+	ug, err := s.repo.Get(ctx, usergroupID)
+	if err != nil {
+		return nil, err
+	}
+	if err := ensureTeamAccess(ctx, ug.TeamID); err != nil {
+		return nil, err
+	}
 	return s.repo.ListUsers(ctx, usergroupID)
 }
 
@@ -194,8 +268,17 @@ func (s *UsergroupService) SetUsers(ctx context.Context, usergroupID string, use
 	if usergroupID == "" {
 		return fmt.Errorf("usergroup: %w", domain.ErrInvalidArgument)
 	}
+	if requiresAuthenticatedActor(ctx) {
+		if _, err := requireWorkspaceAdminActor(ctx, s.userRepo); err != nil {
+			return err
+		}
+	}
 	// Verify usergroup exists
-	if _, err := s.repo.Get(ctx, usergroupID); err != nil {
+	ug, err := s.repo.Get(ctx, usergroupID)
+	if err != nil {
+		return err
+	}
+	if err := ensureTeamAccess(ctx, ug.TeamID); err != nil {
 		return err
 	}
 
@@ -209,17 +292,18 @@ func (s *UsergroupService) SetUsers(ctx context.Context, usergroupID string, use
 	if err := txRepo.SetUsers(ctx, usergroupID, userIDs); err != nil {
 		return err
 	}
-	ug, _ := txRepo.Get(ctx, usergroupID)
-	if ug != nil {
+	updatedUg, _ := txRepo.Get(ctx, usergroupID)
+	if updatedUg != nil {
 		payload, _ := json.Marshal(struct {
-			UserIDs   []string         `json:"user_ids"`
+			UserIDs   []string          `json:"user_ids"`
 			Usergroup *domain.Usergroup `json:"usergroup"`
-		}{UserIDs: userIDs, Usergroup: ug})
-		if err := s.recorder.WithTx(tx).Record(ctx, domain.ServiceEvent{
+		}{UserIDs: userIDs, Usergroup: updatedUg})
+		if err := s.recorder.WithTx(tx).Record(ctx, domain.InternalEvent{
 			EventType:     domain.EventUsergroupUserSet,
 			AggregateType: domain.AggregateUsergroup,
 			AggregateID:   usergroupID,
-			TeamID:        ug.TeamID,
+			TeamID:        updatedUg.TeamID,
+			ActorID:       ctxutil.GetActingUserID(ctx),
 			Payload:       payload,
 		}); err != nil {
 			return fmt.Errorf("record usergroup.users_set event: %w", err)

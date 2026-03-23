@@ -2,7 +2,6 @@ bin/
 *.exe
 *.test
 *.out
-.env
-.env.local
 vendor/
 tmp/
+.env*

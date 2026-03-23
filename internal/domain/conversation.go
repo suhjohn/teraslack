@@ -41,6 +41,52 @@ type ConversationMember struct {
 	JoinedAt       time.Time `json:"joined_at"`
 }
 
+type ConversationManagerAssignment struct {
+	ConversationID string    `json:"conversation_id"`
+	UserID         string    `json:"user_id"`
+	AssignedBy     string    `json:"assigned_by"`
+	CreatedAt      time.Time `json:"created_at"`
+}
+
+type ConversationPostingPolicyType string
+
+const (
+	ConversationPostingPolicyEveryone              ConversationPostingPolicyType = "everyone"
+	ConversationPostingPolicyAdminsOnly            ConversationPostingPolicyType = "admins_only"
+	ConversationPostingPolicyMembersWithPermission ConversationPostingPolicyType = "members_with_permission"
+	ConversationPostingPolicyCustom                ConversationPostingPolicyType = "custom"
+)
+
+type ConversationPostingPolicy struct {
+	ConversationID        string                        `json:"conversation_id"`
+	PolicyType            ConversationPostingPolicyType `json:"policy_type"`
+	AllowedAccountTypes   []AccountType                 `json:"allowed_account_types,omitempty"`
+	AllowedDelegatedRoles []DelegatedRole               `json:"allowed_delegated_roles,omitempty"`
+	AllowedUserIDs        []string                      `json:"allowed_user_ids,omitempty"`
+	AllowedUsergroupIDs   []string                      `json:"allowed_usergroup_ids,omitempty"`
+	UpdatedBy             string                        `json:"updated_by,omitempty"`
+	UpdatedAt             time.Time                     `json:"updated_at"`
+}
+
+func DefaultConversationPostingPolicy(conversationID string) ConversationPostingPolicy {
+	return ConversationPostingPolicy{
+		ConversationID: conversationID,
+		PolicyType:     ConversationPostingPolicyEveryone,
+	}
+}
+
+func IsValidConversationPostingPolicyType(policyType ConversationPostingPolicyType) bool {
+	switch policyType {
+	case ConversationPostingPolicyEveryone,
+		ConversationPostingPolicyAdminsOnly,
+		ConversationPostingPolicyMembersWithPermission,
+		ConversationPostingPolicyCustom:
+		return true
+	default:
+		return false
+	}
+}
+
 // CreateConversationParams holds the parameters for creating a conversation.
 type CreateConversationParams struct {
 	TeamID    string           `json:"team_id"`

@@ -138,6 +138,10 @@ func (c *Client) Query(ctx context.Context, namespace string, embedding []float3
 			if k == "id" || k == "dist" || k == "vector" {
 				continue
 			}
+			if k == "data" {
+				meta[k] = normalizeMetadataData(v)
+				continue
+			}
 			meta[k] = v
 		}
 
@@ -149,6 +153,31 @@ func (c *Client) Query(ctx context.Context, namespace string, embedding []float3
 	}
 
 	return results, nil
+}
+
+func normalizeMetadataData(v any) any {
+	switch data := v.(type) {
+	case json.RawMessage:
+		out := make(json.RawMessage, len(data))
+		copy(out, data)
+		return out
+	case []byte:
+		if json.Valid(data) {
+			out := make(json.RawMessage, len(data))
+			copy(out, data)
+			return out
+		}
+		return string(data)
+	case string:
+		if json.Valid([]byte(data)) {
+			out := make(json.RawMessage, len(data))
+			copy(out, data)
+			return out
+		}
+		return data
+	default:
+		return v
+	}
 }
 
 // GetEmbedding generates an embedding vector for the given text.

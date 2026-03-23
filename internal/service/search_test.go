@@ -2,8 +2,10 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 
+	"github.com/suhjohn/teraslack/internal/ctxutil"
 	"github.com/suhjohn/teraslack/internal/domain"
 )
 
@@ -50,6 +52,37 @@ func TestSearchService_Search_WithTypes(t *testing.T) {
 	}
 }
 
+func TestSearchService_Search_UsesContextTeamID(t *testing.T) {
+	svc := NewSearchService(nil)
+
+	ctx := ctxutil.WithUser(context.Background(), "U123", "Tctx")
+	results, err := svc.Search(ctx, domain.SearchParams{
+		Query: "alice",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(results) != 0 {
+		t.Errorf("expected 0 results, got %d", len(results))
+	}
+}
+
+func TestSearchService_Search_RejectsCrossTeamBodyOverride(t *testing.T) {
+	svc := NewSearchService(nil)
+
+	ctx := ctxutil.WithUser(context.Background(), "U123", "Tctx")
+	_, err := svc.Search(ctx, domain.SearchParams{
+		TeamID: "Tother",
+		Query:  "alice",
+	})
+	if err == nil {
+		t.Fatal("expected error for mismatched team_id")
+	}
+	if err != domain.ErrForbidden {
+		t.Fatalf("expected ErrForbidden, got %v", err)
+	}
+}
+
 func TestSearchService_Index_NoTurbopuffer(t *testing.T) {
 	svc := NewSearchService(nil)
 
@@ -68,4 +101,72 @@ func TestSearchService_Index_EmptyContent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+}
+
+func TestSearchService_Search_NormalizesData(t *testing.T) {
+	svc := NewSearchService(&searchClientStub{
+		resultsByNamespace: map[string][]VectorResult{
+			"00": {
+				{
+					ID:    "user:U123",
+					Score: 0.99,
+					Metadata: map[string]any{
+						"type":    "user",
+						"team_id": "T123",
+						"data":    `{"id":"U123","name":"alice"}`,
+					},
+				},
+				{
+					ID:    "message:C123:123.456",
+					Score: 0.98,
+					Metadata: map[string]any{
+						"type":    "message",
+						"team_id": "T123",
+						"data":    json.RawMessage(`{"channel_id":"C123","ts":"123.456"}`),
+					},
+				},
+			},
+		},
+	})
+
+	results, err := svc.Search(context.Background(), domain.SearchParams{
+		TeamID: "T123",
+		Query:  "alice",
+		Limit:  2,
+	})
+	if err != nil {
+		t.Fatalf("Search() error = %v", err)
+	}
+	if len(results) != 2 {
+		t.Fatalf("len(results) = %d, want 2", len(results))
+	}
+	if got := string(results[0].Data); got != `{"id":"U123","name":"alice"}` {
+		t.Fatalf("first result data = %s", got)
+	}
+	if got := string(results[1].Data); got != `{"channel_id":"C123","ts":"123.456"}` {
+		t.Fatalf("second result data = %s", got)
+	}
+}
+
+type searchClientStub struct {
+	resultsByNamespace map[string][]VectorResult
+}
+
+func (s *searchClientStub) Upsert(ctx context.Context, namespace string, id string, embedding []float32, metadata map[string]any) error {
+	return nil
+}
+
+func (s *searchClientStub) Delete(ctx context.Context, namespace string, id string) error {
+	return nil
+}
+
+func (s *searchClientStub) Query(ctx context.Context, namespace string, embedding []float32, limit int, filters map[string]any) ([]VectorResult, error) {
+	if results, ok := s.resultsByNamespace[namespace]; ok {
+		return results, nil
+	}
+	return nil, nil
+}
+
+func (s *searchClientStub) GetEmbedding(ctx context.Context, text string) ([]float32, error) {
+	return []float32{1, 0, 0}, nil
 }

@@ -14,14 +14,64 @@ type TxBeginner interface {
 	Begin(ctx context.Context) (pgx.Tx, error)
 }
 
+// WorkspaceRepository defines data access operations for workspace/team APIs.
+type WorkspaceRepository interface {
+	WithTx(tx pgx.Tx) WorkspaceRepository
+	Create(ctx context.Context, params domain.CreateWorkspaceParams) (*domain.Workspace, error)
+	Get(ctx context.Context, id string) (*domain.Workspace, error)
+	List(ctx context.Context) ([]domain.Workspace, error)
+	Update(ctx context.Context, id string, params domain.UpdateWorkspaceParams) (*domain.Workspace, error)
+	ListAdmins(ctx context.Context, workspaceID string) ([]domain.User, error)
+	ListOwners(ctx context.Context, workspaceID string) ([]domain.User, error)
+	ListBillableInfo(ctx context.Context, workspaceID string) ([]domain.WorkspaceBillableInfo, error)
+	ListAccessLogs(ctx context.Context, workspaceID string, limit int) ([]domain.WorkspaceAccessLog, error)
+	ListIntegrationLogs(ctx context.Context, workspaceID string, limit int) ([]domain.WorkspaceIntegrationLog, error)
+	ListExternalTeams(ctx context.Context, workspaceID string) ([]domain.ExternalTeam, error)
+	DisconnectExternalTeam(ctx context.Context, workspaceID, externalTeamID string) error
+}
+
 // UserRepository defines data access operations for users.
 type UserRepository interface {
 	WithTx(tx pgx.Tx) UserRepository
 	Create(ctx context.Context, params domain.CreateUserParams) (*domain.User, error)
 	Get(ctx context.Context, id string) (*domain.User, error)
-	GetByEmail(ctx context.Context, email string) (*domain.User, error)
+	GetByTeamEmail(ctx context.Context, teamID, email string) (*domain.User, error)
 	Update(ctx context.Context, id string, params domain.UpdateUserParams) (*domain.User, error)
 	List(ctx context.Context, params domain.ListUsersParams) (*domain.CursorPage[domain.User], error)
+}
+
+type RoleAssignmentRepository interface {
+	WithTx(tx pgx.Tx) RoleAssignmentRepository
+	ListByUser(ctx context.Context, teamID, userID string) ([]domain.DelegatedRole, error)
+	ReplaceForUser(ctx context.Context, teamID, userID string, roles []domain.DelegatedRole, assignedBy string) error
+}
+
+type ConversationAccessRepository interface {
+	WithTx(tx pgx.Tx) ConversationAccessRepository
+	ListManagers(ctx context.Context, conversationID string) ([]domain.ConversationManagerAssignment, error)
+	ReplaceManagers(ctx context.Context, conversationID string, userIDs []string, assignedBy string) error
+	IsManager(ctx context.Context, conversationID, userID string) (bool, error)
+	GetPostingPolicy(ctx context.Context, conversationID string) (*domain.ConversationPostingPolicy, error)
+	UpsertPostingPolicy(ctx context.Context, policy domain.ConversationPostingPolicy) (*domain.ConversationPostingPolicy, error)
+}
+
+type ExternalPrincipalAccessRepository interface {
+	WithTx(tx pgx.Tx) ExternalPrincipalAccessRepository
+	Create(ctx context.Context, params domain.CreateExternalPrincipalAccessParams) (*domain.ExternalPrincipalAccess, error)
+	Get(ctx context.Context, id string) (*domain.ExternalPrincipalAccess, error)
+	GetActiveByPrincipal(ctx context.Context, hostTeamID, principalID string) (*domain.ExternalPrincipalAccess, error)
+	List(ctx context.Context, params domain.ListExternalPrincipalAccessParams) ([]domain.ExternalPrincipalAccess, error)
+	Update(ctx context.Context, id string, params domain.UpdateExternalPrincipalAccessParams) (*domain.ExternalPrincipalAccess, error)
+	Revoke(ctx context.Context, id string, revokedAt time.Time) error
+	HasConversationAccess(ctx context.Context, accessID, conversationID string) (bool, error)
+	ListConversationIDs(ctx context.Context, accessID string) ([]string, error)
+	ReplaceConversationAssignments(ctx context.Context, accessID string, conversationIDs []string, grantedBy string) error
+}
+
+type AuthorizationAuditRepository interface {
+	WithTx(tx pgx.Tx) AuthorizationAuditRepository
+	Create(ctx context.Context, params domain.CreateAuthorizationAuditLogParams) (*domain.AuthorizationAuditLog, error)
+	List(ctx context.Context, params domain.ListAuthorizationAuditLogsParams) ([]domain.AuthorizationAuditLog, error)
 }
 
 // ConversationRepository defines data access operations for conversations.
@@ -55,6 +105,20 @@ type MessageRepository interface {
 	AddReaction(ctx context.Context, params domain.AddReactionParams) error
 	RemoveReaction(ctx context.Context, params domain.RemoveReactionParams) error
 	GetReactions(ctx context.Context, channelID, messageTS string) ([]domain.Reaction, error)
+}
+
+// ConversationReadRepository defines data access operations for per-user conversation read state.
+type ConversationReadRepository interface {
+	WithTx(tx pgx.Tx) ConversationReadRepository
+	Upsert(ctx context.Context, read domain.ConversationRead) error
+	Get(ctx context.Context, conversationID, userID string) (*domain.ConversationRead, error)
+}
+
+// ProjectorCheckpointRepository stores durable progress for background projectors.
+type ProjectorCheckpointRepository interface {
+	WithTx(tx pgx.Tx) ProjectorCheckpointRepository
+	Get(ctx context.Context, name string) (int64, error)
+	Set(ctx context.Context, name string, lastEventID int64) error
 }
 
 // UsergroupRepository defines data access operations for usergroups.
@@ -93,11 +157,11 @@ type BookmarkRepository interface {
 type FileRepository interface {
 	WithTx(tx pgx.Tx) FileRepository
 	Create(ctx context.Context, f *domain.File) error
-	Get(ctx context.Context, id string) (*domain.File, error)
-	Update(ctx context.Context, f *domain.File) error
-	Delete(ctx context.Context, id string) error
+	Get(ctx context.Context, teamID, id string) (*domain.File, error)
+	Update(ctx context.Context, teamID string, f *domain.File) error
+	Delete(ctx context.Context, teamID, id string) error
 	List(ctx context.Context, params domain.ListFilesParams) (*domain.CursorPage[domain.File], error)
-	ShareToChannel(ctx context.Context, fileID, channelID string) error
+	ShareToChannel(ctx context.Context, teamID, fileID, channelID string) error
 }
 
 // EventRepository defines data access operations for event subscriptions.
@@ -108,15 +172,17 @@ type EventRepository interface {
 	UpdateSubscription(ctx context.Context, id string, params domain.UpdateEventSubscriptionParams) (*domain.EventSubscription, error)
 	DeleteSubscription(ctx context.Context, id string) error
 	ListSubscriptions(ctx context.Context, params domain.ListEventSubscriptionsParams) ([]domain.EventSubscription, error)
-	ListSubscriptionsByTeamAndEvent(ctx context.Context, teamID, eventType string) ([]domain.EventSubscription, error)
+	ListSubscriptionsByEvent(ctx context.Context, teamID, eventType, resourceType, resourceID string) ([]domain.EventSubscription, error)
 }
 
-// AuthRepository defines data access operations for authentication tokens.
+// AuthRepository defines data access operations for OAuth-backed auth.
 type AuthRepository interface {
 	WithTx(tx pgx.Tx) AuthRepository
-	CreateToken(ctx context.Context, params domain.CreateTokenParams) (*domain.Token, error)
-	GetByTokenHash(ctx context.Context, tokenHash string) (*domain.Token, error)
-	RevokeToken(ctx context.Context, token string) error
+	CreateSession(ctx context.Context, params domain.CreateAuthSessionParams) (*domain.AuthSession, error)
+	GetSessionByHash(ctx context.Context, sessionHash string) (*domain.AuthSession, error)
+	RevokeSessionByHash(ctx context.Context, sessionHash string) error
+	GetOAuthAccount(ctx context.Context, teamID string, provider domain.AuthProvider, providerSubject string) (*domain.OAuthAccount, error)
+	UpsertOAuthAccount(ctx context.Context, params domain.UpsertOAuthAccountParams) (*domain.OAuthAccount, error)
 }
 
 // APIKeyRepository defines data access operations for API keys.
@@ -132,14 +198,31 @@ type APIKeyRepository interface {
 	UpdateUsage(ctx context.Context, id string) error
 }
 
-// EventStoreRepository defines data access for the service-level event store.
-type EventStoreRepository interface {
-	WithTx(tx pgx.Tx) EventStoreRepository
-	// Append writes a service event to the event store (pure INSERT).
+// InternalEventStoreRepository defines data access for the internal event store.
+type InternalEventStoreRepository interface {
+	WithTx(tx pgx.Tx) InternalEventStoreRepository
+	// Append writes an internal event to the event store (pure INSERT).
 	// Webhook fan-out is handled by WebhookProducer via S3 queue.
-	Append(ctx context.Context, event domain.ServiceEvent) (*domain.ServiceEvent, error)
+	Append(ctx context.Context, event domain.InternalEvent) (*domain.InternalEvent, error)
 	// GetByAggregate returns all events for an aggregate ordered by ID.
-	GetByAggregate(ctx context.Context, aggregateType, aggregateID string) ([]domain.ServiceEvent, error)
+	GetByAggregate(ctx context.Context, aggregateType, aggregateID string) ([]domain.InternalEvent, error)
 	// GetAllSince returns events since a given ID for incremental projection rebuilds.
-	GetAllSince(ctx context.Context, sinceID int64, limit int) ([]domain.ServiceEvent, error)
+	GetAllSince(ctx context.Context, sinceID int64, limit int) ([]domain.InternalEvent, error)
+}
+
+type ExternalEventRepository interface {
+	WithTx(tx pgx.Tx) ExternalEventRepository
+	Insert(ctx context.Context, event domain.ExternalEvent) (*domain.ExternalEvent, error)
+	RecordProjectionFailure(ctx context.Context, internalEventID int64, message string) error
+	ListVisible(ctx context.Context, principal ExternalEventPrincipal, params domain.ListExternalEventsParams) (*domain.CursorPage[domain.ExternalEvent], error)
+	GetSince(ctx context.Context, afterID int64, limit int) ([]domain.ExternalEvent, error)
+	Rebuild(ctx context.Context, events []domain.ExternalEvent) error
+	RebuildFeeds(ctx context.Context) error
+}
+
+type ExternalEventPrincipal struct {
+	TeamID      string
+	UserID      string
+	APIKeyID    string
+	Permissions []string
 }

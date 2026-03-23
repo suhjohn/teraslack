@@ -26,13 +26,6 @@ func TestAPIKey_CreateForHumanPrincipal(t *testing.T) {
 	ctx := context.Background()
 	logger := newTestLogger()
 
-	// Run migration 000007
-	migrationsDir := getMigrationsDir(t)
-	data := readMigration(t, migrationsDir, "000007_api_keys_principal_type.up.sql")
-	if _, err := pool.Exec(ctx, string(data)); err != nil {
-		t.Fatalf("run migration 000007: %v", err)
-	}
-
 	userRepo := pgRepo.NewUserRepo(pool)
 	apiKeyRepo := pgRepo.NewAPIKeyRepo(pool)
 	eventStoreRepo := pgRepo.NewEventStoreRepo(pool)
@@ -102,11 +95,11 @@ func TestAPIKey_CreateForHumanPrincipal(t *testing.T) {
 	var eventType string
 	var payload json.RawMessage
 	err = pool.QueryRow(ctx,
-		"SELECT event_type, payload FROM service_events WHERE aggregate_type = $1 AND aggregate_id = $2",
+		"SELECT event_type, payload FROM internal_events WHERE aggregate_type = $1 AND aggregate_id = $2",
 		domain.AggregateAPIKey, key.ID,
 	).Scan(&eventType, &payload)
 	if err != nil {
-		t.Fatalf("query service_events: %v", err)
+		t.Fatalf("query internal_events: %v", err)
 	}
 	if eventType != domain.EventAPIKeyCreated {
 		t.Errorf("event_type = %q, want %q", eventType, domain.EventAPIKeyCreated)
@@ -134,12 +127,6 @@ func TestAPIKey_CreateForAgentPrincipal(t *testing.T) {
 	pool := setupTestDB(t)
 	ctx := context.Background()
 	logger := newTestLogger()
-
-	migrationsDir := getMigrationsDir(t)
-	data := readMigration(t, migrationsDir, "000007_api_keys_principal_type.up.sql")
-	if _, err := pool.Exec(ctx, string(data)); err != nil {
-		t.Fatalf("run migration 000007: %v", err)
-	}
 
 	userRepo := pgRepo.NewUserRepo(pool)
 	apiKeyRepo := pgRepo.NewAPIKeyRepo(pool)
@@ -223,12 +210,6 @@ func TestAPIKey_CreateTestEnvironment(t *testing.T) {
 	ctx := context.Background()
 	logger := newTestLogger()
 
-	migrationsDir := getMigrationsDir(t)
-	data := readMigration(t, migrationsDir, "000007_api_keys_principal_type.up.sql")
-	if _, err := pool.Exec(ctx, string(data)); err != nil {
-		t.Fatalf("run migration 000007: %v", err)
-	}
-
 	userRepo := pgRepo.NewUserRepo(pool)
 	apiKeyRepo := pgRepo.NewAPIKeyRepo(pool)
 	eventStoreRepo := pgRepo.NewEventStoreRepo(pool)
@@ -237,9 +218,10 @@ func TestAPIKey_CreateTestEnvironment(t *testing.T) {
 	apiKeySvc := service.NewAPIKeyService(apiKeyRepo, userRepo, recorder, pool, logger)
 
 	user, err := userSvc.Create(ctx, domain.CreateUserParams{
-		TeamID: "T001",
-		Name:   "bob",
-		Email:  "bob@example.com",
+		TeamID:        "T001",
+		Name:          "bob",
+		Email:         "bob@example.com",
+		PrincipalType: domain.PrincipalTypeHuman,
 	})
 	if err != nil {
 		t.Fatalf("create user: %v", err)
@@ -275,12 +257,6 @@ func TestAPIKey_CreateValidationErrors(t *testing.T) {
 	pool := setupTestDB(t)
 	ctx := context.Background()
 	logger := newTestLogger()
-
-	migrationsDir := getMigrationsDir(t)
-	data := readMigration(t, migrationsDir, "000007_api_keys_principal_type.up.sql")
-	if _, err := pool.Exec(ctx, string(data)); err != nil {
-		t.Fatalf("run migration 000007: %v", err)
-	}
 
 	userRepo := pgRepo.NewUserRepo(pool)
 	apiKeyRepo := pgRepo.NewAPIKeyRepo(pool)
@@ -334,12 +310,6 @@ func TestAPIKey_CreateForNonexistentPrincipal(t *testing.T) {
 	ctx := context.Background()
 	logger := newTestLogger()
 
-	migrationsDir := getMigrationsDir(t)
-	data := readMigration(t, migrationsDir, "000007_api_keys_principal_type.up.sql")
-	if _, err := pool.Exec(ctx, string(data)); err != nil {
-		t.Fatalf("run migration 000007: %v", err)
-	}
-
 	userRepo := pgRepo.NewUserRepo(pool)
 	apiKeyRepo := pgRepo.NewAPIKeyRepo(pool)
 	eventStoreRepo := pgRepo.NewEventStoreRepo(pool)
@@ -366,12 +336,6 @@ func TestAPIKey_GetStripsKeyHash(t *testing.T) {
 	ctx := context.Background()
 	logger := newTestLogger()
 
-	migrationsDir := getMigrationsDir(t)
-	data := readMigration(t, migrationsDir, "000007_api_keys_principal_type.up.sql")
-	if _, err := pool.Exec(ctx, string(data)); err != nil {
-		t.Fatalf("run migration 000007: %v", err)
-	}
-
 	userRepo := pgRepo.NewUserRepo(pool)
 	apiKeyRepo := pgRepo.NewAPIKeyRepo(pool)
 	eventStoreRepo := pgRepo.NewEventStoreRepo(pool)
@@ -381,6 +345,7 @@ func TestAPIKey_GetStripsKeyHash(t *testing.T) {
 
 	user, _ := userSvc.Create(ctx, domain.CreateUserParams{
 		TeamID: "T001", Name: "alice", Email: "alice@example.com",
+		PrincipalType: domain.PrincipalTypeHuman,
 	})
 
 	key, _, _ := apiKeySvc.Create(ctx, domain.CreateAPIKeyParams{
@@ -409,12 +374,6 @@ func TestAPIKey_ListAndFilter(t *testing.T) {
 	ctx := context.Background()
 	logger := newTestLogger()
 
-	migrationsDir := getMigrationsDir(t)
-	data := readMigration(t, migrationsDir, "000007_api_keys_principal_type.up.sql")
-	if _, err := pool.Exec(ctx, string(data)); err != nil {
-		t.Fatalf("run migration 000007: %v", err)
-	}
-
 	userRepo := pgRepo.NewUserRepo(pool)
 	apiKeyRepo := pgRepo.NewAPIKeyRepo(pool)
 	eventStoreRepo := pgRepo.NewEventStoreRepo(pool)
@@ -424,9 +383,11 @@ func TestAPIKey_ListAndFilter(t *testing.T) {
 
 	alice, _ := userSvc.Create(ctx, domain.CreateUserParams{
 		TeamID: "T001", Name: "alice", Email: "alice@example.com",
+		PrincipalType: domain.PrincipalTypeHuman,
 	})
 	bob, _ := userSvc.Create(ctx, domain.CreateUserParams{
 		TeamID: "T001", Name: "bob", Email: "bob@example.com",
+		PrincipalType: domain.PrincipalTypeHuman,
 	})
 
 	// Create 2 keys for alice, 1 for bob
@@ -502,12 +463,6 @@ func TestAPIKey_UpdateNameDescriptionPermissions(t *testing.T) {
 	ctx := context.Background()
 	logger := newTestLogger()
 
-	migrationsDir := getMigrationsDir(t)
-	data := readMigration(t, migrationsDir, "000007_api_keys_principal_type.up.sql")
-	if _, err := pool.Exec(ctx, string(data)); err != nil {
-		t.Fatalf("run migration 000007: %v", err)
-	}
-
 	userRepo := pgRepo.NewUserRepo(pool)
 	apiKeyRepo := pgRepo.NewAPIKeyRepo(pool)
 	eventStoreRepo := pgRepo.NewEventStoreRepo(pool)
@@ -517,6 +472,7 @@ func TestAPIKey_UpdateNameDescriptionPermissions(t *testing.T) {
 
 	user, _ := userSvc.Create(ctx, domain.CreateUserParams{
 		TeamID: "T001", Name: "alice", Email: "alice@example.com",
+		PrincipalType: domain.PrincipalTypeHuman,
 	})
 
 	key, _, _ := apiKeySvc.Create(ctx, domain.CreateAPIKeyParams{
@@ -548,11 +504,28 @@ func TestAPIKey_UpdateNameDescriptionPermissions(t *testing.T) {
 	// Verify update event recorded
 	var eventCount int
 	pool.QueryRow(ctx,
-		"SELECT COUNT(*) FROM service_events WHERE aggregate_type = $1 AND aggregate_id = $2 AND event_type = $3",
+		"SELECT COUNT(*) FROM internal_events WHERE aggregate_type = $1 AND aggregate_id = $2 AND event_type = $3",
 		domain.AggregateAPIKey, key.ID, domain.EventAPIKeyUpdated,
 	).Scan(&eventCount)
 	if eventCount != 1 {
 		t.Errorf("update events = %d, want 1", eventCount)
+	}
+
+	var payload json.RawMessage
+	err = pool.QueryRow(ctx,
+		"SELECT payload FROM internal_events WHERE aggregate_type = $1 AND aggregate_id = $2 AND event_type = $3",
+		domain.AggregateAPIKey, key.ID, domain.EventAPIKeyUpdated,
+	).Scan(&payload)
+	if err != nil {
+		t.Fatalf("query update event payload: %v", err)
+	}
+
+	var snapshot domain.APIKey
+	if err := json.Unmarshal(payload, &snapshot); err != nil {
+		t.Fatalf("unmarshal update event payload: %v", err)
+	}
+	if snapshot.KeyHash == "" {
+		t.Fatal("update event payload missing key_hash")
 	}
 }
 
@@ -565,12 +538,6 @@ func TestAPIKey_Revoke(t *testing.T) {
 	ctx := context.Background()
 	logger := newTestLogger()
 
-	migrationsDir := getMigrationsDir(t)
-	data := readMigration(t, migrationsDir, "000007_api_keys_principal_type.up.sql")
-	if _, err := pool.Exec(ctx, string(data)); err != nil {
-		t.Fatalf("run migration 000007: %v", err)
-	}
-
 	userRepo := pgRepo.NewUserRepo(pool)
 	apiKeyRepo := pgRepo.NewAPIKeyRepo(pool)
 	eventStoreRepo := pgRepo.NewEventStoreRepo(pool)
@@ -580,6 +547,7 @@ func TestAPIKey_Revoke(t *testing.T) {
 
 	user, _ := userSvc.Create(ctx, domain.CreateUserParams{
 		TeamID: "T001", Name: "alice", Email: "alice@example.com",
+		PrincipalType: domain.PrincipalTypeHuman,
 	})
 
 	key, rawKey, _ := apiKeySvc.Create(ctx, domain.CreateAPIKeyParams{
@@ -610,7 +578,7 @@ func TestAPIKey_Revoke(t *testing.T) {
 	// Verify revoke event recorded
 	var eventType string
 	pool.QueryRow(ctx,
-		"SELECT event_type FROM service_events WHERE aggregate_type = $1 AND aggregate_id = $2 ORDER BY id DESC LIMIT 1",
+		"SELECT event_type FROM internal_events WHERE aggregate_type = $1 AND aggregate_id = $2 ORDER BY id DESC LIMIT 1",
 		domain.AggregateAPIKey, key.ID,
 	).Scan(&eventType)
 	if eventType != domain.EventAPIKeyRevoked {
@@ -629,12 +597,6 @@ func TestAPIKey_ValidateLiveKey(t *testing.T) {
 	ctx := context.Background()
 	logger := newTestLogger()
 
-	migrationsDir := getMigrationsDir(t)
-	data := readMigration(t, migrationsDir, "000007_api_keys_principal_type.up.sql")
-	if _, err := pool.Exec(ctx, string(data)); err != nil {
-		t.Fatalf("run migration 000007: %v", err)
-	}
-
 	userRepo := pgRepo.NewUserRepo(pool)
 	apiKeyRepo := pgRepo.NewAPIKeyRepo(pool)
 	eventStoreRepo := pgRepo.NewEventStoreRepo(pool)
@@ -644,6 +606,7 @@ func TestAPIKey_ValidateLiveKey(t *testing.T) {
 
 	user, _ := userSvc.Create(ctx, domain.CreateUserParams{
 		TeamID: "T001", Name: "alice", Email: "alice@example.com",
+		PrincipalType: domain.PrincipalTypeHuman,
 	})
 
 	_, rawKey, _ := apiKeySvc.Create(ctx, domain.CreateAPIKeyParams{
@@ -680,12 +643,6 @@ func TestAPIKey_ValidateTestKey(t *testing.T) {
 	ctx := context.Background()
 	logger := newTestLogger()
 
-	migrationsDir := getMigrationsDir(t)
-	data := readMigration(t, migrationsDir, "000007_api_keys_principal_type.up.sql")
-	if _, err := pool.Exec(ctx, string(data)); err != nil {
-		t.Fatalf("run migration 000007: %v", err)
-	}
-
 	userRepo := pgRepo.NewUserRepo(pool)
 	apiKeyRepo := pgRepo.NewAPIKeyRepo(pool)
 	eventStoreRepo := pgRepo.NewEventStoreRepo(pool)
@@ -695,6 +652,7 @@ func TestAPIKey_ValidateTestKey(t *testing.T) {
 
 	user, _ := userSvc.Create(ctx, domain.CreateUserParams{
 		TeamID: "T001", Name: "bob", Email: "bob@example.com",
+		PrincipalType: domain.PrincipalTypeHuman,
 	})
 
 	_, rawKey, _ := apiKeySvc.Create(ctx, domain.CreateAPIKeyParams{
@@ -720,12 +678,6 @@ func TestAPIKey_ValidateExpiredKey(t *testing.T) {
 	ctx := context.Background()
 	logger := newTestLogger()
 
-	migrationsDir := getMigrationsDir(t)
-	data := readMigration(t, migrationsDir, "000007_api_keys_principal_type.up.sql")
-	if _, err := pool.Exec(ctx, string(data)); err != nil {
-		t.Fatalf("run migration 000007: %v", err)
-	}
-
 	userRepo := pgRepo.NewUserRepo(pool)
 	apiKeyRepo := pgRepo.NewAPIKeyRepo(pool)
 	eventStoreRepo := pgRepo.NewEventStoreRepo(pool)
@@ -735,6 +687,7 @@ func TestAPIKey_ValidateExpiredKey(t *testing.T) {
 
 	user, _ := userSvc.Create(ctx, domain.CreateUserParams{
 		TeamID: "T001", Name: "alice", Email: "alice@example.com",
+		PrincipalType: domain.PrincipalTypeHuman,
 	})
 
 	// Create a key that expires in 1 second
@@ -768,12 +721,6 @@ func TestAPIKey_ValidateGarbageKey(t *testing.T) {
 	ctx := context.Background()
 	logger := newTestLogger()
 
-	migrationsDir := getMigrationsDir(t)
-	data := readMigration(t, migrationsDir, "000007_api_keys_principal_type.up.sql")
-	if _, err := pool.Exec(ctx, string(data)); err != nil {
-		t.Fatalf("run migration 000007: %v", err)
-	}
-
 	userRepo := pgRepo.NewUserRepo(pool)
 	apiKeyRepo := pgRepo.NewAPIKeyRepo(pool)
 	eventStoreRepo := pgRepo.NewEventStoreRepo(pool)
@@ -795,12 +742,6 @@ func TestAPIKey_UsageTracking(t *testing.T) {
 	ctx := context.Background()
 	logger := newTestLogger()
 
-	migrationsDir := getMigrationsDir(t)
-	data := readMigration(t, migrationsDir, "000007_api_keys_principal_type.up.sql")
-	if _, err := pool.Exec(ctx, string(data)); err != nil {
-		t.Fatalf("run migration 000007: %v", err)
-	}
-
 	userRepo := pgRepo.NewUserRepo(pool)
 	apiKeyRepo := pgRepo.NewAPIKeyRepo(pool)
 	eventStoreRepo := pgRepo.NewEventStoreRepo(pool)
@@ -810,6 +751,7 @@ func TestAPIKey_UsageTracking(t *testing.T) {
 
 	user, _ := userSvc.Create(ctx, domain.CreateUserParams{
 		TeamID: "T001", Name: "alice", Email: "alice@example.com",
+		PrincipalType: domain.PrincipalTypeHuman,
 	})
 
 	key, rawKey, _ := apiKeySvc.Create(ctx, domain.CreateAPIKeyParams{
@@ -856,12 +798,6 @@ func TestAPIKey_RotateCreatesNewKey(t *testing.T) {
 	ctx := context.Background()
 	logger := newTestLogger()
 
-	migrationsDir := getMigrationsDir(t)
-	data := readMigration(t, migrationsDir, "000007_api_keys_principal_type.up.sql")
-	if _, err := pool.Exec(ctx, string(data)); err != nil {
-		t.Fatalf("run migration 000007: %v", err)
-	}
-
 	userRepo := pgRepo.NewUserRepo(pool)
 	apiKeyRepo := pgRepo.NewAPIKeyRepo(pool)
 	eventStoreRepo := pgRepo.NewEventStoreRepo(pool)
@@ -871,6 +807,7 @@ func TestAPIKey_RotateCreatesNewKey(t *testing.T) {
 
 	user, _ := userSvc.Create(ctx, domain.CreateUserParams{
 		TeamID: "T001", Name: "alice", Email: "alice@example.com",
+		PrincipalType: domain.PrincipalTypeHuman,
 	})
 
 	oldKey, oldRawKey, _ := apiKeySvc.Create(ctx, domain.CreateAPIKeyParams{
@@ -919,7 +856,7 @@ func TestAPIKey_RotateCreatesNewKey(t *testing.T) {
 	var eventType string
 	var payload json.RawMessage
 	pool.QueryRow(ctx,
-		"SELECT event_type, payload FROM service_events WHERE aggregate_type = $1 AND aggregate_id = $2 AND event_type = $3",
+		"SELECT event_type, payload FROM internal_events WHERE aggregate_type = $1 AND aggregate_id = $2 AND event_type = $3",
 		domain.AggregateAPIKey, oldKey.ID, domain.EventAPIKeyRotated,
 	).Scan(&eventType, &payload)
 	if eventType != domain.EventAPIKeyRotated {
@@ -945,12 +882,6 @@ func TestAPIKey_RotateRevokedKeyFails(t *testing.T) {
 	ctx := context.Background()
 	logger := newTestLogger()
 
-	migrationsDir := getMigrationsDir(t)
-	data := readMigration(t, migrationsDir, "000007_api_keys_principal_type.up.sql")
-	if _, err := pool.Exec(ctx, string(data)); err != nil {
-		t.Fatalf("run migration 000007: %v", err)
-	}
-
 	userRepo := pgRepo.NewUserRepo(pool)
 	apiKeyRepo := pgRepo.NewAPIKeyRepo(pool)
 	eventStoreRepo := pgRepo.NewEventStoreRepo(pool)
@@ -960,6 +891,7 @@ func TestAPIKey_RotateRevokedKeyFails(t *testing.T) {
 
 	user, _ := userSvc.Create(ctx, domain.CreateUserParams{
 		TeamID: "T001", Name: "alice", Email: "alice@example.com",
+		PrincipalType: domain.PrincipalTypeHuman,
 	})
 
 	key, _, _ := apiKeySvc.Create(ctx, domain.CreateAPIKeyParams{
@@ -984,12 +916,6 @@ func TestAPIKey_RotateCustomGracePeriod(t *testing.T) {
 	ctx := context.Background()
 	logger := newTestLogger()
 
-	migrationsDir := getMigrationsDir(t)
-	data := readMigration(t, migrationsDir, "000007_api_keys_principal_type.up.sql")
-	if _, err := pool.Exec(ctx, string(data)); err != nil {
-		t.Fatalf("run migration 000007: %v", err)
-	}
-
 	userRepo := pgRepo.NewUserRepo(pool)
 	apiKeyRepo := pgRepo.NewAPIKeyRepo(pool)
 	eventStoreRepo := pgRepo.NewEventStoreRepo(pool)
@@ -999,6 +925,7 @@ func TestAPIKey_RotateCustomGracePeriod(t *testing.T) {
 
 	user, _ := userSvc.Create(ctx, domain.CreateUserParams{
 		TeamID: "T001", Name: "alice", Email: "alice@example.com",
+		PrincipalType: domain.PrincipalTypeHuman,
 	})
 
 	key, _, _ := apiKeySvc.Create(ctx, domain.CreateAPIKeyParams{
@@ -1038,12 +965,6 @@ func TestPrincipalType_DefaultsToHuman(t *testing.T) {
 	ctx := context.Background()
 	logger := newTestLogger()
 
-	migrationsDir := getMigrationsDir(t)
-	data := readMigration(t, migrationsDir, "000007_api_keys_principal_type.up.sql")
-	if _, err := pool.Exec(ctx, string(data)); err != nil {
-		t.Fatalf("run migration 000007: %v", err)
-	}
-
 	userRepo := pgRepo.NewUserRepo(pool)
 	eventStoreRepo := pgRepo.NewEventStoreRepo(pool)
 	recorder := service.NewEventRecorder(eventStoreRepo)
@@ -1052,6 +973,7 @@ func TestPrincipalType_DefaultsToHuman(t *testing.T) {
 	// Create user without specifying principal_type
 	user, err := userSvc.Create(ctx, domain.CreateUserParams{
 		TeamID: "T001", Name: "default-user", Email: "default@example.com",
+		PrincipalType: domain.PrincipalTypeHuman,
 	})
 	if err != nil {
 		t.Fatalf("create user: %v", err)
@@ -1072,12 +994,6 @@ func TestPrincipalType_AgentWithOwner(t *testing.T) {
 	pool := setupTestDB(t)
 	ctx := context.Background()
 	logger := newTestLogger()
-
-	migrationsDir := getMigrationsDir(t)
-	data := readMigration(t, migrationsDir, "000007_api_keys_principal_type.up.sql")
-	if _, err := pool.Exec(ctx, string(data)); err != nil {
-		t.Fatalf("run migration 000007: %v", err)
-	}
 
 	userRepo := pgRepo.NewUserRepo(pool)
 	eventStoreRepo := pgRepo.NewEventStoreRepo(pool)
@@ -1120,12 +1036,6 @@ func TestAPIKey_AgentActionsTrackedInEvents(t *testing.T) {
 	pool := setupTestDB(t)
 	ctx := context.Background()
 	logger := newTestLogger()
-
-	migrationsDir := getMigrationsDir(t)
-	data := readMigration(t, migrationsDir, "000007_api_keys_principal_type.up.sql")
-	if _, err := pool.Exec(ctx, string(data)); err != nil {
-		t.Fatalf("run migration 000007: %v", err)
-	}
 
 	userRepo := pgRepo.NewUserRepo(pool)
 	apiKeyRepo := pgRepo.NewAPIKeyRepo(pool)
@@ -1198,12 +1108,6 @@ func TestAPIKey_FullLifecycleEventCount(t *testing.T) {
 	ctx := context.Background()
 	logger := newTestLogger()
 
-	migrationsDir := getMigrationsDir(t)
-	data := readMigration(t, migrationsDir, "000007_api_keys_principal_type.up.sql")
-	if _, err := pool.Exec(ctx, string(data)); err != nil {
-		t.Fatalf("run migration 000007: %v", err)
-	}
-
 	userRepo := pgRepo.NewUserRepo(pool)
 	apiKeyRepo := pgRepo.NewAPIKeyRepo(pool)
 	eventStoreRepo := pgRepo.NewEventStoreRepo(pool)
@@ -1213,6 +1117,7 @@ func TestAPIKey_FullLifecycleEventCount(t *testing.T) {
 
 	user, _ := userSvc.Create(ctx, domain.CreateUserParams{
 		TeamID: "T001", Name: "alice", Email: "alice@example.com",
+		PrincipalType: domain.PrincipalTypeHuman,
 	})
 
 	// 1. Create
@@ -1234,7 +1139,7 @@ func TestAPIKey_FullLifecycleEventCount(t *testing.T) {
 	// Count events for the original key
 	var count int
 	pool.QueryRow(ctx,
-		"SELECT COUNT(*) FROM service_events WHERE aggregate_type = $1 AND aggregate_id = $2",
+		"SELECT COUNT(*) FROM internal_events WHERE aggregate_type = $1 AND aggregate_id = $2",
 		domain.AggregateAPIKey, key.ID,
 	).Scan(&count)
 
@@ -1246,7 +1151,7 @@ func TestAPIKey_FullLifecycleEventCount(t *testing.T) {
 	// Count total api_key events (including the new key's created event)
 	var totalCount int
 	pool.QueryRow(ctx,
-		"SELECT COUNT(*) FROM service_events WHERE aggregate_type = $1",
+		"SELECT COUNT(*) FROM internal_events WHERE aggregate_type = $1",
 		domain.AggregateAPIKey,
 	).Scan(&totalCount)
 
@@ -1257,7 +1162,7 @@ func TestAPIKey_FullLifecycleEventCount(t *testing.T) {
 
 	// Verify event types are in order
 	rows, err := pool.Query(ctx,
-		"SELECT event_type FROM service_events WHERE aggregate_type = $1 AND aggregate_id = $2 ORDER BY id ASC",
+		"SELECT event_type FROM internal_events WHERE aggregate_type = $1 AND aggregate_id = $2 ORDER BY id ASC",
 		domain.AggregateAPIKey, key.ID,
 	)
 	if err != nil {
@@ -1300,12 +1205,6 @@ func TestAPIKey_EventPayloadsRedacted(t *testing.T) {
 	ctx := context.Background()
 	logger := newTestLogger()
 
-	migrationsDir := getMigrationsDir(t)
-	data := readMigration(t, migrationsDir, "000007_api_keys_principal_type.up.sql")
-	if _, err := pool.Exec(ctx, string(data)); err != nil {
-		t.Fatalf("run migration 000007: %v", err)
-	}
-
 	userRepo := pgRepo.NewUserRepo(pool)
 	apiKeyRepo := pgRepo.NewAPIKeyRepo(pool)
 	eventStoreRepo := pgRepo.NewEventStoreRepo(pool)
@@ -1315,6 +1214,7 @@ func TestAPIKey_EventPayloadsRedacted(t *testing.T) {
 
 	user, _ := userSvc.Create(ctx, domain.CreateUserParams{
 		TeamID: "T001", Name: "alice", Email: "alice@example.com",
+		PrincipalType: domain.PrincipalTypeHuman,
 	})
 
 	key, _, _ := apiKeySvc.Create(ctx, domain.CreateAPIKeyParams{
@@ -1324,7 +1224,7 @@ func TestAPIKey_EventPayloadsRedacted(t *testing.T) {
 
 	// Check all api_key events don't contain key_hash
 	rows, err := pool.Query(ctx,
-		"SELECT event_type, payload FROM service_events WHERE aggregate_type = $1 AND aggregate_id = $2",
+		"SELECT event_type, payload FROM internal_events WHERE aggregate_type = $1 AND aggregate_id = $2",
 		domain.AggregateAPIKey, key.ID,
 	)
 	if err != nil {
@@ -1359,12 +1259,6 @@ func TestAPIKey_TransactionalAtomicity(t *testing.T) {
 	ctx := context.Background()
 	logger := newTestLogger()
 
-	migrationsDir := getMigrationsDir(t)
-	data := readMigration(t, migrationsDir, "000007_api_keys_principal_type.up.sql")
-	if _, err := pool.Exec(ctx, string(data)); err != nil {
-		t.Fatalf("run migration 000007: %v", err)
-	}
-
 	userRepo := pgRepo.NewUserRepo(pool)
 	apiKeyRepo := pgRepo.NewAPIKeyRepo(pool)
 	eventStoreRepo := pgRepo.NewEventStoreRepo(pool)
@@ -1374,6 +1268,7 @@ func TestAPIKey_TransactionalAtomicity(t *testing.T) {
 
 	user, _ := userSvc.Create(ctx, domain.CreateUserParams{
 		TeamID: "T001", Name: "alice", Email: "alice@example.com",
+		PrincipalType: domain.PrincipalTypeHuman,
 	})
 
 	// Create a key and verify both projection and event exist
@@ -1398,7 +1293,7 @@ func TestAPIKey_TransactionalAtomicity(t *testing.T) {
 	// Event exists
 	var eventID int64
 	err = pool.QueryRow(ctx,
-		"SELECT id FROM service_events WHERE aggregate_type = $1 AND aggregate_id = $2",
+		"SELECT id FROM internal_events WHERE aggregate_type = $1 AND aggregate_id = $2",
 		domain.AggregateAPIKey, key.ID,
 	).Scan(&eventID)
 	if err != nil {

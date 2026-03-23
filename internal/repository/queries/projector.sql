@@ -3,13 +3,12 @@
 -- events into the read-side tables.
 
 -- name: ProjectorUpsertUser :exec
-INSERT INTO users (id, team_id, name, real_name, display_name, email, is_bot, is_admin, is_owner, is_restricted, deleted, profile, principal_type, owner_id, created_at, updated_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+INSERT INTO users (id, team_id, name, real_name, display_name, email, is_bot, account_type, deleted, profile, principal_type, owner_id, created_at, updated_at)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
 ON CONFLICT (id) DO UPDATE SET
     team_id = EXCLUDED.team_id, name = EXCLUDED.name, real_name = EXCLUDED.real_name,
     display_name = EXCLUDED.display_name, email = EXCLUDED.email, is_bot = EXCLUDED.is_bot,
-    is_admin = EXCLUDED.is_admin, is_owner = EXCLUDED.is_owner, is_restricted = EXCLUDED.is_restricted,
-    deleted = EXCLUDED.deleted, profile = EXCLUDED.profile,
+    account_type = EXCLUDED.account_type, deleted = EXCLUDED.deleted, profile = EXCLUDED.profile,
     principal_type = EXCLUDED.principal_type, owner_id = EXCLUDED.owner_id,
     updated_at = EXCLUDED.updated_at;
 
@@ -38,6 +37,23 @@ ON CONFLICT (conversation_id, user_id) DO NOTHING;
 
 -- name: ProjectorDeleteMember :exec
 DELETE FROM conversation_members WHERE conversation_id = $1 AND user_id = $2;
+
+-- name: ProjectorUpsertConversationManager :exec
+INSERT INTO conversation_manager_assignments (conversation_id, user_id, assigned_by, created_at)
+VALUES ($1, $2, $3, $4)
+ON CONFLICT (conversation_id, user_id) DO NOTHING;
+
+-- name: ProjectorDeleteConversationManager :exec
+DELETE FROM conversation_manager_assignments WHERE conversation_id = $1 AND user_id = $2;
+
+-- name: ProjectorUpsertConversationPostingPolicy :exec
+INSERT INTO conversation_posting_policies (conversation_id, policy_type, policy_json, updated_by, updated_at)
+VALUES ($1, $2, $3, $4, $5)
+ON CONFLICT (conversation_id) DO UPDATE SET
+    policy_type = EXCLUDED.policy_type,
+    policy_json = EXCLUDED.policy_json,
+    updated_by = EXCLUDED.updated_by,
+    updated_at = EXCLUDED.updated_at;
 
 -- name: ProjectorUpsertMessage :exec
 INSERT INTO messages (ts, channel_id, user_id, text, thread_ts, type, subtype,
@@ -100,11 +116,11 @@ ON CONFLICT (id) DO UPDATE SET
 DELETE FROM bookmarks WHERE id = $1;
 
 -- name: ProjectorUpsertFile :exec
-INSERT INTO files (id, name, title, mimetype, filetype, size, user_id, s3_key,
+INSERT INTO files (id, team_id, name, title, mimetype, filetype, size, user_id, s3_key,
     url_private, url_private_download, permalink, is_external, external_url, upload_complete, created_at, updated_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7, '', $8, $9, $10, $11, $12, TRUE, $13, $14)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, '', $9, $10, $11, $12, $13, TRUE, $14, $15)
 ON CONFLICT (id) DO UPDATE SET
-    name = EXCLUDED.name, title = EXCLUDED.title, mimetype = EXCLUDED.mimetype,
+    team_id = EXCLUDED.team_id, name = EXCLUDED.name, title = EXCLUDED.title, mimetype = EXCLUDED.mimetype,
     filetype = EXCLUDED.filetype, size = EXCLUDED.size, user_id = EXCLUDED.user_id,
     url_private = EXCLUDED.url_private, url_private_download = EXCLUDED.url_private_download,
     permalink = EXCLUDED.permalink, is_external = EXCLUDED.is_external,
@@ -118,20 +134,13 @@ INSERT INTO file_channels (file_id, channel_id, shared_at)
 VALUES ($1, $2, $3)
 ON CONFLICT (file_id, channel_id) DO NOTHING;
 
--- name: ProjectorInsertToken :exec
-INSERT INTO tokens (id, team_id, user_id, token, token_hash, scopes, is_bot, expires_at, created_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-ON CONFLICT (id) DO NOTHING;
-
--- name: ProjectorDeleteTokenByHash :exec
-DELETE FROM tokens WHERE token_hash = $1;
-
 -- name: ProjectorUpsertSubscription :exec
-INSERT INTO event_subscriptions (id, team_id, url, event_types, secret, encrypted_secret, enabled, created_at, updated_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+INSERT INTO event_subscriptions (id, team_id, url, event_type, resource_type, resource_id, encrypted_secret, enabled, created_at, updated_at)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 ON CONFLICT (id) DO UPDATE SET
-    team_id = EXCLUDED.team_id, url = EXCLUDED.url, event_types = EXCLUDED.event_types,
-    secret = EXCLUDED.secret, encrypted_secret = EXCLUDED.encrypted_secret,
+    team_id = EXCLUDED.team_id, url = EXCLUDED.url, event_type = EXCLUDED.event_type,
+    resource_type = EXCLUDED.resource_type, resource_id = EXCLUDED.resource_id,
+    encrypted_secret = EXCLUDED.encrypted_secret,
     enabled = EXCLUDED.enabled, updated_at = EXCLUDED.updated_at;
 
 -- name: ProjectorDeleteSubscription :exec
@@ -161,14 +170,14 @@ UPDATE api_keys SET rotated_to_id = $2, grace_period_ends_at = $3, revoked = TRU
 -- name: ProjectorMarkAPIKeyRevoked :exec
 UPDATE api_keys SET revoked = TRUE, revoked_at = $2, updated_at = $3 WHERE id = $1;
 
--- name: ProjectorGetEventsByAggregateType :many
+-- name: ProjectorGetInternalEventsByAggregateType :many
 SELECT id, event_type, aggregate_type, aggregate_id, team_id, actor_id, payload, metadata, created_at
-FROM service_events
+FROM internal_events
 WHERE aggregate_type = $1
 ORDER BY id ASC;
 
--- name: ProjectorGetEventsSince :many
+-- name: ProjectorGetInternalEventsSince :many
 SELECT id, event_type, aggregate_type, aggregate_id, team_id, actor_id, payload, metadata, created_at
-FROM service_events
+FROM internal_events
 WHERE id > $1
 ORDER BY id ASC;

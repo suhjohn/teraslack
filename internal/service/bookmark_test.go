@@ -2,10 +2,12 @@ package service
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/suhjohn/teraslack/internal/ctxutil"
 	"github.com/suhjohn/teraslack/internal/domain"
 	"github.com/suhjohn/teraslack/internal/repository"
 )
@@ -119,6 +121,47 @@ func (m *mockConvRepoForBookmark) IsMember(_ context.Context, _, _ string) (bool
 	return true, nil
 }
 func (m *mockConvRepoForBookmark) WithTx(_ pgx.Tx) repository.ConversationRepository { return m }
+
+type mockConvRepoForBookmarkTenant struct {
+	teamID string
+}
+
+func (m *mockConvRepoForBookmarkTenant) Create(_ context.Context, _ domain.CreateConversationParams) (*domain.Conversation, error) {
+	return nil, nil
+}
+func (m *mockConvRepoForBookmarkTenant) Get(_ context.Context, id string) (*domain.Conversation, error) {
+	if id == "" {
+		return nil, domain.ErrNotFound
+	}
+	return &domain.Conversation{ID: id, TeamID: m.teamID}, nil
+}
+func (m *mockConvRepoForBookmarkTenant) Update(_ context.Context, _ string, _ domain.UpdateConversationParams) (*domain.Conversation, error) {
+	return nil, nil
+}
+func (m *mockConvRepoForBookmarkTenant) SetTopic(_ context.Context, _ string, _ domain.SetTopicParams) (*domain.Conversation, error) {
+	return nil, nil
+}
+func (m *mockConvRepoForBookmarkTenant) SetPurpose(_ context.Context, _ string, _ domain.SetPurposeParams) (*domain.Conversation, error) {
+	return nil, nil
+}
+func (m *mockConvRepoForBookmarkTenant) List(_ context.Context, _ domain.ListConversationsParams) (*domain.CursorPage[domain.Conversation], error) {
+	return nil, nil
+}
+func (m *mockConvRepoForBookmarkTenant) Archive(_ context.Context, _ string) error   { return nil }
+func (m *mockConvRepoForBookmarkTenant) Unarchive(_ context.Context, _ string) error { return nil }
+func (m *mockConvRepoForBookmarkTenant) AddMember(_ context.Context, _, _ string) error {
+	return nil
+}
+func (m *mockConvRepoForBookmarkTenant) RemoveMember(_ context.Context, _, _ string) error {
+	return nil
+}
+func (m *mockConvRepoForBookmarkTenant) ListMembers(_ context.Context, _ string, _ string, _ int) (*domain.CursorPage[domain.ConversationMember], error) {
+	return nil, nil
+}
+func (m *mockConvRepoForBookmarkTenant) IsMember(_ context.Context, _, _ string) (bool, error) {
+	return true, nil
+}
+func (m *mockConvRepoForBookmarkTenant) WithTx(_ pgx.Tx) repository.ConversationRepository { return m }
 
 func TestBookmarkService_Create(t *testing.T) {
 	repo := newMockBookmarkRepo()
@@ -236,5 +279,26 @@ func TestBookmarkService_CRUD(t *testing.T) {
 	}
 	if len(bookmarks) != 0 {
 		t.Errorf("got %d bookmarks after delete, want 0", len(bookmarks))
+	}
+}
+
+func TestBookmarkService_TenantAccessDenied(t *testing.T) {
+	repo := newMockBookmarkRepo()
+	repo.bookmarks["Bk123"] = &domain.Bookmark{ID: "Bk123", ChannelID: "C123", Title: "Secret", Link: "https://example.com"}
+	svc := NewBookmarkService(repo, &mockConvRepoForBookmarkTenant{teamID: "T999"}, nil, mockTxBeginner{}, nil)
+
+	ctx := context.WithValue(context.Background(), ctxutil.ContextKeyTeamID, "T123")
+
+	if _, err := svc.Create(ctx, domain.CreateBookmarkParams{ChannelID: "C123", Title: "Doc", Link: "https://go.dev", CreatedBy: "U123"}); err == nil || !errors.Is(err, domain.ErrForbidden) {
+		t.Fatalf("expected forbidden from Create, got %v", err)
+	}
+	if _, err := svc.Update(ctx, "Bk123", domain.UpdateBookmarkParams{UpdatedBy: "U123"}); err == nil || !errors.Is(err, domain.ErrForbidden) {
+		t.Fatalf("expected forbidden from Update, got %v", err)
+	}
+	if err := svc.Delete(ctx, "Bk123"); err == nil || !errors.Is(err, domain.ErrForbidden) {
+		t.Fatalf("expected forbidden from Delete, got %v", err)
+	}
+	if _, err := svc.List(ctx, "C123"); err == nil || !errors.Is(err, domain.ErrForbidden) {
+		t.Fatalf("expected forbidden from List, got %v", err)
 	}
 }

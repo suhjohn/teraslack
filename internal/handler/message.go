@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/suhjohn/teraslack/internal/ctxutil"
 	"github.com/suhjohn/teraslack/internal/domain"
 	"github.com/suhjohn/teraslack/internal/service"
 	"github.com/suhjohn/teraslack/pkg/httputil"
@@ -19,85 +20,74 @@ func NewMessageHandler(svc *service.MessageService) *MessageHandler {
 	return &MessageHandler{svc: svc}
 }
 
-// PostMessage handles POST /messages
+// PostMessage handles POST /messages.
 func (h *MessageHandler) PostMessage(w http.ResponseWriter, r *http.Request) {
 	var params domain.PostMessageParams
 	if err := httputil.DecodeJSON(r, &params); err != nil {
-		httputil.WriteError(w, domain.ErrInvalidArgument)
+		httputil.WriteError(w, r, domain.ErrInvalidArgument)
 		return
 	}
 
 	msg, err := h.svc.PostMessage(r.Context(), params)
 	if err != nil {
-		httputil.WriteError(w, err)
+		httputil.WriteError(w, r, err)
 		return
 	}
 
-	httputil.WriteOK(w, map[string]any{
-		"channel": msg.ChannelID,
-		"ts":      msg.TS,
-		"message": msg,
-	})
+	httputil.WriteCreated(w, "/messages/"+msg.ChannelID+"/"+msg.TS, msg)
 }
 
-// UpdateMessage handles POST /messages/{channel_id}/{ts}
+// UpdateMessage handles PATCH /messages/{conversation_id}/{message_ts}.
 func (h *MessageHandler) UpdateMessage(w http.ResponseWriter, r *http.Request) {
-	channelID := r.PathValue("channel_id")
-	ts := r.PathValue("ts")
+	channelID := r.PathValue("conversation_id")
+	ts := r.PathValue("message_ts")
 	if channelID == "" || ts == "" {
-		httputil.WriteError(w, domain.ErrInvalidArgument)
+		httputil.WriteError(w, r, domain.ErrInvalidArgument)
 		return
 	}
 
 	var params domain.UpdateMessageParams
 	if err := httputil.DecodeJSON(r, &params); err != nil {
-		httputil.WriteError(w, domain.ErrInvalidArgument)
+		httputil.WriteError(w, r, domain.ErrInvalidArgument)
 		return
 	}
 
 	msg, err := h.svc.UpdateMessage(r.Context(), channelID, ts, params)
 	if err != nil {
-		httputil.WriteError(w, err)
+		httputil.WriteError(w, r, err)
 		return
 	}
 
-	httputil.WriteOK(w, map[string]any{
-		"channel": msg.ChannelID,
-		"ts":      msg.TS,
-		"message": msg,
-	})
+	httputil.WriteResource(w, http.StatusOK, msg)
 }
 
-// DeleteMessage handles DELETE /messages/{channel_id}/{ts}
+// DeleteMessage handles DELETE /messages/{conversation_id}/{message_ts}.
 func (h *MessageHandler) DeleteMessage(w http.ResponseWriter, r *http.Request) {
-	channelID := r.PathValue("channel_id")
-	ts := r.PathValue("ts")
+	channelID := r.PathValue("conversation_id")
+	ts := r.PathValue("message_ts")
 	if channelID == "" || ts == "" {
-		httputil.WriteError(w, domain.ErrInvalidArgument)
+		httputil.WriteError(w, r, domain.ErrInvalidArgument)
 		return
 	}
 
 	if err := h.svc.DeleteMessage(r.Context(), channelID, ts); err != nil {
-		httputil.WriteError(w, err)
+		httputil.WriteError(w, r, err)
 		return
 	}
 
-	httputil.WriteOK(w, map[string]any{
-		"channel": channelID,
-		"ts":      ts,
-	})
+	httputil.WriteNoContent(w)
 }
 
-// History handles GET /messages?channel=C123&latest=...&oldest=...
-// When thread_ts is provided, returns thread replies instead of channel history.
+// History handles GET /messages.
 func (h *MessageHandler) History(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	limit, _ := strconv.Atoi(q.Get("limit"))
+	conversationID := q.Get("conversation_id")
 
 	// If thread_ts is provided, return thread replies
 	if threadTS := q.Get("thread_ts"); threadTS != "" {
 		params := domain.ListRepliesParams{
-			ChannelID: q.Get("channel"),
+			ChannelID: conversationID,
 			ThreadTS:  threadTS,
 			Cursor:    q.Get("cursor"),
 			Limit:     limit,
@@ -105,20 +95,15 @@ func (h *MessageHandler) History(w http.ResponseWriter, r *http.Request) {
 
 		page, err := h.svc.Replies(r.Context(), params)
 		if err != nil {
-			httputil.WriteError(w, err)
+			httputil.WriteError(w, r, err)
 			return
 		}
 
-		resp := map[string]any{
-			"messages": page.Items,
-			"has_more": page.HasMore,
-		}
+		nextCursor := ""
 		if page.HasMore {
-			resp["response_metadata"] = map[string]any{
-				"next_cursor": page.NextCursor,
-			}
+			nextCursor = page.NextCursor
 		}
-		httputil.WriteOK(w, resp)
+		httputil.WriteCollection(w, http.StatusOK, page.Items, nextCursor)
 		return
 	}
 
@@ -126,7 +111,7 @@ func (h *MessageHandler) History(w http.ResponseWriter, r *http.Request) {
 	includeAllMetadata, _ := strconv.ParseBool(q.Get("include_all_metadata"))
 
 	params := domain.ListMessagesParams{
-		ChannelID:          q.Get("channel"),
+		ChannelID:          conversationID,
 		Latest:             q.Get("latest"),
 		Oldest:             q.Get("oldest"),
 		Inclusive:          inclusive,
@@ -137,92 +122,75 @@ func (h *MessageHandler) History(w http.ResponseWriter, r *http.Request) {
 
 	page, err := h.svc.History(r.Context(), params)
 	if err != nil {
-		httputil.WriteError(w, err)
+		httputil.WriteError(w, r, err)
 		return
 	}
 
-	resp := map[string]any{
-		"messages": page.Items,
-		"has_more": page.HasMore,
-	}
+	nextCursor := ""
 	if page.HasMore {
-		resp["response_metadata"] = map[string]any{
-			"next_cursor": page.NextCursor,
-		}
+		nextCursor = page.NextCursor
 	}
-	httputil.WriteOK(w, resp)
+	httputil.WriteCollection(w, http.StatusOK, page.Items, nextCursor)
 }
 
-
-// AddReaction handles POST /reactions
+// AddReaction handles POST /messages/{conversation_id}/{message_ts}/reactions.
 func (h *MessageHandler) AddReaction(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Channel   string `json:"channel"`
-		Timestamp string `json:"timestamp"`
-		Name      string `json:"name"`
-		UserID    string `json:"user_id"`
-	}
+	channelID := r.PathValue("conversation_id")
+	messageTS := r.PathValue("message_ts")
+	var req MessageReactionRequest
 	if err := httputil.DecodeJSON(r, &req); err != nil {
-		httputil.WriteError(w, domain.ErrInvalidArgument)
+		httputil.WriteError(w, r, domain.ErrInvalidArgument)
 		return
+	}
+	if actorID := ctxutil.GetActingUserID(r.Context()); actorID != "" {
+		req.UserID = actorID
 	}
 
 	err := h.svc.AddReaction(r.Context(), domain.AddReactionParams{
-		ChannelID: req.Channel,
-		MessageTS: req.Timestamp,
+		ChannelID: channelID,
+		MessageTS: messageTS,
 		UserID:    req.UserID,
 		Emoji:     req.Name,
 	})
 	if err != nil {
-		httputil.WriteError(w, err)
+		httputil.WriteError(w, r, err)
 		return
 	}
 
-	httputil.WriteOK(w, nil)
+	httputil.WriteNoContent(w)
 }
 
-// RemoveReaction handles DELETE /reactions
+// RemoveReaction handles DELETE /messages/{conversation_id}/{message_ts}/reactions/{reaction_name}.
 func (h *MessageHandler) RemoveReaction(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Channel   string `json:"channel"`
-		Timestamp string `json:"timestamp"`
-		Name      string `json:"name"`
-		UserID    string `json:"user_id"`
-	}
-	if err := httputil.DecodeJSON(r, &req); err != nil {
-		httputil.WriteError(w, domain.ErrInvalidArgument)
-		return
-	}
+	channelID := r.PathValue("conversation_id")
+	messageTS := r.PathValue("message_ts")
+	name := r.PathValue("reaction_name")
+	userID := ctxutil.GetActingUserID(r.Context())
 
 	err := h.svc.RemoveReaction(r.Context(), domain.RemoveReactionParams{
-		ChannelID: req.Channel,
-		MessageTS: req.Timestamp,
-		UserID:    req.UserID,
-		Emoji:     req.Name,
+		ChannelID: channelID,
+		MessageTS: messageTS,
+		UserID:    userID,
+		Emoji:     name,
 	})
 	if err != nil {
-		httputil.WriteError(w, err)
+		httputil.WriteError(w, r, err)
 		return
 	}
 
-	httputil.WriteOK(w, nil)
+	httputil.WriteNoContent(w)
 }
 
-// GetReactions handles GET /reactions?channel=C123&timestamp=...
+// GetReactions handles GET /messages/{conversation_id}/{message_ts}/reactions.
 func (h *MessageHandler) GetReactions(w http.ResponseWriter, r *http.Request) {
-	q := r.URL.Query()
-	channelID := q.Get("channel")
-	timestamp := q.Get("timestamp")
+	channelID := r.PathValue("conversation_id")
+	timestamp := r.PathValue("message_ts")
 
 	reactions, err := h.svc.GetReactions(r.Context(), channelID, timestamp)
 	if err != nil {
-		httputil.WriteError(w, err)
+		httputil.WriteError(w, r, err)
 		return
 	}
 
-	httputil.WriteOK(w, map[string]any{
-		"message": map[string]any{
-			"reactions": reactions,
-		},
-	})
+	httputil.WriteResource(w, http.StatusOK, reactions)
 }

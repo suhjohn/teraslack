@@ -1,10 +1,17 @@
 package handler
 
 import (
+	"context"
 	"log/slog"
 	"net/http"
+	"strings"
 
+	"github.com/getkin/kin-openapi/openapi3filter"
+	nethttpmiddleware "github.com/oapi-codegen/nethttp-middleware"
+	openapi "github.com/suhjohn/teraslack/internal/api"
 	"github.com/suhjohn/teraslack/internal/service"
+	"github.com/suhjohn/teraslack/pkg/httputil"
+	"gopkg.in/yaml.v3"
 )
 
 // Router sets up all HTTP routes.
@@ -12,6 +19,7 @@ func Router(
 	logger *slog.Logger,
 	authSvc *service.AuthService,
 	apiKeySvc *service.APIKeyService,
+	workspaceH *WorkspaceHandler,
 	userH *UserHandler,
 	convH *ConversationHandler,
 	msgH *MessageHandler,
@@ -19,108 +27,119 @@ func Router(
 	pinH *PinHandler,
 	bookmarkH *BookmarkHandler,
 	fileH *FileHandler,
+	externalEventH *ExternalEventHandler,
+	externalAccessH *ExternalPrincipalAccessHandler,
 	eventH *EventHandler,
 	authH *AuthHandler,
 	searchH *SearchHandler,
 	apiKeyH *APIKeyHandler,
+	conversationReadH *ConversationReadHandler,
 ) http.Handler {
-	mux := http.NewServeMux()
+	spec, err := openapi.GetSwagger()
+	if err != nil {
+		panic("load embedded openapi spec: " + err.Error())
+	}
 
-	// Health check
-	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"ok":true}`))
+	apiMux := http.NewServeMux()
+	apiServer := newOpenAPIServer(
+		workspaceH,
+		userH,
+		convH,
+		msgH,
+		ugH,
+		pinH,
+		bookmarkH,
+		fileH,
+		externalEventH,
+		externalAccessH,
+		eventH,
+		authH,
+		searchH,
+		apiKeyH,
+		conversationReadH,
+	)
+
+	apiHandler := openapi.HandlerWithOptions(apiServer, openapi.StdHTTPServerOptions{
+		BaseRouter: apiMux,
+		ErrorHandlerFunc: func(w http.ResponseWriter, r *http.Request, err error) {
+			message := strings.TrimSpace(err.Error())
+			if message == "" {
+				message = "The request is invalid."
+			}
+			httputil.WriteErrorResponse(w, r, http.StatusBadRequest, "invalid_request", message)
+		},
 	})
 
-	// Users
-	mux.HandleFunc("POST /users", userH.Create)
-	mux.HandleFunc("GET /users/search", userH.LookupByEmail)
-	mux.HandleFunc("GET /users/{id}", userH.Info)
-	mux.HandleFunc("POST /users/{id}", userH.Update)
-	mux.HandleFunc("GET /users", userH.List)
+	validator := nethttpmiddleware.OapiRequestValidatorWithOptions(spec, &nethttpmiddleware.Options{
+		DoNotValidateServers: true,
+		Options: openapi3filter.Options{
+			AuthenticationFunc: func(context.Context, *openapi3filter.AuthenticationInput) error {
+				return nil
+			},
+		},
+		ErrorHandlerWithOpts: func(_ context.Context, err error, w http.ResponseWriter, r *http.Request, opts nethttpmiddleware.ErrorHandlerOpts) {
+			status := opts.StatusCode
+			code := "invalid_request"
+			message := strings.TrimSpace(err.Error())
+			if message == "" {
+				message = "The request is invalid."
+			}
+			switch status {
+			case http.StatusNotFound:
+				code = "not_found"
+				message = "The requested resource was not found."
+			case http.StatusMethodNotAllowed:
+				code = "method_not_allowed"
+				message = "The request method is not allowed for this resource."
+			case http.StatusUnauthorized:
+				code = "authentication_required"
+				message = "Authentication is required."
+			case http.StatusInternalServerError:
+				code = "internal_error"
+				message = "An unexpected error occurred."
+			}
+			httputil.WriteErrorResponse(w, r, status, code, message)
+		},
+	})
 
-	// Conversations
-	mux.HandleFunc("POST /conversations", convH.Create)
-	mux.HandleFunc("GET /conversations/{id}/members", convH.Members)
-	mux.HandleFunc("POST /conversations/{id}/members", convH.Invite)
-	mux.HandleFunc("DELETE /conversations/{id}/members/{user_id}", convH.Kick)
-	mux.HandleFunc("POST /conversations/{id}/archive", convH.Archive)
-	mux.HandleFunc("POST /conversations/{id}/unarchive", convH.Unarchive)
-	mux.HandleFunc("POST /conversations/{id}/topic", convH.SetTopic)
-	mux.HandleFunc("POST /conversations/{id}/purpose", convH.SetPurpose)
-	mux.HandleFunc("GET /conversations/{id}", convH.Info)
-	mux.HandleFunc("POST /conversations/{id}", convH.Update)
-	mux.HandleFunc("GET /conversations", convH.List)
+	root := http.NewServeMux()
+	root.HandleFunc("GET /openapi.json", func(w http.ResponseWriter, r *http.Request) {
+		doc, err := openapi.GetSwagger()
+		if err != nil {
+			httputil.WriteInternalError(w, r)
+			return
+		}
+		data, err := doc.MarshalJSON()
+		if err != nil {
+			httputil.WriteInternalError(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(data)
+	})
+	root.HandleFunc("GET /openapi.yaml", func(w http.ResponseWriter, r *http.Request) {
+		doc, err := openapi.GetSwagger()
+		if err != nil {
+			httputil.WriteInternalError(w, r)
+			return
+		}
+		data, err := yaml.Marshal(doc)
+		if err != nil {
+			httputil.WriteInternalError(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/yaml")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(data)
+	})
+	root.Handle("/", validator(apiHandler))
 
-	// Messages
-	mux.HandleFunc("POST /messages", msgH.PostMessage)
-	mux.HandleFunc("POST /messages/{channel_id}/{ts}", msgH.UpdateMessage)
-	mux.HandleFunc("DELETE /messages/{channel_id}/{ts}", msgH.DeleteMessage)
-	mux.HandleFunc("GET /messages", msgH.History)
-
-	// Reactions
-	mux.HandleFunc("POST /reactions", msgH.AddReaction)
-	mux.HandleFunc("DELETE /reactions", msgH.RemoveReaction)
-	mux.HandleFunc("GET /reactions", msgH.GetReactions)
-
-	// Usergroups
-	mux.HandleFunc("POST /usergroups", ugH.Create)
-	mux.HandleFunc("POST /usergroups/{id}/enable", ugH.Enable)
-	mux.HandleFunc("POST /usergroups/{id}/disable", ugH.Disable)
-	mux.HandleFunc("GET /usergroups/{id}/users", ugH.ListUsers)
-	mux.HandleFunc("POST /usergroups/{id}/users", ugH.SetUsers)
-	mux.HandleFunc("GET /usergroups/{id}", ugH.Info)
-	mux.HandleFunc("POST /usergroups/{id}", ugH.Update)
-	mux.HandleFunc("GET /usergroups", ugH.List)
-
-	// Pins
-	mux.HandleFunc("POST /pins", pinH.Add)
-	mux.HandleFunc("DELETE /pins", pinH.Remove)
-	mux.HandleFunc("GET /pins", pinH.List)
-
-	// Bookmarks
-	mux.HandleFunc("POST /bookmarks", bookmarkH.Create)
-	mux.HandleFunc("POST /bookmarks/{id}", bookmarkH.Edit)
-	mux.HandleFunc("DELETE /bookmarks/{id}", bookmarkH.Remove)
-	mux.HandleFunc("GET /bookmarks", bookmarkH.List)
-
-	// Files
-	mux.HandleFunc("POST /files/upload_url", fileH.GetUploadURL)
-	mux.HandleFunc("POST /files/remote", fileH.AddRemoteFile)
-	mux.HandleFunc("POST /files/{id}/complete", fileH.CompleteUpload)
-	mux.HandleFunc("POST /files/{id}/share", fileH.ShareRemoteFile)
-	mux.HandleFunc("GET /files/{id}", fileH.Info)
-	mux.HandleFunc("DELETE /files/{id}", fileH.Delete)
-	mux.HandleFunc("GET /files", fileH.List)
-
-	// Event subscriptions
-	mux.HandleFunc("POST /event_subscriptions", eventH.CreateSubscription)
-	mux.HandleFunc("GET /event_subscriptions/{id}", eventH.GetSubscription)
-	mux.HandleFunc("POST /event_subscriptions/{id}", eventH.UpdateSubscription)
-	mux.HandleFunc("DELETE /event_subscriptions/{id}", eventH.DeleteSubscription)
-	mux.HandleFunc("GET /event_subscriptions", eventH.ListSubscriptions)
-
-	// Auth / Tokens
-	mux.HandleFunc("POST /tokens", authH.CreateToken)
-	mux.HandleFunc("DELETE /tokens", authH.Revoke)
-	mux.HandleFunc("GET /auth/test", authH.Test)
-
-	// Search (unified — Turbopuffer-backed)
-	mux.HandleFunc("POST /search", searchH.Search)
-
-	// API Keys
-	mux.HandleFunc("POST /api_keys", apiKeyH.Create)
-	mux.HandleFunc("GET /api_keys", apiKeyH.List)
-	mux.HandleFunc("GET /api_keys/{id}", apiKeyH.Get)
-	mux.HandleFunc("PATCH /api_keys/{id}", apiKeyH.Update)
-	mux.HandleFunc("DELETE /api_keys/{id}", apiKeyH.Delete)
-	mux.HandleFunc("POST /api_keys/{id}/rotate", apiKeyH.Rotate)
-
-	// Apply middleware
-	var h http.Handler = mux
+	var h http.Handler = root
 	h = AuthMiddleware(authSvc, apiKeySvc)(h)
 	h = Logger(logger)(h)
 	h = Recovery(logger)(h)
+	h = RequestID()(h)
 
 	return h
 }

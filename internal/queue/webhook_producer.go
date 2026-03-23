@@ -9,9 +9,10 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/suhjohn/teraslack/internal/domain"
 )
 
-// WebhookProducer tails the service_events table, looks up matching
+// WebhookProducer tails the external_events table, looks up matching
 // event_subscriptions, and fans out one webhook delivery job per subscription
 // into an S3-backed queue. It runs as a separate process from the API server.
 type WebhookProducer struct {
@@ -62,7 +63,7 @@ func NewWebhookProducer(pool *pgxpool.Pool, queue *S3Queue, logger *slog.Logger,
 	}
 }
 
-// Run starts the producer loop. It tails service_events, looks up matching
+// Run starts the producer loop. It tails external_events, looks up matching
 // subscriptions, fans out webhook jobs, buffers them, and group-commits to S3.
 // Blocks until ctx is cancelled. On cancellation, drains the buffer before returning.
 func (p *WebhookProducer) Run(ctx context.Context) error {
@@ -91,7 +92,7 @@ func (p *WebhookProducer) Run(ctx context.Context) error {
 		case <-pollTicker.C:
 			newCursor, err := p.poll(ctx, cursor)
 			if err != nil {
-				p.logger.Error("poll service_events", "error", err)
+				p.logger.Error("poll external_events", "error", err)
 				continue
 			}
 			cursor = newCursor
@@ -125,38 +126,50 @@ type subscriptionRow struct {
 	URL             string
 	Secret          string
 	EncryptedSecret string
+	CreatedAt       time.Time
 }
 
-// poll reads new events from service_events since the given cursor,
+// poll reads new events from external_events since the given cursor,
 // looks up matching subscriptions for each event, and buffers webhook jobs.
 func (p *WebhookProducer) poll(ctx context.Context, cursor int64) (int64, error) {
 	rows, err := p.pool.Query(ctx,
-		`SELECT id, event_type, aggregate_type, aggregate_id, team_id, payload
-		 FROM service_events
+		`SELECT id, team_id, type, resource_type, resource_id, occurred_at, payload, source_internal_event_id, source_internal_event_ids, dedupe_key, created_at
+		 FROM external_events
 		 WHERE id > $1
 		 ORDER BY id ASC
 		 LIMIT 500`, cursor)
 	if err != nil {
-		return cursor, fmt.Errorf("query service_events: %w", err)
+		return cursor, fmt.Errorf("query external_events: %w", err)
 	}
 	defer rows.Close()
 
-	type eventData struct {
-		ID            int64
-		EventType     string
-		AggregateType string
-		AggregateID   string
-		TeamID        string
-		Payload       json.RawMessage
-	}
-
-	var events []eventData
+	var events []domain.ExternalEvent
 	newCursor := cursor
 
 	for rows.Next() {
-		var evt eventData
-		if err := rows.Scan(&evt.ID, &evt.EventType, &evt.AggregateType, &evt.AggregateID, &evt.TeamID, &evt.Payload); err != nil {
+		var evt domain.ExternalEvent
+		var sourceInternalEventID *int64
+		var sourceInternalEventIDs json.RawMessage
+		if err := rows.Scan(
+			&evt.ID,
+			&evt.TeamID,
+			&evt.Type,
+			&evt.ResourceType,
+			&evt.ResourceID,
+			&evt.OccurredAt,
+			&evt.Payload,
+			&sourceInternalEventID,
+			&sourceInternalEventIDs,
+			&evt.DedupeKey,
+			&evt.CreatedAt,
+		); err != nil {
 			return cursor, fmt.Errorf("scan event: %w", err)
+		}
+		evt.SourceInternalEventID = sourceInternalEventID
+		if len(sourceInternalEventIDs) > 0 {
+			if err := json.Unmarshal(sourceInternalEventIDs, &evt.SourceInternalEventIDs); err != nil {
+				return cursor, fmt.Errorf("decode source internal event ids: %w", err)
+			}
 		}
 		events = append(events, evt)
 		newCursor = evt.ID
@@ -172,29 +185,29 @@ func (p *WebhookProducer) poll(ctx context.Context, cursor int64) (int64, error)
 	// For each event, look up matching subscriptions and create webhook jobs
 	var jobs []Job
 	for _, evt := range events {
-		subs, err := p.getMatchingSubscriptions(ctx, evt.TeamID, evt.EventType)
+		subs, err := p.getMatchingSubscriptions(ctx, evt.TeamID, evt.Type, evt.ResourceType, evt.ResourceID, evt.OccurredAt)
 		if err != nil {
 			p.logger.Error("get matching subscriptions", "error", err, "event_id", evt.ID)
 			continue
 		}
 
 		for _, sub := range subs {
-			// Use encrypted secret if available, fall back to plaintext
-			secret := sub.EncryptedSecret
-			if secret == "" {
-				secret = sub.Secret
+			body, err := marshalWebhookEnvelope(evt)
+			if err != nil {
+				p.logger.Error("marshal webhook payload", "error", err, "event_id", evt.ID)
+				continue
 			}
 
 			jobs = append(jobs, Job{
 				ID:             fmt.Sprintf("wh-%d-%s", evt.ID, sub.ID),
 				EventID:        evt.ID,
 				TeamID:         evt.TeamID,
-				EventType:      evt.EventType,
+				EventType:      evt.Type,
 				Status:         StatusPending,
 				SubscriptionID: sub.ID,
 				URL:            sub.URL,
-				Secret:         secret,
-				Payload:        evt.Payload,
+				Secret:         sub.EncryptedSecret,
+				Payload:        body,
 				Attempts:       0,
 				MaxAttempts:    5,
 				CreatedAt:      time.Now(),
@@ -212,14 +225,27 @@ func (p *WebhookProducer) poll(ctx context.Context, cursor int64) (int64, error)
 	return newCursor, nil
 }
 
+func marshalWebhookEnvelope(evt domain.ExternalEvent) (json.RawMessage, error) {
+	body, err := json.Marshal(evt)
+	if err != nil {
+		return nil, fmt.Errorf("marshal external event: %w", err)
+	}
+	return body, nil
+}
+
 // getMatchingSubscriptions queries event_subscriptions for active subscriptions
-// matching the given team and event type.
-func (p *WebhookProducer) getMatchingSubscriptions(ctx context.Context, teamID, eventType string) ([]subscriptionRow, error) {
+// matching the given team and external event filters.
+func (p *WebhookProducer) getMatchingSubscriptions(ctx context.Context, teamID, eventType, resourceType, resourceID string, occurredAt time.Time) ([]subscriptionRow, error) {
 	rows, err := p.pool.Query(ctx,
-		`SELECT id, url, secret, encrypted_secret
+		`SELECT id, url, secret, encrypted_secret, created_at
 		 FROM event_subscriptions
-		 WHERE team_id = $1 AND enabled = TRUE AND $2::TEXT = ANY(event_types)`,
-		teamID, eventType)
+		 WHERE team_id = $1
+		   AND enabled = TRUE
+		   AND (event_type = '' OR event_type = $2)
+		   AND (resource_type = '' OR resource_type = $3)
+		   AND (resource_id = '' OR resource_id = $4)
+		   AND created_at <= $5`,
+		teamID, eventType, resourceType, resourceID, occurredAt)
 	if err != nil {
 		return nil, fmt.Errorf("query subscriptions: %w", err)
 	}
@@ -228,7 +254,7 @@ func (p *WebhookProducer) getMatchingSubscriptions(ctx context.Context, teamID, 
 	var subs []subscriptionRow
 	for rows.Next() {
 		var s subscriptionRow
-		if err := rows.Scan(&s.ID, &s.URL, &s.Secret, &s.EncryptedSecret); err != nil {
+		if err := rows.Scan(&s.ID, &s.URL, &s.Secret, &s.EncryptedSecret, &s.CreatedAt); err != nil {
 			return nil, fmt.Errorf("scan subscription: %w", err)
 		}
 		subs = append(subs, s)

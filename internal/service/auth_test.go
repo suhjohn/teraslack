@@ -2,7 +2,9 @@ package service
 
 import (
 	"context"
+	"errors"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/suhjohn/teraslack/internal/crypto"
@@ -11,148 +13,130 @@ import (
 )
 
 type mockAuthRepo struct {
-	tokens map[string]*domain.Token
+	sessions map[string]*domain.AuthSession
 }
 
 func newMockAuthRepo() *mockAuthRepo {
-	return &mockAuthRepo{tokens: make(map[string]*domain.Token)}
-}
-
-func (m *mockAuthRepo) CreateToken(_ context.Context, params domain.CreateTokenParams) (*domain.Token, error) {
-	rawToken := "xoxb-test-token-123"
-	tokenHash := crypto.HashToken(rawToken)
-	t := &domain.Token{
-		ID:        "TK123",
-		TeamID:    params.TeamID,
-		UserID:    params.UserID,
-		Token:     rawToken,
-		TokenHash: tokenHash,
-		Scopes:    params.Scopes,
-		IsBot:     params.IsBot,
-	}
-	m.tokens[tokenHash] = t
-	return t, nil
-}
-
-func (m *mockAuthRepo) GetByTokenHash(_ context.Context, tokenHash string) (*domain.Token, error) {
-	t, ok := m.tokens[tokenHash]
-	if !ok {
-		return nil, domain.ErrNotFound
-	}
-	return t, nil
-}
-
-func (m *mockAuthRepo) RevokeToken(_ context.Context, token string) error {
-	tokenHash := crypto.HashToken(token)
-	if _, ok := m.tokens[tokenHash]; !ok {
-		return domain.ErrNotFound
-	}
-	delete(m.tokens, tokenHash)
-	return nil
+	return &mockAuthRepo{sessions: make(map[string]*domain.AuthSession)}
 }
 
 func (m *mockAuthRepo) WithTx(_ pgx.Tx) repository.AuthRepository { return m }
 
-func TestAuthService_CreateAndValidate(t *testing.T) {
-	authRepo := newMockAuthRepo()
-	svc := NewAuthService(authRepo, &mockUserRepoForUG{}, nil, mockTxBeginner{}, nil)
+func (m *mockAuthRepo) CreateSession(_ context.Context, params domain.CreateAuthSessionParams) (*domain.AuthSession, error) {
+	session := &domain.AuthSession{
+		ID:        "AS123",
+		TeamID:    params.TeamID,
+		UserID:    params.UserID,
+		Provider:  params.Provider,
+		Token:     "sess_test",
+		ExpiresAt: params.ExpiresAt,
+		CreatedAt: time.Now().UTC(),
+	}
+	m.sessions[crypto.HashToken(session.Token)] = session
+	return session, nil
+}
 
-	// Create token
-	tok, err := svc.CreateToken(context.Background(), domain.CreateTokenParams{
-		TeamID: "T123",
-		UserID: "U123",
-		Scopes: []string{"chat:write", "channels:read"},
-		IsBot:  true,
-	})
+func (m *mockAuthRepo) GetSessionByHash(_ context.Context, sessionHash string) (*domain.AuthSession, error) {
+	session, ok := m.sessions[sessionHash]
+	if !ok {
+		return nil, domain.ErrInvalidAuth
+	}
+	return session, nil
+}
+
+func (m *mockAuthRepo) RevokeSessionByHash(_ context.Context, sessionHash string) error {
+	session, ok := m.sessions[sessionHash]
+	if !ok {
+		return domain.ErrInvalidAuth
+	}
+	now := time.Now().UTC()
+	session.RevokedAt = &now
+	return nil
+}
+
+func (m *mockAuthRepo) GetOAuthAccount(_ context.Context, _ string, _ domain.AuthProvider, _ string) (*domain.OAuthAccount, error) {
+	return nil, domain.ErrNotFound
+}
+
+func (m *mockAuthRepo) UpsertOAuthAccount(_ context.Context, params domain.UpsertOAuthAccountParams) (*domain.OAuthAccount, error) {
+	return &domain.OAuthAccount{
+		ID:              "OA123",
+		TeamID:          params.TeamID,
+		UserID:          params.UserID,
+		Provider:        params.Provider,
+		ProviderSubject: params.ProviderSubject,
+		Email:           params.Email,
+		CreatedAt:       time.Now().UTC(),
+		UpdatedAt:       time.Now().UTC(),
+	}, nil
+}
+
+func TestAuthService_ValidateSession(t *testing.T) {
+	repo := newMockAuthRepo()
+	session := &domain.AuthSession{
+		ID:        "AS123",
+		TeamID:    "T123",
+		UserID:    "U123",
+		Provider:  domain.AuthProviderGitHub,
+		Token:     "sess_valid",
+		ExpiresAt: time.Now().UTC().Add(time.Hour),
+		CreatedAt: time.Now().UTC(),
+	}
+	repo.sessions[crypto.HashToken(session.Token)] = session
+
+	svc := NewAuthService(repo, &mockUserRepoForUG{}, nil, mockTxBeginner{}, nil, AuthConfig{})
+	auth, err := svc.ValidateSession(context.Background(), "Bearer "+session.Token)
 	if err != nil {
-		t.Fatalf("create token: %v", err)
+		t.Fatalf("ValidateSession() error = %v", err)
 	}
-	if tok.Token == "" {
-		t.Fatal("token should not be empty")
+	if auth.TeamID != "T123" || auth.UserID != "U123" || auth.IsBot {
+		t.Fatalf("unexpected auth context: %+v", auth)
 	}
-
-	// Validate token
-	resp, err := svc.ValidateToken(context.Background(), "Bearer "+tok.Token)
-	if err != nil {
-		t.Fatalf("validate token: %v", err)
-	}
-	if resp.TeamID != "T123" {
-		t.Errorf("got team_id %q, want T123", resp.TeamID)
-	}
-	if resp.UserID != "U123" {
-		t.Errorf("got user_id %q, want U123", resp.UserID)
-	}
-	if !resp.IsBot {
-		t.Error("expected is_bot to be true")
-	}
-
-	// Validate invalid token
-	_, err = svc.ValidateToken(context.Background(), "Bearer invalid-token")
-	if err == nil {
-		t.Fatal("expected error for invalid token")
-	}
-
-	// Validate empty token
-	_, err = svc.ValidateToken(context.Background(), "")
-	if err == nil {
-		t.Fatal("expected error for empty token")
+	if auth.PrincipalType != domain.PrincipalTypeHuman || auth.AccountType != domain.AccountTypeMember {
+		t.Fatalf("unexpected principal in auth context: %+v", auth)
 	}
 }
 
-func TestAuthService_RevokeToken(t *testing.T) {
-	authRepo := newMockAuthRepo()
-	svc := NewAuthService(authRepo, &mockUserRepoForUG{}, nil, mockTxBeginner{}, nil)
-
-	tok, err := svc.CreateToken(context.Background(), domain.CreateTokenParams{
-		TeamID: "T123",
-		UserID: "U123",
-		IsBot:  false,
-	})
-	if err != nil {
-		t.Fatalf("create token: %v", err)
+func TestAuthService_ValidateSession_RejectsRevokedSession(t *testing.T) {
+	repo := newMockAuthRepo()
+	raw := "sess_revoked"
+	now := time.Now().UTC()
+	repo.sessions[crypto.HashToken(raw)] = &domain.AuthSession{
+		ID:        "AS123",
+		TeamID:    "T123",
+		UserID:    "U123",
+		Provider:  domain.AuthProviderGoogle,
+		ExpiresAt: now.Add(time.Hour),
+		RevokedAt: &now,
+		CreatedAt: now,
 	}
 
-	// Revoke
-	if err := svc.RevokeToken(context.Background(), tok.Token); err != nil {
-		t.Fatalf("revoke: %v", err)
-	}
-
-	// Validate after revoke should fail
-	_, err = svc.ValidateToken(context.Background(), "Bearer "+tok.Token)
-	if err == nil {
-		t.Fatal("expected error after revoke")
-	}
-
-	// Revoke non-existent
-	err = svc.RevokeToken(context.Background(), "non-existent")
-	if err == nil {
-		t.Fatal("expected error for non-existent token")
+	svc := NewAuthService(repo, &mockUserRepoForUG{}, nil, mockTxBeginner{}, nil, AuthConfig{})
+	_, err := svc.ValidateSession(context.Background(), "Bearer "+raw)
+	if !errors.Is(err, domain.ErrSessionRevoked) {
+		t.Fatalf("ValidateSession() error = %v", err)
 	}
 }
 
-func TestAuthService_ValidationErrors(t *testing.T) {
-	authRepo := newMockAuthRepo()
-	svc := NewAuthService(authRepo, &mockUserRepoForUG{}, nil, mockTxBeginner{}, nil)
-
-	// Missing team_id
-	_, err := svc.CreateToken(context.Background(), domain.CreateTokenParams{
-		UserID: "U123",
-	})
-	if err == nil {
-		t.Fatal("expected error for missing team_id")
+func TestAuthService_RevokeSession(t *testing.T) {
+	repo := newMockAuthRepo()
+	session := &domain.AuthSession{
+		ID:        "AS123",
+		TeamID:    "T123",
+		UserID:    "U123",
+		Provider:  domain.AuthProviderGitHub,
+		Token:     "sess_valid",
+		ExpiresAt: time.Now().UTC().Add(time.Hour),
+		CreatedAt: time.Now().UTC(),
 	}
+	hash := crypto.HashToken(session.Token)
+	repo.sessions[hash] = session
 
-	// Missing user_id
-	_, err = svc.CreateToken(context.Background(), domain.CreateTokenParams{
-		TeamID: "T123",
-	})
-	if err == nil {
-		t.Fatal("expected error for missing user_id")
+	svc := NewAuthService(repo, &mockUserRepoForUG{}, nil, mockTxBeginner{}, nil, AuthConfig{})
+	if err := svc.RevokeSession(context.Background(), session.Token); err != nil {
+		t.Fatalf("RevokeSession() error = %v", err)
 	}
-
-	// Empty revoke
-	err = svc.RevokeToken(context.Background(), "")
-	if err == nil {
-		t.Fatal("expected error for empty token")
+	if repo.sessions[hash].RevokedAt == nil {
+		t.Fatal("expected session to be revoked")
 	}
 }

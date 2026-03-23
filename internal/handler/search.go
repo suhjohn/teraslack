@@ -18,22 +18,19 @@ func NewSearchHandler(svc *service.SearchService) *SearchHandler {
 	return &SearchHandler{svc: svc}
 }
 
-// Search handles POST /search
+// Search handles POST /search.
 func (h *SearchHandler) Search(w http.ResponseWriter, r *http.Request) {
 	var params domain.SearchParams
 	if err := httputil.DecodeJSON(r, &params); err != nil {
-		httputil.WriteError(w, domain.ErrInvalidArgument)
+		httputil.WriteError(w, r, domain.ErrInvalidArgument)
 		return
 	}
 
 	results, err := h.svc.Search(r.Context(), params)
 	if err != nil {
-		httputil.WriteError(w, err)
+		httputil.WriteError(w, r, err)
 		return
 	}
 
-	httputil.WriteOK(w, map[string]any{
-		"results":  results,
-		"has_more": false,
-	})
+	httputil.WriteCollection(w, http.StatusOK, results, "")
 }

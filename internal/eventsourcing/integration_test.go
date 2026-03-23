@@ -11,6 +11,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/golang-migrate/migrate/v4"
+	_ "github.com/golang-migrate/migrate/v4/database/postgres"
+	_ "github.com/golang-migrate/migrate/v4/source/file"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/testcontainers/testcontainers-go"
 	tcpostgres "github.com/testcontainers/testcontainers-go/modules/postgres"
@@ -22,7 +25,7 @@ import (
 	"github.com/suhjohn/teraslack/internal/service"
 )
 
-// setupTestDB spins up a real Postgres container, runs all 5 migrations, and
+// setupTestDB spins up a real Postgres container, runs all migrations, and
 // returns a pgxpool.Pool connected to it.
 func setupTestDB(t *testing.T) *pgxpool.Pool {
 	t.Helper()
@@ -30,26 +33,6 @@ func setupTestDB(t *testing.T) *pgxpool.Pool {
 
 	_, thisFile, _, _ := runtime.Caller(0)
 	migrationsDir := filepath.Join(filepath.Dir(thisFile), "..", "repository", "migrations")
-
-	migrations := []string{
-		"000001_init.up.sql",
-		"000002_usergroups_pins_bookmarks_files_events_auth.up.sql",
-		"000003_event_log.up.sql",
-		"000004_token_hash_encrypted_secret.up.sql",
-		"000005_service_events_outbox.up.sql",
-		"000006_drop_token_unique.up.sql",
-		"000007_api_keys_principal_type.up.sql",
-		"000008_drop_outbox.up.sql",
-	}
-
-	migrationData := make([][]byte, len(migrations))
-	for i, name := range migrations {
-		data, err := os.ReadFile(filepath.Join(migrationsDir, name))
-		if err != nil {
-			t.Fatalf("read migration %d (%s): %v", i+1, name, err)
-		}
-		migrationData[i] = data
-	}
 
 	pgContainer, err := tcpostgres.Run(ctx,
 		"postgres:16",
@@ -83,28 +66,24 @@ func setupTestDB(t *testing.T) *pgxpool.Pool {
 	}
 	t.Cleanup(func() { pool.Close() })
 
-	for i, m := range migrationData {
-		if _, err := pool.Exec(ctx, string(m)); err != nil {
-			t.Fatalf("run migration %d: %v", i+1, err)
+	m, err := migrate.New("file://"+migrationsDir, connStr)
+	if err != nil {
+		t.Fatalf("create migrator: %v", err)
+	}
+	t.Cleanup(func() {
+		srcErr, dbErr := m.Close()
+		if srcErr != nil {
+			t.Logf("close migration source: %v", srcErr)
 		}
+		if dbErr != nil {
+			t.Logf("close migration db: %v", dbErr)
+		}
+	})
+	if err := m.Up(); err != nil && err != migrate.ErrNoChange {
+		t.Fatalf("run migrations: %v", err)
 	}
 
 	return pool
-}
-
-func getMigrationsDir(t *testing.T) string {
-	t.Helper()
-	_, thisFile, _, _ := runtime.Caller(0)
-	return filepath.Join(filepath.Dir(thisFile), "..", "repository", "migrations")
-}
-
-func readMigration(t *testing.T, dir, name string) []byte {
-	t.Helper()
-	data, err := os.ReadFile(filepath.Join(dir, name))
-	if err != nil {
-		t.Fatalf("read migration %s: %v", name, err)
-	}
-	return data
 }
 
 func newTestLogger() *slog.Logger {
@@ -128,9 +107,10 @@ func TestServiceEventRecording_UserCreate(t *testing.T) {
 	userSvc := service.NewUserService(userRepo, recorder, pool, logger)
 
 	user, err := userSvc.Create(ctx, domain.CreateUserParams{
-		TeamID: "T001",
-		Name:   "alice",
-		Email:  "alice@example.com",
+		TeamID:        "T001",
+		Name:          "alice",
+		Email:         "alice@example.com",
+		PrincipalType: domain.PrincipalTypeHuman,
 	})
 	if err != nil {
 		t.Fatalf("create user: %v", err)
@@ -146,15 +126,15 @@ func TestServiceEventRecording_UserCreate(t *testing.T) {
 		t.Errorf("projection name = %q, want %q", projName, "alice")
 	}
 
-	// Verify service_events.
+	// Verify internal_events.
 	var eventType string
 	var payload json.RawMessage
 	err = pool.QueryRow(ctx,
-		"SELECT event_type, payload FROM service_events WHERE aggregate_type = $1 AND aggregate_id = $2",
+		"SELECT event_type, payload FROM internal_events WHERE aggregate_type = $1 AND aggregate_id = $2",
 		domain.AggregateUser, user.ID,
 	).Scan(&eventType, &payload)
 	if err != nil {
-		t.Fatalf("query service_events: %v", err)
+		t.Fatalf("query internal_events: %v", err)
 	}
 	if eventType != domain.EventUserCreated {
 		t.Errorf("event_type = %q, want %q", eventType, domain.EventUserCreated)
@@ -190,9 +170,10 @@ func TestServiceEventRecording_UserUpdate(t *testing.T) {
 	userSvc := service.NewUserService(userRepo, recorder, pool, logger)
 
 	user, err := userSvc.Create(ctx, domain.CreateUserParams{
-		TeamID: "T001",
-		Name:   "bob",
-		Email:  "bob@example.com",
+		TeamID:        "T001",
+		Name:          "bob",
+		Email:         "bob@example.com",
+		PrincipalType: domain.PrincipalTypeHuman,
 	})
 	if err != nil {
 		t.Fatalf("create user: %v", err)
@@ -209,7 +190,7 @@ func TestServiceEventRecording_UserUpdate(t *testing.T) {
 	// Verify 2 events: created + updated.
 	var count int
 	err = pool.QueryRow(ctx,
-		"SELECT COUNT(*) FROM service_events WHERE aggregate_type = $1 AND aggregate_id = $2",
+		"SELECT COUNT(*) FROM internal_events WHERE aggregate_type = $1 AND aggregate_id = $2",
 		domain.AggregateUser, user.ID,
 	).Scan(&count)
 	if err != nil {
@@ -222,7 +203,7 @@ func TestServiceEventRecording_UserUpdate(t *testing.T) {
 	// Verify update event has full snapshot.
 	var payload json.RawMessage
 	err = pool.QueryRow(ctx,
-		"SELECT payload FROM service_events WHERE aggregate_type = $1 AND aggregate_id = $2 AND event_type = $3",
+		"SELECT payload FROM internal_events WHERE aggregate_type = $1 AND aggregate_id = $2 AND event_type = $3",
 		domain.AggregateUser, user.ID, domain.EventUserUpdated,
 	).Scan(&payload)
 	if err != nil {
@@ -256,9 +237,10 @@ func TestReplayCorrectness_Users(t *testing.T) {
 	var userIDs []string
 	for i := 0; i < 5; i++ {
 		u, err := userSvc.Create(ctx, domain.CreateUserParams{
-			TeamID: "T001",
-			Name:   fmt.Sprintf("user%d", i),
-			Email:  fmt.Sprintf("user%d@example.com", i),
+			TeamID:        "T001",
+			Name:          fmt.Sprintf("user%d", i),
+			Email:         fmt.Sprintf("user%d@example.com", i),
+			PrincipalType: domain.PrincipalTypeHuman,
 		})
 		if err != nil {
 			t.Fatalf("create user %d: %v", i, err)
@@ -273,7 +255,7 @@ func TestReplayCorrectness_Users(t *testing.T) {
 	}
 
 	var eventCount int
-	pool.QueryRow(ctx, "SELECT COUNT(*) FROM service_events WHERE aggregate_type = $1", domain.AggregateUser).Scan(&eventCount)
+	pool.QueryRow(ctx, "SELECT COUNT(*) FROM internal_events WHERE aggregate_type = $1", domain.AggregateUser).Scan(&eventCount)
 	if eventCount != 6 {
 		t.Fatalf("expected 6 events, got %d", eventCount)
 	}
@@ -339,18 +321,20 @@ func TestReplayCorrectness_ConversationWithMembers(t *testing.T) {
 	convSvc := service.NewConversationService(convRepo, userRepo, recorder, pool, logger)
 
 	creator, err := userSvc.Create(ctx, domain.CreateUserParams{
-		TeamID: "T001",
-		Name:   "creator",
-		Email:  "creator@example.com",
+		TeamID:        "T001",
+		Name:          "creator",
+		Email:         "creator@example.com",
+		PrincipalType: domain.PrincipalTypeHuman,
 	})
 	if err != nil {
 		t.Fatalf("create user: %v", err)
 	}
 
 	member, err := userSvc.Create(ctx, domain.CreateUserParams{
-		TeamID: "T001",
-		Name:   "member",
-		Email:  "member@example.com",
+		TeamID:        "T001",
+		Name:          "member",
+		Email:         "member@example.com",
+		PrincipalType: domain.PrincipalTypeHuman,
 	})
 	if err != nil {
 		t.Fatalf("create member: %v", err)
@@ -380,7 +364,7 @@ func TestReplayCorrectness_ConversationWithMembers(t *testing.T) {
 	}
 
 	var convEventCount int
-	pool.QueryRow(ctx, "SELECT COUNT(*) FROM service_events WHERE aggregate_type = $1",
+	pool.QueryRow(ctx, "SELECT COUNT(*) FROM internal_events WHERE aggregate_type = $1",
 		domain.AggregateConversation).Scan(&convEventCount)
 	if convEventCount < 1 {
 		t.Errorf("expected at least 1 conversation event, got %d", convEventCount)
@@ -420,9 +404,10 @@ func TestReplayCorrectness_BookmarkCRUD(t *testing.T) {
 	bookmarkSvc := service.NewBookmarkService(bookmarkRepo, convRepo, recorder, pool, logger)
 
 	user, err := userSvc.Create(ctx, domain.CreateUserParams{
-		TeamID: "T001",
-		Name:   "alice",
-		Email:  "alice@example.com",
+		TeamID:        "T001",
+		Name:          "alice",
+		Email:         "alice@example.com",
+		PrincipalType: domain.PrincipalTypeHuman,
 	})
 	if err != nil {
 		t.Fatalf("create user: %v", err)
@@ -459,7 +444,7 @@ func TestReplayCorrectness_BookmarkCRUD(t *testing.T) {
 	}
 
 	var bmEventCount int
-	pool.QueryRow(ctx, "SELECT COUNT(*) FROM service_events WHERE aggregate_type = $1",
+	pool.QueryRow(ctx, "SELECT COUNT(*) FROM internal_events WHERE aggregate_type = $1",
 		domain.AggregateBookmark).Scan(&bmEventCount)
 	if bmEventCount != 2 {
 		t.Errorf("expected 2 bookmark events, got %d", bmEventCount)
@@ -467,7 +452,7 @@ func TestReplayCorrectness_BookmarkCRUD(t *testing.T) {
 
 	var payload json.RawMessage
 	pool.QueryRow(ctx,
-		"SELECT payload FROM service_events WHERE aggregate_type = $1 AND event_type = $2 ORDER BY id DESC LIMIT 1",
+		"SELECT payload FROM internal_events WHERE aggregate_type = $1 AND event_type = $2 ORDER BY id DESC LIMIT 1",
 		domain.AggregateBookmark, domain.EventBookmarkUpdated,
 	).Scan(&payload)
 	var bmSnapshot domain.Bookmark
@@ -510,12 +495,13 @@ func TestPayloadIsFullSnapshot(t *testing.T) {
 	userSvc := service.NewUserService(userRepo, recorder, pool, logger)
 
 	user, err := userSvc.Create(ctx, domain.CreateUserParams{
-		TeamID:      "T001",
-		Name:        "snapshot-test",
-		Email:       "snap@example.com",
-		RealName:    "Snapshot User",
-		DisplayName: "snapuser",
-		IsBot:       true,
+		TeamID:        "T001",
+		Name:          "snapshot-test",
+		Email:         "snap@example.com",
+		PrincipalType: domain.PrincipalTypeHuman,
+		RealName:      "Snapshot User",
+		DisplayName:   "snapuser",
+		IsBot:         true,
 	})
 	if err != nil {
 		t.Fatalf("create user: %v", err)
@@ -523,7 +509,7 @@ func TestPayloadIsFullSnapshot(t *testing.T) {
 
 	var payload json.RawMessage
 	err = pool.QueryRow(ctx,
-		"SELECT payload FROM service_events WHERE aggregate_type = $1 AND aggregate_id = $2 AND event_type = $3",
+		"SELECT payload FROM internal_events WHERE aggregate_type = $1 AND aggregate_id = $2 AND event_type = $3",
 		domain.AggregateUser, user.ID, domain.EventUserCreated,
 	).Scan(&payload)
 	if err != nil {
@@ -582,9 +568,10 @@ func TestDeleteEventIsRecorded(t *testing.T) {
 	bookmarkSvc := service.NewBookmarkService(bookmarkRepo, convRepo, recorder, pool, logger)
 
 	user, err := userSvc.Create(ctx, domain.CreateUserParams{
-		TeamID: "T001",
-		Name:   "deleter",
-		Email:  "deleter@example.com",
+		TeamID:        "T001",
+		Name:          "deleter",
+		Email:         "deleter@example.com",
+		PrincipalType: domain.PrincipalTypeHuman,
 	})
 	if err != nil {
 		t.Fatalf("create user: %v", err)
@@ -617,7 +604,7 @@ func TestDeleteEventIsRecorded(t *testing.T) {
 
 	var payload json.RawMessage
 	err = pool.QueryRow(ctx,
-		"SELECT payload FROM service_events WHERE aggregate_type = $1 AND event_type = $2 AND aggregate_id = $3",
+		"SELECT payload FROM internal_events WHERE aggregate_type = $1 AND event_type = $2 AND aggregate_id = $3",
 		domain.AggregateBookmark, domain.EventBookmarkDeleted, bm.ID,
 	).Scan(&payload)
 	if err != nil {
@@ -628,8 +615,11 @@ func TestDeleteEventIsRecorded(t *testing.T) {
 	if err := json.Unmarshal(payload, &deletePayload); err != nil {
 		t.Fatalf("unmarshal delete payload: %v", err)
 	}
-	if deletePayload["bookmark_id"] != bm.ID {
-		t.Errorf("delete payload bookmark_id = %q, want %q", deletePayload["bookmark_id"], bm.ID)
+	if deletePayload["id"] != bm.ID {
+		t.Errorf("delete payload id = %q, want %q", deletePayload["id"], bm.ID)
+	}
+	if deletePayload["channel_id"] != conv.ID {
+		t.Errorf("delete payload channel_id = %q, want %q", deletePayload["channel_id"], conv.ID)
 	}
 }
 
@@ -650,9 +640,10 @@ func TestEventCountConsistency(t *testing.T) {
 	userSvc := service.NewUserService(userRepo, recorder, pool, logger)
 
 	u, err := userSvc.Create(ctx, domain.CreateUserParams{
-		TeamID: "T001",
-		Name:   "counter",
-		Email:  "counter@example.com",
+		TeamID:        "T001",
+		Name:          "counter",
+		Email:         "counter@example.com",
+		PrincipalType: domain.PrincipalTypeHuman,
 	})
 	if err != nil {
 		t.Fatalf("create: %v", err)
@@ -672,7 +663,7 @@ func TestEventCountConsistency(t *testing.T) {
 
 	var count int
 	err = pool.QueryRow(ctx,
-		"SELECT COUNT(*) FROM service_events WHERE aggregate_type = $1 AND aggregate_id = $2",
+		"SELECT COUNT(*) FROM internal_events WHERE aggregate_type = $1 AND aggregate_id = $2",
 		domain.AggregateUser, u.ID,
 	).Scan(&count)
 	if err != nil {
@@ -683,7 +674,7 @@ func TestEventCountConsistency(t *testing.T) {
 	}
 
 	rows, err := pool.Query(ctx,
-		"SELECT id FROM service_events WHERE aggregate_type = $1 AND aggregate_id = $2 ORDER BY id ASC",
+		"SELECT id FROM internal_events WHERE aggregate_type = $1 AND aggregate_id = $2 ORDER BY id ASC",
 		domain.AggregateUser, u.ID,
 	)
 	if err != nil {
