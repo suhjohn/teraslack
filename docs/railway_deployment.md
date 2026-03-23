@@ -16,13 +16,13 @@ Add these if you want the corresponding features:
 
 ## Start commands
 
-Use the root `Dockerfile` for every Railway service and override only the start command where needed.
+Use the root `Dockerfile` for every Railway service and set `APP_ROLE` per service.
 
-- `server`: default image command
-- `external-event-projector`: `/app/external-event-projector`
-- `webhook-producer`: `/app/webhook-producer`
-- `webhook-worker`: `/app/webhook-worker`
-- `indexer`: `/app/indexer`
+- `server`: `APP_ROLE=server`
+- `external-event-projector`: `APP_ROLE=external-event-projector`
+- `webhook-producer`: `APP_ROLE=webhook-producer`
+- `webhook-worker`: `APP_ROLE=webhook-worker`
+- `indexer`: `APP_ROLE=indexer`
 
 ## Healthcheck
 

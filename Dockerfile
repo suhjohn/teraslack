@@ -27,7 +27,10 @@ COPY --from=build /out/webhook-producer /app/webhook-producer
 COPY --from=build /out/webhook-worker /app/webhook-worker
 COPY --from=build /out/indexer /app/indexer
 COPY --from=build /src/internal/repository/migrations /app/internal/repository/migrations
+COPY docker/start.sh /app/start
+
+RUN chmod +x /app/start
 
 EXPOSE 8080
 
-CMD ["/app/server"]
+CMD ["/app/start"]
