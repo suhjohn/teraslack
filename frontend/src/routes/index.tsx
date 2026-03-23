@@ -1,89 +1,166 @@
 import { createFileRoute } from '@tanstack/react-router'
-import { ArrowRight, Building2, ShieldCheck, Workflow } from 'lucide-react'
+import { useEffect, useRef } from 'react'
+import { ArrowRight, Terminal, Lock, Layers } from 'lucide-react'
 
 export const Route = createFileRoute('/')({ component: App })
 
+function DotGrid() {
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+
+  useEffect(() => {
+    const canvas = canvasRef.current
+    if (!canvas) return
+
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+
+    const gap = 24
+    let animFrame: number
+
+    function resize() {
+      const dpr = window.devicePixelRatio || 1
+      canvas!.width = canvas!.offsetWidth * dpr
+      canvas!.height = canvas!.offsetHeight * dpr
+      ctx!.scale(dpr, dpr)
+    }
+
+    resize()
+    window.addEventListener('resize', resize)
+
+    function draw(time: number) {
+      const w = canvas!.offsetWidth
+      const h = canvas!.offsetHeight
+      ctx!.clearRect(0, 0, w, h)
+
+      const cols = Math.floor(w / gap)
+      const rows = Math.floor(h / gap)
+      const offsetX = (w - cols * gap) / 2
+      const offsetY = (h - rows * gap) / 2
+
+      const isDark =
+        document.documentElement.classList.contains('dark')
+
+      for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < cols; c++) {
+          const x = offsetX + c * gap + gap / 2
+          const y = offsetY + r * gap + gap / 2
+
+          const wave =
+            Math.sin(time * 0.001 + c * 0.3 + r * 0.2) * 0.5 + 0.5
+          const opacity = 0.06 + wave * 0.2
+
+          ctx!.beginPath()
+          ctx!.arc(x, y, 1.2, 0, Math.PI * 2)
+          ctx!.fillStyle = isDark
+            ? `rgba(255,255,255,${opacity})`
+            : `rgba(0,0,0,${opacity})`
+          ctx!.fill()
+        }
+      }
+
+      animFrame = requestAnimationFrame(draw)
+    }
+
+    animFrame = requestAnimationFrame(draw)
+
+    return () => {
+      cancelAnimationFrame(animFrame)
+      window.removeEventListener('resize', resize)
+    }
+  }, [])
+
+  return (
+    <canvas
+      ref={canvasRef}
+      className="pointer-events-none absolute inset-0 h-full w-full"
+      style={{ zIndex: 0 }}
+    />
+  )
+}
+
 function App() {
   return (
-    <main className="page-wrap px-4 pb-12 pt-12">
-      <section className="hero-panel rise-in relative overflow-hidden rounded-[2rem] px-6 py-10 sm:px-10 sm:py-14">
-        <div className="pointer-events-none absolute -left-20 -top-24 h-56 w-56 rounded-full bg-[radial-gradient(circle,rgba(209,78,45,0.28),transparent_66%)]" />
-        <div className="pointer-events-none absolute -bottom-20 -right-20 h-56 w-56 rounded-full bg-[radial-gradient(circle,rgba(13,28,56,0.16),transparent_66%)]" />
-        <p className="eyebrow mb-3">Teraslack</p>
-        <h1 className="display-title mb-5 max-w-4xl text-4xl leading-[0.94] font-semibold tracking-tight text-[var(--ink)] sm:text-7xl">
-          Slack-style infrastructure with explicit access control and a real admin surface.
-        </h1>
-        <p className="mb-8 max-w-2xl text-base leading-7 text-[var(--ink-soft)] sm:text-lg">
-          The API stays on <code>api.teraslack.ai</code>. This frontend on
-          TanStack Start handles the landing experience, login handoff, and the
-          first admin workflows for teams, users, and delegated roles.
-        </p>
-        <div className="flex flex-wrap gap-3">
-          <a
-            href="/login"
-            className="action-button no-underline"
-          >
-            Login to admin
-            <ArrowRight className="h-4 w-4" />
-          </a>
-          <a
-            href="/admin"
-            className="secondary-button no-underline"
-          >
-            Open admin console
-          </a>
+    <main className="page-wrap px-4 pb-16 pt-16">
+      {/* hero */}
+      <section className="rise-in relative overflow-hidden border border-[var(--line)] bg-[var(--surface-strong)] p-8 sm:p-12">
+        <DotGrid />
+        <div className="relative z-10">
+          <p className="eyebrow mb-4">Teraslack</p>
+          <h1 className="display-title mb-6 max-w-3xl text-3xl leading-[1.1] text-[var(--ink)] sm:text-5xl">
+            Infrastructure for team messaging with explicit access control.
+          </h1>
+          <p className="mb-8 max-w-xl text-sm leading-relaxed text-[var(--ink-soft)]">
+            API on <code>api.teraslack.ai</code>. Frontend on TanStack Start.
+            Admin workflows for teams, users, and delegated roles.
+          </p>
+          <div className="flex flex-wrap gap-3">
+            <a href="/login" className="action-button no-underline border-b-0">
+              Login
+              <ArrowRight className="h-3.5 w-3.5" />
+            </a>
+            <a
+              href="/admin"
+              className="secondary-button no-underline border-b-0"
+            >
+              Admin console
+            </a>
+          </div>
         </div>
       </section>
 
-      <section className="mt-8 grid gap-4 lg:grid-cols-3">
+      {/* features */}
+      <section className="mt-6 grid gap-px border border-[var(--line)] bg-[var(--line)] sm:grid-cols-3">
         {[
           {
-            icon: <Building2 className="h-5 w-5" />,
+            icon: <Terminal className="h-4 w-4" />,
             title: 'Workspace controls',
-            desc: 'Inspect teams, domains, and workspace configuration from a single operational surface.',
+            desc: 'Inspect teams, domains, and workspace config from a single surface.',
           },
           {
-            icon: <ShieldCheck className="h-5 w-5" />,
+            icon: <Lock className="h-4 w-4" />,
             title: 'Access management',
-            desc: 'Promote admins, edit delegated roles, and keep access changes visible instead of implicit.',
+            desc: 'Promote admins, edit roles, keep access changes visible.',
           },
           {
-            icon: <Workflow className="h-5 w-5" />,
+            icon: <Layers className="h-4 w-4" />,
             title: 'Frontend + API split',
-            desc: 'A dedicated TanStack Start frontend on teraslack.ai and the existing API on api.teraslack.ai.',
+            desc: 'Dedicated frontend on teraslack.ai, API on api.teraslack.ai.',
           },
-        ].map((item, index) => (
+        ].map((item, i) => (
           <article
             key={item.title}
-            className="admin-card rise-in rounded-2xl p-5"
-            style={{ animationDelay: `${index * 90 + 80}ms` }}
+            className="rise-in bg-[var(--surface-strong)] p-6"
+            style={{ animationDelay: `${i * 80 + 100}ms` }}
           >
-            <div className="mb-4 inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-[rgba(209,78,45,0.12)] text-[var(--accent)]">
+            <div className="mb-3 inline-flex h-8 w-8 items-center justify-center border border-[var(--line)] text-[var(--ink)]">
               {item.icon}
             </div>
-            <h2 className="mb-2 text-base font-semibold text-[var(--ink)]">
+            <h2 className="mb-1.5 text-sm font-bold text-[var(--ink)]">
               {item.title}
             </h2>
-            <p className="m-0 text-sm leading-6 text-[var(--ink-soft)]">
+            <p className="m-0 text-xs leading-relaxed text-[var(--ink-soft)]">
               {item.desc}
             </p>
           </article>
         ))}
       </section>
 
-      <section className="admin-card mt-8 rounded-2xl p-6">
-        <p className="eyebrow mb-2">Initial Surface</p>
-        <ul className="m-0 list-disc space-y-2 pl-5 text-sm leading-6 text-[var(--ink-soft)]">
-          <li>
-            OAuth handoff through the API with redirect back to the frontend.
+      {/* details */}
+      <section className="mt-6 border border-[var(--line)] bg-[var(--surface-strong)] p-6 rise-in" style={{ animationDelay: '350ms' }}>
+        <p className="eyebrow mb-3">Implementation</p>
+        <ul className="m-0 list-none space-y-2 pl-0 text-xs leading-relaxed text-[var(--ink-soft)]">
+          <li className="flex gap-2">
+            <span className="text-[var(--ink)]">--</span>
+            OAuth handoff through the API with redirect back to frontend.
           </li>
-          <li>
-            Session-aware admin dashboard backed by <code>/auth/me</code>,{' '}
-            <code>/teams</code>, <code>/users</code>, and role endpoints.
+          <li className="flex gap-2">
+            <span className="text-[var(--ink)]">--</span>
+            Session-aware dashboard backed by <code>/auth/me</code>,{' '}
+            <code>/teams</code>, <code>/users</code>.
           </li>
-          <li>
-            Backend CORS and secure cookie handling for cross-origin frontend
-            requests on Railway.
+          <li className="flex gap-2">
+            <span className="text-[var(--ink)]">--</span>
+            CORS and secure cookie handling for cross-origin requests.
           </li>
         </ul>
       </section>
