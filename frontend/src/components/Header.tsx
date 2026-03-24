@@ -18,32 +18,11 @@ export default function Header() {
 
         <div className="flex items-center gap-4 text-sm font-medium">
           <Link
-            to="/"
-            className="nav-link"
-            activeProps={{ className: 'nav-link is-active' }}
-          >
-            home
-          </Link>
-          <Link
-            to="/about"
-            className="nav-link"
-            activeProps={{ className: 'nav-link is-active' }}
-          >
-            platform
-          </Link>
-          <Link
             to="/login"
             className="nav-link"
             activeProps={{ className: 'nav-link is-active' }}
           >
             login
-          </Link>
-          <Link
-            to="/admin"
-            className="nav-link"
-            activeProps={{ className: 'nav-link is-active' }}
-          >
-            admin
           </Link>
         </div>
 
