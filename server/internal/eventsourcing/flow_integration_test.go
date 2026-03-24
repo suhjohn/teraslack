@@ -56,6 +56,8 @@ func setupAllServices(t *testing.T) *testEnv {
 	usergroupRepo := pgRepo.NewUsergroupRepo(pool)
 	fileRepo := pgRepo.NewFileRepo(pool)
 	authRepo := pgRepo.NewAuthRepo(pool)
+	workspaceRepo := pgRepo.NewWorkspaceRepo(pool)
+	workspaceInviteRepo := pgRepo.NewWorkspaceInviteRepo(pool)
 	eventRepo := pgRepo.NewEventRepo(pool, encryptor)
 	apiKeyRepo := pgRepo.NewAPIKeyRepo(pool)
 	eventStoreRepo := pgRepo.NewEventStoreRepo(pool)
@@ -70,7 +72,7 @@ func setupAllServices(t *testing.T) *testEnv {
 		bookmarkSvc: service.NewBookmarkService(bookmarkRepo, convRepo, recorder, pool, logger),
 		ugSvc:       service.NewUsergroupService(usergroupRepo, userRepo, recorder, pool, logger),
 		fileSvc:     service.NewFileService(fileRepo, nil, "", "http://localhost:8080", recorder, pool, logger),
-		authSvc: service.NewAuthService(authRepo, userRepo, recorder, pool, logger, service.AuthConfig{
+		authSvc: service.NewAuthService(authRepo, userRepo, workspaceRepo, workspaceInviteRepo, recorder, pool, logger, service.AuthConfig{
 			BaseURL:     "http://localhost:8080",
 			StateSecret: "test-state-secret",
 			HTTPClient:  nil,

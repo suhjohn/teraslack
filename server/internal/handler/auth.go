@@ -28,9 +28,10 @@ func NewAuthHandler(svc *service.AuthService) *AuthHandler {
 func (h *AuthHandler) StartOAuth(w http.ResponseWriter, r *http.Request) {
 	provider := domain.AuthProvider(r.PathValue("provider"))
 	result, err := h.svc.StartOAuth(r.Context(), domain.StartOAuthParams{
-		Provider:   provider,
-		TeamID:     r.URL.Query().Get("team_id"),
-		RedirectTo: r.URL.Query().Get("redirect_to"),
+		Provider:    provider,
+		TeamID:      r.URL.Query().Get("team_id"),
+		InviteToken: r.URL.Query().Get("invite"),
+		RedirectTo:  r.URL.Query().Get("redirect_to"),
 	})
 	if err != nil {
 		httputil.WriteError(w, r, err)

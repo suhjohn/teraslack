@@ -53,6 +53,16 @@ func (m *mockUserRepoTenant) GetByTeamEmail(_ context.Context, teamID, email str
 	return nil, domain.ErrNotFound
 }
 
+func (m *mockUserRepoTenant) ListByEmail(_ context.Context, email string) ([]domain.User, error) {
+	users := make([]domain.User, 0)
+	for _, u := range m.users {
+		if u.Email == email {
+			users = append(users, *u)
+		}
+	}
+	return users, nil
+}
+
 func (m *mockUserRepoTenant) Update(_ context.Context, id string, params domain.UpdateUserParams) (*domain.User, error) {
 	u, ok := m.users[id]
 	if !ok {

@@ -82,6 +82,41 @@ func (r *AuthRepo) GetOAuthAccount(ctx context.Context, teamID string, provider 
 	return oauthAccountToDomain(row), nil
 }
 
+func (r *AuthRepo) ListOAuthAccountsBySubject(ctx context.Context, provider domain.AuthProvider, providerSubject string) ([]domain.OAuthAccount, error) {
+	rows, err := r.db.Query(ctx, `
+		SELECT id, team_id, user_id, provider, provider_subject, email, created_at, updated_at
+		FROM oauth_accounts
+		WHERE provider = $1 AND provider_subject = $2
+		ORDER BY created_at ASC, id ASC
+	`, string(provider), providerSubject)
+	if err != nil {
+		return nil, fmt.Errorf("list oauth accounts by subject: %w", err)
+	}
+	defer rows.Close()
+
+	accounts := make([]domain.OAuthAccount, 0)
+	for rows.Next() {
+		var account domain.OAuthAccount
+		if err := rows.Scan(
+			&account.ID,
+			&account.TeamID,
+			&account.UserID,
+			&account.Provider,
+			&account.ProviderSubject,
+			&account.Email,
+			&account.CreatedAt,
+			&account.UpdatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("scan oauth account: %w", err)
+		}
+		accounts = append(accounts, account)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate oauth accounts: %w", err)
+	}
+	return accounts, nil
+}
+
 func (r *AuthRepo) UpsertOAuthAccount(ctx context.Context, params domain.UpsertOAuthAccountParams) (*domain.OAuthAccount, error) {
 	row, err := r.q.UpsertOAuthAccount(ctx, sqlcgen.UpsertOAuthAccountParams{
 		ID:              generateID("OA"),

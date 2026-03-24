@@ -30,12 +30,20 @@ type WorkspaceRepository interface {
 	DisconnectExternalTeam(ctx context.Context, workspaceID, externalTeamID string) error
 }
 
+type WorkspaceInviteRepository interface {
+	WithTx(tx pgx.Tx) WorkspaceInviteRepository
+	Create(ctx context.Context, params domain.CreateWorkspaceInviteParams, tokenHash string) (*domain.WorkspaceInvite, error)
+	GetByTokenHash(ctx context.Context, tokenHash string) (*domain.WorkspaceInvite, error)
+	MarkAccepted(ctx context.Context, id, acceptedByUserID string, acceptedAt time.Time) error
+}
+
 // UserRepository defines data access operations for users.
 type UserRepository interface {
 	WithTx(tx pgx.Tx) UserRepository
 	Create(ctx context.Context, params domain.CreateUserParams) (*domain.User, error)
 	Get(ctx context.Context, id string) (*domain.User, error)
 	GetByTeamEmail(ctx context.Context, teamID, email string) (*domain.User, error)
+	ListByEmail(ctx context.Context, email string) ([]domain.User, error)
 	Update(ctx context.Context, id string, params domain.UpdateUserParams) (*domain.User, error)
 	List(ctx context.Context, params domain.ListUsersParams) (*domain.CursorPage[domain.User], error)
 }
@@ -182,6 +190,7 @@ type AuthRepository interface {
 	GetSessionByHash(ctx context.Context, sessionHash string) (*domain.AuthSession, error)
 	RevokeSessionByHash(ctx context.Context, sessionHash string) error
 	GetOAuthAccount(ctx context.Context, teamID string, provider domain.AuthProvider, providerSubject string) (*domain.OAuthAccount, error)
+	ListOAuthAccountsBySubject(ctx context.Context, provider domain.AuthProvider, providerSubject string) ([]domain.OAuthAccount, error)
 	UpsertOAuthAccount(ctx context.Context, params domain.UpsertOAuthAccountParams) (*domain.OAuthAccount, error)
 }
 

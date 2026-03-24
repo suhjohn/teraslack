@@ -59,6 +59,10 @@ func (m *mockAuthRepo) GetOAuthAccount(_ context.Context, _ string, _ domain.Aut
 	return nil, domain.ErrNotFound
 }
 
+func (m *mockAuthRepo) ListOAuthAccountsBySubject(_ context.Context, _ domain.AuthProvider, _ string) ([]domain.OAuthAccount, error) {
+	return nil, nil
+}
+
 func (m *mockAuthRepo) UpsertOAuthAccount(_ context.Context, params domain.UpsertOAuthAccountParams) (*domain.OAuthAccount, error) {
 	return &domain.OAuthAccount{
 		ID:              "OA123",
@@ -85,7 +89,7 @@ func TestAuthService_ValidateSession(t *testing.T) {
 	}
 	repo.sessions[crypto.HashToken(session.Token)] = session
 
-	svc := NewAuthService(repo, &mockUserRepoForUG{}, nil, mockTxBeginner{}, nil, AuthConfig{})
+	svc := NewAuthService(repo, &mockUserRepoForUG{}, nil, nil, nil, mockTxBeginner{}, nil, AuthConfig{})
 	auth, err := svc.ValidateSession(context.Background(), "Bearer "+session.Token)
 	if err != nil {
 		t.Fatalf("ValidateSession() error = %v", err)
@@ -112,7 +116,7 @@ func TestAuthService_ValidateSession_RejectsRevokedSession(t *testing.T) {
 		CreatedAt: now,
 	}
 
-	svc := NewAuthService(repo, &mockUserRepoForUG{}, nil, mockTxBeginner{}, nil, AuthConfig{})
+	svc := NewAuthService(repo, &mockUserRepoForUG{}, nil, nil, nil, mockTxBeginner{}, nil, AuthConfig{})
 	_, err := svc.ValidateSession(context.Background(), "Bearer "+raw)
 	if !errors.Is(err, domain.ErrSessionRevoked) {
 		t.Fatalf("ValidateSession() error = %v", err)
@@ -133,7 +137,7 @@ func TestAuthService_RevokeSession(t *testing.T) {
 	hash := crypto.HashToken(session.Token)
 	repo.sessions[hash] = session
 
-	svc := NewAuthService(repo, &mockUserRepoForUG{}, nil, mockTxBeginner{}, nil, AuthConfig{})
+	svc := NewAuthService(repo, &mockUserRepoForUG{}, nil, nil, nil, mockTxBeginner{}, nil, AuthConfig{})
 	if err := svc.RevokeSession(context.Background(), session.Token); err != nil {
 		t.Fatalf("RevokeSession() error = %v", err)
 	}
@@ -143,7 +147,7 @@ func TestAuthService_RevokeSession(t *testing.T) {
 }
 
 func TestAuthService_StartOAuth_AllowsFrontendRedirect(t *testing.T) {
-	svc := NewAuthService(newMockAuthRepo(), &mockUserRepoForUG{}, nil, mockTxBeginner{}, nil, AuthConfig{
+	svc := NewAuthService(newMockAuthRepo(), &mockUserRepoForUG{}, nil, nil, nil, mockTxBeginner{}, nil, AuthConfig{
 		BaseURL:                 "https://api.teraslack.ai",
 		FrontendURL:             "https://teraslack.ai",
 		StateSecret:             "test-secret",
@@ -165,7 +169,7 @@ func TestAuthService_StartOAuth_AllowsFrontendRedirect(t *testing.T) {
 }
 
 func TestAuthService_StartOAuth_RejectsUnknownRedirectHost(t *testing.T) {
-	svc := NewAuthService(newMockAuthRepo(), &mockUserRepoForUG{}, nil, mockTxBeginner{}, nil, AuthConfig{
+	svc := NewAuthService(newMockAuthRepo(), &mockUserRepoForUG{}, nil, nil, nil, mockTxBeginner{}, nil, AuthConfig{
 		BaseURL:                 "https://api.teraslack.ai",
 		FrontendURL:             "https://teraslack.ai",
 		StateSecret:             "test-secret",

@@ -86,6 +86,53 @@ func (r *UserRepo) GetByTeamEmail(ctx context.Context, teamID, email string) (*d
 	return userFieldsToDomain(getUserByTeamEmailRowToFields(row))
 }
 
+func (r *UserRepo) ListByEmail(ctx context.Context, email string) ([]domain.User, error) {
+	rows, err := r.db.Query(ctx, `
+		SELECT id, team_id, name, real_name, display_name, email,
+			principal_type, owner_id, account_type, is_bot, deleted, profile,
+			created_at, updated_at
+		FROM users
+		WHERE LOWER(email) = LOWER($1)
+		ORDER BY created_at ASC, id ASC
+	`, email)
+	if err != nil {
+		return nil, fmt.Errorf("list users by email: %w", err)
+	}
+	defer rows.Close()
+
+	users := make([]domain.User, 0)
+	for rows.Next() {
+		var fields userFields
+		if err := rows.Scan(
+			&fields.ID,
+			&fields.TeamID,
+			&fields.Name,
+			&fields.RealName,
+			&fields.DisplayName,
+			&fields.Email,
+			&fields.PrincipalType,
+			&fields.OwnerID,
+			&fields.AccountType,
+			&fields.IsBot,
+			&fields.Deleted,
+			&fields.Profile,
+			&fields.CreatedAt,
+			&fields.UpdatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("scan user by email: %w", err)
+		}
+		user, err := userFieldsToDomain(fields)
+		if err != nil {
+			return nil, fmt.Errorf("convert user by email: %w", err)
+		}
+		users = append(users, *user)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate users by email: %w", err)
+	}
+	return users, nil
+}
+
 func (r *UserRepo) Update(ctx context.Context, id string, params domain.UpdateUserParams) (*domain.User, error) {
 	existing, err := r.Get(ctx, id)
 	if err != nil {

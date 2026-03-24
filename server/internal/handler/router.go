@@ -21,6 +21,7 @@ func Router(
 	authSvc *service.AuthService,
 	apiKeySvc *service.APIKeyService,
 	workspaceH *WorkspaceHandler,
+	workspaceInviteH *WorkspaceInviteHandler,
 	userH *UserHandler,
 	convH *ConversationHandler,
 	msgH *MessageHandler,
@@ -133,6 +134,9 @@ func Router(
 		w.Header().Set("Content-Type", "application/yaml")
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write(data)
+	})
+	root.HandleFunc("POST /teams/{id}/invites", func(w http.ResponseWriter, r *http.Request) {
+		workspaceInviteH.Create(w, r)
 	})
 	root.Handle("/", validator(apiHandler))
 

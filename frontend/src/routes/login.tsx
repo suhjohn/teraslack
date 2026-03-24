@@ -1,14 +1,12 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { LockKeyhole, ShieldCheck } from 'lucide-react'
-import { getProviderLabel, oauthTeamID, startOAuth } from '../lib/api'
+import { getProviderLabel, startOAuth } from '../lib/api'
 
 export const Route = createFileRoute('/login')({
   component: LoginRoute,
 })
 
 function LoginRoute() {
-  const oauthConfigured = oauthTeamID !== ''
-
   return (
     <main className="page-wrap px-4 py-12">
       <section className="hero-panel rounded-[2rem] px-6 py-10 sm:px-10 sm:py-14">
@@ -21,20 +19,14 @@ function LoginRoute() {
             <p className="max-w-2xl text-base leading-7 text-[var(--ink-soft)] sm:text-lg">
               OAuth is handled on <code>api.teraslack.ai</code>. After the
               callback completes, you come back here with an authenticated
-              session already established for the API.
+              session already established for the API. Invite links place you
+              into the invited workspace, and first-time signups get a personal
+              workspace automatically.
             </p>
-            {!oauthConfigured ? (
-              <p className="max-w-2xl text-sm leading-6 text-[var(--accent)]">
-                OAuth is not configured for this frontend yet. Set
-                <code>VITE_TEAM_ID</code> so the API knows which workspace to
-                sign into.
-              </p>
-            ) : null}
             <div className="flex flex-wrap gap-3">
               <button
                 type="button"
                 className="action-button"
-                disabled={!oauthConfigured}
                 onClick={() => startOAuth('github')}
               >
                 {getProviderLabel('github')}
@@ -42,7 +34,6 @@ function LoginRoute() {
               <button
                 type="button"
                 className="secondary-button"
-                disabled={!oauthConfigured}
                 onClick={() => startOAuth('google')}
               >
                 {getProviderLabel('google')}

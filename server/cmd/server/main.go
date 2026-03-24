@@ -127,6 +127,7 @@ func run(logger *slog.Logger) error {
 	externalEventRepo := pgRepo.NewExternalEventRepo(pool)
 	apiKeyRepo := pgRepo.NewAPIKeyRepo(pool)
 	auditRepo := pgRepo.NewAuthorizationAuditRepo(pool)
+	workspaceInviteRepo := pgRepo.NewWorkspaceInviteRepo(pool)
 
 	// Initialize EventRecorder
 	recorder := service.NewEventRecorder(eventStoreRepo)
@@ -156,7 +157,7 @@ func run(logger *slog.Logger) error {
 	bookmarkSvc := service.NewBookmarkService(bookmarkRepo, convRepo, recorder, pool, logger)
 	fileSvc := service.NewFileService(fileRepo, s3, cfg.S3KeyPrefix, cfg.BaseURL, recorder, pool, logger)
 	fileSvc.SetExternalAccessRepository(externalAccessRepo)
-	authSvc := service.NewAuthService(authRepo, userRepo, recorder, pool, logger, service.AuthConfig{
+	authSvc := service.NewAuthService(authRepo, userRepo, workspaceRepo, workspaceInviteRepo, recorder, pool, logger, service.AuthConfig{
 		BaseURL:                 cfg.BaseURL,
 		FrontendURL:             cfg.FrontendURL,
 		StateSecret:             cfg.AuthStateSecret,
@@ -187,8 +188,10 @@ func run(logger *slog.Logger) error {
 	}
 	searchSvc := service.NewSearchService(tpClient)
 	searchSvc.SetExternalAccessRepository(externalAccessRepo)
+	workspaceInviteSvc := service.NewWorkspaceInviteService(workspaceInviteRepo, userRepo, cfg.FrontendURL)
 	// Initialize handlers
 	workspaceHandler := handler.NewWorkspaceHandler(workspaceSvc)
+	workspaceInviteHandler := handler.NewWorkspaceInviteHandler(workspaceInviteSvc)
 	userHandler := handler.NewUserHandler(userSvc, roleSvc)
 	convHandler := handler.NewConversationHandler(convSvc, convAccessSvc)
 	msgHandler := handler.NewMessageHandler(msgSvc)
@@ -211,6 +214,7 @@ func run(logger *slog.Logger) error {
 		authSvc,
 		apiKeySvc,
 		workspaceHandler,
+		workspaceInviteHandler,
 		userHandler,
 		convHandler,
 		msgHandler,

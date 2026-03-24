@@ -35,9 +35,10 @@ type AuthContext struct {
 }
 
 type StartOAuthParams struct {
-	Provider   AuthProvider `json:"provider"`
-	TeamID     string       `json:"team_id"`
-	RedirectTo string       `json:"redirect_to"`
+	Provider    AuthProvider `json:"provider"`
+	TeamID      string       `json:"team_id"`
+	InviteToken string       `json:"invite_token"`
+	RedirectTo  string       `json:"redirect_to"`
 }
 
 type CompleteOAuthParams struct {

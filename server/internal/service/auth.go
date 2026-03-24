@@ -42,10 +42,11 @@ type oauthProviderConfig struct {
 }
 
 type oauthState struct {
-	Provider   domain.AuthProvider `json:"provider"`
-	TeamID     string              `json:"team_id"`
-	RedirectTo string              `json:"redirect_to"`
-	Nonce      string              `json:"nonce"`
+	Provider    domain.AuthProvider `json:"provider"`
+	TeamID      string              `json:"team_id"`
+	InviteToken string              `json:"invite_token"`
+	RedirectTo  string              `json:"redirect_to"`
+	Nonce       string              `json:"nonce"`
 }
 
 type oauthProfile struct {
@@ -56,21 +57,23 @@ type oauthProfile struct {
 }
 
 type AuthService struct {
-	repo        repository.AuthRepository
-	userRepo    repository.UserRepository
-	auditRepo   repository.AuthorizationAuditRepository
-	recorder    EventRecorder
-	db          repository.TxBeginner
-	logger      *slog.Logger
-	httpClient  *http.Client
-	baseURL     string
-	frontendURL string
-	stateSecret []byte
-	github      oauthProviderConfig
-	google      oauthProviderConfig
+	repo          repository.AuthRepository
+	userRepo      repository.UserRepository
+	workspaceRepo repository.WorkspaceRepository
+	inviteRepo    repository.WorkspaceInviteRepository
+	auditRepo     repository.AuthorizationAuditRepository
+	recorder      EventRecorder
+	db            repository.TxBeginner
+	logger        *slog.Logger
+	httpClient    *http.Client
+	baseURL       string
+	frontendURL   string
+	stateSecret   []byte
+	github        oauthProviderConfig
+	google        oauthProviderConfig
 }
 
-func NewAuthService(repo repository.AuthRepository, userRepo repository.UserRepository, recorder EventRecorder, db repository.TxBeginner, logger *slog.Logger, cfg AuthConfig) *AuthService {
+func NewAuthService(repo repository.AuthRepository, userRepo repository.UserRepository, workspaceRepo repository.WorkspaceRepository, inviteRepo repository.WorkspaceInviteRepository, recorder EventRecorder, db repository.TxBeginner, logger *slog.Logger, cfg AuthConfig) *AuthService {
 	if recorder == nil {
 		recorder = noopRecorder{}
 	}
@@ -79,15 +82,17 @@ func NewAuthService(repo repository.AuthRepository, userRepo repository.UserRepo
 		httpClient = &http.Client{Timeout: 10 * time.Second}
 	}
 	return &AuthService{
-		repo:        repo,
-		userRepo:    userRepo,
-		recorder:    recorder,
-		db:          db,
-		logger:      logger,
-		httpClient:  httpClient,
-		baseURL:     strings.TrimRight(cfg.BaseURL, "/"),
-		frontendURL: strings.TrimRight(cfg.FrontendURL, "/"),
-		stateSecret: []byte(cfg.StateSecret),
+		repo:          repo,
+		userRepo:      userRepo,
+		workspaceRepo: workspaceRepo,
+		inviteRepo:    inviteRepo,
+		recorder:      recorder,
+		db:            db,
+		logger:        logger,
+		httpClient:    httpClient,
+		baseURL:       strings.TrimRight(cfg.BaseURL, "/"),
+		frontendURL:   strings.TrimRight(cfg.FrontendURL, "/"),
+		stateSecret:   []byte(cfg.StateSecret),
 		github: oauthProviderConfig{
 			ClientID:     cfg.GitHubOAuthClientID,
 			ClientSecret: cfg.GitHubOAuthClientSecret,
@@ -104,14 +109,14 @@ func (s *AuthService) SetAuthorizationAuditRepository(repo repository.Authorizat
 }
 
 func (s *AuthService) StartOAuth(ctx context.Context, params domain.StartOAuthParams) (*domain.StartOAuthResult, error) {
-	teamID, err := resolveTeamID(ctx, params.TeamID)
+	if err := validateAuthProvider(params.Provider); err != nil {
+		return nil, err
+	}
+	teamID, err := resolveOptionalTeamID(ctx, params.TeamID)
 	if err != nil {
 		return nil, err
 	}
 	params.TeamID = teamID
-	if err := validateAuthProvider(params.Provider); err != nil {
-		return nil, err
-	}
 	if len(s.stateSecret) == 0 {
 		return nil, fmt.Errorf("auth state secret: %w", domain.ErrInvalidArgument)
 	}
@@ -130,10 +135,11 @@ func (s *AuthService) StartOAuth(ctx context.Context, params domain.StartOAuthPa
 		return nil, err
 	}
 	state, err := s.encodeState(oauthState{
-		Provider:   params.Provider,
-		TeamID:     params.TeamID,
-		RedirectTo: redirectTo,
-		Nonce:      nonce,
+		Provider:    params.Provider,
+		TeamID:      params.TeamID,
+		InviteToken: strings.TrimSpace(params.InviteToken),
+		RedirectTo:  redirectTo,
+		Nonce:       nonce,
 	})
 	if err != nil {
 		return nil, err
@@ -183,14 +189,22 @@ func (s *AuthService) CompleteOAuth(ctx context.Context, params domain.CompleteO
 
 	authRepo := s.repo.WithTx(tx)
 	userRepo := s.userRepo.WithTx(tx)
+	workspaceRepo := s.workspaceRepo
+	if workspaceRepo != nil {
+		workspaceRepo = workspaceRepo.WithTx(tx)
+	}
+	inviteRepo := s.inviteRepo
+	if inviteRepo != nil {
+		inviteRepo = inviteRepo.WithTx(tx)
+	}
 
-	user, err := s.resolveOAuthUser(ctx, tx, userRepo, authRepo, state.TeamID, params.Provider, profile)
+	teamID, user, err := s.resolveOAuthLogin(ctx, tx, userRepo, authRepo, workspaceRepo, inviteRepo, state, params.Provider, profile)
 	if err != nil {
 		return nil, err
 	}
 
 	session, err := authRepo.CreateSession(ctx, domain.CreateAuthSessionParams{
-		TeamID:    state.TeamID,
+		TeamID:    teamID,
 		UserID:    user.ID,
 		Provider:  params.Provider,
 		ExpiresAt: time.Now().UTC().Add(authSessionTTL),
@@ -291,7 +305,7 @@ func (s *AuthService) resolveOAuthUser(
 	} else {
 		user, err = userRepo.GetByTeamEmail(ctx, teamID, profile.Email)
 		if err == domain.ErrNotFound {
-			user, err = s.createOAuthUser(ctx, tx, userRepo, teamID, profile)
+			user, err = s.createOAuthUser(ctx, tx, userRepo, teamID, profile, domain.AccountTypeMember)
 		}
 		if err != nil {
 			return nil, err
@@ -316,7 +330,101 @@ func (s *AuthService) resolveOAuthUser(
 	return user, nil
 }
 
-func (s *AuthService) createOAuthUser(ctx context.Context, tx pgx.Tx, userRepo repository.UserRepository, teamID string, profile oauthProfile) (*domain.User, error) {
+func (s *AuthService) resolveOAuthLogin(
+	ctx context.Context,
+	tx pgx.Tx,
+	userRepo repository.UserRepository,
+	authRepo repository.AuthRepository,
+	workspaceRepo repository.WorkspaceRepository,
+	inviteRepo repository.WorkspaceInviteRepository,
+	state oauthState,
+	provider domain.AuthProvider,
+	profile oauthProfile,
+) (string, *domain.User, error) {
+	if inviteToken := strings.TrimSpace(state.InviteToken); inviteToken != "" {
+		return s.resolveInviteOAuthLogin(ctx, tx, userRepo, authRepo, inviteRepo, inviteToken, provider, profile)
+	}
+	if state.TeamID != "" {
+		user, err := s.resolveOAuthUser(ctx, tx, userRepo, authRepo, state.TeamID, provider, profile)
+		return state.TeamID, user, err
+	}
+
+	accounts, err := authRepo.ListOAuthAccountsBySubject(ctx, provider, profile.Subject)
+	if err != nil {
+		return "", nil, err
+	}
+	if len(accounts) > 0 {
+		teamID := accounts[0].TeamID
+		user, err := s.resolveOAuthUser(ctx, tx, userRepo, authRepo, teamID, provider, profile)
+		return teamID, user, err
+	}
+
+	users, err := userRepo.ListByEmail(ctx, profile.Email)
+	if err != nil {
+		return "", nil, err
+	}
+	for _, candidate := range users {
+		if candidate.TeamID == "" {
+			continue
+		}
+		user, err := s.resolveOAuthUser(ctx, tx, userRepo, authRepo, candidate.TeamID, provider, profile)
+		return candidate.TeamID, user, err
+	}
+
+	if workspaceRepo == nil {
+		return "", nil, fmt.Errorf("workspace repo: %w", domain.ErrInvalidArgument)
+	}
+	workspace, user, err := s.createPersonalWorkspaceAndUser(ctx, tx, workspaceRepo, userRepo, profile)
+	if err != nil {
+		return "", nil, err
+	}
+	if _, err := authRepo.UpsertOAuthAccount(ctx, domain.UpsertOAuthAccountParams{
+		TeamID:          workspace.ID,
+		UserID:          user.ID,
+		Provider:        provider,
+		ProviderSubject: profile.Subject,
+		Email:           profile.Email,
+	}); err != nil {
+		return "", nil, err
+	}
+	return workspace.ID, user, nil
+}
+
+func (s *AuthService) resolveInviteOAuthLogin(
+	ctx context.Context,
+	tx pgx.Tx,
+	userRepo repository.UserRepository,
+	authRepo repository.AuthRepository,
+	inviteRepo repository.WorkspaceInviteRepository,
+	inviteToken string,
+	provider domain.AuthProvider,
+	profile oauthProfile,
+) (string, *domain.User, error) {
+	if inviteRepo == nil {
+		return "", nil, fmt.Errorf("invite repo: %w", domain.ErrInvalidArgument)
+	}
+	invite, err := inviteRepo.GetByTokenHash(ctx, crypto.HashToken(inviteToken))
+	if err != nil {
+		return "", nil, err
+	}
+	if invite.AcceptedAt != nil || invite.ExpiresAt.Before(time.Now().UTC()) {
+		return "", nil, domain.ErrForbidden
+	}
+	if !strings.EqualFold(strings.TrimSpace(invite.Email), strings.TrimSpace(profile.Email)) {
+		return "", nil, domain.ErrForbidden
+	}
+
+	user, err := s.resolveOAuthUser(ctx, tx, userRepo, authRepo, invite.TeamID, provider, profile)
+	if err != nil {
+		return "", nil, err
+	}
+	if err := inviteRepo.MarkAccepted(ctx, invite.ID, user.ID, time.Now().UTC()); err != nil {
+		return "", nil, err
+	}
+	return invite.TeamID, user, nil
+}
+
+func (s *AuthService) createOAuthUser(ctx context.Context, tx pgx.Tx, userRepo repository.UserRepository, teamID string, profile oauthProfile, accountType domain.AccountType) (*domain.User, error) {
 	name := strings.TrimSpace(profile.Login)
 	if name == "" {
 		name = emailLocalPart(profile.Email)
@@ -333,7 +441,7 @@ func (s *AuthService) createOAuthUser(ctx context.Context, tx pgx.Tx, userRepo r
 		DisplayName:   realName,
 		Email:         profile.Email,
 		PrincipalType: domain.PrincipalTypeHuman,
-		AccountType:   domain.AccountTypeMember,
+		AccountType:   accountType,
 		IsBot:         false,
 		Profile:       domain.UserProfile{},
 	})
@@ -354,6 +462,42 @@ func (s *AuthService) createOAuthUser(ctx context.Context, tx pgx.Tx, userRepo r
 	}
 
 	return user, nil
+}
+
+func (s *AuthService) createPersonalWorkspaceAndUser(
+	ctx context.Context,
+	tx pgx.Tx,
+	workspaceRepo repository.WorkspaceRepository,
+	userRepo repository.UserRepository,
+	profile oauthProfile,
+) (*domain.Workspace, *domain.User, error) {
+	name := personalWorkspaceName(profile)
+	workspace, err := workspaceRepo.Create(ctx, domain.CreateWorkspaceParams{
+		Name:            name,
+		Domain:          personalWorkspaceDomain(profile),
+		Discoverability: domain.WorkspaceDiscoverabilityInviteOnly,
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+
+	payload, _ := json.Marshal(workspace)
+	if err := s.recorder.WithTx(tx).Record(ctx, domain.InternalEvent{
+		EventType:     domain.EventTeamCreated,
+		AggregateType: domain.AggregateTeam,
+		AggregateID:   workspace.ID,
+		TeamID:        workspace.ID,
+		ActorID:       "",
+		Payload:       payload,
+	}); err != nil {
+		return nil, nil, fmt.Errorf("record team.created event: %w", err)
+	}
+
+	user, err := s.createOAuthUser(ctx, tx, userRepo, workspace.ID, profile, domain.AccountTypePrimaryAdmin)
+	if err != nil {
+		return nil, nil, err
+	}
+	return workspace, user, nil
 }
 
 func (s *AuthService) exchangeCode(ctx context.Context, provider domain.AuthProvider, code string) (oauthProfile, error) {
@@ -649,12 +793,59 @@ func validateAuthProvider(provider domain.AuthProvider) error {
 	}
 }
 
+func resolveOptionalTeamID(ctx context.Context, requested string) (string, error) {
+	requested = strings.TrimSpace(requested)
+	if ctxTeam := ctxutil.GetTeamID(ctx); ctxTeam != "" {
+		if requested != "" && requested != ctxTeam {
+			return "", domain.ErrForbidden
+		}
+		return ctxTeam, nil
+	}
+	return requested, nil
+}
+
 func emailLocalPart(email string) string {
 	local, _, found := strings.Cut(email, "@")
 	if found && local != "" {
 		return local
 	}
 	return email
+}
+
+func personalWorkspaceName(profile oauthProfile) string {
+	name := strings.TrimSpace(profile.Name)
+	if name == "" {
+		name = strings.TrimSpace(profile.Login)
+	}
+	if name == "" {
+		name = emailLocalPart(profile.Email)
+	}
+	return name + "'s workspace"
+}
+
+func personalWorkspaceDomain(profile oauthProfile) string {
+	base := strings.TrimSpace(profile.Login)
+	if base == "" {
+		base = emailLocalPart(profile.Email)
+	}
+	base = strings.ToLower(base)
+	base = strings.Map(func(r rune) rune {
+		switch {
+		case r >= 'a' && r <= 'z':
+			return r
+		case r >= '0' && r <= '9':
+			return r
+		case r == '-':
+			return r
+		default:
+			return '-'
+		}
+	}, base)
+	base = strings.Trim(base, "-")
+	if base == "" {
+		base = "personal"
+	}
+	return base
 }
 
 func randomHex(size int) (string, error) {

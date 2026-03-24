@@ -82,8 +82,6 @@ export class APIClientError extends Error {
 export const apiBaseURL =
   import.meta.env.VITE_API_BASE_URL?.replace(/\/$/, '') ?? 'http://localhost:8080'
 
-export const oauthTeamID = import.meta.env.VITE_TEAM_ID?.trim() ?? ''
-
 export async function apiFetch<T>(
   path: string,
   init: RequestInit = {},
@@ -125,13 +123,18 @@ export function startOAuth(provider: 'github' | 'google', redirectPath = '/admin
   if (typeof window === 'undefined') {
     return
   }
-  if (!oauthTeamID) {
-    throw new Error('VITE_TEAM_ID is not configured.')
-  }
 
   const redirectTo = new URL(redirectPath, window.location.origin).toString()
   const target = new URL(`/auth/oauth/${provider}/start`, apiBaseURL)
-  target.searchParams.set('team_id', oauthTeamID)
+  const params = new URLSearchParams(window.location.search)
+  const teamID = params.get('team_id')?.trim()
+  const inviteToken = params.get('invite')?.trim()
+  if (teamID) {
+    target.searchParams.set('team_id', teamID)
+  }
+  if (inviteToken) {
+    target.searchParams.set('invite', inviteToken)
+  }
   target.searchParams.set('redirect_to', redirectTo)
   window.location.assign(target.toString())
 }

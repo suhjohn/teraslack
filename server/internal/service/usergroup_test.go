@@ -134,6 +134,9 @@ func (m *mockUserRepoForUG) Get(_ context.Context, id string) (*domain.User, err
 func (m *mockUserRepoForUG) GetByTeamEmail(_ context.Context, _, _ string) (*domain.User, error) {
 	return nil, domain.ErrNotFound
 }
+func (m *mockUserRepoForUG) ListByEmail(_ context.Context, _ string) ([]domain.User, error) {
+	return nil, nil
+}
 func (m *mockUserRepoForUG) Update(_ context.Context, _ string, _ domain.UpdateUserParams) (*domain.User, error) {
 	return nil, nil
 }
@@ -158,6 +161,9 @@ func (m *mockUserRepoForUGRoles) Get(_ context.Context, id string) (*domain.User
 }
 func (m *mockUserRepoForUGRoles) GetByTeamEmail(_ context.Context, _, _ string) (*domain.User, error) {
 	return nil, domain.ErrNotFound
+}
+func (m *mockUserRepoForUGRoles) ListByEmail(_ context.Context, _ string) ([]domain.User, error) {
+	return nil, nil
 }
 func (m *mockUserRepoForUGRoles) Update(_ context.Context, _ string, _ domain.UpdateUserParams) (*domain.User, error) {
 	return nil, nil
