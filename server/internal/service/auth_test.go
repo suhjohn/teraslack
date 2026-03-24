@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -138,5 +139,46 @@ func TestAuthService_RevokeSession(t *testing.T) {
 	}
 	if repo.sessions[hash].RevokedAt == nil {
 		t.Fatal("expected session to be revoked")
+	}
+}
+
+func TestAuthService_StartOAuth_AllowsFrontendRedirect(t *testing.T) {
+	svc := NewAuthService(newMockAuthRepo(), &mockUserRepoForUG{}, nil, mockTxBeginner{}, nil, AuthConfig{
+		BaseURL:                 "https://api.teraslack.ai",
+		FrontendURL:             "https://teraslack.ai",
+		StateSecret:             "test-secret",
+		GitHubOAuthClientID:     "github-client",
+		GitHubOAuthClientSecret: "github-secret",
+	})
+
+	result, err := svc.StartOAuth(context.Background(), domain.StartOAuthParams{
+		Provider:   domain.AuthProviderGitHub,
+		TeamID:     "T123",
+		RedirectTo: "https://teraslack.ai/admin",
+	})
+	if err != nil {
+		t.Fatalf("StartOAuth() error = %v", err)
+	}
+	if !strings.Contains(result.AuthorizationURL, "redirect_uri=https%3A%2F%2Fapi.teraslack.ai%2Fauth%2Foauth%2Fgithub%2Fcallback") {
+		t.Fatalf("authorization url should keep API callback, got %q", result.AuthorizationURL)
+	}
+}
+
+func TestAuthService_StartOAuth_RejectsUnknownRedirectHost(t *testing.T) {
+	svc := NewAuthService(newMockAuthRepo(), &mockUserRepoForUG{}, nil, mockTxBeginner{}, nil, AuthConfig{
+		BaseURL:                 "https://api.teraslack.ai",
+		FrontendURL:             "https://teraslack.ai",
+		StateSecret:             "test-secret",
+		GitHubOAuthClientID:     "github-client",
+		GitHubOAuthClientSecret: "github-secret",
+	})
+
+	_, err := svc.StartOAuth(context.Background(), domain.StartOAuthParams{
+		Provider:   domain.AuthProviderGitHub,
+		TeamID:     "T123",
+		RedirectTo: "https://evil.example.com/admin",
+	})
+	if !errors.Is(err, domain.ErrInvalidArgument) {
+		t.Fatalf("StartOAuth() error = %v, want invalid argument", err)
 	}
 }

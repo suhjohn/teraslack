@@ -158,6 +158,7 @@ func run(logger *slog.Logger) error {
 	fileSvc.SetExternalAccessRepository(externalAccessRepo)
 	authSvc := service.NewAuthService(authRepo, userRepo, recorder, pool, logger, service.AuthConfig{
 		BaseURL:                 cfg.BaseURL,
+		FrontendURL:             cfg.FrontendURL,
 		StateSecret:             cfg.AuthStateSecret,
 		GitHubOAuthClientID:     cfg.GitHubOAuthClientID,
 		GitHubOAuthClientSecret: cfg.GitHubOAuthClientSecret,

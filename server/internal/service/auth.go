@@ -27,6 +27,7 @@ const authSessionTTL = 30 * 24 * time.Hour
 
 type AuthConfig struct {
 	BaseURL                 string
+	FrontendURL             string
 	StateSecret             string
 	GitHubOAuthClientID     string
 	GitHubOAuthClientSecret string
@@ -63,6 +64,7 @@ type AuthService struct {
 	logger      *slog.Logger
 	httpClient  *http.Client
 	baseURL     string
+	frontendURL string
 	stateSecret []byte
 	github      oauthProviderConfig
 	google      oauthProviderConfig
@@ -84,6 +86,7 @@ func NewAuthService(repo repository.AuthRepository, userRepo repository.UserRepo
 		logger:      logger,
 		httpClient:  httpClient,
 		baseURL:     strings.TrimRight(cfg.BaseURL, "/"),
+		frontendURL: strings.TrimRight(cfg.FrontendURL, "/"),
 		stateSecret: []byte(cfg.StateSecret),
 		github: oauthProviderConfig{
 			ClientID:     cfg.GitHubOAuthClientID,
@@ -563,18 +566,39 @@ func (s *AuthService) resolveRedirectTo(raw string) (string, error) {
 		return s.baseURL, nil
 	}
 
-	baseURL, err := url.Parse(s.baseURL)
-	if err != nil {
-		return "", err
-	}
 	redirectURL, err := url.Parse(raw)
 	if err != nil {
 		return "", fmt.Errorf("redirect_to: %w", domain.ErrInvalidArgument)
 	}
-	if redirectURL.Scheme != baseURL.Scheme || redirectURL.Host != baseURL.Host {
-		return "", fmt.Errorf("redirect_to: %w", domain.ErrInvalidArgument)
+
+	allowedOrigins, err := s.allowedRedirectOrigins()
+	if err != nil {
+		return "", err
 	}
-	return redirectURL.String(), nil
+	for _, origin := range allowedOrigins {
+		if redirectURL.Scheme == origin.Scheme && redirectURL.Host == origin.Host {
+			return redirectURL.String(), nil
+		}
+	}
+
+	return "", fmt.Errorf("redirect_to: %w", domain.ErrInvalidArgument)
+}
+
+func (s *AuthService) allowedRedirectOrigins() ([]*url.URL, error) {
+	rawOrigins := []string{s.baseURL}
+	if s.frontendURL != "" {
+		rawOrigins = append(rawOrigins, s.frontendURL)
+	}
+
+	origins := make([]*url.URL, 0, len(rawOrigins))
+	for _, raw := range rawOrigins {
+		parsed, err := url.Parse(raw)
+		if err != nil {
+			return nil, err
+		}
+		origins = append(origins, parsed)
+	}
+	return origins, nil
 }
 
 func (s *AuthService) encodeState(state oauthState) (string, error) {
