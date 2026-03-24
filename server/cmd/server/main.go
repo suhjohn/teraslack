@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
@@ -42,7 +43,11 @@ func run(logger *slog.Logger) error {
 
 	// Run migrations
 	logger.Info("running migrations")
-	m, err := migrate.New("file://internal/repository/migrations", cfg.MigrationDatabaseURL)
+	migrationsURL, err := migrationSourceURL()
+	if err != nil {
+		return fmt.Errorf("resolve migration source: %w", err)
+	}
+	m, err := migrate.New(migrationsURL, cfg.MigrationDatabaseURL)
 	if err != nil {
 		return fmt.Errorf("create migrator: %w", err)
 	}
@@ -253,4 +258,34 @@ func run(logger *slog.Logger) error {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	return srv.Shutdown(shutdownCtx)
+}
+
+func migrationSourceURL() (string, error) {
+	candidates := []string{"internal/repository/migrations"}
+	if exePath, err := os.Executable(); err == nil {
+		exeDir := filepath.Dir(exePath)
+		candidates = append(candidates,
+			filepath.Join(exeDir, "internal", "repository", "migrations"),
+			filepath.Join(exeDir, "..", "internal", "repository", "migrations"),
+		)
+	}
+
+	for _, candidate := range candidates {
+		if candidate == "" {
+			continue
+		}
+		absPath, err := filepath.Abs(candidate)
+		if err != nil {
+			return "", fmt.Errorf("abs path for %q: %w", candidate, err)
+		}
+		info, err := os.Stat(absPath)
+		if err == nil && info.IsDir() {
+			return "file://" + filepath.ToSlash(absPath), nil
+		}
+		if err != nil && !os.IsNotExist(err) {
+			return "", fmt.Errorf("stat %q: %w", absPath, err)
+		}
+	}
+
+	return "", fmt.Errorf("internal/repository/migrations not found from cwd or executable path")
 }

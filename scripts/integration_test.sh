@@ -3,6 +3,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+SERVER_DIR="$ROOT_DIR/server"
 BASE_ENV_FILE="${INTEGRATION_TEST_ENV_FILE:-$ROOT_DIR/.env.integration_test}"
 STATE_DIR="$ROOT_DIR/tmp/integration_test"
 
@@ -127,7 +128,7 @@ cleanup() {
     S3_KEY_PREFIX="${S3_KEY_PREFIX:-}" \
     TURBOPUFFER_API_KEY="${TURBOPUFFER_API_KEY:-}" \
     TURBOPUFFER_NS_PREFIX="${TURBOPUFFER_NS_PREFIX:-}" \
-    go run ./cmd/integration-cleanup
+    go -C "$SERVER_DIR" run ./cmd/integration-cleanup
   )
 
   rm -f "$state_env"
@@ -165,7 +166,7 @@ if (
   TERASLACK_E2E=1 \
   DATABASE_URL="$host_database_url" \
   TERASLACK_E2E_BASE_URL="$host_base_url" \
-  go test ./internal/e2e/... -run 'TestComposeE2E_(AgentSessionFlow|CodexPeerChat|ExternalEventsPaginationAndFiltering|WebhookExternalEventDelivery)$' -count=1 -v
+  go -C "$SERVER_DIR" test ./internal/e2e/... -run 'TestComposeE2E_(AgentSessionFlow|CodexPeerChat|ExternalEventsPaginationAndFiltering|WebhookExternalEventDelivery)$' -count=1 -v
 ); then
   test_exit=0
 else

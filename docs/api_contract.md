@@ -7,7 +7,7 @@
 - Success responses use standard HTTP status codes and do not include an `ok` flag.
 - Error responses are JSON objects with stable machine-readable `code` values.
 - Collection endpoints use cursor pagination with a shared response envelope.
-- The OpenAPI source of truth lives at `api/openapi.yaml`.
+- The OpenAPI source of truth lives at `server/api/openapi.yaml`.
 - The server publishes the generated contract at `GET /openapi.json` and `GET /openapi.yaml`.
 
 ## Success Responses

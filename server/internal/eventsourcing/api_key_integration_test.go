@@ -727,7 +727,7 @@ func TestAPIKey_ValidateGarbageKey(t *testing.T) {
 	recorder := service.NewEventRecorder(eventStoreRepo)
 	apiKeySvc := service.NewAPIKeyService(apiKeyRepo, userRepo, recorder, pool, logger)
 
-	_, err := apiKeySvc.ValidateAPIKey(ctx, "sk_live_totallygarbage1234567890")
+	_, err := apiKeySvc.ValidateAPIKey(ctx, "not-a-valid-api-key")
 	if err == nil {
 		t.Error("expected error for garbage key, got nil")
 	}

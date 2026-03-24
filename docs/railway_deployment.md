@@ -17,7 +17,7 @@ Add these if you want the corresponding features:
 
 ## Start commands
 
-Use the root `Dockerfile` for every Go service and set `APP_ROLE` per service.
+Deploy every Go service from the `server/` directory using `server/Dockerfile`, and set `APP_ROLE` per service.
 
 - `server`: `APP_ROLE=server`
 - `external-event-projector`: `APP_ROLE=external-event-projector`

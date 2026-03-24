@@ -1,4 +1,5 @@
 bin/
+server/bin/
 *.exe
 *.test
 *.out

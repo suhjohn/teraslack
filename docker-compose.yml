@@ -31,7 +31,7 @@ services:
 
   server:
     build:
-      context: .
+      context: ./server
       dockerfile: Dockerfile
     environment:
       <<: *app-env
@@ -45,7 +45,7 @@ services:
 
   external-event-projector:
     build:
-      context: .
+      context: ./server
       dockerfile: Dockerfile
     command: ["/app/external-event-projector"]
     environment:
@@ -57,7 +57,7 @@ services:
 
   webhook-producer:
     build:
-      context: .
+      context: ./server
       dockerfile: Dockerfile
     command: ["/app/webhook-producer"]
     environment:
@@ -70,7 +70,7 @@ services:
 
   webhook-worker:
     build:
-      context: .
+      context: ./server
       dockerfile: Dockerfile
     command: ["/app/webhook-worker"]
     environment:
@@ -81,7 +81,7 @@ services:
 
   indexer:
     build:
-      context: .
+      context: ./server
       dockerfile: Dockerfile
     command: ["/app/indexer"]
     environment:

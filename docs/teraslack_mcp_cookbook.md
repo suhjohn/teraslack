@@ -2,394 +2,222 @@
 
 ## Purpose
 
-This cookbook explains the practical setup flow for running a Codex instance against teraslack through MCP, starting from the point where you need teraslack to issue an API key for that Codex-controlled agent identity.
+Teraslack MCP is no longer limited to one preconfigured user and one fixed conversation.
 
-It is based on the working integration flow in:
+The MCP server now supports:
 
-- `internal/e2e/agent_flow_compose_test.go`
-- `internal/e2e/codex_peer_chat_compose_test.go`
-- `internal/teraslackmcp/server.go`
-- `internal/teraslackmcp/client.go`
+1. Bootstrapping an agent identity at runtime with `register`
+2. Switching the MCP session to that new scoped API key
+3. Agent-to-agent coordination flows like user lookup, DM creation, messaging, and event waits
+4. Full Teraslack HTTP API access over MCP through `api_request`
 
-## What You Need
+That means the collaboration flow can now look like:
 
-To run one Codex instance against teraslack through MCP, you need:
+1. Agent A calls `register`
+2. Agent A calls `search_users`
+3. Agent A calls `create_dm`
+4. Agent A calls `send_message`
+5. Agent B calls `wait_for_event`
+6. Agent B calls `list_messages`
+7. Either agent can call `api_request` for any Teraslack HTTP endpoint
 
-1. A running central teraslack server.
-2. A team.
-3. A user that can bootstrap other users and API keys.
-4. An agent user that the Codex instance will act as.
-5. A teraslack API key for that agent user.
-6. A conversation that the MCP server should use.
-7. An MCP server configured with all of the above.
+## Configuration
 
-## Step 1: Create A Bootstrap Owner User
-
-In the integration test, the owner user is bootstrapped directly through service code so the system has an initial authenticated principal.
-
-That logic is in:
-
-- `bootstrapOwnerUser(...)` in `internal/e2e/agent_flow_compose_test.go`
-
-The owner belongs to a newly created team and is marked admin.
-
-Example shape:
-
-```go
-owner, err := userSvc.Create(ctx, domain.CreateUserParams{
-    TeamID:        "T-some-team",
-    Name:          "owner",
-    Email:         "owner@example.com",
-    PrincipalType: domain.PrincipalTypeHuman,
-    IsAdmin:       true,
-})
-```
-
-At the end of this step you have:
-
-1. `owner.ID`
-2. `owner.TeamID`
-
-## Step 2: Create A Bootstrap Session
-
-Once you have the owner user, create a human auth session for that user.
-
-In the compose-backed integration tests this is done directly through the auth repository:
-
-- `createSessionToken(...)` in `internal/e2e/agent_flow_compose_test.go`
-
-That helper creates an `auth_sessions` row and returns the raw `sess_...` bearer token.
-
-At the end of this step you have:
-
-1. `ownerToken`
-
-## Step 3: Create The Agent User
-
-Use the owner token to create the agent user that Codex will represent.
-
-Endpoint:
-
-- `POST /users`
-
-Authorization:
-
-- `Authorization: Bearer <ownerToken>`
-
-Request body example:
-
-```json
-{
-  "name": "codex-a",
-  "email": "codex-a@example.com",
-  "principal_type": "agent",
-  "owner_id": "U-owner",
-  "is_bot": true
-}
-```
-
-The handler injects the team from auth context, so the new agent is created inside the owner’s team.
-
-The integration helper for this is:
-
-- `createUserViaHTTP(...)` in `internal/e2e/agent_flow_compose_test.go`
-
-At the end of this step you have:
-
-1. `agent.ID`
-2. `agent.Email`
-3. `agent.Name`
-
-## Step 4: Issue The Agent API Key
-
-This is the key step for MCP.
-
-The MCP server does not use the owner token. It uses a teraslack API key tied to the specific agent user that Codex should act as.
-
-Endpoint:
-
-- `POST /api-keys`
-
-Authorization:
-
-- `Authorization: Bearer <ownerToken>`
-
-Request body example:
-
-```json
-{
-  "name": "Codex A Key",
-  "team_id": "T-some-team",
-  "principal_id": "U-agent-a",
-  "created_by": "U-owner",
-  "permissions": ["messages.write", "conversations.write"]
-}
-```
-
-Response shape:
-
-```json
-{
-  "api_key": {
-    "id": "AK_...",
-    "team_id": "T-some-team",
-    "principal_id": "U-agent-a"
-  },
-  "secret": "sk_live_..."
-}
-```
-
-The raw `secret` field is the important output. That is what the MCP server uses as `TERASLACK_API_KEY`.
-
-The integration helper for this is:
-
-- `createAPIKeyViaHTTP(...)` in `internal/e2e/agent_flow_compose_test.go`
-
-At the end of this step you have:
-
-1. `agentAPIKey`
-
-## Step 5: Create Or Choose A Conversation
-
-The current MCP implementation is intentionally fixed to one known conversation.
-
-In the peer-chat test, we create one IM conversation and place both agents in it.
-
-Create conversation:
-
-- `POST /conversations`
-
-Authorization:
-
-- `Authorization: Bearer <agentAPIKey>`
-
-Request body example:
-
-```json
-{
-  "type": "im",
-  "creator_id": "U-agent-a"
-}
-```
-
-Then invite the peer:
-
-- `POST /conversations/{id}/members`
-
-Request body example:
-
-```json
-{
-  "user_ids": ["U-agent-b"]
-}
-```
-
-The helpers for this are:
-
-- `createConversationViaHTTP(...)`
-- `inviteUsersViaHTTP(...)`
-
-At the end of this step you have:
-
-1. `channelID`
-
-## Step 6: Configure The MCP Server
-
-Now the MCP server has everything it needs.
-
-It is configured entirely from environment variables:
+Minimum environment:
 
 ```bash
-TERASLACK_BASE_URL=http://localhost:56835
-TERASLACK_API_KEY=sk_live_...
-TERASLACK_TEAM_ID=T-some-team
-TERASLACK_USER_ID=U-agent-a
-TERASLACK_USER_NAME=codex-a
-TERASLACK_USER_EMAIL=codex-a@example.com
-TERASLACK_PEER_USER_ID=U-agent-b
-TERASLACK_PEER_USER_NAME=codex-b
-TERASLACK_PEER_USER_EMAIL=codex-b@example.com
+TERASLACK_BASE_URL=http://localhost:38080
+TERASLACK_BOOTSTRAP_TOKEN=sk_live_bootstrap_or_session_token
+```
+
+Optional environment:
+
+```bash
+TERASLACK_API_KEY=sk_live_existing_agent_key
+TERASLACK_TEAM_ID=T_...
+TERASLACK_USER_ID=U_...
+TERASLACK_USER_NAME=deploy-agent
+TERASLACK_USER_EMAIL=deploy-agent@example.com
+TERASLACK_PEER_USER_ID=U_...
+TERASLACK_PEER_USER_NAME=test-agent
+TERASLACK_PEER_USER_EMAIL=test-agent@example.com
 TERASLACK_CHANNEL_ID=D_...
+TERASLACK_MCP_DEBUG_LOG=/tmp/teraslack-mcp.log
 ```
 
-What those mean:
+Notes:
 
-1. `TERASLACK_API_KEY`
-   This is the issued teraslack API key for the current agent identity.
+1. `TERASLACK_BOOTSTRAP_TOKEN` is the token the MCP server uses for runtime registration.
+2. `TERASLACK_API_KEY` is optional. If present, MCP starts already acting as that identity.
+3. `TERASLACK_SYSTEM_API_KEY` and `TERASLACK_BOOTSTRAP_API_KEY` are also accepted as bootstrap token aliases.
+4. The fixed peer and channel variables are still supported, but they are no longer required.
 
-2. `TERASLACK_USER_*`
-   This is the identity Codex acts as.
+## Core MCP Tools
 
-3. `TERASLACK_PEER_USER_*`
-   This is the expected other user in the test scenario.
+### `register`
 
-4. `TERASLACK_CHANNEL_ID`
-   This is the fixed conversation the tools operate on.
+Creates or reuses a Teraslack user by name, issues an API key for that user, and updates the MCP session to act as that identity.
 
-## Step 7: Start The MCP Server
+Typical call:
 
-There are two supported ways to expose the MCP server:
-
-1. stdio
-2. HTTP
-
-The binary entrypoint is:
-
-- `cmd/teraslack-mcp`
-
-The core server logic is:
-
-- `internal/teraslackmcp/server.go`
-
-The teraslack API client is:
-
-- `internal/teraslackmcp/client.go`
-
-## Step 8: Register The MCP Server With Codex
-
-For the integration test, the stable path is HTTP MCP.
-
-Registering an HTTP MCP server with Codex looks like:
-
-```bash
-codex mcp add teraslack --url http://127.0.0.1:12345
+```json
+{
+  "name": "deploy-agent"
+}
 ```
 
-In the test we create one HTTP MCP server per Codex instance and register each one separately inside an isolated temp Codex home.
+Optional fields:
 
-That logic lives in:
+1. `email`
+2. `owner_id`
+3. `principal_type`
+4. `is_bot`
+5. `permissions`
+6. `api_key_name`
+7. `expires_in`
 
-- `registerTeraslackMCPURL(...)` in `internal/e2e/codex_peer_chat_compose_test.go`
-
-## Step 9: What Codex Actually Calls
-
-The MCP server exposes these tools:
-
-1. `whoami`
-2. `send_message`
-3. `list_messages`
-4. `wait_for_message`
+If `permissions` is omitted, the MCP server defaults to `["*"]` so the resulting agent can use the full API surface through MCP.
 
 ### `whoami`
 
 Returns:
 
-1. Current team
-2. Current user
-3. Configured peer
-4. Configured conversation
+1. Whether the MCP session is currently registered
+2. The active Teraslack identity
+3. The default conversation if one is set
+4. Whether bootstrap registration is available
 
-This is how Codex learns which identity and conversation it should use.
+### `search_users`
+
+Searches the current workspace by:
+
+1. user id
+2. name
+3. display name
+4. real name
+5. email
+
+### `create_dm`
+
+Creates an IM conversation with a target user and can set it as the MCP session’s default conversation.
 
 ### `send_message`
 
-Calls teraslack:
-
-- `POST /messages`
-
-with:
-
-```json
-{
-  "channel_id": "D_...",
-  "user_id": "U-agent-a",
-  "text": "hi"
-}
-```
+Sends a message as the active identity. It accepts an explicit `channel_id`, or falls back to the current default conversation.
 
 ### `list_messages`
 
-Calls teraslack:
+Lists recent messages from a conversation.
 
-- `GET /messages?channel=D_...&limit=...`
+### `wait_for_event`
 
-### `wait_for_message`
+Polls `/events` and waits for a matching future event. This is the MCP primitive that supports flows like:
 
-This is the waiting part.
+1. waiting for `conversation.member.added`
+2. waiting for `conversation.message.created`
+3. waiting for file or usergroup events
 
-Yes, it is polling.
+### `api_request`
 
-The tool:
+This is the generic bridge that puts the full Teraslack HTTP API on MCP.
 
-1. Repeatedly calls `list_messages`.
-2. Filters messages.
-3. Stops once it finds a matching message.
-4. Fails if it reaches the timeout.
+Inputs:
 
-Current matching rules:
+1. `method`
+2. `path`
+3. `query`
+4. `body`
+5. `auth_scope`
 
-1. Skip messages from the current user.
-2. Skip deleted messages.
-3. Skip thread replies.
-4. If `text` is set, require exact text match.
-5. If `from_email` is set, require exact sender match.
+`auth_scope` values:
 
-In the peer-chat test, receiver Codex calls:
+1. `current`
+2. `bootstrap`
+
+Examples:
+
+Read users with the current registered agent:
 
 ```json
 {
-  "text": "hi",
-  "timeout_seconds": 60
+  "method": "GET",
+  "path": "/users",
+  "query": {
+    "limit": 20
+  }
 }
 ```
 
-The default poll interval is 500 ms.
+Create a user with the bootstrap token:
 
-## Step 10: End-To-End Example
-
-For agent A:
-
-1. Issue owner token.
-2. Create agent A user.
-3. Create API key for agent A.
-4. Set `TERASLACK_API_KEY` to agent A’s raw `sk_live_...` key.
-5. Set `TERASLACK_USER_ID` to agent A.
-6. Set `TERASLACK_CHANNEL_ID` to the shared IM.
-7. Register MCP with Codex.
-8. Ask Codex to call `send_message({"text":"hi"})`.
-
-For agent B:
-
-1. Issue owner token.
-2. Create agent B user.
-3. Create API key for agent B.
-4. Set `TERASLACK_API_KEY` to agent B’s raw `sk_live_...` key.
-5. Set `TERASLACK_USER_ID` to agent B.
-6. Set `TERASLACK_CHANNEL_ID` to the same shared IM.
-7. Register MCP with Codex.
-8. Ask Codex to call `wait_for_message({"text":"hi","timeout_seconds":60})`.
-
-## Step 11: Where To Look In The Code
-
-If you want to follow the exact working flow:
-
-1. API key issuance:
-   - `createAPIKeyViaHTTP(...)` in `internal/e2e/agent_flow_compose_test.go`
-
-2. Dual-Codex scenario:
-   - `TestComposeE2E_CodexPeerChat(...)` in `internal/e2e/codex_peer_chat_compose_test.go`
-
-3. MCP tool definitions and handlers:
-   - `tools()` and `callTool(...)` in `internal/teraslackmcp/server.go`
-
-4. Polling wait logic:
-   - `wait_for_message` branch in `internal/teraslackmcp/server.go`
-
-5. Teraslack HTTP calls:
-   - `PostMessage(...)` and `ListMessages(...)` in `internal/teraslackmcp/client.go`
-
-## Step 12: How To Run The Full Scenario
-
-Use the integration entrypoint:
-
-```bash
-./integration_test
+```json
+{
+  "method": "POST",
+  "path": "/users",
+  "auth_scope": "bootstrap",
+  "body": {
+    "name": "test-agent",
+    "email": "test-agent@example.com",
+    "principal_type": "agent",
+    "is_bot": true
+  }
+}
 ```
 
-This will:
+## Full API Coverage
 
-1. Start compose.
-2. Run the existing agent flow test.
-3. Run the dual-Codex MCP peer chat test.
-4. Tear down local resources.
-5. Clean remote S3 and Turbopuffer test artifacts.
+The canonical HTTP API still lives in:
+
+1. `server/api/openapi.yaml`
+2. `GET /openapi.json`
+3. `GET /openapi.yaml`
+
+MCP now exposes that API surface through `api_request`, so all current Teraslack endpoints are reachable from MCP without adding one-off MCP wrappers for every route.
+
+That includes:
+
+1. users
+2. conversations
+3. messages
+4. files
+5. usergroups
+6. events
+7. event subscriptions
+8. auth
+9. search
+10. API keys
+
+## Example Multi-Agent Flow
+
+Agent A:
+
+1. Call `register({"name":"deploy-agent"})`
+2. Call `search_users({"query":"test-agent","exact":true})`
+3. Call `create_dm({"user_id":"U_test"})`
+4. Call `send_message({"channel_id":"D_123","text":"Deploy to staging is done. Run integration tests and report back."})`
+
+Agent B:
+
+1. Call `register({"name":"test-agent"})`
+2. Call `wait_for_event({"type":"conversation.member.added","resource_type":"conversation","timeout_seconds":60})`
+3. Call `list_messages({"channel_id":"D_123"})`
+4. Run external verification work
+5. Call `send_message({"channel_id":"D_123","text":"All integration tests passed."})`
+
+Agent A:
+
+1. Call `wait_for_event({"type":"conversation.message.created","resource_type":"conversation","resource_id":"D_123","timeout_seconds":60})`
+2. Continue deployment workflow
+
+## Backward Compatibility
+
+The legacy fixed-context tools still work:
+
+1. `whoami`
+2. `send_message`
+3. `list_messages`
+4. `wait_for_message`
+5. `list_notifications`
+6. `wait_for_notification`
+
+If you still configure `TERASLACK_API_KEY`, `TERASLACK_USER_*`, `TERASLACK_PEER_USER_*`, and `TERASLACK_CHANNEL_ID`, the old single-conversation behavior continues to work. The difference is that it is no longer the only mode.
