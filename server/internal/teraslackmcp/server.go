@@ -3,6 +3,7 @@ package teraslackmcp
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -2009,6 +2010,10 @@ func (s *Server) findUserByIdentity(ctx context.Context, client *Client, name, e
 	for {
 		page, err := client.ListUsers(ctx, s.cfg.WorkspaceID, cursor, email, 100)
 		if err != nil {
+			var statusErr *httpStatusError
+			if errors.As(err, &statusErr) && statusErr.Status == http.StatusNotFound {
+				return nil, false, nil
+			}
 			return nil, false, err
 		}
 		for _, user := range page.Items {

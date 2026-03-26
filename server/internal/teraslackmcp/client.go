@@ -21,6 +21,17 @@ type Client struct {
 	httpClient *http.Client
 }
 
+type httpStatusError struct {
+	Method string
+	URL    string
+	Status int
+	Body   string
+}
+
+func (e *httpStatusError) Error() string {
+	return fmt.Sprintf("%s %s returned status %d: %s", e.Method, e.URL, e.Status, e.Body)
+}
+
 type EventPage struct {
 	Items      []domain.ExternalEvent `json:"items"`
 	NextCursor string                 `json:"next_cursor,omitempty"`
@@ -245,7 +256,12 @@ func (c *Client) doJSON(ctx context.Context, method, path string, query url.Valu
 
 	if res.StatusCode < 200 || res.StatusCode >= 300 {
 		data, _ := io.ReadAll(io.LimitReader(res.Body, 8192))
-		return fmt.Errorf("%s %s returned status %d: %s", method, path, res.StatusCode, strings.TrimSpace(string(data)))
+		return &httpStatusError{
+			Method: method,
+			URL:    target,
+			Status: res.StatusCode,
+			Body:   strings.TrimSpace(string(data)),
+		}
 	}
 
 	if out == nil || res.StatusCode == http.StatusNoContent {
