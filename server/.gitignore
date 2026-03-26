@@ -1,0 +1,10 @@
+bin/
+tmp/
+*.test
+/teraslack-mcp
+/teraslack-mcp-server
+
+!cmd/teraslack-mcp/
+!cmd/teraslack-mcp/**
+!cmd/teraslack-mcp-server/
+!cmd/teraslack-mcp-server/**
