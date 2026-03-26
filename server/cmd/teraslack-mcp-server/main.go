@@ -112,6 +112,10 @@ func run(logger *slog.Logger) error {
 		IdleTimeout:  60 * time.Second,
 	}
 
+	sessionCtx, cancelSessions := context.WithCancel(context.Background())
+	defer cancelSessions()
+	sessions.startJanitor(sessionCtx)
+
 	errCh := make(chan error, 1)
 	go func() {
 		logger.Info("mcp http server starting", "port", port)
@@ -128,6 +132,9 @@ func run(logger *slog.Logger) error {
 		return fmt.Errorf("server error: %w", err)
 	}
 
+	cancelSessions()
+	sessions.closeAll()
+
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	return srv.Shutdown(shutdownCtx)
@@ -139,27 +146,30 @@ type sessionManager struct {
 	logger *slog.Logger
 
 	mu       sync.RWMutex
-	sessions map[string]*teraslackmcp.Server
+	sessions map[string]*managedSession
+}
+
+type managedSession struct {
+	srv        *teraslackmcp.Server
+	expiresAt  time.Time
+	lastAccess time.Time
 }
 
 func (m *sessionManager) get(token string, claims *mcpoauth.AccessTokenClaims, scopes []string) (*teraslackmcp.Server, error) {
-	m.mu.RLock()
-	if m.sessions != nil {
-		if srv, ok := m.sessions[token]; ok {
-			m.mu.RUnlock()
-			return srv, nil
-		}
-	}
-	m.mu.RUnlock()
+	now := time.Now()
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	// Double-check after acquiring write lock.
-	if m.sessions != nil {
-		if srv, ok := m.sessions[token]; ok {
-			return srv, nil
-		}
+	if m.sessions == nil {
+		m.sessions = make(map[string]*managedSession)
+	} else {
+		m.cleanupLocked(now)
+	}
+
+	if entry, ok := m.sessions[token]; ok && entry != nil && entry.srv != nil {
+		entry.lastAccess = now
+		return entry.srv, nil
 	}
 
 	// Create a per-client config with the provided token as the API key.
@@ -175,11 +185,81 @@ func (m *sessionManager) get(token string, claims *mcpoauth.AccessTokenClaims, s
 		return nil, err
 	}
 
-	if m.sessions == nil {
-		m.sessions = make(map[string]*teraslackmcp.Server)
+	var expiresAt time.Time
+	if claims != nil && claims.ExpiresAt != nil {
+		expiresAt = claims.ExpiresAt.Time
 	}
-	m.sessions[token] = srv
+	m.sessions[token] = &managedSession{
+		srv:        srv,
+		expiresAt:  expiresAt,
+		lastAccess: now,
+	}
 	return srv, nil
+}
+
+func (m *sessionManager) startJanitor(ctx context.Context) {
+	if m == nil {
+		return
+	}
+	go func() {
+		ticker := time.NewTicker(5 * time.Minute)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				m.cleanup(time.Now())
+			}
+		}
+	}()
+}
+
+func (m *sessionManager) cleanup(now time.Time) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.cleanupLocked(now)
+}
+
+func (m *sessionManager) cleanupLocked(now time.Time) {
+	if m.sessions == nil {
+		return
+	}
+	// Access tokens are short lived, and the underlying MCP sessions have their own
+	// timeout. Prune old bearer-token keyed servers to avoid unbounded growth.
+	const idleTTL = 2 * time.Hour
+	const grace = 5 * time.Minute
+
+	for token, entry := range m.sessions {
+		if entry == nil || entry.srv == nil {
+			delete(m.sessions, token)
+			continue
+		}
+
+		expired := !entry.expiresAt.IsZero() && now.After(entry.expiresAt.Add(grace))
+		idle := now.Sub(entry.lastAccess) > idleTTL
+		if (expired || idle) && !entry.srv.HasActiveSessions() {
+			_ = entry.srv.Close()
+			delete(m.sessions, token)
+		}
+	}
+}
+
+func (m *sessionManager) closeAll() {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for token, entry := range m.sessions {
+		if entry != nil && entry.srv != nil {
+			_ = entry.srv.Close()
+		}
+		delete(m.sessions, token)
+	}
 }
 
 func extractBearerToken(r *http.Request) string {
