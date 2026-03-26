@@ -366,8 +366,8 @@ func TestServer_StreamableHTTPAutoProvisionsDistinctSessionAgents(t *testing.T) 
 	}
 	defer sessionB.Close()
 
-	whoamiA := callSessionToolJSON(t, sessionA, "whoami", map[string]any{})
-	whoamiB := callSessionToolJSON(t, sessionB, "whoami", map[string]any{})
+	whoamiA := callSessionToolJSON(t, sessionA, "whoami", map[string]any{"session_id": "claude-a"})
+	whoamiB := callSessionToolJSON(t, sessionB, "whoami", map[string]any{"session_id": "claude-b"})
 
 	userA := nestedMap(t, whoamiA, "user")
 	userB := nestedMap(t, whoamiB, "user")
@@ -423,8 +423,8 @@ func TestServer_StreamableHTTPSwitchIdentityAndReset(t *testing.T) {
 	}
 	defer sessionB.Close()
 
-	whoamiA := callSessionToolJSON(t, sessionA, "whoami", map[string]any{})
-	whoamiB := callSessionToolJSON(t, sessionB, "whoami", map[string]any{})
+	whoamiA := callSessionToolJSON(t, sessionA, "whoami", map[string]any{"session_id": "claude-a"})
+	whoamiB := callSessionToolJSON(t, sessionB, "whoami", map[string]any{"session_id": "claude-b"})
 	userA := nestedMap(t, whoamiA, "user")
 	userB := nestedMap(t, whoamiB, "user")
 	if userA["id"] == userB["id"] {
@@ -437,7 +437,7 @@ func TestServer_StreamableHTTPSwitchIdentityAndReset(t *testing.T) {
 	if got := switchResp["status"]; got != "switched" {
 		t.Fatalf("switch_identity status = %v, want switched", got)
 	}
-	whoamiAfterSwitch := callSessionToolJSON(t, sessionB, "whoami", map[string]any{})
+	whoamiAfterSwitch := callSessionToolJSON(t, sessionB, "whoami", map[string]any{"session_id": "claude-b"})
 	switchedUser := nestedMap(t, whoamiAfterSwitch, "user")
 	if switchedUser["id"] != userA["id"] {
 		t.Fatalf("switched user id = %v, want %v", switchedUser["id"], userA["id"])
@@ -456,7 +456,7 @@ func TestServer_StreamableHTTPSwitchIdentityAndReset(t *testing.T) {
 	if got := resetResp["status"]; got != "reset" {
 		t.Fatalf("reset_identity status = %v, want reset", got)
 	}
-	whoamiAfterReset := callSessionToolJSON(t, sessionB, "whoami", map[string]any{})
+	whoamiAfterReset := callSessionToolJSON(t, sessionB, "whoami", map[string]any{"session_id": "claude-b"})
 	resetUser := nestedMap(t, whoamiAfterReset, "user")
 	if resetUser["id"] != userB["id"] {
 		t.Fatalf("reset user id = %v, want %v", resetUser["id"], userB["id"])

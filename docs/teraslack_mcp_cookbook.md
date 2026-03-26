@@ -32,7 +32,7 @@ That means:
 2. HTTP uses the SDK's Streamable HTTP transport on `/mcp`
 3. MCP session state such as `register`, default conversation, and conversation subscriptions is scoped to the MCP session, not shared process-wide
 4. Remote HTTP clients should expect normal MCP session behavior, including `Mcp-Session-Id` headers and `GET`/`POST`/`DELETE` support on the MCP endpoint
-5. Teraslack can push new incoming messages via standard MCP logging notifications (`notifications/message`). If the MCP session has a default conversation (set via `create_dm` or `send_message`) or `TERASLACK_CHANNEL_ID` is set, the stream is scoped to that conversation; otherwise it streams all incoming messages visible to the session identity. The server defaults the session log level to `info` so clients do not need to call `logging/setLevel` unless they want a different level.
+5. Teraslack can push new incoming messages via standard MCP logging notifications (`notifications/message`). Streaming requires a conversation ID: set a default conversation for the MCP session (via `create_dm` or `send_message`) or set `TERASLACK_CHANNEL_ID` on the server. The server defaults the session log level to `info` so clients do not need to call `logging/setLevel` unless they want a different level.
 6. The MCP deployment is the protected resource server; the API deployment is the OAuth authorization server
 7. Clients authenticate to `/mcp` with OAuth access tokens, not raw Teraslack API keys
 
@@ -53,6 +53,8 @@ Optional environment:
 ```bash
 MCP_OAUTH_SIGNING_KEY=replace_with_shared_signing_key
 MCP_KEEPALIVE_SECONDS=0
+MCP_SSE_HEARTBEAT_SECONDS=25
+MCP_EVENT_STORE_MAX_BYTES=10485760
 TERASLACK_API_KEY=sk_live_existing_agent_key
 TERASLACK_WORKSPACE_ID=T_...
 TERASLACK_USER_ID=U_...
@@ -98,7 +100,7 @@ Important details:
 5. Tokens presented to `/mcp` must include the `mcp:tools` scope.
 6. Bootstrap-only operations are separate from the hosted OAuth-backed HTTP flow.
 7. Loopback redirect URIs for native clients are supported. For registered localhost callbacks such as `http://localhost/callback` or `http://127.0.0.1/callback`, the auth server also accepts the same host and path with a client-chosen loopback port.
-8. Approving OAuth access authenticates the human owner. Each new MCP session can then auto-provision its own fresh Teraslack agent identity owned by that human, and `whoami` returns the active session identity rather than the approving human.
+8. Approving OAuth access authenticates the human owner. Clients should call `whoami` with a client-provided `session_id` (unique per Claude Code / Codex / agent run) to provision or reuse a per-client session agent owned by that human.
 
 ## Core MCP Tools
 
@@ -106,7 +108,7 @@ Important details:
 
 Creates or reuses a Teraslack user by name, issues an API key for that user, and updates the MCP session to act as that identity.
 
-This is primarily for explicit system-key flows such as local stdio MCP. In OAuth-backed HTTP mode, approval already provisions a fresh session agent automatically and `register` is unavailable.
+This is primarily for explicit system-key flows such as local stdio MCP. In OAuth-backed HTTP mode, clients should provision a session agent via `whoami` with `session_id`, and `register` is unavailable.
 
 Typical call:
 
@@ -130,13 +132,15 @@ If `permissions` is omitted, the MCP server defaults to `["*"]` so the resulting
 
 ### `whoami`
 
+In OAuth-backed HTTP mode, `whoami` accepts an optional `session_id`. If `session_id` is omitted, `whoami` returns the approving human owner's identity. If `session_id` is provided, the server provisions or reuses a session agent for that client session and switches the MCP session to operate as that agent.
+
 Returns:
 
 1. Whether the MCP session is currently registered
 2. The active Teraslack identity
 3. The default conversation if one is set
 4. The human owner for the session, when present
-5. The auto-provisioned session identity, when present
+5. The session-agent identity (provisioned via `whoami` with `session_id`), when present
 6. Whether bootstrap registration is available
 
 ### `list_owned_identities`
@@ -145,7 +149,7 @@ Lists agent identities owned by the approving human for the current MCP session.
 
 Useful when you want:
 
-1. one terminal to keep its own fresh session identity
+1. one terminal to keep its own session agent identity
 2. another terminal to intentionally switch to a shared durable agent
 
 ### `switch_identity`
@@ -162,7 +166,7 @@ This lets two terminals intentionally converge on the same reusable identity.
 
 ### `reset_identity`
 
-Resets the current MCP session back to its auto-provisioned session agent identity.
+Resets the current MCP session back to its session agent identity (the one created via `whoami` with `session_id`).
 
 ### `search_users`
 

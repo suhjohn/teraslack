@@ -25,6 +25,7 @@ type Config struct {
 	OAuthIssuer     string
 	OAuthSigningKey string
 	KeepAlive       time.Duration
+	SSEHeartbeat    time.Duration
 	WorkspaceID     string
 	UserID          string
 	UserName        string
@@ -48,6 +49,15 @@ func LoadConfigFromEnv() (Config, error) {
 		keepAlive = time.Duration(seconds) * time.Second
 	}
 
+	sseHeartbeat := 25 * time.Second
+	if raw := strings.TrimSpace(os.Getenv("MCP_SSE_HEARTBEAT_SECONDS")); raw != "" {
+		seconds, err := strconv.Atoi(raw)
+		if err != nil || seconds < 0 {
+			return Config{}, fmt.Errorf("invalid MCP_SSE_HEARTBEAT_SECONDS %q", raw)
+		}
+		sseHeartbeat = time.Duration(seconds) * time.Second
+	}
+
 	cfg := Config{
 		BaseURL:         strings.TrimSpace(os.Getenv("TERASLACK_BASE_URL")),
 		APIKey:          strings.TrimSpace(os.Getenv("TERASLACK_API_KEY")),
@@ -56,6 +66,7 @@ func LoadConfigFromEnv() (Config, error) {
 		OAuthIssuer:     strings.TrimSpace(firstNonEmptyEnv("MCP_OAUTH_ISSUER", "TERASLACK_BASE_URL")),
 		OAuthSigningKey: strings.TrimSpace(firstNonEmptyEnv("MCP_OAUTH_SIGNING_KEY", "ENCRYPTION_KEY")),
 		KeepAlive:       keepAlive,
+		SSEHeartbeat:    sseHeartbeat,
 		WorkspaceID:     strings.TrimSpace(os.Getenv("TERASLACK_WORKSPACE_ID")),
 		UserID:          strings.TrimSpace(os.Getenv("TERASLACK_USER_ID")),
 		UserName:        strings.TrimSpace(os.Getenv("TERASLACK_USER_NAME")),
@@ -92,8 +103,10 @@ type sessionData struct {
 	owner              sessionState
 	current            sessionState
 	sessionIdentity    sessionState
+	clientSessionID    string
+	provisionedSession string
 	autoProvisionErr   error
-	autoProvisionOnce  sync.Once
+	provisionMu        sync.Mutex
 	nextSubscriptionID int64
 	subscriptions      map[string]conversationSubscription
 	lastAccess         time.Time
@@ -180,12 +193,14 @@ func NewServer(cfg Config, logger *slog.Logger) (*Server, error) {
 		sessions:        map[string]*sessionData{},
 	}
 	srv.sdkServer = srv.newMCPServer()
-	srv.httpHandler = mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server {
+	baseHandler := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server {
 		return srv.sdkServer
 	}, &mcp.StreamableHTTPOptions{
 		Logger:         logger,
+		EventStore:     streamableHTTPEventStore,
 		SessionTimeout: srv.sessionTTL,
 	})
+	srv.httpHandler = withSSEHeartbeat(baseHandler, srv.cfg.SSEHeartbeat)
 
 	// Start channel polling loop for HTTP transport (stdio starts it in Serve).
 	ctx, cancel := context.WithCancel(context.Background())
@@ -238,8 +253,9 @@ func (s *Server) newMCPServer() *mcp.Server {
 			Logging: &mcp.LoggingCapabilities{},
 		},
 		Instructions: "Teraslack may stream incoming conversation messages as MCP logging notifications (notifications/message). " +
-			"If this MCP session has a default conversation (set via create_dm or send_message) or the deployment sets TERASLACK_CHANNEL_ID, streaming is scoped to that conversation; otherwise it streams all incoming messages visible to the session identity. " +
-			"To respond, use the send_message tool with the channel_id from the notification metadata.",
+			"For OAuth-backed remote MCP, call whoami with a client session_id (unique per Claude/Codex run) to provision a per-client session agent. " +
+			"Streaming requires a conversation ID: set a default conversation for this MCP session using create_dm or send_message, or set TERASLACK_CHANNEL_ID on the server. " +
+			"To respond, use send_message with the channel_id from the notification metadata.",
 	})
 
 	for _, spec := range s.tools() {
@@ -337,10 +353,15 @@ func (s *Server) tools() []map[string]any {
 		},
 		{
 			"name":        "whoami",
-			"description": "Return the active Teraslack identity for this MCP session and whether bootstrap registration is available.",
+			"description": "Return the active Teraslack identity. For OAuth-backed remote MCP, pass a client session_id to create or reuse a per-client session agent owned by the approving human (session_id should be unique per Claude/Codex session).",
 			"inputSchema": map[string]any{
-				"type":                 "object",
-				"properties":           map[string]any{},
+				"type": "object",
+				"properties": map[string]any{
+					"session_id": map[string]any{
+						"type":        "string",
+						"description": "Client-provided session identifier (unique per Claude/Codex run). Required for OAuth-backed remote MCP to provision a session agent.",
+					},
+				},
 				"additionalProperties": false,
 			},
 		},
@@ -374,7 +395,7 @@ func (s *Server) tools() []map[string]any {
 		},
 		{
 			"name":        "reset_identity",
-			"description": "Reset this MCP session back to its auto-provisioned session agent identity.",
+			"description": "Reset this MCP session back to its session agent identity (the one provisioned via whoami with session_id).",
 			"inputSchema": map[string]any{
 				"type":                 "object",
 				"properties":           map[string]any{},
@@ -675,7 +696,7 @@ func (s *Server) callTool(ctx context.Context, raw json.RawMessage) (string, err
 	case "register":
 		return s.handleRegister(ctx, req.Arguments)
 	case "whoami":
-		return s.handleWhoAmI(ctx)
+		return s.handleWhoAmI(ctx, req.Arguments)
 	case "list_owned_identities":
 		return s.handleListOwnedIdentities(ctx)
 	case "switch_identity":
@@ -811,20 +832,66 @@ func (s *Server) handleRegister(ctx context.Context, args map[string]any) (strin
 	})
 }
 
-func (s *Server) handleWhoAmI(ctx context.Context) (string, error) {
-	current, err := s.currentState(ctx)
-	if err != nil {
-		return "", err
-	}
+func (s *Server) handleWhoAmI(ctx context.Context, args map[string]any) (string, error) {
 	owner, err := s.ownerState(ctx)
 	if err != nil {
 		return "", err
 	}
 	data := s.sessionDataForContext(ctx)
 
+	clientSessionID := strings.TrimSpace(stringArg(args, "session_id", ""))
+	mcpSessionID := strings.TrimSpace(s.sessionKeyFromContext(ctx))
+
+	// For OAuth-backed MCP sessions, the owner identity is the approving human.
+	// We only provision/use a session agent once the client supplies a session_id.
+	if len(owner.OAuthScopes) > 0 && clientSessionID == "" {
+		result := map[string]any{
+			"registered":          owner.client != nil,
+			"bootstrap_available": false,
+			"identity_mode":       "owner",
+			"mcp_session_id":      mcpSessionID,
+			"session_agent_ready": false,
+		}
+		if owner.WorkspaceID != "" {
+			result["workspace_id"] = owner.WorkspaceID
+		}
+		if owner.UserID != "" {
+			result["user"] = map[string]any{
+				"id":    owner.UserID,
+				"name":  owner.UserName,
+				"email": owner.UserEmail,
+			}
+			result["owner"] = map[string]any{
+				"id":    owner.UserID,
+				"name":  owner.UserName,
+				"email": owner.UserEmail,
+			}
+		}
+		if len(owner.Permissions) > 0 {
+			result["permissions"] = owner.Permissions
+		}
+		if len(owner.OAuthScopes) > 0 {
+			result["scopes"] = owner.OAuthScopes
+		}
+		return marshalToolResult(result)
+	}
+
+	if len(owner.OAuthScopes) > 0 && clientSessionID != "" {
+		s.setClientSessionID(ctx, clientSessionID)
+	}
+
+	current, err := s.currentState(ctx)
+	if err != nil {
+		return "", err
+	}
+
 	result := map[string]any{
 		"registered":          current.client != nil,
 		"bootstrap_available": s.bootstrapAvailable(owner),
+		"mcp_session_id":      mcpSessionID,
+	}
+	if clientSessionID != "" {
+		result["client_session_id"] = clientSessionID
 	}
 	if current.WorkspaceID != "" {
 		result["workspace_id"] = current.WorkspaceID
@@ -875,6 +942,10 @@ func (s *Server) handleWhoAmI(ctx context.Context) (string, error) {
 		result["conversation"] = map[string]any{
 			"id": current.ChannelID,
 		}
+	}
+
+	if len(owner.OAuthScopes) > 0 {
+		result["session_agent_ready"] = data.sessionIdentity.client != nil && data.sessionIdentity.UserID != ""
 	}
 	return marshalToolResult(result)
 }
@@ -1192,13 +1263,15 @@ func (s *Server) handleNextEvent(ctx context.Context, args map[string]any) (stri
 	cursor := subscription.Cursor
 
 	for {
-		page, err := subscription.State.client.ListEventPage(ctx, cursor, "", domain.ResourceTypeConversation, subscription.ChannelID, 50)
+		page, err := subscription.State.client.ListEventPage(ctx, cursor, "", domain.ResourceTypeConversation, subscription.ChannelID, 1)
 		if err != nil {
 			return "", err
 		}
 		for _, event := range page.Items {
-			cursor = strconv.FormatInt(event.ID, 10)
-			s.updateConversationSubscriptionCursor(ctx, subscriptionID, cursor)
+			if page.NextCursor != "" {
+				cursor = page.NextCursor
+				s.updateConversationSubscriptionCursor(ctx, subscriptionID, cursor)
+			}
 
 			if !s.conversationEventMatches(subscription.State, event, eventType, wantUserID, wantEmail, wantText, wantContains, includeSelf) {
 				continue
@@ -1538,6 +1611,14 @@ func (s *Server) requireCurrentState(ctx context.Context) (sessionState, error) 
 	if state.UserID == "" {
 		return sessionState{}, fmt.Errorf("active identity is missing user metadata")
 	}
+	if owner, err := s.ownerState(ctx); err == nil && len(owner.OAuthScopes) > 0 {
+		// In OAuth-backed remote MCP, the bearer token represents the approving human.
+		// Require clients to provision a session agent (via whoami with session_id)
+		// before using stateful tools, to avoid acting directly as the owner.
+		if state.UserID == owner.UserID {
+			return sessionState{}, fmt.Errorf("OAuth-backed MCP requires a session agent; call whoami with session_id to provision one for this client session")
+		}
+	}
 	return state, nil
 }
 
@@ -1590,39 +1671,92 @@ func (s *Server) ensureSessionIdentity(ctx context.Context, data *sessionData) e
 		return nil
 	}
 
-	data.autoProvisionOnce.Do(func() {
-		provisioner, err := s.sessionProvisioningClient(owner)
-		if err != nil {
-			data.autoProvisionErr = err
-			return
-		}
+	data.provisionMu.Lock()
+	defer data.provisionMu.Unlock()
 
-		sessionKey := s.sessionKeyFromContext(ctx)
-		name := buildSessionAgentName(sessionKey)
-		user, err := provisioner.CreateUser(ctx, domain.CreateUserParams{
+	s.mu.RLock()
+	clientSessionID := strings.TrimSpace(data.clientSessionID)
+	ready := data.sessionIdentity.client != nil && data.sessionIdentity.UserID != "" && data.provisionedSession == clientSessionID
+	s.mu.RUnlock()
+
+	if clientSessionID == "" {
+		// OAuth-backed MCP: do not auto-provision until the client supplies a session_id.
+		return nil
+	}
+	if ready {
+		return nil
+	}
+
+	provisioner, err := s.sessionProvisioningClient(owner)
+	if err != nil {
+		s.mu.Lock()
+		data.autoProvisionErr = err
+		s.mu.Unlock()
+		return err
+	}
+
+	name := buildClientSessionAgentName(clientSessionID)
+	email := defaultAgentEmail(name)
+	user, found, err := s.findUserByIdentity(ctx, provisioner, name, email)
+	if err != nil {
+		s.mu.Lock()
+		data.autoProvisionErr = err
+		s.mu.Unlock()
+		return err
+	}
+	if !found {
+		user, err = provisioner.CreateUser(ctx, domain.CreateUserParams{
 			Name:          name,
-			Email:         defaultAgentEmail(name),
+			Email:         email,
 			OwnerID:       owner.UserID,
 			PrincipalType: domain.PrincipalTypeAgent,
 			IsBot:         true,
 		})
 		if err != nil {
+			s.mu.Lock()
 			data.autoProvisionErr = err
-			return
+			s.mu.Unlock()
+			return err
 		}
+	}
 
-		state, err := s.issueSessionStateForUser(ctx, owner, user, fmt.Sprintf("%s session MCP key", user.Name))
-		if err != nil {
-			data.autoProvisionErr = err
-			return
-		}
-
+	state, err := s.issueSessionStateForUser(ctx, owner, user, fmt.Sprintf("%s session MCP key", user.Name))
+	if err != nil {
 		s.mu.Lock()
-		defer s.mu.Unlock()
-		data.sessionIdentity = state
-		data.current = state
-	})
-	return data.autoProvisionErr
+		data.autoProvisionErr = err
+		s.mu.Unlock()
+		return err
+	}
+
+	s.mu.Lock()
+	data.sessionIdentity = state
+	data.current = state
+	data.provisionedSession = clientSessionID
+	data.autoProvisionErr = nil
+	s.mu.Unlock()
+
+	return nil
+}
+
+func (s *Server) setClientSessionID(ctx context.Context, sessionID string) {
+	sessionID = strings.TrimSpace(sessionID)
+	if sessionID == "" {
+		return
+	}
+	data := s.sessionDataForContext(ctx)
+	data.provisionMu.Lock()
+	defer data.provisionMu.Unlock()
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if data.clientSessionID == sessionID {
+		return
+	}
+	data.clientSessionID = sessionID
+	data.autoProvisionErr = nil
+	data.sessionIdentity = sessionState{}
+	data.provisionedSession = ""
 }
 
 func (s *Server) issueSessionStateForUser(ctx context.Context, owner sessionState, user *domain.User, keyName string) (sessionState, error) {
@@ -1964,6 +2098,20 @@ func buildSessionAgentName(sessionKey string) string {
 	replacer := strings.NewReplacer(":", "-", "/", "-", "_", "-", "@", "-")
 	sessionKey = replacer.Replace(sessionKey)
 	return "mcp-session-" + sessionKey
+}
+
+func buildClientSessionAgentName(clientSessionID string) string {
+	clientSessionID = strings.TrimSpace(clientSessionID)
+	if clientSessionID == "" {
+		return "mcp-session-agent"
+	}
+	// Keep this readable but bounded: clients may use long random IDs.
+	if len(clientSessionID) > 16 {
+		clientSessionID = clientSessionID[len(clientSessionID)-16:]
+	}
+	replacer := strings.NewReplacer(":", "-", "/", "-", "_", "-", "@", "-", " ", "-")
+	clientSessionID = replacer.Replace(clientSessionID)
+	return "mcp-session-" + clientSessionID
 }
 
 func userMatchesQuery(user domain.User, query string, exact bool) bool {
