@@ -8,8 +8,10 @@ import (
 	"sync"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/suhjohn/teraslack/internal/domain"
+	"github.com/suhjohn/teraslack/internal/repository/sqlcgen"
 )
 
 // WebhookProducer tails the external_events table, looks up matching
@@ -17,6 +19,7 @@ import (
 // into an S3-backed queue. It runs as a separate process from the API server.
 type WebhookProducer struct {
 	pool   *pgxpool.Pool
+	q      *sqlcgen.Queries
 	queue  *S3Queue
 	logger *slog.Logger
 
@@ -54,6 +57,7 @@ func NewWebhookProducer(pool *pgxpool.Pool, queue *S3Queue, logger *slog.Logger,
 
 	return &WebhookProducer{
 		pool:          pool,
+		q:             sqlcgen.New(pool),
 		queue:         queue,
 		logger:        logger,
 		flushInterval: cfg.FlushInterval,
@@ -124,7 +128,6 @@ func (p *WebhookProducer) Done() <-chan struct{} {
 type subscriptionRow struct {
 	ID              string
 	URL             string
-	Secret          string
 	EncryptedSecret string
 	CreatedAt       time.Time
 }
@@ -132,50 +135,40 @@ type subscriptionRow struct {
 // poll reads new events from external_events since the given cursor,
 // looks up matching subscriptions for each event, and buffers webhook jobs.
 func (p *WebhookProducer) poll(ctx context.Context, cursor int64) (int64, error) {
-	rows, err := p.pool.Query(ctx,
-		`SELECT id, team_id, type, resource_type, resource_id, occurred_at, payload, source_internal_event_id, source_internal_event_ids, dedupe_key, created_at
-		 FROM external_events
-		 WHERE id > $1
-		 ORDER BY id ASC
-		 LIMIT 500`, cursor)
+	rows, err := p.q.GetExternalEventsSince(ctx, sqlcgen.GetExternalEventsSinceParams{
+		ID:    cursor,
+		Limit: 500,
+	})
 	if err != nil {
 		return cursor, fmt.Errorf("query external_events: %w", err)
 	}
-	defer rows.Close()
 
 	var events []domain.ExternalEvent
 	newCursor := cursor
 
-	for rows.Next() {
-		var evt domain.ExternalEvent
-		var sourceInternalEventID *int64
-		var sourceInternalEventIDs json.RawMessage
-		if err := rows.Scan(
-			&evt.ID,
-			&evt.TeamID,
-			&evt.Type,
-			&evt.ResourceType,
-			&evt.ResourceID,
-			&evt.OccurredAt,
-			&evt.Payload,
-			&sourceInternalEventID,
-			&sourceInternalEventIDs,
-			&evt.DedupeKey,
-			&evt.CreatedAt,
-		); err != nil {
-			return cursor, fmt.Errorf("scan event: %w", err)
+	for _, row := range rows {
+		evt := domain.ExternalEvent{
+			ID:           row.ID,
+			WorkspaceID:  row.WorkspaceID,
+			Type:         row.Type,
+			ResourceType: row.ResourceType,
+			ResourceID:   row.ResourceID,
+			OccurredAt:   row.OccurredAt,
+			Payload:      row.Payload,
+			DedupeKey:    row.DedupeKey,
+			CreatedAt:    row.CreatedAt,
 		}
-		evt.SourceInternalEventID = sourceInternalEventID
-		if len(sourceInternalEventIDs) > 0 {
-			if err := json.Unmarshal(sourceInternalEventIDs, &evt.SourceInternalEventIDs); err != nil {
+		if row.SourceInternalEventID.Valid {
+			value := row.SourceInternalEventID.Int64
+			evt.SourceInternalEventID = &value
+		}
+		if len(row.SourceInternalEventIds) > 0 {
+			if err := json.Unmarshal(row.SourceInternalEventIds, &evt.SourceInternalEventIDs); err != nil {
 				return cursor, fmt.Errorf("decode source internal event ids: %w", err)
 			}
 		}
 		events = append(events, evt)
 		newCursor = evt.ID
-	}
-	if err := rows.Err(); err != nil {
-		return cursor, fmt.Errorf("iterate events: %w", err)
 	}
 
 	if len(events) == 0 {
@@ -185,7 +178,7 @@ func (p *WebhookProducer) poll(ctx context.Context, cursor int64) (int64, error)
 	// For each event, look up matching subscriptions and create webhook jobs
 	var jobs []Job
 	for _, evt := range events {
-		subs, err := p.getMatchingSubscriptions(ctx, evt.TeamID, evt.Type, evt.ResourceType, evt.ResourceID, evt.OccurredAt)
+		subs, err := p.getMatchingSubscriptions(ctx, evt.WorkspaceID, evt.Type, evt.ResourceType, evt.ResourceID, evt.OccurredAt)
 		if err != nil {
 			p.logger.Error("get matching subscriptions", "error", err, "event_id", evt.ID)
 			continue
@@ -201,7 +194,7 @@ func (p *WebhookProducer) poll(ctx context.Context, cursor int64) (int64, error)
 			jobs = append(jobs, Job{
 				ID:             fmt.Sprintf("wh-%d-%s", evt.ID, sub.ID),
 				EventID:        evt.ID,
-				TeamID:         evt.TeamID,
+				WorkspaceID:         evt.WorkspaceID,
 				EventType:      evt.Type,
 				Status:         StatusPending,
 				SubscriptionID: sub.ID,
@@ -234,32 +227,38 @@ func marshalWebhookEnvelope(evt domain.ExternalEvent) (json.RawMessage, error) {
 }
 
 // getMatchingSubscriptions queries event_subscriptions for active subscriptions
-// matching the given team and external event filters.
-func (p *WebhookProducer) getMatchingSubscriptions(ctx context.Context, teamID, eventType, resourceType, resourceID string, occurredAt time.Time) ([]subscriptionRow, error) {
-	rows, err := p.pool.Query(ctx,
-		`SELECT id, url, secret, encrypted_secret, created_at
-		 FROM event_subscriptions
-		 WHERE team_id = $1
-		   AND enabled = TRUE
-		   AND (event_type = '' OR event_type = $2)
-		   AND (resource_type = '' OR resource_type = $3)
-		   AND (resource_id = '' OR resource_id = $4)
-		   AND created_at <= $5`,
-		teamID, eventType, resourceType, resourceID, occurredAt)
+// matching the given workspace and external event filters.
+func (p *WebhookProducer) getMatchingSubscriptions(ctx context.Context, workspaceID, eventType, resourceType, resourceID string, occurredAt time.Time) ([]subscriptionRow, error) {
+	rows, err := p.q.ListEventSubscriptionsByWorkspaceAndEvent(ctx, sqlcgen.ListEventSubscriptionsByWorkspaceAndEventParams{
+		WorkspaceID:       workspaceID,
+		EventType:    eventType,
+		ResourceType: stringToPgText(resourceType),
+		ResourceID:   stringToPgText(resourceID),
+	})
 	if err != nil {
 		return nil, fmt.Errorf("query subscriptions: %w", err)
 	}
-	defer rows.Close()
 
 	var subs []subscriptionRow
-	for rows.Next() {
-		var s subscriptionRow
-		if err := rows.Scan(&s.ID, &s.URL, &s.Secret, &s.EncryptedSecret, &s.CreatedAt); err != nil {
-			return nil, fmt.Errorf("scan subscription: %w", err)
+	for _, row := range rows {
+		if row.CreatedAt.After(occurredAt) {
+			continue
 		}
-		subs = append(subs, s)
+		subs = append(subs, subscriptionRow{
+			ID:              row.ID,
+			URL:             row.Url,
+			EncryptedSecret: row.EncryptedSecret,
+			CreatedAt:       row.CreatedAt,
+		})
 	}
-	return subs, rows.Err()
+	return subs, nil
+}
+
+func stringToPgText(value string) pgtype.Text {
+	if value == "" {
+		return pgtype.Text{}
+	}
+	return pgtype.Text{String: value, Valid: true}
 }
 
 // flush writes all buffered jobs to the S3 queue in a single CAS write (group commit).

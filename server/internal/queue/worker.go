@@ -263,7 +263,7 @@ func (w *IndexWorker) processJob(ctx context.Context, job *Job) error {
 
 	metadata := map[string]any{
 		"type":    job.ResourceType,
-		"team_id": job.TeamID,
+		"workspace_id": job.WorkspaceID,
 		"data":    job.Data,
 	}
 

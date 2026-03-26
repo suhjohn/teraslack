@@ -11,33 +11,33 @@ import (
 )
 
 type ApiKey struct {
-	ID                string     `json:"id"`
-	Name              string     `json:"name"`
-	Description       string     `json:"description"`
-	KeyHash           string     `json:"key_hash"`
-	KeyPrefix         string     `json:"key_prefix"`
-	KeyHint           string     `json:"key_hint"`
-	TeamID            string     `json:"team_id"`
-	PrincipalID       string     `json:"principal_id"`
-	CreatedBy         string     `json:"created_by"`
-	OnBehalfOf        string     `json:"on_behalf_of"`
-	Type              string     `json:"type"`
-	Environment       string     `json:"environment"`
-	Permissions       []string   `json:"permissions"`
-	ExpiresAt         *time.Time `json:"expires_at"`
-	LastUsedAt        *time.Time `json:"last_used_at"`
-	RequestCount      int64      `json:"request_count"`
-	Revoked           bool       `json:"revoked"`
-	RevokedAt         *time.Time `json:"revoked_at"`
-	RotatedToID       string     `json:"rotated_to_id"`
-	GracePeriodEndsAt *time.Time `json:"grace_period_ends_at"`
-	CreatedAt         time.Time  `json:"created_at"`
-	UpdatedAt         time.Time  `json:"updated_at"`
+	ID                string      `json:"id"`
+	Name              string      `json:"name"`
+	Description       string      `json:"description"`
+	KeyHash           string      `json:"key_hash"`
+	KeyPrefix         string      `json:"key_prefix"`
+	KeyHint           string      `json:"key_hint"`
+	WorkspaceID       string      `json:"workspace_id"`
+	PrincipalID       pgtype.Text `json:"principal_id"`
+	CreatedBy         string      `json:"created_by"`
+	OnBehalfOf        string      `json:"on_behalf_of"`
+	Type              string      `json:"type"`
+	Environment       string      `json:"environment"`
+	Permissions       []string    `json:"permissions"`
+	ExpiresAt         *time.Time  `json:"expires_at"`
+	LastUsedAt        *time.Time  `json:"last_used_at"`
+	RequestCount      int64       `json:"request_count"`
+	Revoked           bool        `json:"revoked"`
+	RevokedAt         *time.Time  `json:"revoked_at"`
+	RotatedToID       string      `json:"rotated_to_id"`
+	GracePeriodEndsAt *time.Time  `json:"grace_period_ends_at"`
+	CreatedAt         time.Time   `json:"created_at"`
+	UpdatedAt         time.Time   `json:"updated_at"`
 }
 
 type AuthSession struct {
 	ID          string     `json:"id"`
-	TeamID      string     `json:"team_id"`
+	WorkspaceID string     `json:"workspace_id"`
 	UserID      string     `json:"user_id"`
 	SessionHash string     `json:"session_hash"`
 	Provider    string     `json:"provider"`
@@ -47,16 +47,16 @@ type AuthSession struct {
 }
 
 type AuthorizationAuditLog struct {
-	ID         string             `json:"id"`
-	TeamID     string             `json:"team_id"`
-	ActorID    pgtype.Text        `json:"actor_id"`
-	ApiKeyID   pgtype.Text        `json:"api_key_id"`
-	OnBehalfOf pgtype.Text        `json:"on_behalf_of"`
-	Action     string             `json:"action"`
-	Resource   string             `json:"resource"`
-	ResourceID string             `json:"resource_id"`
-	Metadata   []byte             `json:"metadata"`
-	CreatedAt  pgtype.Timestamptz `json:"created_at"`
+	ID          string             `json:"id"`
+	WorkspaceID string             `json:"workspace_id"`
+	ActorID     pgtype.Text        `json:"actor_id"`
+	ApiKeyID    pgtype.Text        `json:"api_key_id"`
+	OnBehalfOf  pgtype.Text        `json:"on_behalf_of"`
+	Action      string             `json:"action"`
+	Resource    string             `json:"resource"`
+	ResourceID  string             `json:"resource_id"`
+	Metadata    []byte             `json:"metadata"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
 }
 
 type Bookmark struct {
@@ -72,22 +72,32 @@ type Bookmark struct {
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
+type CanonicalDm struct {
+	WorkspaceID    string    `json:"workspace_id"`
+	UserLowID      string    `json:"user_low_id"`
+	UserHighID     string    `json:"user_high_id"`
+	ConversationID string    `json:"conversation_id"`
+	CreatedAt      time.Time `json:"created_at"`
+}
+
 type Conversation struct {
-	ID             string     `json:"id"`
-	TeamID         string     `json:"team_id"`
-	Name           string     `json:"name"`
-	Type           string     `json:"type"`
-	CreatorID      string     `json:"creator_id"`
-	IsArchived     bool       `json:"is_archived"`
-	TopicValue     string     `json:"topic_value"`
-	TopicCreator   string     `json:"topic_creator"`
-	TopicLastSet   *time.Time `json:"topic_last_set"`
-	PurposeValue   string     `json:"purpose_value"`
-	PurposeCreator string     `json:"purpose_creator"`
-	PurposeLastSet *time.Time `json:"purpose_last_set"`
-	NumMembers     int32      `json:"num_members"`
-	CreatedAt      time.Time  `json:"created_at"`
-	UpdatedAt      time.Time  `json:"updated_at"`
+	ID             string      `json:"id"`
+	WorkspaceID    string      `json:"workspace_id"`
+	Name           string      `json:"name"`
+	Type           string      `json:"type"`
+	CreatorID      string      `json:"creator_id"`
+	IsArchived     bool        `json:"is_archived"`
+	TopicValue     string      `json:"topic_value"`
+	TopicCreator   string      `json:"topic_creator"`
+	TopicLastSet   *time.Time  `json:"topic_last_set"`
+	PurposeValue   string      `json:"purpose_value"`
+	PurposeCreator string      `json:"purpose_creator"`
+	PurposeLastSet *time.Time  `json:"purpose_last_set"`
+	NumMembers     int32       `json:"num_members"`
+	CreatedAt      time.Time   `json:"created_at"`
+	UpdatedAt      time.Time   `json:"updated_at"`
+	LastMessageTs  pgtype.Text `json:"last_message_ts"`
+	LastActivityTs pgtype.Text `json:"last_activity_ts"`
 }
 
 type ConversationEventFeed struct {
@@ -119,7 +129,7 @@ type ConversationPostingPolicy struct {
 }
 
 type ConversationRead struct {
-	TeamID         string    `json:"team_id"`
+	WorkspaceID    string    `json:"workspace_id"`
 	ConversationID string    `json:"conversation_id"`
 	UserID         string    `json:"user_id"`
 	LastReadTs     string    `json:"last_read_ts"`
@@ -128,7 +138,7 @@ type ConversationRead struct {
 
 type EventSubscription struct {
 	ID              string    `json:"id"`
-	TeamID          string    `json:"team_id"`
+	WorkspaceID     string    `json:"workspace_id"`
 	Url             string    `json:"url"`
 	Enabled         bool      `json:"enabled"`
 	CreatedAt       time.Time `json:"created_at"`
@@ -141,7 +151,7 @@ type EventSubscription struct {
 
 type ExternalEvent struct {
 	ID                     int64       `json:"id"`
-	TeamID                 string      `json:"team_id"`
+	WorkspaceID            string      `json:"workspace_id"`
 	Type                   string      `json:"type"`
 	ResourceType           string      `json:"resource_type"`
 	ResourceID             string      `json:"resource_id"`
@@ -162,10 +172,10 @@ type ExternalEventProjectionFailure struct {
 
 type ExternalPrincipalAccess struct {
 	ID                  string             `json:"id"`
-	HostTeamID          string             `json:"host_team_id"`
+	HostWorkspaceID     string             `json:"host_workspace_id"`
 	PrincipalID         string             `json:"principal_id"`
 	PrincipalType       string             `json:"principal_type"`
-	HomeTeamID          string             `json:"home_team_id"`
+	HomeWorkspaceID     string             `json:"home_workspace_id"`
 	AccessMode          string             `json:"access_mode"`
 	AllowedCapabilities []byte             `json:"allowed_capabilities"`
 	GrantedBy           string             `json:"granted_by"`
@@ -198,7 +208,7 @@ type File struct {
 	UploadComplete     bool      `json:"upload_complete"`
 	CreatedAt          time.Time `json:"created_at"`
 	UpdatedAt          time.Time `json:"updated_at"`
-	TeamID             string    `json:"team_id"`
+	WorkspaceID        string    `json:"workspace_id"`
 }
 
 type FileChannel struct {
@@ -219,11 +229,13 @@ type InternalEvent struct {
 	EventType     string    `json:"event_type"`
 	AggregateType string    `json:"aggregate_type"`
 	AggregateID   string    `json:"aggregate_id"`
-	TeamID        string    `json:"team_id"`
+	WorkspaceID   string    `json:"workspace_id"`
 	ActorID       string    `json:"actor_id"`
 	Payload       []byte    `json:"payload"`
 	Metadata      []byte    `json:"metadata"`
 	CreatedAt     time.Time `json:"created_at"`
+	ShardKey      string    `json:"shard_key"`
+	ShardID       int32     `json:"shard_id"`
 }
 
 type Message struct {
@@ -248,7 +260,7 @@ type Message struct {
 
 type OauthAccount struct {
 	ID              string    `json:"id"`
-	TeamID          string    `json:"team_id"`
+	WorkspaceID     string    `json:"workspace_id"`
 	UserID          string    `json:"user_id"`
 	Provider        string    `json:"provider"`
 	ProviderSubject string    `json:"provider_subject"`
@@ -280,16 +292,16 @@ type Reaction struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
-type TeamEventFeed struct {
-	FeedID          int64     `json:"feed_id"`
-	TeamID          string    `json:"team_id"`
-	ExternalEventID int64     `json:"external_event_id"`
-	CreatedAt       time.Time `json:"created_at"`
+type ThreadParticipant struct {
+	ChannelID string    `json:"channel_id"`
+	ThreadTs  string    `json:"thread_ts"`
+	UserID    string    `json:"user_id"`
+	CreatedAt time.Time `json:"created_at"`
 }
 
 type User struct {
 	ID            string    `json:"id"`
-	TeamID        string    `json:"team_id"`
+	WorkspaceID   string    `json:"workspace_id"`
 	Name          string    `json:"name"`
 	RealName      string    `json:"real_name"`
 	DisplayName   string    `json:"display_name"`
@@ -312,17 +324,17 @@ type UserEventFeed struct {
 }
 
 type UserRoleAssignment struct {
-	ID         string             `json:"id"`
-	TeamID     string             `json:"team_id"`
-	UserID     string             `json:"user_id"`
-	RoleKey    string             `json:"role_key"`
-	AssignedBy string             `json:"assigned_by"`
-	CreatedAt  pgtype.Timestamptz `json:"created_at"`
+	ID          string             `json:"id"`
+	WorkspaceID string             `json:"workspace_id"`
+	UserID      string             `json:"user_id"`
+	RoleKey     string             `json:"role_key"`
+	AssignedBy  string             `json:"assigned_by"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
 }
 
 type Usergroup struct {
 	ID          string    `json:"id"`
-	TeamID      string    `json:"team_id"`
+	WorkspaceID string    `json:"workspace_id"`
 	Name        string    `json:"name"`
 	Handle      string    `json:"handle"`
 	Description string    `json:"description"`
@@ -368,13 +380,33 @@ type Workspace struct {
 	UpdatedAt         time.Time `json:"updated_at"`
 }
 
-type WorkspaceExternalTeam struct {
-	ID               string     `json:"id"`
-	WorkspaceID      string     `json:"workspace_id"`
-	ExternalTeamID   string     `json:"external_team_id"`
-	ExternalTeamName string     `json:"external_team_name"`
-	ConnectionType   string     `json:"connection_type"`
-	Connected        bool       `json:"connected"`
-	CreatedAt        time.Time  `json:"created_at"`
-	DisconnectedAt   *time.Time `json:"disconnected_at"`
+type WorkspaceEventFeed struct {
+	FeedID          int64     `json:"feed_id"`
+	WorkspaceID     string    `json:"workspace_id"`
+	ExternalEventID int64     `json:"external_event_id"`
+	CreatedAt       time.Time `json:"created_at"`
+}
+
+type WorkspaceExternalWorkspace struct {
+	ID                    string     `json:"id"`
+	WorkspaceID           string     `json:"workspace_id"`
+	ExternalWorkspaceID   string     `json:"external_workspace_id"`
+	ExternalWorkspaceName string     `json:"external_workspace_name"`
+	ConnectionType        string     `json:"connection_type"`
+	Connected             bool       `json:"connected"`
+	CreatedAt             time.Time  `json:"created_at"`
+	DisconnectedAt        *time.Time `json:"disconnected_at"`
+}
+
+type WorkspaceInvite struct {
+	ID               string      `json:"id"`
+	WorkspaceID      string      `json:"workspace_id"`
+	Email            string      `json:"email"`
+	InvitedBy        string      `json:"invited_by"`
+	TokenHash        string      `json:"token_hash"`
+	AcceptedByUserID pgtype.Text `json:"accepted_by_user_id"`
+	ExpiresAt        time.Time   `json:"expires_at"`
+	AcceptedAt       *time.Time  `json:"accepted_at"`
+	CreatedAt        time.Time   `json:"created_at"`
+	UpdatedAt        time.Time   `json:"updated_at"`
 }

@@ -3,6 +3,8 @@ package service
 import (
 	"context"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -25,13 +27,13 @@ func (m *mockAuthRepo) WithTx(_ pgx.Tx) repository.AuthRepository { return m }
 
 func (m *mockAuthRepo) CreateSession(_ context.Context, params domain.CreateAuthSessionParams) (*domain.AuthSession, error) {
 	session := &domain.AuthSession{
-		ID:        "AS123",
-		TeamID:    params.TeamID,
-		UserID:    params.UserID,
-		Provider:  params.Provider,
-		Token:     "sess_test",
-		ExpiresAt: params.ExpiresAt,
-		CreatedAt: time.Now().UTC(),
+		ID:          "AS123",
+		WorkspaceID: params.WorkspaceID,
+		UserID:      params.UserID,
+		Provider:    params.Provider,
+		Token:       "sess_test",
+		ExpiresAt:   params.ExpiresAt,
+		CreatedAt:   time.Now().UTC(),
 	}
 	m.sessions[crypto.HashToken(session.Token)] = session
 	return session, nil
@@ -66,7 +68,7 @@ func (m *mockAuthRepo) ListOAuthAccountsBySubject(_ context.Context, _ domain.Au
 func (m *mockAuthRepo) UpsertOAuthAccount(_ context.Context, params domain.UpsertOAuthAccountParams) (*domain.OAuthAccount, error) {
 	return &domain.OAuthAccount{
 		ID:              "OA123",
-		TeamID:          params.TeamID,
+		WorkspaceID:     params.WorkspaceID,
 		UserID:          params.UserID,
 		Provider:        params.Provider,
 		ProviderSubject: params.ProviderSubject,
@@ -79,13 +81,13 @@ func (m *mockAuthRepo) UpsertOAuthAccount(_ context.Context, params domain.Upser
 func TestAuthService_ValidateSession(t *testing.T) {
 	repo := newMockAuthRepo()
 	session := &domain.AuthSession{
-		ID:        "AS123",
-		TeamID:    "T123",
-		UserID:    "U123",
-		Provider:  domain.AuthProviderGitHub,
-		Token:     "sess_valid",
-		ExpiresAt: time.Now().UTC().Add(time.Hour),
-		CreatedAt: time.Now().UTC(),
+		ID:          "AS123",
+		WorkspaceID: "T123",
+		UserID:      "U123",
+		Provider:    domain.AuthProviderGitHub,
+		Token:       "sess_valid",
+		ExpiresAt:   time.Now().UTC().Add(time.Hour),
+		CreatedAt:   time.Now().UTC(),
 	}
 	repo.sessions[crypto.HashToken(session.Token)] = session
 
@@ -94,7 +96,7 @@ func TestAuthService_ValidateSession(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ValidateSession() error = %v", err)
 	}
-	if auth.TeamID != "T123" || auth.UserID != "U123" || auth.IsBot {
+	if auth.WorkspaceID != "T123" || auth.UserID != "U123" || auth.IsBot {
 		t.Fatalf("unexpected auth context: %+v", auth)
 	}
 	if auth.PrincipalType != domain.PrincipalTypeHuman || auth.AccountType != domain.AccountTypeMember {
@@ -107,13 +109,13 @@ func TestAuthService_ValidateSession_RejectsRevokedSession(t *testing.T) {
 	raw := "sess_revoked"
 	now := time.Now().UTC()
 	repo.sessions[crypto.HashToken(raw)] = &domain.AuthSession{
-		ID:        "AS123",
-		TeamID:    "T123",
-		UserID:    "U123",
-		Provider:  domain.AuthProviderGoogle,
-		ExpiresAt: now.Add(time.Hour),
-		RevokedAt: &now,
-		CreatedAt: now,
+		ID:          "AS123",
+		WorkspaceID: "T123",
+		UserID:      "U123",
+		Provider:    domain.AuthProviderGoogle,
+		ExpiresAt:   now.Add(time.Hour),
+		RevokedAt:   &now,
+		CreatedAt:   now,
 	}
 
 	svc := NewAuthService(repo, &mockUserRepoForUG{}, nil, nil, nil, mockTxBeginner{}, nil, AuthConfig{})
@@ -126,13 +128,13 @@ func TestAuthService_ValidateSession_RejectsRevokedSession(t *testing.T) {
 func TestAuthService_RevokeSession(t *testing.T) {
 	repo := newMockAuthRepo()
 	session := &domain.AuthSession{
-		ID:        "AS123",
-		TeamID:    "T123",
-		UserID:    "U123",
-		Provider:  domain.AuthProviderGitHub,
-		Token:     "sess_valid",
-		ExpiresAt: time.Now().UTC().Add(time.Hour),
-		CreatedAt: time.Now().UTC(),
+		ID:          "AS123",
+		WorkspaceID: "T123",
+		UserID:      "U123",
+		Provider:    domain.AuthProviderGitHub,
+		Token:       "sess_valid",
+		ExpiresAt:   time.Now().UTC().Add(time.Hour),
+		CreatedAt:   time.Now().UTC(),
 	}
 	hash := crypto.HashToken(session.Token)
 	repo.sessions[hash] = session
@@ -146,6 +148,48 @@ func TestAuthService_RevokeSession(t *testing.T) {
 	}
 }
 
+func TestAuthService_SwitchWorkspace(t *testing.T) {
+	repo := newMockAuthRepo()
+	userRepo := newMockUserRepoTenant()
+	current := &domain.AuthSession{
+		ID:          "AS123",
+		WorkspaceID: "T123",
+		UserID:      "U_CURRENT",
+		Provider:    domain.AuthProviderGitHub,
+		Token:       "sess_valid",
+		ExpiresAt:   time.Now().UTC().Add(time.Hour),
+		CreatedAt:   time.Now().UTC(),
+	}
+	hash := crypto.HashToken(current.Token)
+	repo.sessions[hash] = current
+	userRepo.users["U_CURRENT"] = &domain.User{
+		ID:            "U_CURRENT",
+		WorkspaceID:   "T123",
+		Email:         "alice@example.com",
+		PrincipalType: domain.PrincipalTypeHuman,
+		AccountType:   domain.AccountTypeAdmin,
+	}
+	userRepo.users["U_TARGET"] = &domain.User{
+		ID:            "U_TARGET",
+		WorkspaceID:   "T999",
+		Email:         "alice@example.com",
+		PrincipalType: domain.PrincipalTypeHuman,
+		AccountType:   domain.AccountTypeMember,
+	}
+
+	svc := NewAuthService(repo, userRepo, nil, nil, nil, mockTxBeginner{}, nil, AuthConfig{})
+	next, err := svc.SwitchWorkspace(context.Background(), "Bearer "+current.Token, "T999")
+	if err != nil {
+		t.Fatalf("SwitchWorkspace() error = %v", err)
+	}
+	if next.WorkspaceID != "T999" || next.UserID != "U_TARGET" {
+		t.Fatalf("unexpected switched session: %+v", next)
+	}
+	if repo.sessions[hash].RevokedAt == nil {
+		t.Fatal("expected previous session to be revoked")
+	}
+}
+
 func TestAuthService_StartOAuth_AllowsFrontendRedirect(t *testing.T) {
 	svc := NewAuthService(newMockAuthRepo(), &mockUserRepoForUG{}, nil, nil, nil, mockTxBeginner{}, nil, AuthConfig{
 		BaseURL:                 "https://api.teraslack.ai",
@@ -156,9 +200,9 @@ func TestAuthService_StartOAuth_AllowsFrontendRedirect(t *testing.T) {
 	})
 
 	result, err := svc.StartOAuth(context.Background(), domain.StartOAuthParams{
-		Provider:   domain.AuthProviderGitHub,
-		TeamID:     "T123",
-		RedirectTo: "https://teraslack.ai/admin",
+		Provider:    domain.AuthProviderGitHub,
+		WorkspaceID: "T123",
+		RedirectTo:  "https://teraslack.ai/admin",
 	})
 	if err != nil {
 		t.Fatalf("StartOAuth() error = %v", err)
@@ -178,11 +222,37 @@ func TestAuthService_StartOAuth_RejectsUnknownRedirectHost(t *testing.T) {
 	})
 
 	_, err := svc.StartOAuth(context.Background(), domain.StartOAuthParams{
-		Provider:   domain.AuthProviderGitHub,
-		TeamID:     "T123",
-		RedirectTo: "https://evil.example.com/admin",
+		Provider:    domain.AuthProviderGitHub,
+		WorkspaceID: "T123",
+		RedirectTo:  "https://evil.example.com/admin",
 	})
 	if !errors.Is(err, domain.ErrInvalidArgument) {
 		t.Fatalf("StartOAuth() error = %v, want invalid argument", err)
+	}
+}
+
+func TestAuthService_doJSON_MapsOAuthProviderErrorsToInvalidAuth(t *testing.T) {
+	t.Parallel()
+
+	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"error":"invalid_grant","error_description":"Bad Request"}`))
+	}))
+	defer provider.Close()
+
+	svc := NewAuthService(newMockAuthRepo(), &mockUserRepoForUG{}, nil, nil, nil, mockTxBeginner{}, nil, AuthConfig{
+		HTTPClient: provider.Client(),
+	})
+
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, provider.URL, nil)
+	if err != nil {
+		t.Fatalf("NewRequestWithContext() error = %v", err)
+	}
+
+	var target map[string]any
+	err = svc.doJSON(req, &target)
+	if !errors.Is(err, domain.ErrInvalidAuth) {
+		t.Fatalf("doJSON() error = %v, want invalid auth", err)
 	}
 }

@@ -1,35 +1,50 @@
 import { Link } from '@tanstack/react-router'
-import { Terminal } from 'lucide-react'
 import ThemeToggle from './ThemeToggle'
+import { startOAuth } from '#/lib/api'
 
-export default function Header() {
+export default function Header () {
   return (
-    <header className="sticky top-0 z-50 border-b border-[var(--line)] bg-[var(--header-bg)] px-4 backdrop-blur-md">
-      <nav className="page-wrap flex items-center gap-6 py-3">
-        <h2 className="m-0 flex-shrink-0">
-          <Link
-            to="/"
-            className="inline-flex items-center gap-2 border-b-0 text-sm font-bold text-[var(--ink)] no-underline"
-          >
-            <Terminal className="h-4 w-4" />
-            teraslack
-          </Link>
-        </h2>
-
-        <div className="flex items-center gap-4 text-sm font-medium">
-          <Link
-            to="/login"
-            className="nav-link"
-            activeProps={{ className: 'nav-link is-active' }}
-          >
-            login
-          </Link>
-        </div>
-
-        <div className="ml-auto">
-          <ThemeToggle />
-        </div>
-      </nav>
+    <header className='ws-row'>
+      <div className='ws-cell ws-header-cell'>
+        <nav className='flex w-full justify-between items-center gap-8 text-[0.75rem]'>
+          <div className='flex items-center gap-8'>
+            <Link
+              to='/'
+              className='meta-title sys-link inline-flex items-center gap-2 text-[15px] font-bold tracking-[-0.02em]'
+            >
+              <img
+                src='/favicon.svg'
+                alt=''
+                width={20}
+                height={20}
+                className='h-5 w-5 shrink-0'
+                aria-hidden
+              />
+              TERASLACK
+            </Link>
+            <Link to='/docs' className='sys-link'>
+              DOCS
+            </Link>
+          </div>
+          <div className='flex items-center gap-4'>
+            <button
+              type='button'
+              className='sys-command-button'
+              onClick={() => startOAuth('github')}
+            >
+              LOGIN WITH GITHUB
+            </button>
+            <button
+              type='button'
+              className='sys-command-button'
+              onClick={() => startOAuth('google')}
+            >
+              LOGIN WITH GOOGLE
+            </button>
+            <ThemeToggle />
+          </div>
+        </nav>
+      </div>
     </header>
   )
 }

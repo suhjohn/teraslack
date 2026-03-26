@@ -5,11 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/suhjohn/teraslack/internal/domain"
 	"github.com/suhjohn/teraslack/internal/repository"
+	"github.com/suhjohn/teraslack/internal/repository/sqlcgen"
 )
 
 type rowScanner interface {
@@ -18,17 +18,18 @@ type rowScanner interface {
 
 // WorkspaceRepo implements repository.WorkspaceRepository using raw SQL.
 type WorkspaceRepo struct {
+	q  *sqlcgen.Queries
 	db DBTX
 }
 
 // NewWorkspaceRepo creates a new WorkspaceRepo.
 func NewWorkspaceRepo(db DBTX) *WorkspaceRepo {
-	return &WorkspaceRepo{db: db}
+	return &WorkspaceRepo{q: sqlcgen.New(db), db: db}
 }
 
 // WithTx returns a new WorkspaceRepo bound to tx.
 func (r *WorkspaceRepo) WithTx(tx pgx.Tx) repository.WorkspaceRepository {
-	return &WorkspaceRepo{db: tx}
+	return &WorkspaceRepo{q: sqlcgen.New(tx), db: tx}
 }
 
 func (r *WorkspaceRepo) Create(ctx context.Context, params domain.CreateWorkspaceParams) (*domain.Workspace, error) {
@@ -36,6 +37,10 @@ func (r *WorkspaceRepo) Create(ctx context.Context, params domain.CreateWorkspac
 	discoverability := string(params.Discoverability)
 	if discoverability == "" {
 		discoverability = string(domain.WorkspaceDiscoverabilityInviteOnly)
+	}
+	defaultChannels := params.DefaultChannels
+	if defaultChannels == nil {
+		defaultChannels = []string{}
 	}
 
 	preferences := []byte("{}")
@@ -54,74 +59,53 @@ func (r *WorkspaceRepo) Create(ctx context.Context, params domain.CreateWorkspac
 		billing.Status = "active"
 	}
 
-	row := r.db.QueryRow(ctx, `
-		INSERT INTO workspaces (
-			id, name, domain, email_domain, description,
-			icon_image_original, icon_image_34, icon_image_44,
-			discoverability, default_channels, preferences, profile_fields,
-			billing_plan, billing_status, billing_email
-		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
-		RETURNING id, name, domain, email_domain, description,
-			icon_image_original, icon_image_34, icon_image_44,
-			discoverability, default_channels, preferences, profile_fields,
-			billing_plan, billing_status, billing_email, created_at, updated_at
-	`,
-		id, params.Name, params.Domain, params.EmailDomain, params.Description,
-		params.Icon.ImageOriginal, params.Icon.Image34, params.Icon.Image44,
-		discoverability, params.DefaultChannels, preferences, profileFields,
-		billing.Plan, billing.Status, billing.BillingEmail,
-	)
-	ws, err := scanWorkspace(row)
+	row, err := r.q.CreateWorkspace(ctx, sqlcgen.CreateWorkspaceParams{
+		ID:                id,
+		Name:              params.Name,
+		Domain:            params.Domain,
+		EmailDomain:       params.EmailDomain,
+		Description:       params.Description,
+		IconImageOriginal: params.Icon.ImageOriginal,
+		IconImage34:       params.Icon.Image34,
+		IconImage44:       params.Icon.Image44,
+		Discoverability:   discoverability,
+		DefaultChannels:   defaultChannels,
+		Preferences:       preferences,
+		ProfileFields:     profileFields,
+		BillingPlan:       billing.Plan,
+		BillingStatus:     billing.Status,
+		BillingEmail:      billing.BillingEmail,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("insert workspace: %w", err)
 	}
-	return ws, nil
+	return workspaceFromSQLC(row)
 }
 
 func (r *WorkspaceRepo) Get(ctx context.Context, id string) (*domain.Workspace, error) {
-	row := r.db.QueryRow(ctx, `
-		SELECT id, name, domain, email_domain, description,
-			icon_image_original, icon_image_34, icon_image_44,
-			discoverability, default_channels, preferences, profile_fields,
-			billing_plan, billing_status, billing_email, created_at, updated_at
-		FROM workspaces
-		WHERE id = $1
-	`, id)
-	ws, err := scanWorkspace(row)
+	row, err := r.q.GetWorkspace(ctx, id)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, domain.ErrNotFound
 		}
 		return nil, fmt.Errorf("get workspace: %w", err)
 	}
-	return ws, nil
+	return workspaceFromSQLC(row)
 }
 
 func (r *WorkspaceRepo) List(ctx context.Context) ([]domain.Workspace, error) {
-	rows, err := r.db.Query(ctx, `
-		SELECT id, name, domain, email_domain, description,
-			icon_image_original, icon_image_34, icon_image_44,
-			discoverability, default_channels, preferences, profile_fields,
-			billing_plan, billing_status, billing_email, created_at, updated_at
-		FROM workspaces
-		ORDER BY created_at ASC, id ASC
-	`)
+	rows, err := r.q.ListWorkspaces(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("list workspaces: %w", err)
 	}
-	defer rows.Close()
 
 	workspaces := make([]domain.Workspace, 0)
-	for rows.Next() {
-		ws, err := scanWorkspace(rows)
+	for _, row := range rows {
+		ws, err := workspaceFromSQLC(row)
 		if err != nil {
 			return nil, fmt.Errorf("scan workspace: %w", err)
 		}
 		workspaces = append(workspaces, *ws)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate workspaces: %w", err)
 	}
 	return workspaces, nil
 }
@@ -188,73 +172,73 @@ func (r *WorkspaceRepo) Update(ctx context.Context, id string, params domain.Upd
 		preferencesJSON = preferences
 	}
 
-	row := r.db.QueryRow(ctx, `
-		UPDATE workspaces
-		SET name = $2,
-			domain = $3,
-			email_domain = $4,
-			description = $5,
-			icon_image_original = $6,
-			icon_image_34 = $7,
-			icon_image_44 = $8,
-			discoverability = $9,
-			default_channels = $10,
-			preferences = $11,
-			profile_fields = $12,
-			billing_plan = $13,
-			billing_status = $14,
-			billing_email = $15
-		WHERE id = $1
-		RETURNING id, name, domain, email_domain, description,
-			icon_image_original, icon_image_34, icon_image_44,
-			discoverability, default_channels, preferences, profile_fields,
-			billing_plan, billing_status, billing_email, created_at, updated_at
-	`,
-		id, name, domainName, emailDomain, description,
-		icon.ImageOriginal, icon.Image34, icon.Image44,
-		discoverability, defaultChannels, preferencesJSON, profileFieldsJSON,
-		billing.Plan, billing.Status, billing.BillingEmail,
-	)
-	ws, err := scanWorkspace(row)
+	row, err := r.q.UpdateWorkspace(ctx, sqlcgen.UpdateWorkspaceParams{
+		ID:                id,
+		Name:              name,
+		Domain:            domainName,
+		EmailDomain:       emailDomain,
+		Description:       description,
+		IconImageOriginal: icon.ImageOriginal,
+		IconImage34:       icon.Image34,
+		IconImage44:       icon.Image44,
+		Discoverability:   discoverability,
+		DefaultChannels:   defaultChannels,
+		Preferences:       preferencesJSON,
+		ProfileFields:     profileFieldsJSON,
+		BillingPlan:       billing.Plan,
+		BillingStatus:     billing.Status,
+		BillingEmail:      billing.BillingEmail,
+	})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, domain.ErrNotFound
 		}
 		return nil, fmt.Errorf("update workspace: %w", err)
 	}
-	return ws, nil
+	return workspaceFromSQLC(row)
 }
 
 func (r *WorkspaceRepo) ListAdmins(ctx context.Context, workspaceID string) ([]domain.User, error) {
-	return r.listUsersByRole(ctx, workspaceID, "account_type IN ('primary_admin', 'admin')")
+	rows, err := r.q.ListWorkspaceAdmins(ctx, workspaceID)
+	if err != nil {
+		return nil, fmt.Errorf("list users by role: %w", err)
+	}
+	return workspaceUsersFromRows(rows)
 }
 
 func (r *WorkspaceRepo) ListOwners(ctx context.Context, workspaceID string) ([]domain.User, error) {
-	return r.listUsersByRole(ctx, workspaceID, "account_type = 'primary_admin'")
+	rows, err := r.q.ListWorkspaceOwners(ctx, workspaceID)
+	if err != nil {
+		return nil, fmt.Errorf("list users by role: %w", err)
+	}
+	users := make([]domain.User, 0, len(rows))
+	for _, row := range rows {
+		user, err := userFieldsToDomain(userFields{
+			ID: row.ID, WorkspaceID: row.WorkspaceID, Name: row.Name, RealName: row.RealName,
+			DisplayName: row.DisplayName, Email: row.Email, PrincipalType: row.PrincipalType,
+			OwnerID: row.OwnerID, AccountType: row.AccountType, IsBot: row.IsBot, Deleted: row.Deleted, Profile: row.Profile,
+			CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("scan user: %w", err)
+		}
+		users = append(users, *user)
+	}
+	return users, nil
 }
 
 func (r *WorkspaceRepo) ListBillableInfo(ctx context.Context, workspaceID string) ([]domain.WorkspaceBillableInfo, error) {
-	rows, err := r.db.Query(ctx, `
-		SELECT id, (NOT is_bot AND NOT deleted) AS billing_active
-		FROM users
-		WHERE team_id = $1
-		ORDER BY id ASC
-	`, workspaceID)
+	rows, err := r.q.ListWorkspaceBillableInfo(ctx, workspaceID)
 	if err != nil {
 		return nil, fmt.Errorf("list billable info: %w", err)
 	}
-	defer rows.Close()
 
 	info := make([]domain.WorkspaceBillableInfo, 0)
-	for rows.Next() {
-		var row domain.WorkspaceBillableInfo
-		if err := rows.Scan(&row.UserID, &row.BillingActive); err != nil {
-			return nil, fmt.Errorf("scan billable info: %w", err)
-		}
-		info = append(info, row)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate billable info: %w", err)
+	for _, row := range rows {
+		info = append(info, domain.WorkspaceBillableInfo{
+			UserID:        row.ID,
+			BillingActive: row.BillingActive.Bool,
+		})
 	}
 	return info, nil
 }
@@ -262,36 +246,23 @@ func (r *WorkspaceRepo) ListBillableInfo(ctx context.Context, workspaceID string
 func (r *WorkspaceRepo) ListAccessLogs(ctx context.Context, workspaceID string, limit int) ([]domain.WorkspaceAccessLog, error) {
 	limit = clampWorkspaceLogLimit(limit)
 
-	rows, err := r.db.Query(ctx, `
-		SELECT se.actor_id,
-			COALESCE(NULLIF(u.name, ''), se.actor_id) AS username,
-			se.event_type,
-			MIN(se.created_at) AS date_first,
-			MAX(se.created_at) AS date_last
-		FROM internal_events se
-		LEFT JOIN users u ON u.id = se.actor_id
-		WHERE se.team_id = $1
-			AND se.actor_id <> ''
-			AND se.aggregate_type IN ('token', 'api_key')
-		GROUP BY se.actor_id, COALESCE(NULLIF(u.name, ''), se.actor_id), se.event_type
-		ORDER BY MAX(se.created_at) DESC
-		LIMIT $2
-	`, workspaceID, limit)
+	rows, err := r.q.ListWorkspaceAccessLogs(ctx, sqlcgen.ListWorkspaceAccessLogsParams{
+		WorkspaceID: workspaceID,
+		Limit:       int32(limit),
+	})
 	if err != nil {
 		return nil, fmt.Errorf("list access logs: %w", err)
 	}
-	defer rows.Close()
 
 	logs := make([]domain.WorkspaceAccessLog, 0)
-	for rows.Next() {
-		var log domain.WorkspaceAccessLog
-		if err := rows.Scan(&log.UserID, &log.Username, &log.EventType, &log.DateFirst, &log.DateLast); err != nil {
-			return nil, fmt.Errorf("scan access log: %w", err)
-		}
-		logs = append(logs, log)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate access logs: %w", err)
+	for _, row := range rows {
+		logs = append(logs, domain.WorkspaceAccessLog{
+			UserID:    row.ActorID,
+			Username:  row.Username,
+			EventType: row.EventType,
+			DateFirst: tsToTime(row.DateFirst),
+			DateLast:  tsToTime(row.DateLast),
+		})
 	}
 	return logs, nil
 }
@@ -299,124 +270,62 @@ func (r *WorkspaceRepo) ListAccessLogs(ctx context.Context, workspaceID string, 
 func (r *WorkspaceRepo) ListIntegrationLogs(ctx context.Context, workspaceID string, limit int) ([]domain.WorkspaceIntegrationLog, error) {
 	limit = clampWorkspaceLogLimit(limit)
 
-	rows, err := r.db.Query(ctx, `
-		SELECT se.aggregate_id,
-			CASE
-				WHEN se.aggregate_type = 'event_subscription' THEN 'webhook'
-				ELSE se.aggregate_type
-			END AS app_type,
-			CASE
-				WHEN se.aggregate_type = 'event_subscription' THEN 'event_subscription'
-				ELSE se.aggregate_type
-			END AS app_name,
-			se.actor_id,
-			COALESCE(NULLIF(u.name, ''), se.actor_id) AS user_name,
-			se.event_type,
-			se.created_at
-		FROM internal_events se
-		LEFT JOIN users u ON u.id = se.actor_id
-		WHERE se.team_id = $1
-			AND se.aggregate_type IN ('api_key', 'event_subscription')
-		ORDER BY se.created_at DESC
-		LIMIT $2
-	`, workspaceID, limit)
+	rows, err := r.q.ListWorkspaceIntegrationLogs(ctx, sqlcgen.ListWorkspaceIntegrationLogsParams{
+		WorkspaceID: workspaceID,
+		Limit:       int32(limit),
+	})
 	if err != nil {
 		return nil, fmt.Errorf("list integration logs: %w", err)
 	}
-	defer rows.Close()
 
 	logs := make([]domain.WorkspaceIntegrationLog, 0)
-	for rows.Next() {
-		var log domain.WorkspaceIntegrationLog
-		if err := rows.Scan(&log.AppID, &log.AppType, &log.AppName, &log.UserID, &log.UserName, &log.Action, &log.Date); err != nil {
-			return nil, fmt.Errorf("scan integration log: %w", err)
-		}
-		logs = append(logs, log)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate integration logs: %w", err)
+	for _, row := range rows {
+		logs = append(logs, domain.WorkspaceIntegrationLog{
+			AppID:    row.AggregateID,
+			AppType:  row.AppType.(string),
+			AppName:  row.AppName.(string),
+			UserID:   row.ActorID,
+			UserName: row.UserName,
+			Action:   row.EventType,
+			Date:     row.CreatedAt,
+		})
 	}
 	return logs, nil
 }
 
-func (r *WorkspaceRepo) ListExternalTeams(ctx context.Context, workspaceID string) ([]domain.ExternalTeam, error) {
-	rows, err := r.db.Query(ctx, `
-		SELECT id, external_team_id, external_team_name, connection_type,
-			connected, created_at, disconnected_at
-		FROM workspace_external_teams
-		WHERE workspace_id = $1
-		ORDER BY created_at ASC, id ASC
-	`, workspaceID)
+func (r *WorkspaceRepo) ListExternalWorkspaces(ctx context.Context, workspaceID string) ([]domain.ExternalWorkspace, error) {
+	rows, err := r.q.ListWorkspaceExternalWorkspaces(ctx, workspaceID)
 	if err != nil {
-		return nil, fmt.Errorf("list external teams: %w", err)
+		return nil, fmt.Errorf("list external workspaces: %w", err)
 	}
-	defer rows.Close()
 
-	teams := make([]domain.ExternalTeam, 0)
-	for rows.Next() {
-		var team domain.ExternalTeam
-		var disconnectedAt *time.Time
-		if err := rows.Scan(
-			&team.ID,
-			&team.ExternalTeamID,
-			&team.Name,
-			&team.ConnectionType,
-			&team.Connected,
-			&team.CreatedAt,
-			&disconnectedAt,
-		); err != nil {
-			return nil, fmt.Errorf("scan external team: %w", err)
-		}
-		team.DisconnectedAt = disconnectedAt
-		teams = append(teams, team)
+	workspaces := make([]domain.ExternalWorkspace, 0)
+	for _, row := range rows {
+		workspaces = append(workspaces, domain.ExternalWorkspace{
+			ID:                  row.ID,
+			ExternalWorkspaceID: row.ExternalWorkspaceID,
+			Name:                row.ExternalWorkspaceName,
+			ConnectionType:      row.ConnectionType,
+			Connected:           row.Connected,
+			CreatedAt:           row.CreatedAt,
+			DisconnectedAt:      row.DisconnectedAt,
+		})
 	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate external teams: %w", err)
-	}
-	return teams, nil
+	return workspaces, nil
 }
 
-func (r *WorkspaceRepo) DisconnectExternalTeam(ctx context.Context, workspaceID, externalTeamID string) error {
-	tag, err := r.db.Exec(ctx, `
-		UPDATE workspace_external_teams
-		SET connected = FALSE, disconnected_at = NOW()
-		WHERE workspace_id = $1 AND external_team_id = $2 AND connected = TRUE
-	`, workspaceID, externalTeamID)
+func (r *WorkspaceRepo) DisconnectExternalWorkspace(ctx context.Context, workspaceID, externalWorkspaceID string) error {
+	rowsAffected, err := r.q.DisconnectWorkspaceExternalWorkspace(ctx, sqlcgen.DisconnectWorkspaceExternalWorkspaceParams{
+		WorkspaceID:         workspaceID,
+		ExternalWorkspaceID: externalWorkspaceID,
+	})
 	if err != nil {
-		return fmt.Errorf("disconnect external team: %w", err)
+		return fmt.Errorf("disconnect external workspace: %w", err)
 	}
-	if tag.RowsAffected() == 0 {
+	if rowsAffected == 0 {
 		return domain.ErrNotFound
 	}
 	return nil
-}
-
-func (r *WorkspaceRepo) listUsersByRole(ctx context.Context, workspaceID, where string) ([]domain.User, error) {
-	rows, err := r.db.Query(ctx, `
-		SELECT id, team_id, name, real_name, display_name, email,
-			principal_type, owner_id, is_bot, account_type,
-			deleted, profile, created_at, updated_at
-		FROM users
-		WHERE team_id = $1 AND deleted = FALSE AND `+where+`
-		ORDER BY name ASC, id ASC
-	`, workspaceID)
-	if err != nil {
-		return nil, fmt.Errorf("list users by role: %w", err)
-	}
-	defer rows.Close()
-
-	users := make([]domain.User, 0)
-	for rows.Next() {
-		user, err := scanUser(rows)
-		if err != nil {
-			return nil, fmt.Errorf("scan user: %w", err)
-		}
-		users = append(users, *user)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate users by role: %w", err)
-	}
-	return users, nil
 }
 
 func scanWorkspace(row rowScanner) (*domain.Workspace, error) {
@@ -469,7 +378,7 @@ func scanUser(row rowScanner) (*domain.User, error) {
 	var fields userFields
 	if err := row.Scan(
 		&fields.ID,
-		&fields.TeamID,
+		&fields.WorkspaceID,
 		&fields.Name,
 		&fields.RealName,
 		&fields.DisplayName,
@@ -486,6 +395,62 @@ func scanUser(row rowScanner) (*domain.User, error) {
 		return nil, err
 	}
 	return userFieldsToDomain(fields)
+}
+
+func workspaceFromSQLC(row sqlcgen.Workspace) (*domain.Workspace, error) {
+	ws := &domain.Workspace{
+		ID:              row.ID,
+		Name:            row.Name,
+		Domain:          row.Domain,
+		EmailDomain:     row.EmailDomain,
+		Description:     row.Description,
+		Discoverability: domain.WorkspaceDiscoverability(row.Discoverability),
+		DefaultChannels: row.DefaultChannels,
+		Billing: domain.WorkspaceBilling{
+			Plan:         row.BillingPlan,
+			Status:       row.BillingStatus,
+			BillingEmail: row.BillingEmail,
+		},
+		CreatedAt: row.CreatedAt,
+		UpdatedAt: row.UpdatedAt,
+	}
+	ws.Icon.ImageOriginal = row.IconImageOriginal
+	ws.Icon.Image34 = row.IconImage34
+	ws.Icon.Image44 = row.IconImage44
+	if len(row.Preferences) == 0 {
+		ws.Preferences = json.RawMessage("{}")
+	} else {
+		ws.Preferences = json.RawMessage(row.Preferences)
+	}
+	if len(row.ProfileFields) > 0 {
+		if err := json.Unmarshal(row.ProfileFields, &ws.ProfileFields); err != nil {
+			return nil, fmt.Errorf("unmarshal profile fields: %w", err)
+		}
+	}
+	if ws.DefaultChannels == nil {
+		ws.DefaultChannels = []string{}
+	}
+	if ws.ProfileFields == nil {
+		ws.ProfileFields = []domain.WorkspaceProfileField{}
+	}
+	return ws, nil
+}
+
+func workspaceUsersFromRows(rows []sqlcgen.ListWorkspaceAdminsRow) ([]domain.User, error) {
+	users := make([]domain.User, 0, len(rows))
+	for _, row := range rows {
+		user, err := userFieldsToDomain(userFields{
+			ID: row.ID, WorkspaceID: row.WorkspaceID, Name: row.Name, RealName: row.RealName,
+			DisplayName: row.DisplayName, Email: row.Email, PrincipalType: row.PrincipalType,
+			OwnerID: row.OwnerID, AccountType: row.AccountType, IsBot: row.IsBot, Deleted: row.Deleted, Profile: row.Profile,
+			CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt,
+		})
+		if err != nil {
+			return nil, err
+		}
+		users = append(users, *user)
+	}
+	return users, nil
 }
 
 func clampWorkspaceLogLimit(limit int) int {

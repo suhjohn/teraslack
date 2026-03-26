@@ -43,7 +43,7 @@ type oauthProviderConfig struct {
 
 type oauthState struct {
 	Provider    domain.AuthProvider `json:"provider"`
-	TeamID      string              `json:"team_id"`
+	WorkspaceID string              `json:"workspace_id"`
 	InviteToken string              `json:"invite_token"`
 	RedirectTo  string              `json:"redirect_to"`
 	Nonce       string              `json:"nonce"`
@@ -112,11 +112,11 @@ func (s *AuthService) StartOAuth(ctx context.Context, params domain.StartOAuthPa
 	if err := validateAuthProvider(params.Provider); err != nil {
 		return nil, err
 	}
-	teamID, err := resolveOptionalTeamID(ctx, params.TeamID)
+	workspaceID, err := resolveOptionalWorkspaceID(ctx, params.WorkspaceID)
 	if err != nil {
 		return nil, err
 	}
-	params.TeamID = teamID
+	params.WorkspaceID = workspaceID
 	if len(s.stateSecret) == 0 {
 		return nil, fmt.Errorf("auth state secret: %w", domain.ErrInvalidArgument)
 	}
@@ -136,7 +136,7 @@ func (s *AuthService) StartOAuth(ctx context.Context, params domain.StartOAuthPa
 	}
 	state, err := s.encodeState(oauthState{
 		Provider:    params.Provider,
-		TeamID:      params.TeamID,
+		WorkspaceID: params.WorkspaceID,
 		InviteToken: strings.TrimSpace(params.InviteToken),
 		RedirectTo:  redirectTo,
 		Nonce:       nonce,
@@ -178,7 +178,7 @@ func (s *AuthService) CompleteOAuth(ctx context.Context, params domain.CompleteO
 
 	profile, err := s.exchangeCode(ctx, params.Provider, params.Code)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("exchange oauth code: %w", err)
 	}
 
 	tx, err := s.db.Begin(ctx)
@@ -198,19 +198,19 @@ func (s *AuthService) CompleteOAuth(ctx context.Context, params domain.CompleteO
 		inviteRepo = inviteRepo.WithTx(tx)
 	}
 
-	teamID, user, err := s.resolveOAuthLogin(ctx, tx, userRepo, authRepo, workspaceRepo, inviteRepo, state, params.Provider, profile)
+	workspaceID, user, err := s.resolveOAuthLogin(ctx, tx, userRepo, authRepo, workspaceRepo, inviteRepo, state, params.Provider, profile)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("resolve oauth login: %w", err)
 	}
 
 	session, err := authRepo.CreateSession(ctx, domain.CreateAuthSessionParams{
-		TeamID:    teamID,
-		UserID:    user.ID,
-		Provider:  params.Provider,
-		ExpiresAt: time.Now().UTC().Add(authSessionTTL),
+		WorkspaceID: workspaceID,
+		UserID:      user.ID,
+		Provider:    params.Provider,
+		ExpiresAt:   time.Now().UTC().Add(authSessionTTL),
 	})
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("create oauth session: %w", err)
 	}
 
 	if err := tx.Commit(ctx); err != nil {
@@ -243,7 +243,7 @@ func (s *AuthService) ValidateSession(ctx context.Context, bearerToken string) (
 	}
 
 	return &domain.AuthContext{
-		TeamID:        session.TeamID,
+		WorkspaceID:   session.WorkspaceID,
 		UserID:        session.UserID,
 		PrincipalType: user.PrincipalType,
 		AccountType:   user.EffectiveAccountType(),
@@ -271,7 +271,7 @@ func (s *AuthService) RevokeSession(ctx context.Context, bearerToken string) err
 	if err := s.repo.WithTx(tx).RevokeSessionByHash(ctx, sessionHash); err != nil {
 		return err
 	}
-	if err := recordAuthorizationAudit(ctx, s.auditRepo, tx, session.TeamID, domain.AuditActionSessionRevoked, "auth_session", session.ID, map[string]any{
+	if err := recordAuthorizationAudit(ctx, s.auditRepo, tx, session.WorkspaceID, domain.AuditActionSessionRevoked, "auth_session", session.ID, map[string]any{
 		"user_id": session.UserID,
 	}); err != nil {
 		return fmt.Errorf("record authorization audit log: %w", err)
@@ -282,16 +282,77 @@ func (s *AuthService) RevokeSession(ctx context.Context, bearerToken string) err
 	return nil
 }
 
+func (s *AuthService) SwitchWorkspace(ctx context.Context, bearerToken, targetWorkspaceID string) (*domain.AuthSession, error) {
+	token := strings.TrimSpace(strings.TrimPrefix(bearerToken, "Bearer "))
+	targetWorkspaceID = strings.TrimSpace(targetWorkspaceID)
+	if token == "" {
+		return nil, fmt.Errorf("token: %w", domain.ErrInvalidArgument)
+	}
+	if targetWorkspaceID == "" {
+		return nil, fmt.Errorf("workspace_id: %w", domain.ErrInvalidArgument)
+	}
+
+	currentSession, err := s.repo.GetSessionByHash(ctx, crypto.HashToken(token))
+	if err != nil {
+		return nil, err
+	}
+	if currentSession.RevokedAt != nil || currentSession.ExpiresAt.Before(time.Now().UTC()) {
+		return nil, domain.ErrSessionRevoked
+	}
+
+	currentUser, err := s.userRepo.Get(ctx, currentSession.UserID)
+	if err != nil {
+		return nil, err
+	}
+	if currentUser.PrincipalType != domain.PrincipalTypeHuman || currentUser.Deleted || currentUser.Email == "" {
+		return nil, domain.ErrForbidden
+	}
+
+	targetUser, err := s.userRepo.GetByTeamEmail(ctx, targetWorkspaceID, currentUser.Email)
+	if err != nil {
+		return nil, err
+	}
+	if targetUser.PrincipalType != domain.PrincipalTypeHuman || targetUser.Deleted {
+		return nil, domain.ErrForbidden
+	}
+
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	txRepo := s.repo.WithTx(tx)
+	if err := txRepo.RevokeSessionByHash(ctx, crypto.HashToken(token)); err != nil {
+		return nil, err
+	}
+
+	session, err := txRepo.CreateSession(ctx, domain.CreateAuthSessionParams{
+		WorkspaceID: targetWorkspaceID,
+		UserID:      targetUser.ID,
+		Provider:    currentSession.Provider,
+		ExpiresAt:   time.Now().UTC().Add(authSessionTTL),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("create switched session: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("commit tx: %w", err)
+	}
+	return session, nil
+}
+
 func (s *AuthService) resolveOAuthUser(
 	ctx context.Context,
 	tx pgx.Tx,
 	userRepo repository.UserRepository,
 	authRepo repository.AuthRepository,
-	teamID string,
+	workspaceID string,
 	provider domain.AuthProvider,
 	profile oauthProfile,
 ) (*domain.User, error) {
-	account, err := authRepo.GetOAuthAccount(ctx, teamID, provider, profile.Subject)
+	account, err := authRepo.GetOAuthAccount(ctx, workspaceID, provider, profile.Subject)
 	if err != nil && err != domain.ErrNotFound {
 		return nil, err
 	}
@@ -303,9 +364,9 @@ func (s *AuthService) resolveOAuthUser(
 			return nil, err
 		}
 	} else {
-		user, err = userRepo.GetByTeamEmail(ctx, teamID, profile.Email)
+		user, err = userRepo.GetByTeamEmail(ctx, workspaceID, profile.Email)
 		if err == domain.ErrNotFound {
-			user, err = s.createOAuthUser(ctx, tx, userRepo, teamID, profile, domain.AccountTypeMember)
+			user, err = s.createOAuthUser(ctx, tx, userRepo, workspaceID, profile, domain.AccountTypeMember)
 		}
 		if err != nil {
 			return nil, err
@@ -317,7 +378,7 @@ func (s *AuthService) resolveOAuthUser(
 	}
 
 	_, err = authRepo.UpsertOAuthAccount(ctx, domain.UpsertOAuthAccountParams{
-		TeamID:          teamID,
+		WorkspaceID:     workspaceID,
 		UserID:          user.ID,
 		Provider:        provider,
 		ProviderSubject: profile.Subject,
@@ -344,9 +405,9 @@ func (s *AuthService) resolveOAuthLogin(
 	if inviteToken := strings.TrimSpace(state.InviteToken); inviteToken != "" {
 		return s.resolveInviteOAuthLogin(ctx, tx, userRepo, authRepo, inviteRepo, inviteToken, provider, profile)
 	}
-	if state.TeamID != "" {
-		user, err := s.resolveOAuthUser(ctx, tx, userRepo, authRepo, state.TeamID, provider, profile)
-		return state.TeamID, user, err
+	if state.WorkspaceID != "" {
+		user, err := s.resolveOAuthUser(ctx, tx, userRepo, authRepo, state.WorkspaceID, provider, profile)
+		return state.WorkspaceID, user, err
 	}
 
 	accounts, err := authRepo.ListOAuthAccountsBySubject(ctx, provider, profile.Subject)
@@ -354,9 +415,9 @@ func (s *AuthService) resolveOAuthLogin(
 		return "", nil, err
 	}
 	if len(accounts) > 0 {
-		teamID := accounts[0].TeamID
-		user, err := s.resolveOAuthUser(ctx, tx, userRepo, authRepo, teamID, provider, profile)
-		return teamID, user, err
+		workspaceID := accounts[0].WorkspaceID
+		user, err := s.resolveOAuthUser(ctx, tx, userRepo, authRepo, workspaceID, provider, profile)
+		return workspaceID, user, err
 	}
 
 	users, err := userRepo.ListByEmail(ctx, profile.Email)
@@ -364,11 +425,11 @@ func (s *AuthService) resolveOAuthLogin(
 		return "", nil, err
 	}
 	for _, candidate := range users {
-		if candidate.TeamID == "" {
+		if candidate.WorkspaceID == "" {
 			continue
 		}
-		user, err := s.resolveOAuthUser(ctx, tx, userRepo, authRepo, candidate.TeamID, provider, profile)
-		return candidate.TeamID, user, err
+		user, err := s.resolveOAuthUser(ctx, tx, userRepo, authRepo, candidate.WorkspaceID, provider, profile)
+		return candidate.WorkspaceID, user, err
 	}
 
 	if workspaceRepo == nil {
@@ -379,7 +440,7 @@ func (s *AuthService) resolveOAuthLogin(
 		return "", nil, err
 	}
 	if _, err := authRepo.UpsertOAuthAccount(ctx, domain.UpsertOAuthAccountParams{
-		TeamID:          workspace.ID,
+		WorkspaceID:     workspace.ID,
 		UserID:          user.ID,
 		Provider:        provider,
 		ProviderSubject: profile.Subject,
@@ -414,17 +475,17 @@ func (s *AuthService) resolveInviteOAuthLogin(
 		return "", nil, domain.ErrForbidden
 	}
 
-	user, err := s.resolveOAuthUser(ctx, tx, userRepo, authRepo, invite.TeamID, provider, profile)
+	user, err := s.resolveOAuthUser(ctx, tx, userRepo, authRepo, invite.WorkspaceID, provider, profile)
 	if err != nil {
 		return "", nil, err
 	}
 	if err := inviteRepo.MarkAccepted(ctx, invite.ID, user.ID, time.Now().UTC()); err != nil {
 		return "", nil, err
 	}
-	return invite.TeamID, user, nil
+	return invite.WorkspaceID, user, nil
 }
 
-func (s *AuthService) createOAuthUser(ctx context.Context, tx pgx.Tx, userRepo repository.UserRepository, teamID string, profile oauthProfile, accountType domain.AccountType) (*domain.User, error) {
+func (s *AuthService) createOAuthUser(ctx context.Context, tx pgx.Tx, userRepo repository.UserRepository, workspaceID string, profile oauthProfile, accountType domain.AccountType) (*domain.User, error) {
 	name := strings.TrimSpace(profile.Login)
 	if name == "" {
 		name = emailLocalPart(profile.Email)
@@ -435,7 +496,7 @@ func (s *AuthService) createOAuthUser(ctx context.Context, tx pgx.Tx, userRepo r
 	}
 
 	user, err := userRepo.Create(ctx, domain.CreateUserParams{
-		TeamID:        teamID,
+		WorkspaceID:   workspaceID,
 		Name:          name,
 		RealName:      realName,
 		DisplayName:   realName,
@@ -454,7 +515,7 @@ func (s *AuthService) createOAuthUser(ctx context.Context, tx pgx.Tx, userRepo r
 		EventType:     domain.EventUserCreated,
 		AggregateType: domain.AggregateUser,
 		AggregateID:   user.ID,
-		TeamID:        user.TeamID,
+		WorkspaceID:   user.WorkspaceID,
 		ActorID:       ctxutil.GetActingUserID(ctx),
 		Payload:       payload,
 	}); err != nil {
@@ -483,14 +544,14 @@ func (s *AuthService) createPersonalWorkspaceAndUser(
 
 	payload, _ := json.Marshal(workspace)
 	if err := s.recorder.WithTx(tx).Record(ctx, domain.InternalEvent{
-		EventType:     domain.EventTeamCreated,
-		AggregateType: domain.AggregateTeam,
+		EventType:     domain.EventWorkspaceCreated,
+		AggregateType: domain.AggregateWorkspace,
 		AggregateID:   workspace.ID,
-		TeamID:        workspace.ID,
+		WorkspaceID:   workspace.ID,
 		ActorID:       "",
 		Payload:       payload,
 	}); err != nil {
-		return nil, nil, fmt.Errorf("record team.created event: %w", err)
+		return nil, nil, fmt.Errorf("record workspace.created event: %w", err)
 	}
 
 	user, err := s.createOAuthUser(ctx, tx, userRepo, workspace.ID, profile, domain.AccountTypePrimaryAdmin)
@@ -652,16 +713,56 @@ func (s *AuthService) exchangeGoogleCode(ctx context.Context, code string) (oaut
 func (s *AuthService) doJSON(req *http.Request, target any) error {
 	resp, err := s.httpClient.Do(req)
 	if err != nil {
-		return err
+		return fmt.Errorf("perform oauth request: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		return fmt.Errorf("oauth request failed: %s", strings.TrimSpace(string(body)))
+		trimmedBody := strings.TrimSpace(string(body))
+
+		var oauthErr struct {
+			Error            string `json:"error"`
+			ErrorDescription string `json:"error_description"`
+		}
+		_ = json.Unmarshal(body, &oauthErr)
+
+		if s.logger != nil {
+			attrs := []any{
+				"method", req.Method,
+				"url", req.URL.String(),
+				"status", resp.StatusCode,
+			}
+			if oauthErr.Error != "" {
+				attrs = append(attrs, "oauth_error", oauthErr.Error)
+			}
+			if oauthErr.ErrorDescription != "" {
+				attrs = append(attrs, "oauth_error_description", oauthErr.ErrorDescription)
+			} else if trimmedBody != "" {
+				attrs = append(attrs, "body", trimmedBody)
+			}
+			s.logger.Warn("oauth request failed", attrs...)
+		}
+
+		switch oauthErr.Error {
+		case "invalid_grant", "invalid_client", "unauthorized_client", "access_denied", "invalid_request":
+			detail := oauthErr.Error
+			if oauthErr.ErrorDescription != "" {
+				detail += ": " + oauthErr.ErrorDescription
+			}
+			return fmt.Errorf("oauth request failed (%s): %w", detail, domain.ErrInvalidAuth)
+		}
+
+		if trimmedBody == "" {
+			trimmedBody = resp.Status
+		}
+		return fmt.Errorf("oauth request failed: %s", trimmedBody)
 	}
 
-	return json.NewDecoder(resp.Body).Decode(target)
+	if err := json.NewDecoder(resp.Body).Decode(target); err != nil {
+		return fmt.Errorf("decode oauth response: %w", err)
+	}
+	return nil
 }
 
 func (s *AuthService) providerConfig(provider domain.AuthProvider) (oauthProviderConfig, error) {
@@ -793,13 +894,13 @@ func validateAuthProvider(provider domain.AuthProvider) error {
 	}
 }
 
-func resolveOptionalTeamID(ctx context.Context, requested string) (string, error) {
+func resolveOptionalWorkspaceID(ctx context.Context, requested string) (string, error) {
 	requested = strings.TrimSpace(requested)
-	if ctxTeam := ctxutil.GetTeamID(ctx); ctxTeam != "" {
-		if requested != "" && requested != ctxTeam {
+	if ctxWorkspace := ctxutil.GetWorkspaceID(ctx); ctxWorkspace != "" {
+		if requested != "" && requested != ctxWorkspace {
 			return "", domain.ErrForbidden
 		}
-		return ctxTeam, nil
+		return ctxWorkspace, nil
 	}
 	return requested, nil
 }

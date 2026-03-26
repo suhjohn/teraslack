@@ -10,6 +10,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/suhjohn/teraslack/internal/domain"
+	"github.com/suhjohn/teraslack/internal/repository/sqlcgen"
 	"github.com/suhjohn/teraslack/internal/service"
 )
 
@@ -18,6 +19,7 @@ import (
 // them to S3 on a timer or when the buffer reaches a threshold.
 type IndexProducer struct {
 	pool   *pgxpool.Pool
+	q      *sqlcgen.Queries
 	queue  *S3Queue
 	logger *slog.Logger
 
@@ -55,6 +57,7 @@ func NewIndexProducer(pool *pgxpool.Pool, queue *S3Queue, logger *slog.Logger, c
 
 	return &IndexProducer{
 		pool:          pool,
+		q:             sqlcgen.New(pool),
 		queue:         queue,
 		logger:        logger,
 		flushInterval: cfg.FlushInterval,
@@ -124,24 +127,25 @@ func (p *IndexProducer) Done() <-chan struct{} {
 
 // poll reads new events from internal_events since the given cursor and buffers them.
 func (p *IndexProducer) poll(ctx context.Context, cursor int64) (int64, error) {
-	rows, err := p.pool.Query(ctx,
-		`SELECT id, event_type, aggregate_type, aggregate_id, team_id, payload
-		 FROM internal_events
-		 WHERE id > $1
-		 ORDER BY id ASC
-		 LIMIT 500`, cursor)
+	rows, err := p.q.GetInternalEventsSince(ctx, sqlcgen.GetInternalEventsSinceParams{
+		ID:    cursor,
+		Limit: 500,
+	})
 	if err != nil {
 		return cursor, fmt.Errorf("query internal_events: %w", err)
 	}
-	defer rows.Close()
 
 	newCursor := cursor
 	var jobs []Job
 
-	for rows.Next() {
-		var evt domain.InternalEvent
-		if err := rows.Scan(&evt.ID, &evt.EventType, &evt.AggregateType, &evt.AggregateID, &evt.TeamID, &evt.Payload); err != nil {
-			return cursor, fmt.Errorf("scan event: %w", err)
+	for _, row := range rows {
+		evt := domain.InternalEvent{
+			ID:            row.ID,
+			EventType:     row.EventType,
+			AggregateType: row.AggregateType,
+			AggregateID:   row.AggregateID,
+			WorkspaceID:   row.WorkspaceID,
+			Payload:       row.Payload,
 		}
 
 		job := p.eventToJob(evt)
@@ -149,9 +153,6 @@ func (p *IndexProducer) poll(ctx context.Context, cursor int64) (int64, error) {
 			jobs = append(jobs, *job)
 		}
 		newCursor = evt.ID
-	}
-	if err := rows.Err(); err != nil {
-		return cursor, fmt.Errorf("iterate events: %w", err)
 	}
 
 	if len(jobs) > 0 {
@@ -189,7 +190,7 @@ func (p *IndexProducer) eventToJob(evt domain.InternalEvent) *Job {
 			EventID:      evt.ID,
 			ResourceType: "user",
 			ResourceID:   u.ID,
-			TeamID:       evt.TeamID,
+			WorkspaceID:       evt.WorkspaceID,
 			EventType:    evt.EventType,
 			Content:      content,
 			Data:         evt.Payload,
@@ -216,7 +217,7 @@ func (p *IndexProducer) eventToJob(evt domain.InternalEvent) *Job {
 			EventID:      evt.ID,
 			ResourceType: "conversation",
 			ResourceID:   c.ID,
-			TeamID:       evt.TeamID,
+			WorkspaceID:       evt.WorkspaceID,
 			EventType:    evt.EventType,
 			Content:      content,
 			Data:         evt.Payload,
@@ -238,7 +239,7 @@ func (p *IndexProducer) eventToJob(evt domain.InternalEvent) *Job {
 			EventID:      evt.ID,
 			ResourceType: "message",
 			ResourceID:   service.MessageSearchID(m.ChannelID, m.TS),
-			TeamID:       evt.TeamID,
+			WorkspaceID:       evt.WorkspaceID,
 			EventType:    evt.EventType,
 			Content:      m.Text,
 			Data:         evt.Payload,
@@ -254,7 +255,7 @@ func (p *IndexProducer) eventToJob(evt domain.InternalEvent) *Job {
 				EventID:      evt.ID,
 				ResourceType: "message",
 				ResourceID:   service.MessageSearchID(m.ChannelID, m.TS),
-				TeamID:       evt.TeamID,
+				WorkspaceID:       evt.WorkspaceID,
 				EventType:    evt.EventType,
 				Content:      "",
 				Data:         evt.Payload,
@@ -276,7 +277,7 @@ func (p *IndexProducer) eventToJob(evt domain.InternalEvent) *Job {
 			EventID:      evt.ID,
 			ResourceType: "message",
 			ResourceID:   service.MessageSearchID(data.ChannelID, data.TS),
-			TeamID:       evt.TeamID,
+			WorkspaceID:       evt.WorkspaceID,
 			EventType:    evt.EventType,
 			Content:      "",
 			Data:         evt.Payload,
@@ -299,7 +300,7 @@ func (p *IndexProducer) eventToJob(evt domain.InternalEvent) *Job {
 			EventID:      evt.ID,
 			ResourceType: "file",
 			ResourceID:   f.ID,
-			TeamID:       evt.TeamID,
+			WorkspaceID:       evt.WorkspaceID,
 			EventType:    evt.EventType,
 			Content:      content,
 			Data:         evt.Payload,
@@ -314,7 +315,7 @@ func (p *IndexProducer) eventToJob(evt domain.InternalEvent) *Job {
 			EventID:      evt.ID,
 			ResourceType: evt.AggregateType,
 			ResourceID:   evt.AggregateID,
-			TeamID:       evt.TeamID,
+			WorkspaceID:       evt.WorkspaceID,
 			EventType:    evt.EventType,
 			Content:      "", // No content needed for deletes
 			Data:         evt.Payload,

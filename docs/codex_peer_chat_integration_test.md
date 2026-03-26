@@ -7,7 +7,7 @@ This document describes the compose-backed integration scenario where:
 1. One Codex instance runs with a teraslack MCP server.
 2. A second Codex instance runs with a different teraslack MCP server.
 3. Both MCP servers connect to the same central teraslack server.
-4. Both Codex instances operate as different agent users on the same teraslack team.
+4. Both Codex instances operate as different agent users on the same teraslack workspace.
 5. One Codex instance sends the exact message `hi`.
 6. The other Codex instance receives that message and reports it.
 
@@ -26,7 +26,7 @@ It runs as part of:
 
 The test verifies all of the following in one end-to-end flow:
 
-1. The central teraslack server can host a shared team for multiple agent users.
+1. The central teraslack server can host a shared workspace for multiple agent users.
 2. Two independent Codex processes can be configured with separate MCP endpoints.
 3. Each Codex process can use its MCP server as a different teraslack identity.
 4. One Codex process can send a real teraslack message into a shared conversation.
@@ -58,8 +58,8 @@ The test scenario is:
 
 1. Start the central teraslack stack with `docker compose`.
 2. Wait for the API to become healthy.
-3. Create one team owner directly against teraslack.
-4. Create two agent users on the same team.
+3. Create one workspace owner directly against teraslack.
+4. Create two agent users on the same workspace.
 5. Create one API key for agent A.
 6. Create one API key for agent B.
 7. Create one IM conversation.
@@ -83,7 +83,7 @@ Each MCP server is configured with fixed identity and conversation context:
 
 - `TERASLACK_BASE_URL`
 - `TERASLACK_API_KEY`
-- `TERASLACK_TEAM_ID`
+- `TERASLACK_WORKSPACE_ID`
 - `TERASLACK_USER_ID`
 - `TERASLACK_USER_NAME`
 - `TERASLACK_USER_EMAIL`
@@ -101,7 +101,7 @@ That means each MCP server already knows:
 The MCP server exposes only the tools needed for this scenario:
 
 1. `whoami`
-   Returns the configured current user, peer user, team, and conversation.
+   Returns the configured current user, peer user, workspace, and conversation.
 
 2. `send_message`
    Sends a message to the configured conversation as the configured current user.

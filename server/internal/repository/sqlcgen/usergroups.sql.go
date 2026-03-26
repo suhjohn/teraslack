@@ -26,15 +26,15 @@ func (q *Queries) AddUsergroupMember(ctx context.Context, arg AddUsergroupMember
 }
 
 const createUsergroup = `-- name: CreateUsergroup :one
-INSERT INTO usergroups (id, team_id, name, handle, description, created_by, updated_by)
+INSERT INTO usergroups (id, workspace_id, name, handle, description, created_by, updated_by)
 VALUES ($1, $2, $3, $4, $5, $6, $6)
-RETURNING id, team_id, name, handle, description, is_external, enabled,
+RETURNING id, workspace_id, name, handle, description, is_external, enabled,
           user_count, created_by, updated_by, created_at, updated_at
 `
 
 type CreateUsergroupParams struct {
 	ID          string `json:"id"`
-	TeamID      string `json:"team_id"`
+	WorkspaceID string `json:"workspace_id"`
 	Name        string `json:"name"`
 	Handle      string `json:"handle"`
 	Description string `json:"description"`
@@ -44,7 +44,7 @@ type CreateUsergroupParams struct {
 func (q *Queries) CreateUsergroup(ctx context.Context, arg CreateUsergroupParams) (Usergroup, error) {
 	row := q.db.QueryRow(ctx, createUsergroup,
 		arg.ID,
-		arg.TeamID,
+		arg.WorkspaceID,
 		arg.Name,
 		arg.Handle,
 		arg.Description,
@@ -53,7 +53,7 @@ func (q *Queries) CreateUsergroup(ctx context.Context, arg CreateUsergroupParams
 	var i Usergroup
 	err := row.Scan(
 		&i.ID,
-		&i.TeamID,
+		&i.WorkspaceID,
 		&i.Name,
 		&i.Handle,
 		&i.Description,
@@ -96,7 +96,7 @@ func (q *Queries) EnableUsergroup(ctx context.Context, id string) error {
 }
 
 const getUsergroup = `-- name: GetUsergroup :one
-SELECT id, team_id, name, handle, description, is_external, enabled,
+SELECT id, workspace_id, name, handle, description, is_external, enabled,
        user_count, created_by, updated_by, created_at, updated_at
 FROM usergroups WHERE id = $1
 `
@@ -106,7 +106,7 @@ func (q *Queries) GetUsergroup(ctx context.Context, id string) (Usergroup, error
 	var i Usergroup
 	err := row.Scan(
 		&i.ID,
-		&i.TeamID,
+		&i.WorkspaceID,
 		&i.Name,
 		&i.Handle,
 		&i.Description,
@@ -160,14 +160,14 @@ func (q *Queries) ListUsergroupMembers(ctx context.Context, usergroupID string) 
 }
 
 const listUsergroups = `-- name: ListUsergroups :many
-SELECT id, team_id, name, handle, description, is_external, enabled,
+SELECT id, workspace_id, name, handle, description, is_external, enabled,
        user_count, created_by, updated_by, created_at, updated_at
-FROM usergroups WHERE team_id = $1 AND enabled = TRUE
+FROM usergroups WHERE workspace_id = $1 AND enabled = TRUE
 ORDER BY name ASC
 `
 
-func (q *Queries) ListUsergroups(ctx context.Context, teamID string) ([]Usergroup, error) {
-	rows, err := q.db.Query(ctx, listUsergroups, teamID)
+func (q *Queries) ListUsergroups(ctx context.Context, workspaceID string) ([]Usergroup, error) {
+	rows, err := q.db.Query(ctx, listUsergroups, workspaceID)
 	if err != nil {
 		return nil, err
 	}
@@ -177,7 +177,7 @@ func (q *Queries) ListUsergroups(ctx context.Context, teamID string) ([]Usergrou
 		var i Usergroup
 		if err := rows.Scan(
 			&i.ID,
-			&i.TeamID,
+			&i.WorkspaceID,
 			&i.Name,
 			&i.Handle,
 			&i.Description,
@@ -200,14 +200,14 @@ func (q *Queries) ListUsergroups(ctx context.Context, teamID string) ([]Usergrou
 }
 
 const listUsergroupsIncludeDisabled = `-- name: ListUsergroupsIncludeDisabled :many
-SELECT id, team_id, name, handle, description, is_external, enabled,
+SELECT id, workspace_id, name, handle, description, is_external, enabled,
        user_count, created_by, updated_by, created_at, updated_at
-FROM usergroups WHERE team_id = $1
+FROM usergroups WHERE workspace_id = $1
 ORDER BY name ASC
 `
 
-func (q *Queries) ListUsergroupsIncludeDisabled(ctx context.Context, teamID string) ([]Usergroup, error) {
-	rows, err := q.db.Query(ctx, listUsergroupsIncludeDisabled, teamID)
+func (q *Queries) ListUsergroupsIncludeDisabled(ctx context.Context, workspaceID string) ([]Usergroup, error) {
+	rows, err := q.db.Query(ctx, listUsergroupsIncludeDisabled, workspaceID)
 	if err != nil {
 		return nil, err
 	}
@@ -217,7 +217,7 @@ func (q *Queries) ListUsergroupsIncludeDisabled(ctx context.Context, teamID stri
 		var i Usergroup
 		if err := rows.Scan(
 			&i.ID,
-			&i.TeamID,
+			&i.WorkspaceID,
 			&i.Name,
 			&i.Handle,
 			&i.Description,
@@ -256,7 +256,7 @@ func (q *Queries) SetUsergroupUserCount(ctx context.Context, arg SetUsergroupUse
 const updateUsergroup = `-- name: UpdateUsergroup :one
 UPDATE usergroups SET name = $2, handle = $3, description = $4, updated_by = $5
 WHERE id = $1
-RETURNING id, team_id, name, handle, description, is_external, enabled,
+RETURNING id, workspace_id, name, handle, description, is_external, enabled,
           user_count, created_by, updated_by, created_at, updated_at
 `
 
@@ -279,7 +279,7 @@ func (q *Queries) UpdateUsergroup(ctx context.Context, arg UpdateUsergroupParams
 	var i Usergroup
 	err := row.Scan(
 		&i.ID,
-		&i.TeamID,
+		&i.WorkspaceID,
 		&i.Name,
 		&i.Handle,
 		&i.Description,

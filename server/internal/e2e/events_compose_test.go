@@ -23,7 +23,7 @@ import (
 
 func TestComposeE2E_ExternalEventsPaginationAndFiltering(t *testing.T) {
 	ctx, pool, httpClient, baseURL, owner, _ := setupComposeE2EHTTP(t)
-	ownerToken := createSessionToken(t, ctx, pool, owner.TeamID, owner.ID)
+	ownerToken := createSessionToken(t, ctx, pool, owner.WorkspaceID, owner.ID)
 
 	agentA := createUserViaHTTP(t, httpClient, baseURL, ownerToken, domain.CreateUserParams{
 		Name:          uniqueName("events-a"),
@@ -42,8 +42,8 @@ func TestComposeE2E_ExternalEventsPaginationAndFiltering(t *testing.T) {
 
 	_, agentAKey := createAPIKeyViaHTTP(t, httpClient, baseURL, ownerToken, domain.CreateAPIKeyParams{
 		Name:        "Events A Key",
-		TeamID:      owner.TeamID,
-		PrincipalID: agentA.ID,
+		WorkspaceID: owner.WorkspaceID,
+		UserID:      agentA.ID,
 		CreatedBy:   owner.ID,
 		Permissions: []string{
 			domain.PermissionMessagesRead,
@@ -176,8 +176,8 @@ func TestComposeE2E_ExternalEventsPaginationAndFiltering(t *testing.T) {
 		t.Fatalf("unexpected other conversation payload: %+v", otherPayload)
 	}
 
-	// Verify the endpoint still returns events after the projector has processed the team.
-	rows, err := countExternalEventsViaHTTP(t, httpClient, baseURL, agentAKey, owner.TeamID)
+	// Verify the endpoint still returns events after the projector has processed the workspace.
+	rows, err := countExternalEventsViaHTTP(t, httpClient, baseURL, agentAKey, owner.WorkspaceID)
 	if err != nil {
 		t.Fatalf("count external events: %v", err)
 	}
@@ -188,7 +188,7 @@ func TestComposeE2E_ExternalEventsPaginationAndFiltering(t *testing.T) {
 
 func TestComposeE2E_WebhookExternalEventDelivery(t *testing.T) {
 	ctx, pool, httpClient, baseURL, owner, _ := setupComposeE2EHTTP(t)
-	ownerToken := createSessionToken(t, ctx, pool, owner.TeamID, owner.ID)
+	ownerToken := createSessionToken(t, ctx, pool, owner.WorkspaceID, owner.ID)
 
 	agentA := createUserViaHTTP(t, httpClient, baseURL, ownerToken, domain.CreateUserParams{
 		Name:          uniqueName("webhook-a"),
@@ -200,8 +200,8 @@ func TestComposeE2E_WebhookExternalEventDelivery(t *testing.T) {
 
 	_, agentAKey := createAPIKeyViaHTTP(t, httpClient, baseURL, ownerToken, domain.CreateAPIKeyParams{
 		Name:        "Webhook A Key",
-		TeamID:      owner.TeamID,
-		PrincipalID: agentA.ID,
+		WorkspaceID: owner.WorkspaceID,
+		UserID:      agentA.ID,
 		CreatedBy:   owner.ID,
 		Permissions: []string{
 			domain.PermissionMessagesRead,
@@ -231,7 +231,7 @@ func TestComposeE2E_WebhookExternalEventDelivery(t *testing.T) {
 	secret := uniqueName("webhook-secret")
 
 	sub := createEventSubscriptionViaHTTP(t, httpClient, baseURL, agentAKey, map[string]any{
-		"team_id":       owner.TeamID,
+		"workspace_id":  owner.WorkspaceID,
 		"url":           receiverURL,
 		"type":          domain.EventTypeConversationMessageCreated,
 		"resource_type": domain.ResourceTypeConversation,
@@ -270,8 +270,8 @@ func TestComposeE2E_WebhookExternalEventDelivery(t *testing.T) {
 	if err := json.Unmarshal(delivery.Body, &event); err != nil {
 		t.Fatalf("decode webhook body: %v\nbody=%s", err, delivery.Body)
 	}
-	if event.TeamID != owner.TeamID {
-		t.Fatalf("event team_id = %q, want %q", event.TeamID, owner.TeamID)
+	if event.WorkspaceID != owner.WorkspaceID {
+		t.Fatalf("event workspace_id = %q, want %q", event.WorkspaceID, owner.WorkspaceID)
 	}
 	if event.Type != domain.EventTypeConversationMessageCreated {
 		t.Fatalf("event type = %q, want %q", event.Type, domain.EventTypeConversationMessageCreated)
@@ -289,8 +289,8 @@ func TestComposeE2E_WebhookExternalEventDelivery(t *testing.T) {
 	if got := delivery.Header.Get("X-Teraslack-Event-Type"); got != event.Type {
 		t.Fatalf("X-Teraslack-Event-Type = %q, want %q", got, event.Type)
 	}
-	if got := delivery.Header.Get("X-Teraslack-Team-Id"); got != owner.TeamID {
-		t.Fatalf("X-Teraslack-Team-Id = %q, want %q", got, owner.TeamID)
+	if got := delivery.Header.Get("X-Teraslack-Workspace-Id"); got != owner.WorkspaceID {
+		t.Fatalf("X-Teraslack-Workspace-Id = %q, want %q", got, owner.WorkspaceID)
 	}
 
 	timestamp := delivery.Header.Get("X-Teraslack-Request-Timestamp")
@@ -318,8 +318,8 @@ func TestComposeE2E_ExternalEventsHonorAPIKeyReadPermissions(t *testing.T) {
 
 	_, writerKey := createAPIKeyViaHTTP(t, httpClient, baseURL, ownerToken, domain.CreateAPIKeyParams{
 		Name:        "Events Writer Key",
-		TeamID:      owner.TeamID,
-		PrincipalID: agent.ID,
+		WorkspaceID: owner.WorkspaceID,
+		UserID:      agent.ID,
 		CreatedBy:   owner.ID,
 		Permissions: []string{
 			domain.PermissionMessagesRead,
@@ -329,8 +329,8 @@ func TestComposeE2E_ExternalEventsHonorAPIKeyReadPermissions(t *testing.T) {
 	})
 	_, limitedKey := createAPIKeyViaHTTP(t, httpClient, baseURL, ownerToken, domain.CreateAPIKeyParams{
 		Name:        "Events Limited Key",
-		TeamID:      owner.TeamID,
-		PrincipalID: agent.ID,
+		WorkspaceID: owner.WorkspaceID,
+		UserID:      agent.ID,
 		CreatedBy:   owner.ID,
 		Permissions: []string{
 			domain.PermissionConversationsCreate,
@@ -413,7 +413,7 @@ func setupComposeE2EHTTP(t *testing.T) (context.Context, *pgxpool.Pool, *http.Cl
 
 	owner := bootstrapOwnerUser(t, ctx, pool)
 	httpClient := &http.Client{Timeout: 10 * time.Second}
-	ownerToken := createSessionToken(t, ctx, pool, owner.TeamID, owner.ID)
+	ownerToken := createSessionToken(t, ctx, pool, owner.WorkspaceID, owner.ID)
 	return ctx, pool, httpClient, baseURL, owner, ownerToken
 }
 
@@ -580,7 +580,7 @@ func minDuration(a, b time.Duration) time.Duration {
 	return b
 }
 
-func countExternalEventsViaHTTP(t *testing.T, httpClient *http.Client, baseURL, auth, teamID string) (int, error) {
+func countExternalEventsViaHTTP(t *testing.T, httpClient *http.Client, baseURL, auth, workspaceID string) (int, error) {
 	t.Helper()
 
 	page := listExternalEventsPageViaHTTP(t, httpClient, baseURL, auth, url.Values{"limit": {"100"}})
@@ -595,7 +595,7 @@ func countExternalEventsViaHTTP(t *testing.T, httpClient *http.Client, baseURL, 
 			"after": {page.NextCursor},
 		})
 		if count > 10000 {
-			return 0, fmt.Errorf("unexpectedly large event count for team %s", teamID)
+			return 0, fmt.Errorf("unexpectedly large event count for workspace %s", workspaceID)
 		}
 	}
 }

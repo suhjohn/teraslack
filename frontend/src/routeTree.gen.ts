@@ -9,24 +9,39 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
-import { Route as LoginRouteImport } from './routes/login'
-import { Route as AdminRouteImport } from './routes/admin'
-import { Route as AboutRouteImport } from './routes/about'
+import { Route as WorkspaceRouteImport } from './routes/workspace'
+import { Route as TermsRouteImport } from './routes/terms'
+import { Route as PrivacyRouteImport } from './routes/privacy'
+import { Route as DocsRouteImport } from './routes/docs'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as WorkspaceIndexRouteImport } from './routes/workspace/index'
+import { Route as WorkspaceUsersRouteImport } from './routes/workspace/users'
+import { Route as WorkspaceUsergroupsRouteImport } from './routes/workspace/usergroups'
+import { Route as WorkspaceSettingsRouteImport } from './routes/workspace/settings'
+import { Route as WorkspaceExternalAccessRouteImport } from './routes/workspace/external-access'
+import { Route as WorkspaceEventsRouteImport } from './routes/workspace/events'
+import { Route as WorkspaceConversationsRouteImport } from './routes/workspace/conversations'
+import { Route as WorkspaceAuditRouteImport } from './routes/workspace/audit'
+import { Route as WorkspaceApiKeysRouteImport } from './routes/workspace/api-keys'
 
-const LoginRoute = LoginRouteImport.update({
-  id: '/login',
-  path: '/login',
+const WorkspaceRoute = WorkspaceRouteImport.update({
+  id: '/workspace',
+  path: '/workspace',
   getParentRoute: () => rootRouteImport,
 } as any)
-const AdminRoute = AdminRouteImport.update({
-  id: '/admin',
-  path: '/admin',
+const TermsRoute = TermsRouteImport.update({
+  id: '/terms',
+  path: '/terms',
   getParentRoute: () => rootRouteImport,
 } as any)
-const AboutRoute = AboutRouteImport.update({
-  id: '/about',
-  path: '/about',
+const PrivacyRoute = PrivacyRouteImport.update({
+  id: '/privacy',
+  path: '/privacy',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DocsRoute = DocsRouteImport.update({
+  id: '/docs',
+  path: '/docs',
   getParentRoute: () => rootRouteImport,
 } as any)
 const IndexRoute = IndexRouteImport.update({
@@ -34,62 +49,186 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const WorkspaceIndexRoute = WorkspaceIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => WorkspaceRoute,
+} as any)
+const WorkspaceUsersRoute = WorkspaceUsersRouteImport.update({
+  id: '/users',
+  path: '/users',
+  getParentRoute: () => WorkspaceRoute,
+} as any)
+const WorkspaceUsergroupsRoute = WorkspaceUsergroupsRouteImport.update({
+  id: '/usergroups',
+  path: '/usergroups',
+  getParentRoute: () => WorkspaceRoute,
+} as any)
+const WorkspaceSettingsRoute = WorkspaceSettingsRouteImport.update({
+  id: '/settings',
+  path: '/settings',
+  getParentRoute: () => WorkspaceRoute,
+} as any)
+const WorkspaceExternalAccessRoute = WorkspaceExternalAccessRouteImport.update({
+  id: '/external-access',
+  path: '/external-access',
+  getParentRoute: () => WorkspaceRoute,
+} as any)
+const WorkspaceEventsRoute = WorkspaceEventsRouteImport.update({
+  id: '/events',
+  path: '/events',
+  getParentRoute: () => WorkspaceRoute,
+} as any)
+const WorkspaceConversationsRoute = WorkspaceConversationsRouteImport.update({
+  id: '/conversations',
+  path: '/conversations',
+  getParentRoute: () => WorkspaceRoute,
+} as any)
+const WorkspaceAuditRoute = WorkspaceAuditRouteImport.update({
+  id: '/audit',
+  path: '/audit',
+  getParentRoute: () => WorkspaceRoute,
+} as any)
+const WorkspaceApiKeysRoute = WorkspaceApiKeysRouteImport.update({
+  id: '/api-keys',
+  path: '/api-keys',
+  getParentRoute: () => WorkspaceRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
-  '/about': typeof AboutRoute
-  '/admin': typeof AdminRoute
-  '/login': typeof LoginRoute
+  '/docs': typeof DocsRoute
+  '/privacy': typeof PrivacyRoute
+  '/terms': typeof TermsRoute
+  '/workspace': typeof WorkspaceRouteWithChildren
+  '/workspace/api-keys': typeof WorkspaceApiKeysRoute
+  '/workspace/audit': typeof WorkspaceAuditRoute
+  '/workspace/conversations': typeof WorkspaceConversationsRoute
+  '/workspace/events': typeof WorkspaceEventsRoute
+  '/workspace/external-access': typeof WorkspaceExternalAccessRoute
+  '/workspace/settings': typeof WorkspaceSettingsRoute
+  '/workspace/usergroups': typeof WorkspaceUsergroupsRoute
+  '/workspace/users': typeof WorkspaceUsersRoute
+  '/workspace/': typeof WorkspaceIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
-  '/about': typeof AboutRoute
-  '/admin': typeof AdminRoute
-  '/login': typeof LoginRoute
+  '/docs': typeof DocsRoute
+  '/privacy': typeof PrivacyRoute
+  '/terms': typeof TermsRoute
+  '/workspace/api-keys': typeof WorkspaceApiKeysRoute
+  '/workspace/audit': typeof WorkspaceAuditRoute
+  '/workspace/conversations': typeof WorkspaceConversationsRoute
+  '/workspace/events': typeof WorkspaceEventsRoute
+  '/workspace/external-access': typeof WorkspaceExternalAccessRoute
+  '/workspace/settings': typeof WorkspaceSettingsRoute
+  '/workspace/usergroups': typeof WorkspaceUsergroupsRoute
+  '/workspace/users': typeof WorkspaceUsersRoute
+  '/workspace': typeof WorkspaceIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
-  '/about': typeof AboutRoute
-  '/admin': typeof AdminRoute
-  '/login': typeof LoginRoute
+  '/docs': typeof DocsRoute
+  '/privacy': typeof PrivacyRoute
+  '/terms': typeof TermsRoute
+  '/workspace': typeof WorkspaceRouteWithChildren
+  '/workspace/api-keys': typeof WorkspaceApiKeysRoute
+  '/workspace/audit': typeof WorkspaceAuditRoute
+  '/workspace/conversations': typeof WorkspaceConversationsRoute
+  '/workspace/events': typeof WorkspaceEventsRoute
+  '/workspace/external-access': typeof WorkspaceExternalAccessRoute
+  '/workspace/settings': typeof WorkspaceSettingsRoute
+  '/workspace/usergroups': typeof WorkspaceUsergroupsRoute
+  '/workspace/users': typeof WorkspaceUsersRoute
+  '/workspace/': typeof WorkspaceIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/about' | '/admin' | '/login'
+  fullPaths:
+    | '/'
+    | '/docs'
+    | '/privacy'
+    | '/terms'
+    | '/workspace'
+    | '/workspace/api-keys'
+    | '/workspace/audit'
+    | '/workspace/conversations'
+    | '/workspace/events'
+    | '/workspace/external-access'
+    | '/workspace/settings'
+    | '/workspace/usergroups'
+    | '/workspace/users'
+    | '/workspace/'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/about' | '/admin' | '/login'
-  id: '__root__' | '/' | '/about' | '/admin' | '/login'
+  to:
+    | '/'
+    | '/docs'
+    | '/privacy'
+    | '/terms'
+    | '/workspace/api-keys'
+    | '/workspace/audit'
+    | '/workspace/conversations'
+    | '/workspace/events'
+    | '/workspace/external-access'
+    | '/workspace/settings'
+    | '/workspace/usergroups'
+    | '/workspace/users'
+    | '/workspace'
+  id:
+    | '__root__'
+    | '/'
+    | '/docs'
+    | '/privacy'
+    | '/terms'
+    | '/workspace'
+    | '/workspace/api-keys'
+    | '/workspace/audit'
+    | '/workspace/conversations'
+    | '/workspace/events'
+    | '/workspace/external-access'
+    | '/workspace/settings'
+    | '/workspace/usergroups'
+    | '/workspace/users'
+    | '/workspace/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
-  AboutRoute: typeof AboutRoute
-  AdminRoute: typeof AdminRoute
-  LoginRoute: typeof LoginRoute
+  DocsRoute: typeof DocsRoute
+  PrivacyRoute: typeof PrivacyRoute
+  TermsRoute: typeof TermsRoute
+  WorkspaceRoute: typeof WorkspaceRouteWithChildren
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    '/login': {
-      id: '/login'
-      path: '/login'
-      fullPath: '/login'
-      preLoaderRoute: typeof LoginRouteImport
+    '/workspace': {
+      id: '/workspace'
+      path: '/workspace'
+      fullPath: '/workspace'
+      preLoaderRoute: typeof WorkspaceRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/admin': {
-      id: '/admin'
-      path: '/admin'
-      fullPath: '/admin'
-      preLoaderRoute: typeof AdminRouteImport
+    '/terms': {
+      id: '/terms'
+      path: '/terms'
+      fullPath: '/terms'
+      preLoaderRoute: typeof TermsRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/about': {
-      id: '/about'
-      path: '/about'
-      fullPath: '/about'
-      preLoaderRoute: typeof AboutRouteImport
+    '/privacy': {
+      id: '/privacy'
+      path: '/privacy'
+      fullPath: '/privacy'
+      preLoaderRoute: typeof PrivacyRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/docs': {
+      id: '/docs'
+      path: '/docs'
+      fullPath: '/docs'
+      preLoaderRoute: typeof DocsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/': {
@@ -99,14 +238,106 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/workspace/': {
+      id: '/workspace/'
+      path: '/'
+      fullPath: '/workspace/'
+      preLoaderRoute: typeof WorkspaceIndexRouteImport
+      parentRoute: typeof WorkspaceRoute
+    }
+    '/workspace/users': {
+      id: '/workspace/users'
+      path: '/users'
+      fullPath: '/workspace/users'
+      preLoaderRoute: typeof WorkspaceUsersRouteImport
+      parentRoute: typeof WorkspaceRoute
+    }
+    '/workspace/usergroups': {
+      id: '/workspace/usergroups'
+      path: '/usergroups'
+      fullPath: '/workspace/usergroups'
+      preLoaderRoute: typeof WorkspaceUsergroupsRouteImport
+      parentRoute: typeof WorkspaceRoute
+    }
+    '/workspace/settings': {
+      id: '/workspace/settings'
+      path: '/settings'
+      fullPath: '/workspace/settings'
+      preLoaderRoute: typeof WorkspaceSettingsRouteImport
+      parentRoute: typeof WorkspaceRoute
+    }
+    '/workspace/external-access': {
+      id: '/workspace/external-access'
+      path: '/external-access'
+      fullPath: '/workspace/external-access'
+      preLoaderRoute: typeof WorkspaceExternalAccessRouteImport
+      parentRoute: typeof WorkspaceRoute
+    }
+    '/workspace/events': {
+      id: '/workspace/events'
+      path: '/events'
+      fullPath: '/workspace/events'
+      preLoaderRoute: typeof WorkspaceEventsRouteImport
+      parentRoute: typeof WorkspaceRoute
+    }
+    '/workspace/conversations': {
+      id: '/workspace/conversations'
+      path: '/conversations'
+      fullPath: '/workspace/conversations'
+      preLoaderRoute: typeof WorkspaceConversationsRouteImport
+      parentRoute: typeof WorkspaceRoute
+    }
+    '/workspace/audit': {
+      id: '/workspace/audit'
+      path: '/audit'
+      fullPath: '/workspace/audit'
+      preLoaderRoute: typeof WorkspaceAuditRouteImport
+      parentRoute: typeof WorkspaceRoute
+    }
+    '/workspace/api-keys': {
+      id: '/workspace/api-keys'
+      path: '/api-keys'
+      fullPath: '/workspace/api-keys'
+      preLoaderRoute: typeof WorkspaceApiKeysRouteImport
+      parentRoute: typeof WorkspaceRoute
+    }
   }
 }
 
+interface WorkspaceRouteChildren {
+  WorkspaceApiKeysRoute: typeof WorkspaceApiKeysRoute
+  WorkspaceAuditRoute: typeof WorkspaceAuditRoute
+  WorkspaceConversationsRoute: typeof WorkspaceConversationsRoute
+  WorkspaceEventsRoute: typeof WorkspaceEventsRoute
+  WorkspaceExternalAccessRoute: typeof WorkspaceExternalAccessRoute
+  WorkspaceSettingsRoute: typeof WorkspaceSettingsRoute
+  WorkspaceUsergroupsRoute: typeof WorkspaceUsergroupsRoute
+  WorkspaceUsersRoute: typeof WorkspaceUsersRoute
+  WorkspaceIndexRoute: typeof WorkspaceIndexRoute
+}
+
+const WorkspaceRouteChildren: WorkspaceRouteChildren = {
+  WorkspaceApiKeysRoute: WorkspaceApiKeysRoute,
+  WorkspaceAuditRoute: WorkspaceAuditRoute,
+  WorkspaceConversationsRoute: WorkspaceConversationsRoute,
+  WorkspaceEventsRoute: WorkspaceEventsRoute,
+  WorkspaceExternalAccessRoute: WorkspaceExternalAccessRoute,
+  WorkspaceSettingsRoute: WorkspaceSettingsRoute,
+  WorkspaceUsergroupsRoute: WorkspaceUsergroupsRoute,
+  WorkspaceUsersRoute: WorkspaceUsersRoute,
+  WorkspaceIndexRoute: WorkspaceIndexRoute,
+}
+
+const WorkspaceRouteWithChildren = WorkspaceRoute._addFileChildren(
+  WorkspaceRouteChildren,
+)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
-  AboutRoute: AboutRoute,
-  AdminRoute: AdminRoute,
-  LoginRoute: LoginRoute,
+  DocsRoute: DocsRoute,
+  PrivacyRoute: PrivacyRoute,
+  TermsRoute: TermsRoute,
+  WorkspaceRoute: WorkspaceRouteWithChildren,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

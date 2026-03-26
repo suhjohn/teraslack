@@ -45,7 +45,7 @@ const (
 type Job struct {
 	ID        string    `json:"id"`         // Unique job ID (e.g., "evt-123")
 	EventID   int64     `json:"event_id"`   // Source service_event ID
-	TeamID    string    `json:"team_id"`    // Team context
+	WorkspaceID    string    `json:"workspace_id"`    // Workspace context
 	EventType string    `json:"event_type"` // "user.created", "message.posted", etc.
 	Status    JobStatus `json:"status"`     // Current job state
 

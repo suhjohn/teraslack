@@ -7,7 +7,7 @@ import (
 // EventSubscription represents a webhook subscription for events.
 type EventSubscription struct {
 	ID              string    `json:"id"`
-	TeamID          string    `json:"team_id"`
+	WorkspaceID          string    `json:"workspace_id"`
 	URL             string    `json:"url"`
 	Type            string    `json:"type,omitempty"`
 	ResourceType    string    `json:"resource_type,omitempty"`
@@ -32,7 +32,7 @@ func (s *EventSubscription) Redacted() *EventSubscription {
 
 // CreateEventSubscriptionParams holds the parameters for creating a subscription.
 type CreateEventSubscriptionParams struct {
-	TeamID       string `json:"team_id"`
+	WorkspaceID       string `json:"workspace_id"`
 	URL          string `json:"url"`
 	Type         string `json:"type,omitempty"`
 	ResourceType string `json:"resource_type,omitempty"`
@@ -51,13 +51,13 @@ type UpdateEventSubscriptionParams struct {
 
 // ListEventSubscriptionsParams holds the parameters for listing subscriptions.
 type ListEventSubscriptionsParams struct {
-	TeamID string `json:"team_id"`
+	WorkspaceID string `json:"workspace_id"`
 }
 
 // Public event types supported by webhook filters.
 const (
-	EventTypeTeamCreated                      = "team.created"
-	EventTypeTeamUpdated                      = "team.updated"
+	EventTypeWorkspaceCreated                      = "workspace.created"
+	EventTypeWorkspaceUpdated                      = "workspace.updated"
 	EventTypeUserCreated                      = "user.created"
 	EventTypeUserUpdated                      = "user.updated"
 	EventTypeUserDeleted                      = "user.deleted"
@@ -102,9 +102,9 @@ func IsSupportedSubscriptionEventType(eventType string) bool {
 	switch eventType {
 	case "":
 		return true
-	case EventTypeTeamCreated:
+	case EventTypeWorkspaceCreated:
 		return true
-	case EventTypeTeamUpdated:
+	case EventTypeWorkspaceUpdated:
 		return true
 	case EventTypeUserCreated:
 		return true

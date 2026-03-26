@@ -18,8 +18,10 @@ import (
 func Router(
 	logger *slog.Logger,
 	frontendURL string,
+	corsAllowedOrigins []string,
 	authSvc *service.AuthService,
 	apiKeySvc *service.APIKeyService,
+	mcpOAuthSvc *service.MCPOAuthService,
 	workspaceH *WorkspaceHandler,
 	workspaceInviteH *WorkspaceInviteHandler,
 	userH *UserHandler,
@@ -33,6 +35,7 @@ func Router(
 	externalAccessH *ExternalPrincipalAccessHandler,
 	eventH *EventHandler,
 	authH *AuthHandler,
+	mcpOAuthH *MCPOAuthHandler,
 	searchH *SearchHandler,
 	apiKeyH *APIKeyHandler,
 	conversationReadH *ConversationReadHandler,
@@ -135,14 +138,26 @@ func Router(
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write(data)
 	})
-	root.HandleFunc("POST /teams/{id}/invites", func(w http.ResponseWriter, r *http.Request) {
+	root.HandleFunc("GET /.well-known/oauth-authorization-server", func(w http.ResponseWriter, r *http.Request) {
+		mcpOAuthH.AuthorizationServerMetadata(w, r)
+	})
+	root.HandleFunc("GET /oauth/authorize", func(w http.ResponseWriter, r *http.Request) {
+		mcpOAuthH.Authorize(w, r)
+	})
+	root.HandleFunc("POST /oauth/authorize", func(w http.ResponseWriter, r *http.Request) {
+		mcpOAuthH.Authorize(w, r)
+	})
+	root.HandleFunc("POST /oauth/token", func(w http.ResponseWriter, r *http.Request) {
+		mcpOAuthH.Token(w, r)
+	})
+	root.HandleFunc("POST /workspaces/{id}/invites", func(w http.ResponseWriter, r *http.Request) {
 		workspaceInviteH.Create(w, r)
 	})
 	root.Handle("/", validator(apiHandler))
 
 	var h http.Handler = root
-	h = CORS(frontendURL)(h)
-	h = AuthMiddleware(authSvc, apiKeySvc)(h)
+	h = AuthMiddleware(authSvc, apiKeySvc, mcpOAuthSvc)(h)
+	h = CORS(frontendURL, corsAllowedOrigins)(h)
 	h = Logger(logger)(h)
 	h = Recovery(logger)(h)
 	h = RequestID()(h)

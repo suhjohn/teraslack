@@ -81,11 +81,11 @@ type roleAssignmentRepoStub struct {
 
 func (r *roleAssignmentRepoStub) WithTx(tx pgx.Tx) repository.RoleAssignmentRepository { return r }
 
-func (r *roleAssignmentRepoStub) ListByUser(ctx context.Context, teamID, userID string) ([]domain.DelegatedRole, error) {
+func (r *roleAssignmentRepoStub) ListByUser(ctx context.Context, workspaceID, userID string) ([]domain.DelegatedRole, error) {
 	return append([]domain.DelegatedRole(nil), r.roles[userID]...), nil
 }
 
-func (r *roleAssignmentRepoStub) ReplaceForUser(ctx context.Context, teamID, userID string, roles []domain.DelegatedRole, assignedBy string) error {
+func (r *roleAssignmentRepoStub) ReplaceForUser(ctx context.Context, workspaceID, userID string, roles []domain.DelegatedRole, assignedBy string) error {
 	if r.roles == nil {
 		r.roles = map[string][]domain.DelegatedRole{}
 	}
@@ -135,7 +135,7 @@ func TestConversationAccessService_SetManagers_AllowsChannelsAdminOnPrivateChann
 	convRepo := &conversationRepoStub{
 		conversation: &domain.Conversation{
 			ID:        "G123",
-			TeamID:    "T123",
+			WorkspaceID:    "T123",
 			Type:      domain.ConversationTypePrivateChannel,
 			CreatorID: "U_CREATOR",
 		},
@@ -143,8 +143,8 @@ func TestConversationAccessService_SetManagers_AllowsChannelsAdminOnPrivateChann
 	}
 	userRepo := &mockUserRepoForUGRoles{
 		users: map[string]*domain.User{
-			"U_ACTOR": {ID: "U_ACTOR", TeamID: "T123", PrincipalType: domain.PrincipalTypeHuman, AccountType: domain.AccountTypeMember},
-			"U_MGR":   {ID: "U_MGR", TeamID: "T123", PrincipalType: domain.PrincipalTypeHuman, AccountType: domain.AccountTypeMember},
+			"U_ACTOR": {ID: "U_ACTOR", WorkspaceID: "T123", PrincipalType: domain.PrincipalTypeHuman, AccountType: domain.AccountTypeMember},
+			"U_MGR":   {ID: "U_MGR", WorkspaceID: "T123", PrincipalType: domain.PrincipalTypeHuman, AccountType: domain.AccountTypeMember},
 		},
 	}
 	roleRepo := &roleAssignmentRepoStub{
@@ -184,15 +184,15 @@ func TestConversationAccessService_CanPost_CustomAllowsUsergroupMember(t *testin
 			},
 		},
 	}
-	conv := &domain.Conversation{ID: "C123", TeamID: "T123", Type: domain.ConversationTypePublicChannel, CreatorID: "U_CREATOR"}
+	conv := &domain.Conversation{ID: "C123", WorkspaceID: "T123", Type: domain.ConversationTypePublicChannel, CreatorID: "U_CREATOR"}
 	userRepo := &mockUserRepoForUGRoles{
 		users: map[string]*domain.User{
-			"U123": {ID: "U123", TeamID: "T123", PrincipalType: domain.PrincipalTypeHuman, AccountType: domain.AccountTypeMember},
+			"U123": {ID: "U123", WorkspaceID: "T123", PrincipalType: domain.PrincipalTypeHuman, AccountType: domain.AccountTypeMember},
 		},
 	}
 	usergroupRepo := &usergroupRepoStub{
 		usergroups: map[string]*domain.Usergroup{
-			"S123": {ID: "S123", TeamID: "T123"},
+			"S123": {ID: "S123", WorkspaceID: "T123"},
 		},
 		members: map[string][]string{
 			"S123": {"U123"},
@@ -208,10 +208,10 @@ func TestConversationAccessService_CanPost_CustomAllowsUsergroupMember(t *testin
 }
 
 func TestMessageService_PostMessage_DeniesAdminsOnlyPolicyForMember(t *testing.T) {
-	conv := &domain.Conversation{ID: "C123", TeamID: "T123", Type: domain.ConversationTypePublicChannel, CreatorID: "U_CREATOR"}
+	conv := &domain.Conversation{ID: "C123", WorkspaceID: "T123", Type: domain.ConversationTypePublicChannel, CreatorID: "U_CREATOR"}
 	userRepo := &mockUserRepoForUGRoles{
 		users: map[string]*domain.User{
-			"U123": {ID: "U123", TeamID: "T123", PrincipalType: domain.PrincipalTypeHuman, AccountType: domain.AccountTypeMember},
+			"U123": {ID: "U123", WorkspaceID: "T123", PrincipalType: domain.PrincipalTypeHuman, AccountType: domain.AccountTypeMember},
 		},
 	}
 	accessSvc := NewConversationAccessService(
@@ -245,10 +245,10 @@ func TestMessageService_PostMessage_DeniesAdminsOnlyPolicyForMember(t *testing.T
 }
 
 func TestMessageService_PostMessage_AllowsConversationManagerWhenRestricted(t *testing.T) {
-	conv := &domain.Conversation{ID: "C123", TeamID: "T123", Type: domain.ConversationTypePublicChannel, CreatorID: "U_CREATOR"}
+	conv := &domain.Conversation{ID: "C123", WorkspaceID: "T123", Type: domain.ConversationTypePublicChannel, CreatorID: "U_CREATOR"}
 	userRepo := &mockUserRepoForUGRoles{
 		users: map[string]*domain.User{
-			"U123": {ID: "U123", TeamID: "T123", PrincipalType: domain.PrincipalTypeHuman, AccountType: domain.AccountTypeMember},
+			"U123": {ID: "U123", WorkspaceID: "T123", PrincipalType: domain.PrincipalTypeHuman, AccountType: domain.AccountTypeMember},
 		},
 	}
 	accessRepo := &conversationAccessRepoStub{

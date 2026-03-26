@@ -30,7 +30,7 @@ func NewWorkspaceInviteService(repo repository.WorkspaceInviteRepository, userRe
 	}
 }
 
-func (s *WorkspaceInviteService) Create(ctx context.Context, teamID, email string) (*domain.CreateWorkspaceInviteResult, error) {
+func (s *WorkspaceInviteService) Create(ctx context.Context, workspaceID, email string) (*domain.CreateWorkspaceInviteResult, error) {
 	if s.repo == nil {
 		return nil, fmt.Errorf("invite repo: %w", domain.ErrInvalidArgument)
 	}
@@ -39,7 +39,7 @@ func (s *WorkspaceInviteService) Create(ctx context.Context, teamID, email strin
 		return nil, fmt.Errorf("email: %w", domain.ErrInvalidArgument)
 	}
 
-	resolvedTeamID, err := resolveTeamID(ctx, teamID)
+	resolvedWorkspaceID, err := resolveWorkspaceID(ctx, workspaceID)
 	if err != nil {
 		return nil, err
 	}
@@ -47,10 +47,10 @@ func (s *WorkspaceInviteService) Create(ctx context.Context, teamID, email strin
 	if err != nil {
 		return nil, err
 	}
-	if actor.TeamID != resolvedTeamID {
+	if actor.WorkspaceID != resolvedWorkspaceID {
 		return nil, domain.ErrForbidden
 	}
-	if existing, err := s.userRepo.GetByTeamEmail(ctx, resolvedTeamID, email); err == nil && existing != nil {
+	if existing, err := s.userRepo.GetByTeamEmail(ctx, resolvedWorkspaceID, email); err == nil && existing != nil {
 		return nil, domain.ErrAlreadyExists
 	} else if err != nil && err != domain.ErrNotFound {
 		return nil, err
@@ -61,7 +61,7 @@ func (s *WorkspaceInviteService) Create(ctx context.Context, teamID, email strin
 		return nil, err
 	}
 	invite, err := s.repo.Create(ctx, domain.CreateWorkspaceInviteParams{
-		TeamID:    resolvedTeamID,
+		WorkspaceID:    resolvedWorkspaceID,
 		Email:     email,
 		InvitedBy: actor.ID,
 		ExpiresAt: time.Now().UTC().Add(workspaceInviteTTL),

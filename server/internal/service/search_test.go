@@ -24,7 +24,7 @@ func TestSearchService_Search_NoTurbopuffer(t *testing.T) {
 	svc := NewSearchService(nil)
 
 	results, err := svc.Search(context.Background(), domain.SearchParams{
-		TeamID: "T123",
+		WorkspaceID: "T123",
 		Query:  "hello",
 	})
 	if err != nil {
@@ -40,7 +40,7 @@ func TestSearchService_Search_WithTypes(t *testing.T) {
 
 	// With type filter, still returns empty when no Turbopuffer configured
 	results, err := svc.Search(context.Background(), domain.SearchParams{
-		TeamID: "T123",
+		WorkspaceID: "T123",
 		Query:  "alice",
 		Types:  []string{"user", "conversation"},
 	})
@@ -52,7 +52,7 @@ func TestSearchService_Search_WithTypes(t *testing.T) {
 	}
 }
 
-func TestSearchService_Search_UsesContextTeamID(t *testing.T) {
+func TestSearchService_Search_UsesContextWorkspaceID(t *testing.T) {
 	svc := NewSearchService(nil)
 
 	ctx := ctxutil.WithUser(context.Background(), "U123", "Tctx")
@@ -72,11 +72,11 @@ func TestSearchService_Search_RejectsCrossTeamBodyOverride(t *testing.T) {
 
 	ctx := ctxutil.WithUser(context.Background(), "U123", "Tctx")
 	_, err := svc.Search(ctx, domain.SearchParams{
-		TeamID: "Tother",
+		WorkspaceID: "Tother",
 		Query:  "alice",
 	})
 	if err == nil {
-		t.Fatal("expected error for mismatched team_id")
+		t.Fatal("expected error for mismatched workspace_id")
 	}
 	if err != domain.ErrForbidden {
 		t.Fatalf("expected ErrForbidden, got %v", err)
@@ -112,7 +112,7 @@ func TestSearchService_Search_NormalizesData(t *testing.T) {
 					Score: 0.99,
 					Metadata: map[string]any{
 						"type":    "user",
-						"team_id": "T123",
+						"workspace_id": "T123",
 						"data":    `{"id":"U123","name":"alice"}`,
 					},
 				},
@@ -121,7 +121,7 @@ func TestSearchService_Search_NormalizesData(t *testing.T) {
 					Score: 0.98,
 					Metadata: map[string]any{
 						"type":    "message",
-						"team_id": "T123",
+						"workspace_id": "T123",
 						"data":    json.RawMessage(`{"channel_id":"C123","ts":"123.456"}`),
 					},
 				},
@@ -130,7 +130,7 @@ func TestSearchService_Search_NormalizesData(t *testing.T) {
 	})
 
 	results, err := svc.Search(context.Background(), domain.SearchParams{
-		TeamID: "T123",
+		WorkspaceID: "T123",
 		Query:  "alice",
 		Limit:  2,
 	})

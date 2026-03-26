@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"strings"
 
 	"github.com/suhjohn/teraslack/internal/ctxutil"
 	"github.com/suhjohn/teraslack/internal/domain"
@@ -41,11 +42,11 @@ func (s *UserService) Create(ctx context.Context, params domain.CreateUserParams
 	if err := requirePermission(ctx, domain.PermissionUsersCreate); err != nil {
 		return nil, err
 	}
-	teamID, err := resolveTeamID(ctx, params.TeamID)
+	workspaceID, err := resolveWorkspaceID(ctx, params.WorkspaceID)
 	if err != nil {
 		return nil, err
 	}
-	params.TeamID = teamID
+	params.WorkspaceID = workspaceID
 	if params.Name == "" {
 		return nil, fmt.Errorf("name: %w", domain.ErrInvalidArgument)
 	}
@@ -59,13 +60,21 @@ func (s *UserService) Create(ctx context.Context, params domain.CreateUserParams
 		return nil, err
 	}
 	if requiresAuthenticatedActor(ctx) {
-		actor, err := requireWorkspaceAdminActor(ctx, s.repo)
+		actor, err := loadActingUser(ctx, s.repo)
 		if err != nil {
 			return nil, err
 		}
-		effectiveAccountType := domain.NormalizeAccountType(params.PrincipalType, params.AccountType)
-		if !canAssignAccountType(actor, params.PrincipalType, effectiveAccountType) {
-			return nil, domain.ErrForbidden
+		if err := ensureWorkspaceAccess(ctx, actor.WorkspaceID); err != nil {
+			return nil, err
+		}
+		if !allowSelfOwnedAgentCreate(actor, &params) {
+			if !defaultAuthorizer.IsWorkspaceAdminAccount(actor.EffectiveAccountType()) {
+				return nil, domain.ErrForbidden
+			}
+			effectiveAccountType := domain.NormalizeAccountType(params.PrincipalType, params.AccountType)
+			if !canAssignAccountType(actor, params.PrincipalType, effectiveAccountType) {
+				return nil, domain.ErrForbidden
+			}
 		}
 	}
 
@@ -84,7 +93,7 @@ func (s *UserService) Create(ctx context.Context, params domain.CreateUserParams
 		EventType:     domain.EventUserCreated,
 		AggregateType: domain.AggregateUser,
 		AggregateID:   user.ID,
-		TeamID:        user.TeamID,
+		WorkspaceID:        user.WorkspaceID,
 		ActorID:       ctxutil.GetActingUserID(ctx),
 		Payload:       payload,
 	}); err != nil {
@@ -110,7 +119,7 @@ func (s *UserService) Get(ctx context.Context, id string) (*domain.User, error) 
 	if err != nil {
 		return nil, err
 	}
-	if err := ensureTeamAccess(ctx, user.TeamID); err != nil {
+	if err := ensureWorkspaceAccess(ctx, user.WorkspaceID); err != nil {
 		return nil, err
 	}
 	return user, nil
@@ -125,11 +134,11 @@ func (s *UserService) GetByEmail(ctx context.Context, email string) (*domain.Use
 	} else if external {
 		return nil, domain.ErrForbidden
 	}
-	teamID := ctxutil.GetTeamID(ctx)
-	if teamID == "" {
+	workspaceID := ctxutil.GetWorkspaceID(ctx)
+	if workspaceID == "" {
 		return nil, domain.ErrForbidden
 	}
-	user, err := s.repo.GetByTeamEmail(ctx, teamID, email)
+	user, err := s.repo.GetByTeamEmail(ctx, workspaceID, email)
 	if err != nil {
 		return nil, err
 	}
@@ -145,7 +154,7 @@ func (s *UserService) Update(ctx context.Context, id string, params domain.Updat
 	if err != nil {
 		return nil, err
 	}
-	if err := ensureTeamAccess(ctx, existing.TeamID); err != nil {
+	if err := ensureWorkspaceAccess(ctx, existing.WorkspaceID); err != nil {
 		return nil, err
 	}
 	if params.AccountType != nil {
@@ -191,7 +200,7 @@ func (s *UserService) Update(ctx context.Context, id string, params domain.Updat
 		EventType:     domain.EventUserUpdated,
 		AggregateType: domain.AggregateUser,
 		AggregateID:   user.ID,
-		TeamID:        user.TeamID,
+		WorkspaceID:        user.WorkspaceID,
 		ActorID:       ctxutil.GetActingUserID(ctx),
 		Payload:       payload,
 	}); err != nil {
@@ -202,7 +211,7 @@ func (s *UserService) Update(ctx context.Context, id string, params domain.Updat
 		return nil, fmt.Errorf("commit tx: %w", err)
 	}
 	if existing.EffectiveAccountType() != user.EffectiveAccountType() {
-		if err := recordAuthorizationAudit(ctx, s.auditRepo, nil, user.TeamID, domain.AuditActionAccountTypeUpdated, "user", user.ID, map[string]any{
+		if err := recordAuthorizationAudit(ctx, s.auditRepo, nil, user.WorkspaceID, domain.AuditActionAccountTypeUpdated, "user", user.ID, map[string]any{
 			"before": existing.EffectiveAccountType(),
 			"after":  user.EffectiveAccountType(),
 		}); err != nil {
@@ -218,11 +227,11 @@ func (s *UserService) List(ctx context.Context, params domain.ListUsersParams) (
 	} else if external {
 		return nil, domain.ErrForbidden
 	}
-	teamID, err := resolveTeamID(ctx, params.TeamID)
+	workspaceID, err := resolveWorkspaceID(ctx, params.WorkspaceID)
 	if err != nil {
 		return nil, err
 	}
-	params.TeamID = teamID
+	params.WorkspaceID = workspaceID
 	return s.repo.List(ctx, params)
 }
 
@@ -249,4 +258,23 @@ func desiredAccountType(existing *domain.User, params domain.UpdateUserParams) d
 		return *params.AccountType
 	}
 	return existing.EffectiveAccountType()
+}
+
+func allowSelfOwnedAgentCreate(actor *domain.User, params *domain.CreateUserParams) bool {
+	if actor == nil || params == nil {
+		return false
+	}
+	if actor.PrincipalType != domain.PrincipalTypeHuman {
+		return false
+	}
+	if actor.WorkspaceID == "" || params.WorkspaceID != actor.WorkspaceID {
+		return false
+	}
+	if params.PrincipalType != domain.PrincipalTypeAgent || !params.IsBot {
+		return false
+	}
+	if strings.TrimSpace(params.OwnerID) == "" {
+		params.OwnerID = actor.ID
+	}
+	return params.OwnerID == actor.ID
 }

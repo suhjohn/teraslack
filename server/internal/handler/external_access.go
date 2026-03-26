@@ -18,7 +18,7 @@ func NewExternalPrincipalAccessHandler(svc *service.ExternalPrincipalAccessServi
 
 func (h *ExternalPrincipalAccessHandler) List(w http.ResponseWriter, r *http.Request) {
 	items, err := h.svc.List(r.Context(), domain.ListExternalPrincipalAccessParams{
-		HostTeamID: r.URL.Query().Get("host_team_id"),
+		HostWorkspaceID: r.URL.Query().Get("host_workspace_id"),
 	})
 	if err != nil {
 		httputil.WriteError(w, r, err)

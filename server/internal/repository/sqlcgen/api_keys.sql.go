@@ -8,34 +8,61 @@ package sqlcgen
 import (
 	"context"
 	"time"
+
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const createAPIKey = `-- name: CreateAPIKey :one
-INSERT INTO api_keys (id, name, description, key_hash, key_prefix, key_hint, team_id, principal_id, created_by, on_behalf_of, type, environment, permissions, expires_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
-RETURNING id, name, description, key_hash, key_prefix, key_hint, team_id, principal_id, created_by, on_behalf_of,
+INSERT INTO api_keys (id, name, description, key_hash, key_prefix, key_hint, workspace_id, principal_id, created_by, on_behalf_of, type, environment, permissions, expires_at)
+VALUES ($1, $2, $3, $4, $5, $6, $7, NULLIF($8, ''), $9, $10, $11, $12, $13, $14)
+RETURNING id, name, description, key_hash, key_prefix, key_hint, workspace_id, COALESCE(principal_id, ''), created_by, on_behalf_of,
           type, environment, permissions, expires_at, last_used_at, request_count,
           revoked, revoked_at, rotated_to_id, grace_period_ends_at, created_at, updated_at
 `
 
 type CreateAPIKeyParams struct {
-	ID          string     `json:"id"`
-	Name        string     `json:"name"`
-	Description string     `json:"description"`
-	KeyHash     string     `json:"key_hash"`
-	KeyPrefix   string     `json:"key_prefix"`
-	KeyHint     string     `json:"key_hint"`
-	TeamID      string     `json:"team_id"`
-	PrincipalID string     `json:"principal_id"`
-	CreatedBy   string     `json:"created_by"`
-	OnBehalfOf  string     `json:"on_behalf_of"`
-	Type        string     `json:"type"`
-	Environment string     `json:"environment"`
-	Permissions []string   `json:"permissions"`
-	ExpiresAt   *time.Time `json:"expires_at"`
+	ID          string      `json:"id"`
+	Name        string      `json:"name"`
+	Description string      `json:"description"`
+	KeyHash     string      `json:"key_hash"`
+	KeyPrefix   string      `json:"key_prefix"`
+	KeyHint     string      `json:"key_hint"`
+	WorkspaceID string      `json:"workspace_id"`
+	Column8     interface{} `json:"column_8"`
+	CreatedBy   string      `json:"created_by"`
+	OnBehalfOf  string      `json:"on_behalf_of"`
+	Type        string      `json:"type"`
+	Environment string      `json:"environment"`
+	Permissions []string    `json:"permissions"`
+	ExpiresAt   *time.Time  `json:"expires_at"`
 }
 
-func (q *Queries) CreateAPIKey(ctx context.Context, arg CreateAPIKeyParams) (ApiKey, error) {
+type CreateAPIKeyRow struct {
+	ID                string     `json:"id"`
+	Name              string     `json:"name"`
+	Description       string     `json:"description"`
+	KeyHash           string     `json:"key_hash"`
+	KeyPrefix         string     `json:"key_prefix"`
+	KeyHint           string     `json:"key_hint"`
+	WorkspaceID       string     `json:"workspace_id"`
+	PrincipalID       string     `json:"principal_id"`
+	CreatedBy         string     `json:"created_by"`
+	OnBehalfOf        string     `json:"on_behalf_of"`
+	Type              string     `json:"type"`
+	Environment       string     `json:"environment"`
+	Permissions       []string   `json:"permissions"`
+	ExpiresAt         *time.Time `json:"expires_at"`
+	LastUsedAt        *time.Time `json:"last_used_at"`
+	RequestCount      int64      `json:"request_count"`
+	Revoked           bool       `json:"revoked"`
+	RevokedAt         *time.Time `json:"revoked_at"`
+	RotatedToID       string     `json:"rotated_to_id"`
+	GracePeriodEndsAt *time.Time `json:"grace_period_ends_at"`
+	CreatedAt         time.Time  `json:"created_at"`
+	UpdatedAt         time.Time  `json:"updated_at"`
+}
+
+func (q *Queries) CreateAPIKey(ctx context.Context, arg CreateAPIKeyParams) (CreateAPIKeyRow, error) {
 	row := q.db.QueryRow(ctx, createAPIKey,
 		arg.ID,
 		arg.Name,
@@ -43,8 +70,8 @@ func (q *Queries) CreateAPIKey(ctx context.Context, arg CreateAPIKeyParams) (Api
 		arg.KeyHash,
 		arg.KeyPrefix,
 		arg.KeyHint,
-		arg.TeamID,
-		arg.PrincipalID,
+		arg.WorkspaceID,
+		arg.Column8,
 		arg.CreatedBy,
 		arg.OnBehalfOf,
 		arg.Type,
@@ -52,7 +79,7 @@ func (q *Queries) CreateAPIKey(ctx context.Context, arg CreateAPIKeyParams) (Api
 		arg.Permissions,
 		arg.ExpiresAt,
 	)
-	var i ApiKey
+	var i CreateAPIKeyRow
 	err := row.Scan(
 		&i.ID,
 		&i.Name,
@@ -60,7 +87,7 @@ func (q *Queries) CreateAPIKey(ctx context.Context, arg CreateAPIKeyParams) (Api
 		&i.KeyHash,
 		&i.KeyPrefix,
 		&i.KeyHint,
-		&i.TeamID,
+		&i.WorkspaceID,
 		&i.PrincipalID,
 		&i.CreatedBy,
 		&i.OnBehalfOf,
@@ -81,15 +108,40 @@ func (q *Queries) CreateAPIKey(ctx context.Context, arg CreateAPIKeyParams) (Api
 }
 
 const getAPIKey = `-- name: GetAPIKey :one
-SELECT id, name, description, key_hash, key_prefix, key_hint, team_id, principal_id, created_by, on_behalf_of,
+SELECT id, name, description, key_hash, key_prefix, key_hint, workspace_id, COALESCE(principal_id, ''), created_by, on_behalf_of,
        type, environment, permissions, expires_at, last_used_at, request_count,
        revoked, revoked_at, rotated_to_id, grace_period_ends_at, created_at, updated_at
 FROM api_keys WHERE id = $1
 `
 
-func (q *Queries) GetAPIKey(ctx context.Context, id string) (ApiKey, error) {
+type GetAPIKeyRow struct {
+	ID                string     `json:"id"`
+	Name              string     `json:"name"`
+	Description       string     `json:"description"`
+	KeyHash           string     `json:"key_hash"`
+	KeyPrefix         string     `json:"key_prefix"`
+	KeyHint           string     `json:"key_hint"`
+	WorkspaceID       string     `json:"workspace_id"`
+	PrincipalID       string     `json:"principal_id"`
+	CreatedBy         string     `json:"created_by"`
+	OnBehalfOf        string     `json:"on_behalf_of"`
+	Type              string     `json:"type"`
+	Environment       string     `json:"environment"`
+	Permissions       []string   `json:"permissions"`
+	ExpiresAt         *time.Time `json:"expires_at"`
+	LastUsedAt        *time.Time `json:"last_used_at"`
+	RequestCount      int64      `json:"request_count"`
+	Revoked           bool       `json:"revoked"`
+	RevokedAt         *time.Time `json:"revoked_at"`
+	RotatedToID       string     `json:"rotated_to_id"`
+	GracePeriodEndsAt *time.Time `json:"grace_period_ends_at"`
+	CreatedAt         time.Time  `json:"created_at"`
+	UpdatedAt         time.Time  `json:"updated_at"`
+}
+
+func (q *Queries) GetAPIKey(ctx context.Context, id string) (GetAPIKeyRow, error) {
 	row := q.db.QueryRow(ctx, getAPIKey, id)
-	var i ApiKey
+	var i GetAPIKeyRow
 	err := row.Scan(
 		&i.ID,
 		&i.Name,
@@ -97,7 +149,7 @@ func (q *Queries) GetAPIKey(ctx context.Context, id string) (ApiKey, error) {
 		&i.KeyHash,
 		&i.KeyPrefix,
 		&i.KeyHint,
-		&i.TeamID,
+		&i.WorkspaceID,
 		&i.PrincipalID,
 		&i.CreatedBy,
 		&i.OnBehalfOf,
@@ -118,15 +170,40 @@ func (q *Queries) GetAPIKey(ctx context.Context, id string) (ApiKey, error) {
 }
 
 const getAPIKeyByHash = `-- name: GetAPIKeyByHash :one
-SELECT id, name, description, key_hash, key_prefix, key_hint, team_id, principal_id, created_by, on_behalf_of,
+SELECT id, name, description, key_hash, key_prefix, key_hint, workspace_id, COALESCE(principal_id, ''), created_by, on_behalf_of,
        type, environment, permissions, expires_at, last_used_at, request_count,
        revoked, revoked_at, rotated_to_id, grace_period_ends_at, created_at, updated_at
 FROM api_keys WHERE key_hash = $1
 `
 
-func (q *Queries) GetAPIKeyByHash(ctx context.Context, keyHash string) (ApiKey, error) {
+type GetAPIKeyByHashRow struct {
+	ID                string     `json:"id"`
+	Name              string     `json:"name"`
+	Description       string     `json:"description"`
+	KeyHash           string     `json:"key_hash"`
+	KeyPrefix         string     `json:"key_prefix"`
+	KeyHint           string     `json:"key_hint"`
+	WorkspaceID       string     `json:"workspace_id"`
+	PrincipalID       string     `json:"principal_id"`
+	CreatedBy         string     `json:"created_by"`
+	OnBehalfOf        string     `json:"on_behalf_of"`
+	Type              string     `json:"type"`
+	Environment       string     `json:"environment"`
+	Permissions       []string   `json:"permissions"`
+	ExpiresAt         *time.Time `json:"expires_at"`
+	LastUsedAt        *time.Time `json:"last_used_at"`
+	RequestCount      int64      `json:"request_count"`
+	Revoked           bool       `json:"revoked"`
+	RevokedAt         *time.Time `json:"revoked_at"`
+	RotatedToID       string     `json:"rotated_to_id"`
+	GracePeriodEndsAt *time.Time `json:"grace_period_ends_at"`
+	CreatedAt         time.Time  `json:"created_at"`
+	UpdatedAt         time.Time  `json:"updated_at"`
+}
+
+func (q *Queries) GetAPIKeyByHash(ctx context.Context, keyHash string) (GetAPIKeyByHashRow, error) {
 	row := q.db.QueryRow(ctx, getAPIKeyByHash, keyHash)
-	var i ApiKey
+	var i GetAPIKeyByHashRow
 	err := row.Scan(
 		&i.ID,
 		&i.Name,
@@ -134,7 +211,7 @@ func (q *Queries) GetAPIKeyByHash(ctx context.Context, keyHash string) (ApiKey, 
 		&i.KeyHash,
 		&i.KeyPrefix,
 		&i.KeyHint,
-		&i.TeamID,
+		&i.WorkspaceID,
 		&i.PrincipalID,
 		&i.CreatedBy,
 		&i.OnBehalfOf,
@@ -155,30 +232,55 @@ func (q *Queries) GetAPIKeyByHash(ctx context.Context, keyHash string) (ApiKey, 
 }
 
 const listAPIKeys = `-- name: ListAPIKeys :many
-SELECT id, name, description, key_hash, key_prefix, key_hint, team_id, principal_id, created_by, on_behalf_of,
+SELECT id, name, description, key_hash, key_prefix, key_hint, workspace_id, COALESCE(principal_id, ''), created_by, on_behalf_of,
        type, environment, permissions, expires_at, last_used_at, request_count,
        revoked, revoked_at, rotated_to_id, grace_period_ends_at, created_at, updated_at
 FROM api_keys
-WHERE team_id = $1 AND id >= $2 AND revoked = FALSE
+WHERE workspace_id = $1 AND id >= $2 AND revoked = FALSE
 ORDER BY id ASC
 LIMIT $3
 `
 
 type ListAPIKeysParams struct {
-	TeamID string `json:"team_id"`
-	ID     string `json:"id"`
-	Limit  int32  `json:"limit"`
+	WorkspaceID string `json:"workspace_id"`
+	ID          string `json:"id"`
+	Limit       int32  `json:"limit"`
 }
 
-func (q *Queries) ListAPIKeys(ctx context.Context, arg ListAPIKeysParams) ([]ApiKey, error) {
-	rows, err := q.db.Query(ctx, listAPIKeys, arg.TeamID, arg.ID, arg.Limit)
+type ListAPIKeysRow struct {
+	ID                string     `json:"id"`
+	Name              string     `json:"name"`
+	Description       string     `json:"description"`
+	KeyHash           string     `json:"key_hash"`
+	KeyPrefix         string     `json:"key_prefix"`
+	KeyHint           string     `json:"key_hint"`
+	WorkspaceID       string     `json:"workspace_id"`
+	PrincipalID       string     `json:"principal_id"`
+	CreatedBy         string     `json:"created_by"`
+	OnBehalfOf        string     `json:"on_behalf_of"`
+	Type              string     `json:"type"`
+	Environment       string     `json:"environment"`
+	Permissions       []string   `json:"permissions"`
+	ExpiresAt         *time.Time `json:"expires_at"`
+	LastUsedAt        *time.Time `json:"last_used_at"`
+	RequestCount      int64      `json:"request_count"`
+	Revoked           bool       `json:"revoked"`
+	RevokedAt         *time.Time `json:"revoked_at"`
+	RotatedToID       string     `json:"rotated_to_id"`
+	GracePeriodEndsAt *time.Time `json:"grace_period_ends_at"`
+	CreatedAt         time.Time  `json:"created_at"`
+	UpdatedAt         time.Time  `json:"updated_at"`
+}
+
+func (q *Queries) ListAPIKeys(ctx context.Context, arg ListAPIKeysParams) ([]ListAPIKeysRow, error) {
+	rows, err := q.db.Query(ctx, listAPIKeys, arg.WorkspaceID, arg.ID, arg.Limit)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []ApiKey{}
+	items := []ListAPIKeysRow{}
 	for rows.Next() {
-		var i ApiKey
+		var i ListAPIKeysRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.Name,
@@ -186,7 +288,7 @@ func (q *Queries) ListAPIKeys(ctx context.Context, arg ListAPIKeysParams) ([]Api
 			&i.KeyHash,
 			&i.KeyPrefix,
 			&i.KeyHint,
-			&i.TeamID,
+			&i.WorkspaceID,
 			&i.PrincipalID,
 			&i.CreatedBy,
 			&i.OnBehalfOf,
@@ -214,25 +316,50 @@ func (q *Queries) ListAPIKeys(ctx context.Context, arg ListAPIKeysParams) ([]Api
 }
 
 const listAPIKeysByPrincipal = `-- name: ListAPIKeysByPrincipal :many
-SELECT id, name, description, key_hash, key_prefix, key_hint, team_id, principal_id, created_by, on_behalf_of,
+SELECT id, name, description, key_hash, key_prefix, key_hint, workspace_id, COALESCE(principal_id, ''), created_by, on_behalf_of,
        type, environment, permissions, expires_at, last_used_at, request_count,
        revoked, revoked_at, rotated_to_id, grace_period_ends_at, created_at, updated_at
 FROM api_keys
-WHERE team_id = $1 AND principal_id = $2 AND id >= $3 AND revoked = FALSE
+WHERE workspace_id = $1 AND principal_id = $2 AND id >= $3 AND revoked = FALSE
 ORDER BY id ASC
 LIMIT $4
 `
 
 type ListAPIKeysByPrincipalParams struct {
-	TeamID      string `json:"team_id"`
-	PrincipalID string `json:"principal_id"`
-	ID          string `json:"id"`
-	Limit       int32  `json:"limit"`
+	WorkspaceID string      `json:"workspace_id"`
+	PrincipalID pgtype.Text `json:"principal_id"`
+	ID          string      `json:"id"`
+	Limit       int32       `json:"limit"`
 }
 
-func (q *Queries) ListAPIKeysByPrincipal(ctx context.Context, arg ListAPIKeysByPrincipalParams) ([]ApiKey, error) {
+type ListAPIKeysByPrincipalRow struct {
+	ID                string     `json:"id"`
+	Name              string     `json:"name"`
+	Description       string     `json:"description"`
+	KeyHash           string     `json:"key_hash"`
+	KeyPrefix         string     `json:"key_prefix"`
+	KeyHint           string     `json:"key_hint"`
+	WorkspaceID       string     `json:"workspace_id"`
+	PrincipalID       string     `json:"principal_id"`
+	CreatedBy         string     `json:"created_by"`
+	OnBehalfOf        string     `json:"on_behalf_of"`
+	Type              string     `json:"type"`
+	Environment       string     `json:"environment"`
+	Permissions       []string   `json:"permissions"`
+	ExpiresAt         *time.Time `json:"expires_at"`
+	LastUsedAt        *time.Time `json:"last_used_at"`
+	RequestCount      int64      `json:"request_count"`
+	Revoked           bool       `json:"revoked"`
+	RevokedAt         *time.Time `json:"revoked_at"`
+	RotatedToID       string     `json:"rotated_to_id"`
+	GracePeriodEndsAt *time.Time `json:"grace_period_ends_at"`
+	CreatedAt         time.Time  `json:"created_at"`
+	UpdatedAt         time.Time  `json:"updated_at"`
+}
+
+func (q *Queries) ListAPIKeysByPrincipal(ctx context.Context, arg ListAPIKeysByPrincipalParams) ([]ListAPIKeysByPrincipalRow, error) {
 	rows, err := q.db.Query(ctx, listAPIKeysByPrincipal,
-		arg.TeamID,
+		arg.WorkspaceID,
 		arg.PrincipalID,
 		arg.ID,
 		arg.Limit,
@@ -241,9 +368,9 @@ func (q *Queries) ListAPIKeysByPrincipal(ctx context.Context, arg ListAPIKeysByP
 		return nil, err
 	}
 	defer rows.Close()
-	items := []ApiKey{}
+	items := []ListAPIKeysByPrincipalRow{}
 	for rows.Next() {
-		var i ApiKey
+		var i ListAPIKeysByPrincipalRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.Name,
@@ -251,7 +378,7 @@ func (q *Queries) ListAPIKeysByPrincipal(ctx context.Context, arg ListAPIKeysByP
 			&i.KeyHash,
 			&i.KeyPrefix,
 			&i.KeyHint,
-			&i.TeamID,
+			&i.WorkspaceID,
 			&i.PrincipalID,
 			&i.CreatedBy,
 			&i.OnBehalfOf,
@@ -279,25 +406,50 @@ func (q *Queries) ListAPIKeysByPrincipal(ctx context.Context, arg ListAPIKeysByP
 }
 
 const listAPIKeysByPrincipalIncludeRevoked = `-- name: ListAPIKeysByPrincipalIncludeRevoked :many
-SELECT id, name, description, key_hash, key_prefix, key_hint, team_id, principal_id, created_by, on_behalf_of,
+SELECT id, name, description, key_hash, key_prefix, key_hint, workspace_id, COALESCE(principal_id, ''), created_by, on_behalf_of,
        type, environment, permissions, expires_at, last_used_at, request_count,
        revoked, revoked_at, rotated_to_id, grace_period_ends_at, created_at, updated_at
 FROM api_keys
-WHERE team_id = $1 AND principal_id = $2 AND id >= $3
+WHERE workspace_id = $1 AND principal_id = $2 AND id >= $3
 ORDER BY id ASC
 LIMIT $4
 `
 
 type ListAPIKeysByPrincipalIncludeRevokedParams struct {
-	TeamID      string `json:"team_id"`
-	PrincipalID string `json:"principal_id"`
-	ID          string `json:"id"`
-	Limit       int32  `json:"limit"`
+	WorkspaceID string      `json:"workspace_id"`
+	PrincipalID pgtype.Text `json:"principal_id"`
+	ID          string      `json:"id"`
+	Limit       int32       `json:"limit"`
 }
 
-func (q *Queries) ListAPIKeysByPrincipalIncludeRevoked(ctx context.Context, arg ListAPIKeysByPrincipalIncludeRevokedParams) ([]ApiKey, error) {
+type ListAPIKeysByPrincipalIncludeRevokedRow struct {
+	ID                string     `json:"id"`
+	Name              string     `json:"name"`
+	Description       string     `json:"description"`
+	KeyHash           string     `json:"key_hash"`
+	KeyPrefix         string     `json:"key_prefix"`
+	KeyHint           string     `json:"key_hint"`
+	WorkspaceID       string     `json:"workspace_id"`
+	PrincipalID       string     `json:"principal_id"`
+	CreatedBy         string     `json:"created_by"`
+	OnBehalfOf        string     `json:"on_behalf_of"`
+	Type              string     `json:"type"`
+	Environment       string     `json:"environment"`
+	Permissions       []string   `json:"permissions"`
+	ExpiresAt         *time.Time `json:"expires_at"`
+	LastUsedAt        *time.Time `json:"last_used_at"`
+	RequestCount      int64      `json:"request_count"`
+	Revoked           bool       `json:"revoked"`
+	RevokedAt         *time.Time `json:"revoked_at"`
+	RotatedToID       string     `json:"rotated_to_id"`
+	GracePeriodEndsAt *time.Time `json:"grace_period_ends_at"`
+	CreatedAt         time.Time  `json:"created_at"`
+	UpdatedAt         time.Time  `json:"updated_at"`
+}
+
+func (q *Queries) ListAPIKeysByPrincipalIncludeRevoked(ctx context.Context, arg ListAPIKeysByPrincipalIncludeRevokedParams) ([]ListAPIKeysByPrincipalIncludeRevokedRow, error) {
 	rows, err := q.db.Query(ctx, listAPIKeysByPrincipalIncludeRevoked,
-		arg.TeamID,
+		arg.WorkspaceID,
 		arg.PrincipalID,
 		arg.ID,
 		arg.Limit,
@@ -306,9 +458,9 @@ func (q *Queries) ListAPIKeysByPrincipalIncludeRevoked(ctx context.Context, arg 
 		return nil, err
 	}
 	defer rows.Close()
-	items := []ApiKey{}
+	items := []ListAPIKeysByPrincipalIncludeRevokedRow{}
 	for rows.Next() {
-		var i ApiKey
+		var i ListAPIKeysByPrincipalIncludeRevokedRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.Name,
@@ -316,7 +468,7 @@ func (q *Queries) ListAPIKeysByPrincipalIncludeRevoked(ctx context.Context, arg 
 			&i.KeyHash,
 			&i.KeyPrefix,
 			&i.KeyHint,
-			&i.TeamID,
+			&i.WorkspaceID,
 			&i.PrincipalID,
 			&i.CreatedBy,
 			&i.OnBehalfOf,
@@ -344,30 +496,55 @@ func (q *Queries) ListAPIKeysByPrincipalIncludeRevoked(ctx context.Context, arg 
 }
 
 const listAPIKeysIncludeRevoked = `-- name: ListAPIKeysIncludeRevoked :many
-SELECT id, name, description, key_hash, key_prefix, key_hint, team_id, principal_id, created_by, on_behalf_of,
+SELECT id, name, description, key_hash, key_prefix, key_hint, workspace_id, COALESCE(principal_id, ''), created_by, on_behalf_of,
        type, environment, permissions, expires_at, last_used_at, request_count,
        revoked, revoked_at, rotated_to_id, grace_period_ends_at, created_at, updated_at
 FROM api_keys
-WHERE team_id = $1 AND id >= $2
+WHERE workspace_id = $1 AND id >= $2
 ORDER BY id ASC
 LIMIT $3
 `
 
 type ListAPIKeysIncludeRevokedParams struct {
-	TeamID string `json:"team_id"`
-	ID     string `json:"id"`
-	Limit  int32  `json:"limit"`
+	WorkspaceID string `json:"workspace_id"`
+	ID          string `json:"id"`
+	Limit       int32  `json:"limit"`
 }
 
-func (q *Queries) ListAPIKeysIncludeRevoked(ctx context.Context, arg ListAPIKeysIncludeRevokedParams) ([]ApiKey, error) {
-	rows, err := q.db.Query(ctx, listAPIKeysIncludeRevoked, arg.TeamID, arg.ID, arg.Limit)
+type ListAPIKeysIncludeRevokedRow struct {
+	ID                string     `json:"id"`
+	Name              string     `json:"name"`
+	Description       string     `json:"description"`
+	KeyHash           string     `json:"key_hash"`
+	KeyPrefix         string     `json:"key_prefix"`
+	KeyHint           string     `json:"key_hint"`
+	WorkspaceID       string     `json:"workspace_id"`
+	PrincipalID       string     `json:"principal_id"`
+	CreatedBy         string     `json:"created_by"`
+	OnBehalfOf        string     `json:"on_behalf_of"`
+	Type              string     `json:"type"`
+	Environment       string     `json:"environment"`
+	Permissions       []string   `json:"permissions"`
+	ExpiresAt         *time.Time `json:"expires_at"`
+	LastUsedAt        *time.Time `json:"last_used_at"`
+	RequestCount      int64      `json:"request_count"`
+	Revoked           bool       `json:"revoked"`
+	RevokedAt         *time.Time `json:"revoked_at"`
+	RotatedToID       string     `json:"rotated_to_id"`
+	GracePeriodEndsAt *time.Time `json:"grace_period_ends_at"`
+	CreatedAt         time.Time  `json:"created_at"`
+	UpdatedAt         time.Time  `json:"updated_at"`
+}
+
+func (q *Queries) ListAPIKeysIncludeRevoked(ctx context.Context, arg ListAPIKeysIncludeRevokedParams) ([]ListAPIKeysIncludeRevokedRow, error) {
+	rows, err := q.db.Query(ctx, listAPIKeysIncludeRevoked, arg.WorkspaceID, arg.ID, arg.Limit)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []ApiKey{}
+	items := []ListAPIKeysIncludeRevokedRow{}
 	for rows.Next() {
-		var i ApiKey
+		var i ListAPIKeysIncludeRevokedRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.Name,
@@ -375,7 +552,7 @@ func (q *Queries) ListAPIKeysIncludeRevoked(ctx context.Context, arg ListAPIKeys
 			&i.KeyHash,
 			&i.KeyPrefix,
 			&i.KeyHint,
-			&i.TeamID,
+			&i.WorkspaceID,
 			&i.PrincipalID,
 			&i.CreatedBy,
 			&i.OnBehalfOf,
@@ -430,7 +607,7 @@ const updateAPIKey = `-- name: UpdateAPIKey :one
 UPDATE api_keys
 SET name = $2, description = $3, permissions = $4
 WHERE id = $1
-RETURNING id, name, description, key_hash, key_prefix, key_hint, team_id, principal_id, created_by, on_behalf_of,
+RETURNING id, name, description, key_hash, key_prefix, key_hint, workspace_id, COALESCE(principal_id, ''), created_by, on_behalf_of,
           type, environment, permissions, expires_at, last_used_at, request_count,
           revoked, revoked_at, rotated_to_id, grace_period_ends_at, created_at, updated_at
 `
@@ -442,14 +619,39 @@ type UpdateAPIKeyParams struct {
 	Permissions []string `json:"permissions"`
 }
 
-func (q *Queries) UpdateAPIKey(ctx context.Context, arg UpdateAPIKeyParams) (ApiKey, error) {
+type UpdateAPIKeyRow struct {
+	ID                string     `json:"id"`
+	Name              string     `json:"name"`
+	Description       string     `json:"description"`
+	KeyHash           string     `json:"key_hash"`
+	KeyPrefix         string     `json:"key_prefix"`
+	KeyHint           string     `json:"key_hint"`
+	WorkspaceID       string     `json:"workspace_id"`
+	PrincipalID       string     `json:"principal_id"`
+	CreatedBy         string     `json:"created_by"`
+	OnBehalfOf        string     `json:"on_behalf_of"`
+	Type              string     `json:"type"`
+	Environment       string     `json:"environment"`
+	Permissions       []string   `json:"permissions"`
+	ExpiresAt         *time.Time `json:"expires_at"`
+	LastUsedAt        *time.Time `json:"last_used_at"`
+	RequestCount      int64      `json:"request_count"`
+	Revoked           bool       `json:"revoked"`
+	RevokedAt         *time.Time `json:"revoked_at"`
+	RotatedToID       string     `json:"rotated_to_id"`
+	GracePeriodEndsAt *time.Time `json:"grace_period_ends_at"`
+	CreatedAt         time.Time  `json:"created_at"`
+	UpdatedAt         time.Time  `json:"updated_at"`
+}
+
+func (q *Queries) UpdateAPIKey(ctx context.Context, arg UpdateAPIKeyParams) (UpdateAPIKeyRow, error) {
 	row := q.db.QueryRow(ctx, updateAPIKey,
 		arg.ID,
 		arg.Name,
 		arg.Description,
 		arg.Permissions,
 	)
-	var i ApiKey
+	var i UpdateAPIKeyRow
 	err := row.Scan(
 		&i.ID,
 		&i.Name,
@@ -457,7 +659,7 @@ func (q *Queries) UpdateAPIKey(ctx context.Context, arg UpdateAPIKeyParams) (Api
 		&i.KeyHash,
 		&i.KeyPrefix,
 		&i.KeyHint,
-		&i.TeamID,
+		&i.WorkspaceID,
 		&i.PrincipalID,
 		&i.CreatedBy,
 		&i.OnBehalfOf,

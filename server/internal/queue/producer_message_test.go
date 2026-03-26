@@ -22,14 +22,14 @@ func TestIndexProducerEventToJob_MessageUpdatedUsesCanonicalResourceID(t *testin
 		EventType:     domain.EventMessageUpdated,
 		AggregateType: domain.AggregateMessage,
 		AggregateID:   "123.456",
-		TeamID:        "T123",
+		WorkspaceID:        "T123",
 		Payload:       payload,
 	})
 	if job == nil {
 		t.Fatal("expected job")
 	}
-	if job.TeamID != "T123" {
-		t.Fatalf("TeamID = %q, want %q", job.TeamID, "T123")
+	if job.WorkspaceID != "T123" {
+		t.Fatalf("WorkspaceID = %q, want %q", job.WorkspaceID, "T123")
 	}
 	if job.ResourceID != service.MessageSearchID("C123", "123.456") {
 		t.Fatalf("ResourceID = %q, want %q", job.ResourceID, service.MessageSearchID("C123", "123.456"))
@@ -50,14 +50,14 @@ func TestIndexProducerEventToJob_MessageDeletedUsesCanonicalResourceID(t *testin
 		EventType:     domain.EventMessageDeleted,
 		AggregateType: domain.AggregateMessage,
 		AggregateID:   "123.456",
-		TeamID:        "T123",
+		WorkspaceID:        "T123",
 		Payload:       payload,
 	})
 	if job == nil {
 		t.Fatal("expected job")
 	}
-	if job.TeamID != "T123" {
-		t.Fatalf("TeamID = %q, want %q", job.TeamID, "T123")
+	if job.WorkspaceID != "T123" {
+		t.Fatalf("WorkspaceID = %q, want %q", job.WorkspaceID, "T123")
 	}
 	if job.Content != "" {
 		t.Fatalf("Content = %q, want empty", job.Content)

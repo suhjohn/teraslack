@@ -14,9 +14,12 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"strconv"
+	"strings"
 	"syscall"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/suhjohn/teraslack/internal/domain"
 	pgRepo "github.com/suhjohn/teraslack/internal/repository/postgres"
 	"github.com/suhjohn/teraslack/internal/service"
 )
@@ -56,6 +59,11 @@ func run() error {
 		pgRepo.NewProjectorCheckpointRepo(pool),
 		logger,
 	)
+	ownedShards, err := parseOwnedShards(os.Getenv("EXTERNAL_EVENT_PROJECTOR_OWNED_SHARDS"))
+	if err != nil {
+		return err
+	}
+	projector.SetOwnedShards(ownedShards)
 
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
@@ -84,4 +92,32 @@ func run() error {
 		}
 		return fmt.Errorf("projector stopped unexpectedly")
 	}
+}
+
+func parseOwnedShards(value string) ([]int, error) {
+	if value == "" {
+		return nil, nil
+	}
+	parts := strings.Split(value, ",")
+	shards := make([]int, 0, len(parts))
+	seen := map[int]struct{}{}
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		shardID, err := strconv.Atoi(part)
+		if err != nil {
+			return nil, fmt.Errorf("invalid shard id %q: %w", part, err)
+		}
+		if shardID < 0 || shardID >= domain.InternalEventShardCount {
+			return nil, fmt.Errorf("shard id %d out of range [0,%d)", shardID, domain.InternalEventShardCount)
+		}
+		if _, ok := seen[shardID]; ok {
+			continue
+		}
+		seen[shardID] = struct{}{}
+		shards = append(shards, shardID)
+	}
+	return shards, nil
 }

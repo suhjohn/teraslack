@@ -25,7 +25,7 @@ func TestDecodeStrictJSON_RejectsLegacyEventTypesField(t *testing.T) {
 func TestEventSubscriptionResponseFromDomain_RedactsSecrets(t *testing.T) {
 	payload, err := json.Marshal(eventSubscriptionResponseFromDomain(&domain.EventSubscription{
 		ID:              "ES123",
-		TeamID:          "T123",
+		WorkspaceID:          "T123",
 		URL:             "https://example.com/webhook",
 		Type:            domain.EventTypeConversationMessageCreated,
 		ResourceType:    domain.ResourceTypeConversation,

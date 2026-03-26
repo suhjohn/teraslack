@@ -243,7 +243,7 @@ func (w *WebhookWorker) deliverWebhook(ctx context.Context, job Job) string {
 	req.Header.Set("X-Teraslack-Delivery-Id", job.ID)
 	req.Header.Set("X-Teraslack-Event-Id", fmt.Sprintf("%d", job.EventID))
 	req.Header.Set("X-Teraslack-Event-Type", job.EventType)
-	req.Header.Set("X-Teraslack-Team-Id", job.TeamID)
+	req.Header.Set("X-Teraslack-Workspace-Id", job.WorkspaceID)
 
 	// HMAC-SHA256 signing
 	if job.Secret != "" {

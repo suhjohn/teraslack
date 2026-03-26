@@ -94,7 +94,7 @@ func TestAuthRepo_CreateSession_DoesNotPersistRawToken(t *testing.T) {
 	repo := NewAuthRepo(db)
 
 	session, err := repo.CreateSession(context.Background(), domain.CreateAuthSessionParams{
-		TeamID:    "T123",
+		WorkspaceID:    "T123",
 		UserID:    "U123",
 		Provider:  domain.AuthProviderGitHub,
 		ExpiresAt: timeNow(),

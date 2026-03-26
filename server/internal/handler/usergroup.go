@@ -27,8 +27,8 @@ func (h *UsergroupHandler) Create(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteError(w, r, domain.ErrInvalidArgument)
 		return
 	}
-	if teamID := ctxutil.GetTeamID(r.Context()); teamID != "" {
-		params.TeamID = teamID
+	if workspaceID := ctxutil.GetWorkspaceID(r.Context()); workspaceID != "" {
+		params.WorkspaceID = workspaceID
 	}
 	if actorID := ctxutil.GetActingUserID(r.Context()); actorID != "" {
 		params.CreatedBy = actorID
@@ -97,11 +97,11 @@ func (h *UsergroupHandler) List(w http.ResponseWriter, r *http.Request) {
 	includeDisabled, _ := strconv.ParseBool(q.Get("include_disabled"))
 
 	params := domain.ListUsergroupsParams{
-		TeamID:          q.Get("team_id"),
+		WorkspaceID:          q.Get("workspace_id"),
 		IncludeDisabled: includeDisabled,
 	}
-	if teamID := ctxutil.GetTeamID(r.Context()); teamID != "" {
-		params.TeamID = teamID
+	if workspaceID := ctxutil.GetWorkspaceID(r.Context()); workspaceID != "" {
+		params.WorkspaceID = workspaceID
 	}
 	groups, err := h.svc.List(r.Context(), params)
 	if err != nil {

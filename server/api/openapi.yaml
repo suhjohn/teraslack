@@ -7,7 +7,7 @@ security:
   - bearerAuth: []
 tags:
   - name: Health
-  - name: Teams
+  - name: Workspaces
   - name: Users
   - name: Access
   - name: Conversations
@@ -34,13 +34,13 @@ paths:
                 $ref: "#/components/schemas/HealthStatusResponse"
         default:
           $ref: "#/components/responses/ApiErrorResponse"
-  /teams:
+  /workspaces:
     get:
-      tags: [Teams]
-      operationId: listTeams
+      tags: [Workspaces]
+      operationId: listWorkspaces
       responses:
         "200":
-          description: Teams.
+          description: Workspaces visible to the authenticated caller. Human sessions receive the workspaces they are a member of.
           content:
             application/json:
               schema:
@@ -48,8 +48,8 @@ paths:
         default:
           $ref: "#/components/responses/ApiErrorResponse"
     post:
-      tags: [Teams]
-      operationId: createTeam
+      tags: [Workspaces]
+      operationId: createWorkspace
       requestBody:
         required: true
         content:
@@ -58,7 +58,7 @@ paths:
               $ref: "#/components/schemas/CreateWorkspaceRequest"
       responses:
         "201":
-          description: Team created.
+          description: Workspace created.
           headers:
             Location:
               $ref: "#/components/headers/Location"
@@ -68,15 +68,15 @@ paths:
                 $ref: "#/components/schemas/Workspace"
         default:
           $ref: "#/components/responses/ApiErrorResponse"
-  /teams/{id}:
+  /workspaces/{id}:
     get:
-      tags: [Teams]
-      operationId: getTeam
+      tags: [Workspaces]
+      operationId: getWorkspace
       parameters:
-        - $ref: "#/components/parameters/TeamIDPath"
+        - $ref: "#/components/parameters/WorkspaceIDPath"
       responses:
         "200":
-          description: Team.
+          description: Workspace. Human sessions may only access their current workspace.
           content:
             application/json:
               schema:
@@ -84,10 +84,10 @@ paths:
         default:
           $ref: "#/components/responses/ApiErrorResponse"
     patch:
-      tags: [Teams]
-      operationId: updateTeam
+      tags: [Workspaces]
+      operationId: updateWorkspace
       parameters:
-        - $ref: "#/components/parameters/TeamIDPath"
+        - $ref: "#/components/parameters/WorkspaceIDPath"
       requestBody:
         required: true
         content:
@@ -96,154 +96,154 @@ paths:
               $ref: "#/components/schemas/UpdateWorkspaceRequest"
       responses:
         "200":
-          description: Team updated.
+          description: Workspace updated. Human sessions may only update their current workspace.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Workspace"
         default:
           $ref: "#/components/responses/ApiErrorResponse"
-  /teams/{id}/admins:
+  /workspaces/{id}/admins:
     get:
-      tags: [Teams]
-      operationId: listTeamAdmins
+      tags: [Workspaces]
+      operationId: listWorkspaceAdmins
       parameters:
-        - $ref: "#/components/parameters/TeamIDPath"
+        - $ref: "#/components/parameters/WorkspaceIDPath"
       responses:
         "200":
-          description: Team admins.
+          description: Workspace admins.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/UsersCollection"
         default:
           $ref: "#/components/responses/ApiErrorResponse"
-  /teams/{id}/owners:
+  /workspaces/{id}/owners:
     get:
-      tags: [Teams]
-      operationId: listTeamOwners
+      tags: [Workspaces]
+      operationId: listWorkspaceOwners
       parameters:
-        - $ref: "#/components/parameters/TeamIDPath"
+        - $ref: "#/components/parameters/WorkspaceIDPath"
       responses:
         "200":
-          description: Team owners.
+          description: Workspace owners.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/UsersCollection"
         default:
           $ref: "#/components/responses/ApiErrorResponse"
-  /teams/{id}/access-logs:
+  /workspaces/{id}/access-logs:
     get:
-      tags: [Teams]
-      operationId: listTeamAccessLogs
+      tags: [Workspaces]
+      operationId: listWorkspaceAccessLogs
       parameters:
-        - $ref: "#/components/parameters/TeamIDPath"
+        - $ref: "#/components/parameters/WorkspaceIDPath"
         - $ref: "#/components/parameters/LimitQuery"
       responses:
         "200":
-          description: Team access logs.
+          description: Workspace access logs.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/WorkspaceAccessLogsCollection"
         default:
           $ref: "#/components/responses/ApiErrorResponse"
-  /teams/{id}/authorization-audit-logs:
+  /workspaces/{id}/authorization-audit-logs:
     get:
-      tags: [Teams]
-      operationId: listTeamAuthorizationAuditLogs
+      tags: [Workspaces]
+      operationId: listWorkspaceAuthorizationAuditLogs
       parameters:
-        - $ref: "#/components/parameters/TeamIDPath"
+        - $ref: "#/components/parameters/WorkspaceIDPath"
         - $ref: "#/components/parameters/LimitQuery"
       responses:
         "200":
-          description: Team authorization audit logs.
+          description: Workspace authorization audit logs.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/AuthorizationAuditLogsCollection"
         default:
           $ref: "#/components/responses/ApiErrorResponse"
-  /teams/{id}/billable-info:
+  /workspaces/{id}/billable-info:
     get:
-      tags: [Teams]
-      operationId: getTeamBillableInfo
+      tags: [Workspaces]
+      operationId: getWorkspaceBillableInfo
       parameters:
-        - $ref: "#/components/parameters/TeamIDPath"
+        - $ref: "#/components/parameters/WorkspaceIDPath"
       responses:
         "200":
-          description: Team billable info.
+          description: Workspace billable info.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/WorkspaceBillableInfoMap"
         default:
           $ref: "#/components/responses/ApiErrorResponse"
-  /teams/{id}/billing:
+  /workspaces/{id}/billing:
     get:
-      tags: [Teams]
-      operationId: getTeamBilling
+      tags: [Workspaces]
+      operationId: getWorkspaceBilling
       parameters:
-        - $ref: "#/components/parameters/TeamIDPath"
+        - $ref: "#/components/parameters/WorkspaceIDPath"
       responses:
         "200":
-          description: Team billing.
+          description: Workspace billing.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/WorkspaceBilling"
         default:
           $ref: "#/components/responses/ApiErrorResponse"
-  /teams/{id}/external-teams:
+  /workspaces/{id}/external-workspaces:
     get:
-      tags: [Teams]
-      operationId: listExternalTeams
+      tags: [Workspaces]
+      operationId: listExternalWorkspaces
       parameters:
-        - $ref: "#/components/parameters/TeamIDPath"
+        - $ref: "#/components/parameters/WorkspaceIDPath"
       responses:
         "200":
-          description: External team connections.
+          description: External workspace connections.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ExternalTeamsCollection"
+                $ref: "#/components/schemas/ExternalWorkspacesCollection"
         default:
           $ref: "#/components/responses/ApiErrorResponse"
-  /teams/{id}/external-teams/{external_team_id}:
+  /workspaces/{id}/external-workspaces/{external_workspace_id}:
     delete:
-      tags: [Teams]
-      operationId: disconnectExternalTeam
+      tags: [Workspaces]
+      operationId: disconnectExternalWorkspace
       parameters:
-        - $ref: "#/components/parameters/TeamIDPath"
-        - $ref: "#/components/parameters/ExternalTeamIDPath"
+        - $ref: "#/components/parameters/WorkspaceIDPath"
+        - $ref: "#/components/parameters/ExternalWorkspaceIDPath"
       responses:
         "204":
           $ref: "#/components/responses/NoContent"
         default:
           $ref: "#/components/responses/ApiErrorResponse"
-  /teams/{id}/integration-logs:
+  /workspaces/{id}/integration-logs:
     get:
-      tags: [Teams]
-      operationId: listTeamIntegrationLogs
+      tags: [Workspaces]
+      operationId: listWorkspaceIntegrationLogs
       parameters:
-        - $ref: "#/components/parameters/TeamIDPath"
+        - $ref: "#/components/parameters/WorkspaceIDPath"
         - $ref: "#/components/parameters/LimitQuery"
       responses:
         "200":
-          description: Team integration logs.
+          description: Workspace integration logs.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/WorkspaceIntegrationLogsCollection"
         default:
           $ref: "#/components/responses/ApiErrorResponse"
-  /teams/{id}/primary-admin:
+  /workspaces/{id}/primary-admin:
     post:
-      tags: [Teams]
+      tags: [Workspaces]
       operationId: transferPrimaryAdmin
       parameters:
-        - $ref: "#/components/parameters/TeamIDPath"
+        - $ref: "#/components/parameters/WorkspaceIDPath"
       requestBody:
         required: true
         content:
@@ -259,30 +259,30 @@ paths:
                 $ref: "#/components/schemas/User"
         default:
           $ref: "#/components/responses/ApiErrorResponse"
-  /teams/{id}/preferences:
+  /workspaces/{id}/preferences:
     get:
-      tags: [Teams]
-      operationId: getTeamPreferences
+      tags: [Workspaces]
+      operationId: getWorkspacePreferences
       parameters:
-        - $ref: "#/components/parameters/TeamIDPath"
+        - $ref: "#/components/parameters/WorkspaceIDPath"
       responses:
         "200":
-          description: Team preferences.
+          description: Workspace preferences.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/FreeFormObject"
         default:
           $ref: "#/components/responses/ApiErrorResponse"
-  /teams/{id}/profile-fields:
+  /workspaces/{id}/profile-fields:
     get:
-      tags: [Teams]
-      operationId: listTeamProfileFields
+      tags: [Workspaces]
+      operationId: listWorkspaceProfileFields
       parameters:
-        - $ref: "#/components/parameters/TeamIDPath"
+        - $ref: "#/components/parameters/WorkspaceIDPath"
       responses:
         "200":
-          description: Team profile fields.
+          description: Workspace profile fields.
           content:
             application/json:
               schema:
@@ -294,11 +294,12 @@ paths:
       tags: [Users]
       operationId: listUsers
       parameters:
-        - $ref: "#/components/parameters/TeamIDQuery"
+        - $ref: "#/components/parameters/WorkspaceIDQuery"
         - $ref: "#/components/parameters/CursorQuery"
         - $ref: "#/components/parameters/LimitQuery"
         - name: email
           in: query
+          description: Filter by exact email address.
           schema:
             type: string
       responses:
@@ -406,8 +407,9 @@ paths:
       tags: [Access]
       operationId: listExternalPrincipalAccess
       parameters:
-        - name: host_team_id
+        - name: host_workspace_id
           in: query
+          description: Filter by the workspace granting access.
           schema:
             type: string
       responses:
@@ -490,11 +492,12 @@ paths:
       tags: [Conversations]
       operationId: listConversations
       parameters:
-        - $ref: "#/components/parameters/TeamIDQuery"
+        - $ref: "#/components/parameters/WorkspaceIDQuery"
         - $ref: "#/components/parameters/CursorQuery"
         - $ref: "#/components/parameters/LimitQuery"
         - name: types
           in: query
+          description: Comma-separated conversation types to include.
           style: form
           explode: false
           schema:
@@ -503,6 +506,7 @@ paths:
               $ref: "#/components/schemas/ConversationType"
         - name: exclude_archived
           in: query
+          description: When true, omit archived conversations from results.
           schema:
             type: boolean
       responses:
@@ -834,26 +838,32 @@ paths:
       parameters:
         - name: conversation_id
           in: query
+          description: Return messages from this conversation.
           schema:
             type: string
         - name: thread_ts
           in: query
+          description: Return only replies in this thread (identified by the parent message timestamp).
           schema:
             type: string
         - name: latest
           in: query
+          description: End of time range (message timestamp). Only messages before this timestamp are returned.
           schema:
             type: string
         - name: oldest
           in: query
+          description: Start of time range (message timestamp). Only messages after this timestamp are returned.
           schema:
             type: string
         - name: inclusive
           in: query
+          description: When true, include messages with timestamps exactly matching latest or oldest.
           schema:
             type: boolean
         - name: include_all_metadata
           in: query
+          description: When true, include full metadata on each message.
           schema:
             type: boolean
         - $ref: "#/components/parameters/CursorQuery"
@@ -974,9 +984,10 @@ paths:
       tags: [Usergroups]
       operationId: listUsergroups
       parameters:
-        - $ref: "#/components/parameters/TeamIDQuery"
+        - $ref: "#/components/parameters/WorkspaceIDQuery"
         - name: include_disabled
           in: query
+          description: When true, include disabled usergroups in results.
           schema:
             type: boolean
       responses:
@@ -1125,10 +1136,12 @@ paths:
       parameters:
         - name: conversation_id
           in: query
+          description: Filter files shared in this conversation.
           schema:
             type: string
         - name: user_id
           in: query
+          description: Filter files uploaded by this user.
           schema:
             type: string
         - $ref: "#/components/parameters/CursorQuery"
@@ -1210,7 +1223,7 @@ paths:
       tags: [Event Subscriptions]
       operationId: listEventSubscriptions
       parameters:
-        - $ref: "#/components/parameters/TeamIDQuery"
+        - $ref: "#/components/parameters/WorkspaceIDQuery"
       responses:
         "200":
           description: Event subscriptions.
@@ -1299,15 +1312,18 @@ paths:
         - $ref: "#/components/parameters/LimitQuery"
         - name: type
           in: query
+          description: Filter by event type (e.g. "conversation.message.created").
           schema:
             type: string
         - name: resource_type
           in: query
+          description: Filter by the type of resource that produced the event.
           schema:
             type: string
-            enum: [team, user, conversation, file, usergroup]
+            enum: [workspace, user, conversation, file, usergroup]
         - name: resource_id
           in: query
+          description: Filter by the specific resource that produced the event.
           schema:
             type: string
       responses:
@@ -1326,9 +1342,10 @@ paths:
       security: []
       parameters:
         - $ref: "#/components/parameters/AuthProviderPath"
-        - $ref: "#/components/parameters/TeamIDQuery"
+        - $ref: "#/components/parameters/WorkspaceIDQuery"
         - name: redirect_to
           in: query
+          description: URL to redirect to after successful authentication.
           schema:
             type: string
       responses:
@@ -1346,11 +1363,13 @@ paths:
         - name: code
           in: query
           required: true
+          description: Authorization code returned by the OAuth provider.
           schema:
             type: string
         - name: state
           in: query
           required: true
+          description: OAuth state parameter for CSRF validation.
           schema:
             type: string
       responses:
@@ -1368,6 +1387,21 @@ paths:
     delete:
       tags: [Auth]
       operationId: deleteCurrentSession
+      responses:
+        "204":
+          $ref: "#/components/responses/NoContent"
+        default:
+          $ref: "#/components/responses/ApiErrorResponse"
+  /auth/sessions/current/workspace:
+    post:
+      tags: [Auth]
+      operationId: switchCurrentSessionWorkspace
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SwitchCurrentSessionWorkspaceRequest"
       responses:
         "204":
           $ref: "#/components/responses/NoContent"
@@ -1410,13 +1444,15 @@ paths:
       tags: [API Keys]
       operationId: listApiKeys
       parameters:
-        - $ref: "#/components/parameters/TeamIDQuery"
-        - name: principal_id
+        - $ref: "#/components/parameters/WorkspaceIDQuery"
+        - name: user_id
           in: query
+          description: Filter API keys owned by this user.
           schema:
             type: string
         - name: include_revoked
           in: query
+          description: When true, include revoked API keys in results.
           schema:
             type: boolean
         - $ref: "#/components/parameters/CursorQuery"
@@ -1541,109 +1577,127 @@ components:
           schema:
             $ref: "#/components/schemas/APIError"
   parameters:
-    TeamIDPath:
+    WorkspaceIDPath:
       name: id
       in: path
       required: true
+      description: Workspace identifier.
       schema:
         type: string
     AuthProviderPath:
       name: provider
       in: path
       required: true
+      description: OAuth provider name.
       schema:
         $ref: "#/components/schemas/AuthProvider"
-    TeamIDQuery:
-      name: team_id
+    WorkspaceIDQuery:
+      name: workspace_id
       in: query
+      description: Filter results by workspace identifier.
       schema:
         type: string
     UserIDPath:
       name: id
       in: path
       required: true
+      description: User identifier.
       schema:
         type: string
     UserIDPathNamed:
       name: user_id
       in: path
       required: true
+      description: User identifier.
       schema:
         type: string
     ConversationIDPath:
       name: id
       in: path
       required: true
+      description: Conversation identifier.
       schema:
         type: string
     ConversationIDPathNamed:
       name: conversation_id
       in: path
       required: true
+      description: Conversation identifier.
       schema:
         type: string
-    ExternalTeamIDPath:
-      name: external_team_id
+    ExternalWorkspaceIDPath:
+      name: external_workspace_id
       in: path
       required: true
+      description: External workspace connection identifier.
       schema:
         type: string
     ExternalPrincipalAccessIDPath:
       name: id
       in: path
       required: true
+      description: External principal access grant identifier.
       schema:
         type: string
     BookmarkIDPath:
       name: bookmark_id
       in: path
       required: true
+      description: Bookmark identifier.
       schema:
         type: string
     MessageTSPath:
       name: message_ts
       in: path
       required: true
+      description: Message timestamp — the unique identifier for a message within a conversation.
       schema:
         type: string
     ReactionNamePath:
       name: reaction_name
       in: path
       required: true
+      description: Emoji reaction name (e.g. "thumbsup").
       schema:
         type: string
     UsergroupIDPath:
       name: id
       in: path
       required: true
+      description: Usergroup identifier.
       schema:
         type: string
     FileIDPath:
       name: id
       in: path
       required: true
+      description: File identifier.
       schema:
         type: string
     EventSubscriptionIDPath:
       name: id
       in: path
       required: true
+      description: Event subscription identifier.
       schema:
         type: string
     APIKeyIDPath:
       name: id
       in: path
       required: true
+      description: API key identifier.
       schema:
         type: string
     CursorQuery:
       name: cursor
       in: query
+      description: Opaque pagination cursor returned by a previous request.
       schema:
         type: string
     LimitQuery:
       name: limit
       in: query
+      description: Maximum number of items to return per page.
       schema:
         type: integer
         format: int32
@@ -1655,65 +1709,77 @@ components:
       properties:
         status:
           type: string
+          description: Service health status.
           enum: [ok]
     APIError:
       type: object
+      description: Standard error envelope returned for all non-2xx responses.
       required: [code, message]
       properties:
         code:
           type: string
+          description: Machine-readable error code (e.g. "not_found", "validation_error").
         message:
           type: string
+          description: Human-readable error description.
         request_id:
           type: string
+          description: Unique request identifier for debugging.
         errors:
           type: array
+          description: Field-level validation errors, present when code is "validation_error".
           items:
             $ref: "#/components/schemas/FieldError"
     FieldError:
       type: object
+      description: A single field-level validation error.
       required: [field, code, message]
       properties:
         field:
           type: string
+          description: JSON path of the invalid field (e.g. "name").
         code:
           type: string
+          description: Machine-readable validation code (e.g. "required", "too_long").
         message:
           type: string
+          description: Human-readable explanation of the validation failure.
     FreeFormJSON: {}
     FreeFormObject:
       type: object
       additionalProperties: true
     PrincipalType:
       type: string
+      description: "The kind of identity: human user, AI agent, or system service."
       enum: [human, agent, system]
     AccountType:
       type: string
+      description: "Permission tier within a workspace."
       enum: [primary_admin, admin, member]
     DelegatedRole:
       type: string
+      description: Fine-grained administrative role that can be granted to a user.
       enum: [channels_admin, roles_admin, security_admin, integrations_admin, usergroups_admin, support_readonly]
     ExternalPrincipalAccessMode:
       type: string
+      description: Level of access granted to an external principal.
       enum: [external_shared, external_shared_readonly]
     ConversationPostingPolicyType:
       type: string
+      description: Who is allowed to post messages in a conversation.
       enum: [everyone, admins_only, members_with_permission, custom]
     AuthProvider:
       type: string
+      description: Supported OAuth provider.
       enum: [github, google]
     WorkspaceDiscoverability:
       type: string
+      description: Whether the workspace can be discovered and joined without an invite.
       enum: [open, invite_only]
     ConversationType:
       type: string
+      description: "Channel type: public_channel, private_channel, im (1:1 DM), or mpim (group DM)."
       enum: [public_channel, private_channel, im, mpim]
-    APIKeyType:
-      type: string
-      enum: [persistent, session, restricted]
-    APIKeyEnvironment:
-      type: string
-      enum: [live, test]
     WorkspaceIcon:
       type: object
       properties:
@@ -1754,6 +1820,7 @@ components:
           type: string
     Workspace:
       type: object
+      description: A workspace. The top-level organizational unit.
       required:
         - id
         - name
@@ -1771,26 +1838,33 @@ components:
       properties:
         id:
           type: string
+          description: Unique workspace identifier.
         name:
           type: string
+          description: Display name of the workspace.
         domain:
           type: string
+          description: Unique URL-safe slug for the workspace (e.g. "acme-corp").
         email_domain:
           type: string
+          description: Email domain used for auto-joining (e.g. "acme.com").
         description:
           type: string
+          description: Short description of the workspace.
         icon:
           $ref: "#/components/schemas/WorkspaceIcon"
         discoverability:
           $ref: "#/components/schemas/WorkspaceDiscoverability"
         default_channels:
           type: array
+          description: Conversation IDs that new members are automatically added to.
           items:
             type: string
         preferences:
           $ref: "#/components/schemas/FreeFormObject"
         profile_fields:
           type: array
+          description: Custom profile fields defined for this workspace.
           items:
             $ref: "#/components/schemas/WorkspaceProfileField"
         billing:
@@ -1850,26 +1924,36 @@ components:
           format: date-time
     AuthorizationAuditLog:
       type: object
-      required: [id, team_id, action, resource, resource_id, created_at]
+      description: A record of an authorization-relevant action (permission change, access grant, etc.).
+      required: [id, workspace_id, action, resource, resource_id, created_at]
       properties:
         id:
           type: string
-        team_id:
+          description: Unique audit log entry identifier.
+        workspace_id:
           type: string
+          description: Workspace where the action occurred.
         actor_id:
           type: string
+          description: User who performed the action.
         api_key_id:
           type: string
+          description: API key used to perform the action (if applicable).
         on_behalf_of:
           type: string
+          description: User the action was performed on behalf of (for delegated actions).
         action:
           type: string
+          description: Action performed (e.g. "grant_access", "revoke_key").
         resource:
           type: string
+          description: Type of resource affected.
         resource_id:
           type: string
+          description: Identifier of the resource affected.
         metadata:
           $ref: "#/components/schemas/FreeFormObject"
+          description: Additional context about the action.
         created_at:
           type: string
           format: date-time
@@ -1879,13 +1963,13 @@ components:
       properties:
         user_id:
           type: string
-    ExternalTeam:
+    ExternalWorkspace:
       type: object
-      required: [id, external_team_id, name, connection_type, connected, created_at]
+      required: [id, external_workspace_id, name, connection_type, connected, created_at]
       properties:
         id:
           type: string
-        external_team_id:
+        external_workspace_id:
           type: string
         name:
           type: string
@@ -1948,9 +2032,10 @@ components:
             $ref: "#/components/schemas/UserProfileFieldValue"
     User:
       type: object
+      description: A user identity — can represent a human, an AI agent, or a system service.
       required:
         - id
-        - team_id
+        - workspace_id
         - name
         - real_name
         - display_name
@@ -1965,30 +2050,40 @@ components:
       properties:
         id:
           type: string
-        team_id:
+          description: Unique user identifier.
+        workspace_id:
           type: string
+          description: Workspace this user belongs to.
         name:
           type: string
+          description: Unique username within the workspace (used for @-mentions).
         real_name:
           type: string
+          description: Full name of the user.
         display_name:
           type: string
+          description: Name shown in the UI. Falls back to real_name if empty.
         email:
           type: string
+          description: Email address associated with the user.
         principal_type:
           $ref: "#/components/schemas/PrincipalType"
         account_type:
           $ref: "#/components/schemas/AccountType"
         owner_id:
           type: string
+          description: For agent users, the human user who owns this agent.
         delegated_roles:
           type: array
+          description: Administrative roles delegated to this user.
           items:
             $ref: "#/components/schemas/DelegatedRole"
         is_bot:
           type: boolean
+          description: Whether this user is a bot/agent (true) or human (false).
         deleted:
           type: boolean
+          description: Whether this user has been deactivated.
         profile:
           $ref: "#/components/schemas/UserProfile"
         created_at:
@@ -2010,9 +2105,10 @@ components:
           format: date-time
     Conversation:
       type: object
+      description: A conversation — a channel, DM, or group DM where messages are exchanged.
       required:
         - id
-        - team_id
+        - workspace_id
         - name
         - type
         - creator_id
@@ -2025,16 +2121,21 @@ components:
       properties:
         id:
           type: string
-        team_id:
+          description: Unique conversation identifier.
+        workspace_id:
           type: string
+          description: Workspace this conversation belongs to.
         name:
           type: string
+          description: Display name of the conversation (e.g. "general", "deploy-alerts").
         type:
           $ref: "#/components/schemas/ConversationType"
         creator_id:
           type: string
+          description: User who created this conversation.
         is_archived:
           type: boolean
+          description: Whether the conversation has been archived.
         topic:
           $ref: "#/components/schemas/TopicPurpose"
         purpose:
@@ -2042,6 +2143,19 @@ components:
         num_members:
           type: integer
           format: int32
+          description: Current number of members in the conversation.
+        last_message_ts:
+          type: string
+          description: Timestamp of the most recent message.
+        last_activity_ts:
+          type: string
+          description: Timestamp of the most recent activity (message, reaction, etc.).
+        last_read_ts:
+          type: string
+          description: Timestamp of the last message the authenticated user has read.
+        has_unread:
+          type: boolean
+          description: Whether the authenticated user has unread messages in this conversation.
         created_at:
           type: string
           format: date-time
@@ -2050,19 +2164,24 @@ components:
           format: date-time
     Reaction:
       type: object
+      description: An emoji reaction on a message.
       required: [name, users, count]
       properties:
         name:
           type: string
+          description: Emoji name (e.g. "thumbsup", "heart").
         users:
           type: array
+          description: User IDs who added this reaction.
           items:
             type: string
         count:
           type: integer
           format: int32
+          description: Total number of users who added this reaction.
     Message:
       type: object
+      description: A single message within a conversation.
       required:
         - ts
         - channel_id
@@ -2077,40 +2196,56 @@ components:
       properties:
         ts:
           type: string
+          description: Message timestamp — the unique identifier for this message within its conversation.
         channel_id:
           type: string
+          description: Conversation this message belongs to.
         user_id:
           type: string
+          description: User who sent the message.
         text:
           type: string
+          description: Plain-text content of the message.
         thread_ts:
           type: string
+          description: If this message is a reply, the timestamp of the parent message.
         type:
           type: string
+          description: Message type (typically "message").
         subtype:
           type: string
+          description: Message subtype for system messages (e.g. "channel_join", "channel_topic").
         blocks:
           $ref: "#/components/schemas/FreeFormJSON"
+          description: Rich-text block layout (Block Kit format).
         metadata:
           $ref: "#/components/schemas/FreeFormJSON"
+          description: Arbitrary key-value metadata attached to the message.
         edited_by:
           type: string
+          description: User who last edited the message.
         edited_at:
           type: string
+          description: Timestamp of the last edit.
         reactions:
           type: array
+          description: Emoji reactions on this message.
           items:
             $ref: "#/components/schemas/Reaction"
         reply_count:
           type: integer
           format: int32
+          description: Total number of replies in the thread (0 if not a thread parent).
         reply_users_count:
           type: integer
           format: int32
+          description: Number of distinct users who have replied in the thread.
         latest_reply:
           type: string
+          description: Timestamp of the most recent reply in the thread.
         is_deleted:
           type: boolean
+          description: Whether this message has been soft-deleted.
         created_at:
           type: string
           format: date-time
@@ -2119,37 +2254,51 @@ components:
           format: date-time
     Pin:
       type: object
+      description: A pinned message in a conversation.
       required: [channel_id, message_ts, pinned_by, pinned_at]
       properties:
         channel_id:
           type: string
+          description: Conversation the pin belongs to.
         message_ts:
           type: string
+          description: Timestamp of the pinned message.
         pinned_by:
           type: string
+          description: User who pinned the message.
         pinned_at:
           type: string
           format: date-time
+          description: When the message was pinned.
     Bookmark:
       type: object
+      description: A saved link in a conversation's bookmark bar.
       required: [id, channel_id, title, type, link, created_by, updated_by, created_at, updated_at]
       properties:
         id:
           type: string
+          description: Unique bookmark identifier.
         channel_id:
           type: string
+          description: Conversation this bookmark belongs to.
         title:
           type: string
+          description: Display title for the bookmark.
         type:
           type: string
+          description: Bookmark type (e.g. "link").
         link:
           type: string
+          description: URL the bookmark points to.
         emoji:
           type: string
+          description: Optional emoji icon displayed next to the title.
         created_by:
           type: string
+          description: User who created the bookmark.
         updated_by:
           type: string
+          description: User who last updated the bookmark.
         created_at:
           type: string
           format: date-time
@@ -2158,9 +2307,10 @@ components:
           format: date-time
     Usergroup:
       type: object
+      description: A named group of users that can be @-mentioned together.
       required:
         - id
-        - team_id
+        - workspace_id
         - name
         - handle
         - description
@@ -2174,25 +2324,35 @@ components:
       properties:
         id:
           type: string
-        team_id:
+          description: Unique usergroup identifier.
+        workspace_id:
           type: string
+          description: Workspace this usergroup belongs to.
         name:
           type: string
+          description: Display name of the usergroup.
         handle:
           type: string
+          description: Short handle used for @-mentions (e.g. "engineering").
         description:
           type: string
+          description: Description of the usergroup's purpose.
         is_external:
           type: boolean
+          description: Whether this usergroup includes external members.
         enabled:
           type: boolean
+          description: Whether this usergroup is active.
         user_count:
           type: integer
           format: int32
+          description: Number of members in the usergroup.
         created_by:
           type: string
+          description: User who created the usergroup.
         updated_by:
           type: string
+          description: User who last updated the usergroup.
         created_at:
           type: string
           format: date-time
@@ -2201,9 +2361,10 @@ components:
           format: date-time
     File:
       type: object
+      description: An uploaded or external file.
       required:
         - id
-        - team_id
+        - workspace_id
         - name
         - title
         - mimetype
@@ -2219,33 +2380,47 @@ components:
       properties:
         id:
           type: string
-        team_id:
+          description: Unique file identifier.
+        workspace_id:
           type: string
+          description: Workspace this file belongs to.
         name:
           type: string
+          description: Original filename.
         title:
           type: string
+          description: Display title for the file.
         mimetype:
           type: string
+          description: MIME type (e.g. "image/png", "application/pdf").
         filetype:
           type: string
+          description: Short file type identifier (e.g. "png", "pdf").
         size:
           type: integer
           format: int64
+          description: File size in bytes.
         user_id:
           type: string
+          description: User who uploaded the file.
         url_private:
           type: string
+          description: Authenticated URL to view the file.
         url_private_download:
           type: string
+          description: Authenticated URL to download the file.
         permalink:
           type: string
+          description: Permanent link to the file.
         is_external:
           type: boolean
+          description: Whether this file is hosted externally.
         external_url:
           type: string
+          description: For external files, the original URL.
         channels:
           type: array
+          description: Conversations this file has been shared to.
           items:
             type: string
         created_at:
@@ -2256,23 +2431,31 @@ components:
           format: date-time
     EventSubscription:
       type: object
-      required: [id, team_id, url, enabled, created_at, updated_at]
+      description: A webhook subscription that delivers events to an external URL.
+      required: [id, workspace_id, url, enabled, created_at, updated_at]
       properties:
         id:
           type: string
-        team_id:
+          description: Unique subscription identifier.
+        workspace_id:
           type: string
+          description: Workspace this subscription belongs to.
         url:
           type: string
+          description: HTTPS URL where events are delivered via POST.
         type:
           type: string
+          description: Filter to a specific event type (e.g. "conversation.message.created"). Omit to receive all types.
         resource_type:
           type: string
-          enum: [team, user, conversation, file, usergroup]
+          description: Filter events to a specific resource type.
+          enum: [workspace, user, conversation, file, usergroup]
         resource_id:
           type: string
+          description: Filter events to a specific resource instance.
         enabled:
           type: boolean
+          description: Whether this subscription is currently active.
         created_at:
           type: string
           format: date-time
@@ -2281,75 +2464,93 @@ components:
           format: date-time
     ExternalEvent:
       type: object
-      required: [id, team_id, type, resource_type, resource_id, occurred_at, payload]
+      description: An event representing something that happened in the system (message sent, user joined, etc.).
+      required: [id, workspace_id, type, resource_type, resource_id, occurred_at, payload]
       properties:
         id:
           type: integer
           format: int64
-        team_id:
+          description: Monotonically increasing event ID. Use as cursor for pagination.
+        workspace_id:
           type: string
+          description: Workspace where the event occurred.
         type:
           type: string
+          description: Event type (e.g. "conversation.message.created", "user.updated").
         resource_type:
           type: string
-          enum: [team, user, conversation, file, usergroup]
+          description: Type of resource that produced the event.
+          enum: [workspace, user, conversation, file, usergroup]
         resource_id:
           type: string
+          description: Identifier of the resource that produced the event.
         occurred_at:
           type: string
           format: date-time
+          description: When the event occurred.
         payload:
           type: object
           additionalProperties: true
+          description: Event-specific data (e.g. the full message object for a message event).
     AuthSession:
       type: object
-      required: [id, team_id, user_id, provider, expires_at, created_at]
+      description: An authenticated session created via OAuth.
+      required: [id, workspace_id, user_id, provider, expires_at, created_at]
       properties:
         id:
           type: string
-        team_id:
+          description: Unique session identifier.
+        workspace_id:
           type: string
+          description: Workspace the user authenticated into.
         user_id:
           type: string
+          description: Authenticated user.
         provider:
           $ref: "#/components/schemas/AuthProvider"
         token:
           type: string
+          description: Session token (only returned on creation).
         expires_at:
           type: string
           format: date-time
+          description: When the session expires.
         revoked_at:
           type: string
           format: date-time
+          description: When the session was revoked (logged out).
         created_at:
           type: string
           format: date-time
     AuthMeResponse:
       type: object
-      required: [team_id, user_id, principal_type, is_bot]
+      description: The authenticated identity of the current request.
+      required: [workspace_id, user_id, principal_type, is_bot]
       properties:
-        team_id:
+        workspace_id:
           type: string
+          description: Workspace the caller is authenticated in.
         user_id:
           type: string
+          description: User identity of the caller.
         principal_type:
           $ref: "#/components/schemas/PrincipalType"
         account_type:
           $ref: "#/components/schemas/AccountType"
         is_bot:
           type: boolean
+          description: Whether the caller is a bot/agent.
     APIKey:
       type: object
+      description: An API key used to authenticate requests. Keys are scoped to a workspace and optionally to a specific user.
       required:
         - id
         - name
         - key_prefix
         - key_hint
-        - team_id
-        - principal_id
+        - workspace_id
+        - user_id
         - created_by
-        - type
-        - environment
         - permissions
         - request_count
         - revoked
@@ -2358,51 +2559,62 @@ components:
       properties:
         id:
           type: string
+          description: Unique API key identifier.
         name:
           type: string
+          description: Human-readable name for this key.
         description:
           type: string
+          description: Optional longer description of the key's purpose.
         key_hash:
           type: string
+          description: SHA-256 hash of the secret (never returned in list responses).
         key_prefix:
           type: string
+          description: First characters of the key for identification (e.g. "tsk_abc").
         key_hint:
           type: string
-        team_id:
+          description: Masked version of the key shown in the UI (e.g. "tsk_abc...xyz").
+        workspace_id:
           type: string
-        principal_id:
+          description: Workspace this key is scoped to.
+        user_id:
           type: string
+          description: User this key acts on behalf of. Empty for workspace-level keys.
         created_by:
           type: string
-        on_behalf_of:
-          type: string
-        type:
-          $ref: "#/components/schemas/APIKeyType"
-        environment:
-          $ref: "#/components/schemas/APIKeyEnvironment"
+          description: User who created this key.
         permissions:
           type: array
+          description: List of permission strings granted to this key.
           items:
             type: string
         expires_at:
           type: string
           format: date-time
+          description: When this key expires. Null means no expiration.
         last_used_at:
           type: string
           format: date-time
+          description: Timestamp of the most recent authenticated request using this key.
         request_count:
           type: integer
           format: int64
+          description: Total number of requests made with this key.
         revoked:
           type: boolean
+          description: Whether this key has been revoked.
         revoked_at:
           type: string
           format: date-time
+          description: When this key was revoked.
         rotated_to_id:
           type: string
+          description: If this key was rotated, the ID of the replacement key.
         grace_period_ends_at:
           type: string
           format: date-time
+          description: During rotation, the old key remains valid until this time.
         created_at:
           type: string
           format: date-time
@@ -2411,39 +2623,49 @@ components:
           format: date-time
     SearchResult:
       type: object
+      description: A single search result.
       required: [type, score, data]
       properties:
         type:
           type: string
+          description: Resource type of the result (e.g. "message", "user", "conversation").
         score:
           type: number
           format: double
+          description: Relevance score (higher is more relevant).
         data:
           $ref: "#/components/schemas/FreeFormJSON"
+          description: The matched resource object.
     CreateWorkspaceRequest:
       type: object
       required: [name, domain, email_domain, description, icon, discoverability, default_channels, preferences, profile_fields, billing]
       properties:
         name:
           type: string
+          description: Display name of the workspace.
         domain:
           type: string
+          description: Unique URL-safe slug (e.g. "acme-corp").
         email_domain:
           type: string
+          description: Email domain for auto-joining (e.g. "acme.com").
         description:
           type: string
+          description: Short description of the workspace.
         icon:
           $ref: "#/components/schemas/WorkspaceIcon"
         discoverability:
           $ref: "#/components/schemas/WorkspaceDiscoverability"
         default_channels:
           type: array
+          description: Conversation IDs new members are automatically added to.
           items:
             type: string
         preferences:
           $ref: "#/components/schemas/FreeFormObject"
         profile_fields:
           type: array
+          description: Custom profile fields for workspace members.
           items:
             $ref: "#/components/schemas/WorkspaceProfileField"
         billing:
@@ -2475,28 +2697,42 @@ components:
             $ref: "#/components/schemas/WorkspaceProfileField"
         billing:
           $ref: "#/components/schemas/WorkspaceBilling"
+    SwitchCurrentSessionWorkspaceRequest:
+      type: object
+      required: [workspace_id]
+      properties:
+        workspace_id:
+          type: string
+          description: Workspace to switch the current browser session into.
     CreateUserRequest:
       type: object
-      required: [team_id, name, real_name, display_name, email, principal_type, is_bot, profile]
+      required: [workspace_id, name, real_name, display_name, email, principal_type, is_bot, profile]
       properties:
-        team_id:
+        workspace_id:
           type: string
+          description: Workspace to create the user in.
         name:
           type: string
+          description: Unique username within the workspace.
         real_name:
           type: string
+          description: Full name.
         display_name:
           type: string
+          description: Name shown in the UI.
         email:
           type: string
+          description: Email address.
         principal_type:
           $ref: "#/components/schemas/PrincipalType"
         account_type:
           $ref: "#/components/schemas/AccountType"
         owner_id:
           type: string
+          description: For agent users, the human user who owns this agent.
         is_bot:
           type: boolean
+          description: Set to true for bot/agent identities.
         profile:
           $ref: "#/components/schemas/UserProfile"
     UpdateUserRequest:
@@ -2504,14 +2740,18 @@ components:
       properties:
         real_name:
           type: string
+          description: New full name.
         display_name:
           type: string
+          description: New display name.
         email:
           type: string
+          description: New email address.
         account_type:
           $ref: "#/components/schemas/AccountType"
         deleted:
           type: boolean
+          description: Set to true to deactivate the user.
         profile:
           $ref: "#/components/schemas/UserProfile"
     UserRolesResponse:
@@ -2526,50 +2766,60 @@ components:
             $ref: "#/components/schemas/DelegatedRole"
     ExternalPrincipalAccess:
       type: object
-      required: [id, host_team_id, principal_id, principal_type, home_team_id, access_mode, granted_by, created_at]
+      description: An access grant allowing an external principal to participate in a host workspace.
+      required: [id, host_workspace_id, principal_id, principal_type, home_workspace_id, access_mode, granted_by, created_at]
       properties:
         id:
           type: string
-        host_team_id:
+          description: Unique access grant identifier.
+        host_workspace_id:
           type: string
+          description: Workspace granting access.
         principal_id:
           type: string
+          description: External user or agent being granted access.
         principal_type:
           $ref: "#/components/schemas/PrincipalType"
-        home_team_id:
+        home_workspace_id:
           type: string
+          description: Workspace the principal belongs to.
         access_mode:
           $ref: "#/components/schemas/ExternalPrincipalAccessMode"
         allowed_capabilities:
           type: array
+          description: Specific capabilities granted (e.g. "read", "write").
           items:
             type: string
         conversation_ids:
           type: array
+          description: Conversations the principal can access. Empty means all conversations.
           items:
             type: string
         granted_by:
           type: string
+          description: User who granted the access.
         created_at:
           type: string
           format: date-time
         expires_at:
           type: string
           format: date-time
+          description: When the access grant expires.
         revoked_at:
           type: string
           format: date-time
+          description: When the access was revoked.
     CreateExternalPrincipalAccessRequest:
       type: object
-      required: [host_team_id, principal_id, principal_type, home_team_id, access_mode]
+      required: [host_workspace_id, principal_id, principal_type, home_workspace_id, access_mode]
       properties:
-        host_team_id:
+        host_workspace_id:
           type: string
         principal_id:
           type: string
         principal_type:
           $ref: "#/components/schemas/PrincipalType"
-        home_team_id:
+        home_workspace_id:
           type: string
         access_mode:
           $ref: "#/components/schemas/ExternalPrincipalAccessMode"
@@ -2610,37 +2860,52 @@ components:
             $ref: "#/components/schemas/DelegatedRole"
     CreateConversationRequest:
       type: object
-      required: [team_id, name, type, creator_id, topic, purpose]
+      required: [workspace_id, name, type, creator_id, topic, purpose]
       properties:
-        team_id:
+        workspace_id:
           type: string
+          description: Workspace to create the conversation in.
         name:
           type: string
+          description: Display name for the conversation.
         type:
           $ref: "#/components/schemas/ConversationType"
         creator_id:
           type: string
+          description: User creating the conversation (becomes the first member).
+        user_ids:
+          type: array
+          description: Additional users to invite on creation.
+          items:
+            type: string
         topic:
           type: string
+          description: Initial topic for the conversation.
         purpose:
           type: string
+          description: Initial purpose/description for the conversation.
     ConversationUpdateRequest:
       type: object
       properties:
         name:
           type: string
+          description: New display name.
         is_archived:
           type: boolean
+          description: Set to true to archive, false to unarchive.
         topic:
           type: string
+          description: New topic text.
         purpose:
           type: string
+          description: New purpose text.
     ConversationInviteRequest:
       type: object
       required: [user_ids]
       properties:
         user_ids:
           type: array
+          description: User IDs to add as members.
           items:
             type: string
     ConversationManagersResponse:
@@ -2649,8 +2914,10 @@ components:
       properties:
         conversation_id:
           type: string
+          description: Conversation identifier.
         user_ids:
           type: array
+          description: User IDs who are managers of this conversation.
           items:
             type: string
     ConversationManagersUpdateRequest:
@@ -2659,6 +2926,7 @@ components:
       properties:
         user_ids:
           type: array
+          description: Complete list of manager user IDs (replaces existing managers).
           items:
             type: string
     ConversationPostingPolicyResponse:
@@ -2718,92 +2986,123 @@ components:
       properties:
         last_read_ts:
           type: string
+          description: Timestamp of the last message the user has read.
     PinCreateRequest:
       type: object
       required: [message_ts]
       properties:
         message_ts:
           type: string
+          description: Timestamp of the message to pin.
         user_id:
           type: string
+          description: User pinning the message. Defaults to the authenticated user.
     CreateBookmarkRequest:
       type: object
       required: [title, type, link]
       properties:
         channel_id:
           type: string
+          description: Conversation to add the bookmark to (if not in the URL path).
         title:
           type: string
+          description: Display title.
         type:
           type: string
+          description: Bookmark type (e.g. "link").
         link:
           type: string
+          description: URL the bookmark points to.
         emoji:
           type: string
+          description: Optional emoji icon.
         created_by:
           type: string
+          description: User creating the bookmark. Defaults to the authenticated user.
     BookmarkUpdateRequest:
       type: object
       properties:
         title:
           type: string
+          description: New title.
         link:
           type: string
+          description: New URL.
         emoji:
           type: string
+          description: New emoji icon.
         updated_by:
           type: string
+          description: User making the update. Defaults to the authenticated user.
     PostMessageRequest:
       type: object
       required: [channel_id, user_id, text]
       properties:
         channel_id:
           type: string
+          description: Conversation to post the message in.
         user_id:
           type: string
+          description: User sending the message.
         text:
           type: string
+          description: Plain-text content of the message.
         thread_ts:
           type: string
+          description: Parent message timestamp to reply in a thread.
         blocks:
           $ref: "#/components/schemas/FreeFormJSON"
+          description: Rich-text block layout (Block Kit format).
         metadata:
           $ref: "#/components/schemas/FreeFormJSON"
+          description: Arbitrary key-value metadata to attach to the message.
         reply_broadcast:
           type: boolean
+          description: When true, also post the reply to the channel (not just the thread).
     UpdateMessageRequest:
       type: object
       properties:
         text:
           type: string
+          description: New plain-text content.
         blocks:
           $ref: "#/components/schemas/FreeFormJSON"
+          description: New rich-text block layout.
         metadata:
           $ref: "#/components/schemas/FreeFormJSON"
+          description: New metadata (replaces existing metadata entirely).
     MessageReactionRequest:
       type: object
       required: [name]
       properties:
         name:
           type: string
+          description: Emoji name to react with (e.g. "thumbsup").
         user_id:
           type: string
+          description: User adding the reaction. Defaults to the authenticated user.
     CreateUsergroupRequest:
       type: object
-      required: [team_id, name, handle, description]
+      required: [workspace_id, name, handle, description]
       properties:
-        team_id:
+        workspace_id:
           type: string
+          description: Workspace to create the usergroup in.
         name:
           type: string
+          description: Display name.
         handle:
           type: string
+          description: Short handle for @-mentions (e.g. "engineering").
         description:
           type: string
+          description: Description of the group's purpose.
         created_by:
           type: string
+          description: User creating the group. Defaults to the authenticated user.
         users:
           type: array
+          description: Initial member user IDs.
           items:
             type: string
     UsergroupUpdateRequest:
@@ -2811,20 +3110,26 @@ components:
       properties:
         name:
           type: string
+          description: New display name.
         handle:
           type: string
+          description: New @-mention handle.
         description:
           type: string
+          description: New description.
         enabled:
           type: boolean
+          description: Set to false to disable the usergroup.
         updated_by:
           type: string
+          description: User making the update.
     UsergroupMembersUpdateRequest:
       type: object
       required: [users]
       properties:
         users:
           type: array
+          description: Complete list of user IDs (replaces all existing members).
           items:
             type: string
     GetUploadURLRequest:
@@ -2833,133 +3138,167 @@ components:
       properties:
         filename:
           type: string
+          description: Name of the file being uploaded.
         length:
           type: integer
           format: int64
+          description: File size in bytes.
     GetUploadURLResponse:
       type: object
       required: [upload_url, file_id]
       properties:
         upload_url:
           type: string
+          description: Pre-signed URL to upload the file content via PUT.
         file_id:
           type: string
+          description: File identifier to use when completing the upload.
     CompleteUploadRequest:
       type: object
       properties:
         file_id:
           type: string
+          description: File identifier returned from the upload URL request.
         title:
           type: string
+          description: Display title for the file.
         channel_id:
           type: string
+          description: Conversation to share the file in after upload.
         thread_ts:
           type: string
+          description: Thread to share the file in (if sharing in a thread).
     AddRemoteFileRequest:
       type: object
       required: [title, external_url, filetype]
       properties:
         title:
           type: string
+          description: Display title for the remote file.
         external_url:
           type: string
+          description: URL where the file is hosted.
         filetype:
           type: string
+          description: File type identifier (e.g. "pdf", "png").
         user_id:
           type: string
+          description: User adding the file. Defaults to the authenticated user.
     ShareRemoteFileRequest:
       type: object
       required: [channels]
       properties:
         file_id:
           type: string
+          description: File identifier to share.
         channels:
           type: array
+          description: Conversation IDs to share the file in.
           items:
             type: string
     CreateEventSubscriptionRequest:
       type: object
-      required: [team_id, url, secret]
+      required: [workspace_id, url, secret]
       properties:
-        team_id:
+        workspace_id:
           type: string
+          description: Workspace to subscribe to events for.
         url:
           type: string
+          description: HTTPS URL where events will be delivered via POST.
         type:
           type: string
+          description: Filter to a specific event type. Omit to receive all types.
         resource_type:
           type: string
-          enum: [team, user, conversation, file, usergroup]
+          description: Filter events to a specific resource type.
+          enum: [workspace, user, conversation, file, usergroup]
         resource_id:
           type: string
+          description: Filter events to a specific resource instance.
         secret:
           type: string
+          description: Shared secret used to compute the HMAC-SHA256 signature on each delivery.
     EventSubscriptionUpdateRequest:
       type: object
       properties:
         url:
           type: string
+          description: New delivery URL.
         type:
           type: string
+          description: New event type filter.
         resource_type:
           type: string
-          enum: [team, user, conversation, file, usergroup]
+          description: New resource type filter.
+          enum: [workspace, user, conversation, file, usergroup]
         resource_id:
           type: string
+          description: New resource ID filter.
         enabled:
           type: boolean
+          description: Set to false to pause deliveries without deleting the subscription.
     SearchRequest:
       type: object
-      required: [team_id, query]
+      required: [workspace_id, query]
       properties:
-        team_id:
+        workspace_id:
           type: string
+          description: Workspace to search within.
         query:
           type: string
+          description: Free-text search query.
         types:
           type: array
+          description: Restrict results to specific resource types (e.g. ["message", "user"]).
           items:
             type: string
         limit:
           type: integer
           format: int32
+          description: Maximum number of results to return.
         cursor:
           type: string
+          description: Pagination cursor from a previous search response.
     CreateAPIKeyRequest:
       type: object
-      required: [name, team_id, principal_id, type, environment]
+      required: [name, workspace_id]
       properties:
         name:
           type: string
+          description: Human-readable name for the key.
         description:
           type: string
-        team_id:
+          description: Optional longer description of the key's purpose.
+        workspace_id:
           type: string
-        principal_id:
+          description: Workspace to scope this key to.
+        user_id:
           type: string
+          description: User this key acts on behalf of. Omit for workspace-level keys.
         created_by:
           type: string
-        on_behalf_of:
-          type: string
-        type:
-          $ref: "#/components/schemas/APIKeyType"
-        environment:
-          $ref: "#/components/schemas/APIKeyEnvironment"
+          description: User creating the key. Defaults to the authenticated user.
         permissions:
           type: array
+          description: Permission strings to grant (e.g. "messages:write", "conversations:read"). Omit for full access.
           items:
             type: string
         expires_in:
           type: string
+          description: Duration until expiration (e.g. "30d", "24h"). Omit for no expiration.
     UpdateAPIKeyRequest:
       type: object
       properties:
         name:
           type: string
+          description: New name.
         description:
           type: string
+          description: New description.
         permissions:
           type: array
+          description: New permission set (replaces existing permissions entirely).
           items:
             type: string
     RotateAPIKeyRequest:
@@ -2967,14 +3306,17 @@ components:
       properties:
         grace_period:
           type: string
+          description: Duration the old key remains valid after rotation (e.g. "1h", "24h"). Defaults to immediate revocation.
     APIKeySecretResponse:
       type: object
+      description: Returned when a key is created or rotated. The secret is only shown once.
       required: [api_key, secret]
       properties:
         api_key:
           $ref: "#/components/schemas/APIKey"
         secret:
           type: string
+          description: The full API key secret. Store this securely — it cannot be retrieved again.
     WorkspacesCollection:
       type: object
       required: [items]
@@ -3147,14 +3489,14 @@ components:
             $ref: "#/components/schemas/AuthorizationAuditLog"
         next_cursor:
           type: string
-    ExternalTeamsCollection:
+    ExternalWorkspacesCollection:
       type: object
       required: [items]
       properties:
         items:
           type: array
           items:
-            $ref: "#/components/schemas/ExternalTeam"
+            $ref: "#/components/schemas/ExternalWorkspace"
         next_cursor:
           type: string
     WorkspaceProfileFieldsCollection:

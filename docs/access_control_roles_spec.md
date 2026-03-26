@@ -10,7 +10,7 @@
 
 Teraslack currently relies on:
 
-- workspace isolation by `team_id`
+- workspace isolation by `workspace_id`
 - a small set of API-key scopes
 - a few user booleans such as `is_owner`, `is_admin`, and `is_restricted`
 
@@ -102,7 +102,7 @@ Meeting these targets requires query-time, index-backed visibility checks and fo
     - one `external_events` row
     - one resource-feed row
   - file-scoped event: at most 2 durable writes in the visibility path
-  - user-, usergroup-, and team-scoped event: at most 2 durable writes in the visibility path
+  - user-, usergroup-, and workspace-scoped event: at most 2 durable writes in the visibility path
 - Granting external shared access to one agent for one conversation must be `O(1)`.
 - Granting one agent access to `N` conversations may be `O(N)` in number of granted conversations only.
 - No event or auth path may be `O(workspace_users)`, `O(workspace_conversations)`, or `O(conversation_members)` for a single read/write decision.
@@ -182,7 +182,7 @@ Rules:
 - `primary_admin`, `admin`, and `member` are full workspace members.
 - `agent` and `system` principals do not receive human `account_type`.
 - Internal agents derive permissions from ownership, explicit capabilities, and issued credentials.
-- Cross-team agents derive permissions from explicit external sharing grants, not human guest account types.
+- Cross-workspace agents derive permissions from explicit external sharing grants, not human guest account types.
 
 ## Agent Access Model
 
@@ -200,7 +200,7 @@ An internal agent belongs to the workspace it operates in.
 Properties:
 
 - `principal_type = agent`
-- `team_id = host workspace`
+- `workspace_id = host workspace`
 - `owner_id` references a human sponsoring principal
 - effective permissions come from:
   - platform defaults for agents
@@ -218,18 +218,18 @@ Its access is created by an explicit sharing/linking grant from the host workspa
 Properties:
 
 - `principal_type = agent`
-- `home_team_id = external workspace`
-- `team_id = host workspace` for authorization context
+- `home_workspace_id = external workspace`
+- `workspace_id = host workspace` for authorization context
 - `access_mode = external_shared`
 - visibility limited to explicitly shared resources
 
-External shared agents are the correct model for "agents from another team should only have access to certain channels".
+External shared agents are the correct model for "agents from another workspace should only have access to certain channels".
 
 They are Slack-Connect-like, not guest-like.
 
 ## External Shared Principal Access
 
-Introduce a first-class sharing grant for cross-team principals.
+Introduce a first-class sharing grant for cross-workspace principals.
 
 Suggested resource:
 
@@ -238,10 +238,10 @@ Suggested resource:
 Target-state fields:
 
 - `id`
-- `host_team_id`
+- `host_workspace_id`
 - `principal_id`
 - `principal_type`
-- `home_team_id`
+- `home_workspace_id`
 - `access_mode`
 - `allowed_conversation_ids`
 - `allowed_capabilities`
@@ -707,10 +707,10 @@ Target-state columns:
 ### external_principal_access
 
 - `id`
-- `host_team_id`
+- `host_workspace_id`
 - `principal_id`
 - `principal_type`
-- `home_team_id`
+- `home_workspace_id`
 - `access_mode`
 - `allowed_capabilities jsonb`
 - `granted_by`
@@ -732,7 +732,7 @@ Unique:
 ### user_role_assignments
 
 - `id`
-- `team_id`
+- `workspace_id`
 - `user_id`
 - `role_key`
 - `assigned_by`
@@ -740,7 +740,7 @@ Unique:
 
 Unique:
 
-- `(team_id, user_id, role_key)`
+- `(workspace_id, user_id, role_key)`
 
 ### conversation_manager_assignments
 
@@ -760,7 +760,7 @@ Unique:
 ### authorization_audit_log
 
 - `id`
-- `team_id`
+- `workspace_id`
 - `actor_id`
 - `target_type`
 - `target_id`
@@ -921,7 +921,7 @@ Minimum audited actions:
 - Update `GET /auth/me` to expose the caller’s effective role/account metadata if needed by clients.
 - Enforce directory visibility rules on `/users` list and get paths.
 - Enforce rank-aware authorization on `/users` create and patch paths.
-- Enforce `primary_admin` and delegated-role constraints on workspace settings, logs, billing, and external-team endpoints.
+- Enforce `primary_admin` and delegated-role constraints on workspace settings, logs, billing, and external-workspace endpoints.
 - Enforce conversation visibility through the authorizer on all conversation read paths.
 - Enforce conversation creation policy through `account_type` and capabilities.
 - Enforce conversation membership mutation policy through rank, delegated roles, and channel manager rules.

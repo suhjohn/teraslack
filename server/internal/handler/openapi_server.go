@@ -275,67 +275,67 @@ func (s *openAPIServer) Search(w http.ResponseWriter, r *http.Request) {
 	s.searchH.Search(w, r)
 }
 
-func (s *openAPIServer) ListTeams(w http.ResponseWriter, r *http.Request) {
+func (s *openAPIServer) ListWorkspaces(w http.ResponseWriter, r *http.Request) {
 	s.workspaceH.List(w, r)
 }
 
-func (s *openAPIServer) CreateTeam(w http.ResponseWriter, r *http.Request) {
+func (s *openAPIServer) CreateWorkspace(w http.ResponseWriter, r *http.Request) {
 	s.workspaceH.Create(w, r)
 }
 
-func (s *openAPIServer) GetTeam(w http.ResponseWriter, r *http.Request, _ openapi.TeamIDPath) {
+func (s *openAPIServer) GetWorkspace(w http.ResponseWriter, r *http.Request, _ openapi.WorkspaceIDPath) {
 	s.workspaceH.Get(w, r)
 }
 
-func (s *openAPIServer) UpdateTeam(w http.ResponseWriter, r *http.Request, _ openapi.TeamIDPath) {
+func (s *openAPIServer) UpdateWorkspace(w http.ResponseWriter, r *http.Request, _ openapi.WorkspaceIDPath) {
 	s.workspaceH.Update(w, r)
 }
 
-func (s *openAPIServer) ListTeamAccessLogs(w http.ResponseWriter, r *http.Request, _ openapi.TeamIDPath, _ openapi.ListTeamAccessLogsParams) {
+func (s *openAPIServer) ListWorkspaceAccessLogs(w http.ResponseWriter, r *http.Request, _ openapi.WorkspaceIDPath, _ openapi.ListWorkspaceAccessLogsParams) {
 	s.workspaceH.AccessLogs(w, r)
 }
 
-func (s *openAPIServer) ListTeamAuthorizationAuditLogs(w http.ResponseWriter, r *http.Request, _ openapi.TeamIDPath, _ openapi.ListTeamAuthorizationAuditLogsParams) {
+func (s *openAPIServer) ListWorkspaceAuthorizationAuditLogs(w http.ResponseWriter, r *http.Request, _ openapi.WorkspaceIDPath, _ openapi.ListWorkspaceAuthorizationAuditLogsParams) {
 	s.workspaceH.AuthorizationAuditLogs(w, r)
 }
 
-func (s *openAPIServer) ListTeamAdmins(w http.ResponseWriter, r *http.Request, _ openapi.TeamIDPath) {
+func (s *openAPIServer) ListWorkspaceAdmins(w http.ResponseWriter, r *http.Request, _ openapi.WorkspaceIDPath) {
 	s.workspaceH.ListAdmins(w, r)
 }
 
-func (s *openAPIServer) GetTeamBillableInfo(w http.ResponseWriter, r *http.Request, _ openapi.TeamIDPath) {
+func (s *openAPIServer) GetWorkspaceBillableInfo(w http.ResponseWriter, r *http.Request, _ openapi.WorkspaceIDPath) {
 	s.workspaceH.BillableInfo(w, r)
 }
 
-func (s *openAPIServer) GetTeamBilling(w http.ResponseWriter, r *http.Request, _ openapi.TeamIDPath) {
+func (s *openAPIServer) GetWorkspaceBilling(w http.ResponseWriter, r *http.Request, _ openapi.WorkspaceIDPath) {
 	s.workspaceH.Billing(w, r)
 }
 
-func (s *openAPIServer) ListExternalTeams(w http.ResponseWriter, r *http.Request, _ openapi.TeamIDPath) {
-	s.workspaceH.ListExternalTeams(w, r)
+func (s *openAPIServer) ListExternalWorkspaces(w http.ResponseWriter, r *http.Request, _ openapi.WorkspaceIDPath) {
+	s.workspaceH.ListExternalWorkspaces(w, r)
 }
 
-func (s *openAPIServer) DisconnectExternalTeam(w http.ResponseWriter, r *http.Request, _ openapi.TeamIDPath, _ openapi.ExternalTeamIDPath) {
-	s.workspaceH.DisconnectExternalTeam(w, r)
+func (s *openAPIServer) DisconnectExternalWorkspace(w http.ResponseWriter, r *http.Request, _ openapi.WorkspaceIDPath, _ openapi.ExternalWorkspaceIDPath) {
+	s.workspaceH.DisconnectExternalWorkspace(w, r)
 }
 
-func (s *openAPIServer) ListTeamIntegrationLogs(w http.ResponseWriter, r *http.Request, _ openapi.TeamIDPath, _ openapi.ListTeamIntegrationLogsParams) {
+func (s *openAPIServer) ListWorkspaceIntegrationLogs(w http.ResponseWriter, r *http.Request, _ openapi.WorkspaceIDPath, _ openapi.ListWorkspaceIntegrationLogsParams) {
 	s.workspaceH.IntegrationLogs(w, r)
 }
 
-func (s *openAPIServer) TransferPrimaryAdmin(w http.ResponseWriter, r *http.Request, _ openapi.TeamIDPath) {
+func (s *openAPIServer) TransferPrimaryAdmin(w http.ResponseWriter, r *http.Request, _ openapi.WorkspaceIDPath) {
 	s.workspaceH.TransferPrimaryAdmin(w, r)
 }
 
-func (s *openAPIServer) ListTeamOwners(w http.ResponseWriter, r *http.Request, _ openapi.TeamIDPath) {
+func (s *openAPIServer) ListWorkspaceOwners(w http.ResponseWriter, r *http.Request, _ openapi.WorkspaceIDPath) {
 	s.workspaceH.ListOwners(w, r)
 }
 
-func (s *openAPIServer) GetTeamPreferences(w http.ResponseWriter, r *http.Request, _ openapi.TeamIDPath) {
+func (s *openAPIServer) GetWorkspacePreferences(w http.ResponseWriter, r *http.Request, _ openapi.WorkspaceIDPath) {
 	s.workspaceH.Preferences(w, r)
 }
 
-func (s *openAPIServer) ListTeamProfileFields(w http.ResponseWriter, r *http.Request, _ openapi.TeamIDPath) {
+func (s *openAPIServer) ListWorkspaceProfileFields(w http.ResponseWriter, r *http.Request, _ openapi.WorkspaceIDPath) {
 	s.workspaceH.ProfileFields(w, r)
 }
 
@@ -351,6 +351,10 @@ func (s *openAPIServer) StartOAuth(w http.ResponseWriter, r *http.Request, provi
 
 func (s *openAPIServer) DeleteCurrentSession(w http.ResponseWriter, r *http.Request) {
 	s.authH.RevokeCurrentSession(w, r)
+}
+
+func (s *openAPIServer) SwitchCurrentSessionWorkspace(w http.ResponseWriter, r *http.Request) {
+	s.authH.SwitchCurrentSessionWorkspace(w, r)
 }
 
 func (s *openAPIServer) ListUsergroups(w http.ResponseWriter, r *http.Request, _ openapi.ListUsergroupsParams) {

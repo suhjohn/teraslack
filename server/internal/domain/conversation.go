@@ -14,17 +14,21 @@ const (
 
 // Conversation represents a channel, DM, or group DM.
 type Conversation struct {
-	ID         string           `json:"id"`
-	TeamID     string           `json:"team_id"`
-	Name       string           `json:"name"`
-	Type       ConversationType `json:"type"`
-	CreatorID  string           `json:"creator_id"`
-	IsArchived bool             `json:"is_archived"`
-	Topic      TopicPurpose     `json:"topic"`
-	Purpose    TopicPurpose     `json:"purpose"`
-	NumMembers int              `json:"num_members"`
-	CreatedAt  time.Time        `json:"created_at"`
-	UpdatedAt  time.Time        `json:"updated_at"`
+	ID             string           `json:"id"`
+	WorkspaceID         string           `json:"workspace_id"`
+	Name           string           `json:"name"`
+	Type           ConversationType `json:"type"`
+	CreatorID      string           `json:"creator_id"`
+	IsArchived     bool             `json:"is_archived"`
+	Topic          TopicPurpose     `json:"topic"`
+	Purpose        TopicPurpose     `json:"purpose"`
+	NumMembers     int              `json:"num_members"`
+	LastMessageTS  *string          `json:"last_message_ts,omitempty"`
+	LastActivityTS *string          `json:"last_activity_ts,omitempty"`
+	LastReadTS     *string          `json:"last_read_ts,omitempty"`
+	HasUnread      *bool            `json:"has_unread,omitempty"`
+	CreatedAt      time.Time        `json:"created_at"`
+	UpdatedAt      time.Time        `json:"updated_at"`
 }
 
 // TopicPurpose holds topic or purpose metadata.
@@ -89,10 +93,11 @@ func IsValidConversationPostingPolicyType(policyType ConversationPostingPolicyTy
 
 // CreateConversationParams holds the parameters for creating a conversation.
 type CreateConversationParams struct {
-	TeamID    string           `json:"team_id"`
+	WorkspaceID    string           `json:"workspace_id"`
 	Name      string           `json:"name"`
 	Type      ConversationType `json:"type"`
 	CreatorID string           `json:"creator_id"`
+	UserIDs   []string         `json:"user_ids,omitempty"`
 	Topic     string           `json:"topic"`
 	Purpose   string           `json:"purpose"`
 }
@@ -117,7 +122,8 @@ type SetPurposeParams struct {
 
 // ListConversationsParams holds pagination and filter options.
 type ListConversationsParams struct {
-	TeamID          string             `json:"team_id"`
+	WorkspaceID          string             `json:"workspace_id"`
+	UserID          string             `json:"user_id"`
 	Types           []ConversationType `json:"types"`
 	ExcludeArchived bool               `json:"exclude_archived"`
 	Cursor          string             `json:"cursor"`

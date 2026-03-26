@@ -78,7 +78,7 @@ func (s *MessageService) PostMessage(ctx context.Context, params domain.PostMess
 
 	// If replying to a thread, verify parent message exists
 	if params.ThreadTS != "" {
-		if _, err := s.repo.Get(ctx, params.ChannelID, params.ThreadTS); err != nil {
+		if _, err := s.repo.GetRow(ctx, params.ChannelID, params.ThreadTS); err != nil {
 			return nil, fmt.Errorf("parent message: %w", err)
 		}
 	}
@@ -98,7 +98,7 @@ func (s *MessageService) PostMessage(ctx context.Context, params domain.PostMess
 		EventType:     domain.EventMessagePosted,
 		AggregateType: domain.AggregateMessage,
 		AggregateID:   msg.TS,
-		TeamID:        conv.TeamID,
+		WorkspaceID:        conv.WorkspaceID,
 		Payload:       payload,
 	}); err != nil {
 		return nil, fmt.Errorf("record message.posted event: %w", err)
@@ -150,7 +150,7 @@ func (s *MessageService) UpdateMessage(ctx context.Context, channelID, ts string
 	if err := s.ensureConversationVisible(ctx, conv); err != nil {
 		return nil, err
 	}
-	existing, err := s.repo.Get(ctx, channelID, ts)
+	existing, err := s.repo.GetRow(ctx, channelID, ts)
 	if err != nil {
 		return nil, fmt.Errorf("message: %w", err)
 	}
@@ -173,7 +173,7 @@ func (s *MessageService) UpdateMessage(ctx context.Context, channelID, ts string
 		EventType:     domain.EventMessageUpdated,
 		AggregateType: domain.AggregateMessage,
 		AggregateID:   msg.TS,
-		TeamID:        conv.TeamID,
+		WorkspaceID:        conv.WorkspaceID,
 		Payload:       payload,
 	}); err != nil {
 		return nil, fmt.Errorf("record message.updated event: %w", err)
@@ -204,7 +204,7 @@ func (s *MessageService) DeleteMessage(ctx context.Context, channelID, ts string
 		return err
 	}
 
-	msg, err := s.repo.Get(ctx, channelID, ts)
+	msg, err := s.repo.GetRow(ctx, channelID, ts)
 	if err != nil {
 		return fmt.Errorf("message: %w", err)
 	}
@@ -226,7 +226,7 @@ func (s *MessageService) DeleteMessage(ctx context.Context, channelID, ts string
 		EventType:     domain.EventMessageDeleted,
 		AggregateType: domain.AggregateMessage,
 		AggregateID:   ts,
-		TeamID:        conv.TeamID,
+		WorkspaceID:        conv.WorkspaceID,
 		Payload:       payload,
 	}); err != nil {
 		return fmt.Errorf("record message.deleted event: %w", err)
@@ -302,7 +302,7 @@ func (s *MessageService) AddReaction(ctx context.Context, params domain.AddReact
 		return err
 	}
 	// Verify message exists
-	if _, err := s.repo.Get(ctx, params.ChannelID, params.MessageTS); err != nil {
+	if _, err := s.repo.GetRow(ctx, params.ChannelID, params.MessageTS); err != nil {
 		return fmt.Errorf("message: %w", err)
 	}
 	tx, err := s.db.Begin(ctx)
@@ -324,7 +324,7 @@ func (s *MessageService) AddReaction(ctx context.Context, params domain.AddReact
 		EventType:     domain.EventReactionAdded,
 		AggregateType: domain.AggregateMessage,
 		AggregateID:   params.MessageTS,
-		TeamID:        conv.TeamID,
+		WorkspaceID:        conv.WorkspaceID,
 		ActorID:       actorID,
 		Payload:       payload,
 	}); err != nil {
@@ -376,7 +376,7 @@ func (s *MessageService) RemoveReaction(ctx context.Context, params domain.Remov
 		EventType:     domain.EventReactionRemoved,
 		AggregateType: domain.AggregateMessage,
 		AggregateID:   params.MessageTS,
-		TeamID:        conv.TeamID,
+		WorkspaceID:        conv.WorkspaceID,
 		ActorID:       actorID,
 		Payload:       payload,
 	}); err != nil {
@@ -412,7 +412,7 @@ func (s *MessageService) ensureConversationVisible(ctx context.Context, conv *do
 	if conv == nil {
 		return domain.ErrNotFound
 	}
-	if err := ensureTeamAccess(ctx, conv.TeamID); err != nil {
+	if err := ensureWorkspaceAccess(ctx, conv.WorkspaceID); err != nil {
 		return err
 	}
 

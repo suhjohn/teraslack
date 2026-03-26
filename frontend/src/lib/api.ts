@@ -10,7 +10,7 @@ export type CollectionResponse<T> = {
 }
 
 export type AuthContext = {
-  team_id: string
+  workspace_id: string
   user_id: string
   principal_type: 'human' | 'agent' | 'system' | string
   account_type?: 'primary_admin' | 'admin' | 'member' | ''
@@ -30,7 +30,7 @@ export type Workspace = {
 
 export type User = {
   id: string
-  team_id: string
+  workspace_id: string
   name: string
   real_name: string
   display_name: string
@@ -119,7 +119,7 @@ export async function apiFetch<T>(
   return (await response.json()) as T
 }
 
-export function startOAuth(provider: 'github' | 'google', redirectPath = '/admin') {
+export function startOAuth(provider: 'github' | 'google', redirectPath = '/workspace') {
   if (typeof window === 'undefined') {
     return
   }
@@ -127,10 +127,10 @@ export function startOAuth(provider: 'github' | 'google', redirectPath = '/admin
   const redirectTo = new URL(redirectPath, window.location.origin).toString()
   const target = new URL(`/auth/oauth/${provider}/start`, apiBaseURL)
   const params = new URLSearchParams(window.location.search)
-  const teamID = params.get('team_id')?.trim()
+  const workspaceID = params.get('workspace_id')?.trim()
   const inviteToken = params.get('invite')?.trim()
-  if (teamID) {
-    target.searchParams.set('team_id', teamID)
+  if (workspaceID) {
+    target.searchParams.set('workspace_id', workspaceID)
   }
   if (inviteToken) {
     target.searchParams.set('invite', inviteToken)

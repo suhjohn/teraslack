@@ -14,7 +14,7 @@ type TxBeginner interface {
 	Begin(ctx context.Context) (pgx.Tx, error)
 }
 
-// WorkspaceRepository defines data access operations for workspace/team APIs.
+// WorkspaceRepository defines data access operations for workspace APIs.
 type WorkspaceRepository interface {
 	WithTx(tx pgx.Tx) WorkspaceRepository
 	Create(ctx context.Context, params domain.CreateWorkspaceParams) (*domain.Workspace, error)
@@ -26,8 +26,8 @@ type WorkspaceRepository interface {
 	ListBillableInfo(ctx context.Context, workspaceID string) ([]domain.WorkspaceBillableInfo, error)
 	ListAccessLogs(ctx context.Context, workspaceID string, limit int) ([]domain.WorkspaceAccessLog, error)
 	ListIntegrationLogs(ctx context.Context, workspaceID string, limit int) ([]domain.WorkspaceIntegrationLog, error)
-	ListExternalTeams(ctx context.Context, workspaceID string) ([]domain.ExternalTeam, error)
-	DisconnectExternalTeam(ctx context.Context, workspaceID, externalTeamID string) error
+	ListExternalWorkspaces(ctx context.Context, workspaceID string) ([]domain.ExternalWorkspace, error)
+	DisconnectExternalWorkspace(ctx context.Context, workspaceID, externalWorkspaceID string) error
 }
 
 type WorkspaceInviteRepository interface {
@@ -42,7 +42,7 @@ type UserRepository interface {
 	WithTx(tx pgx.Tx) UserRepository
 	Create(ctx context.Context, params domain.CreateUserParams) (*domain.User, error)
 	Get(ctx context.Context, id string) (*domain.User, error)
-	GetByTeamEmail(ctx context.Context, teamID, email string) (*domain.User, error)
+	GetByTeamEmail(ctx context.Context, workspaceID, email string) (*domain.User, error)
 	ListByEmail(ctx context.Context, email string) ([]domain.User, error)
 	Update(ctx context.Context, id string, params domain.UpdateUserParams) (*domain.User, error)
 	List(ctx context.Context, params domain.ListUsersParams) (*domain.CursorPage[domain.User], error)
@@ -50,8 +50,8 @@ type UserRepository interface {
 
 type RoleAssignmentRepository interface {
 	WithTx(tx pgx.Tx) RoleAssignmentRepository
-	ListByUser(ctx context.Context, teamID, userID string) ([]domain.DelegatedRole, error)
-	ReplaceForUser(ctx context.Context, teamID, userID string, roles []domain.DelegatedRole, assignedBy string) error
+	ListByUser(ctx context.Context, workspaceID, userID string) ([]domain.DelegatedRole, error)
+	ReplaceForUser(ctx context.Context, workspaceID, userID string, roles []domain.DelegatedRole, assignedBy string) error
 }
 
 type ConversationAccessRepository interface {
@@ -67,7 +67,7 @@ type ExternalPrincipalAccessRepository interface {
 	WithTx(tx pgx.Tx) ExternalPrincipalAccessRepository
 	Create(ctx context.Context, params domain.CreateExternalPrincipalAccessParams) (*domain.ExternalPrincipalAccess, error)
 	Get(ctx context.Context, id string) (*domain.ExternalPrincipalAccess, error)
-	GetActiveByPrincipal(ctx context.Context, hostTeamID, principalID string) (*domain.ExternalPrincipalAccess, error)
+	GetActiveByPrincipal(ctx context.Context, hostWorkspaceID, principalID string) (*domain.ExternalPrincipalAccess, error)
 	List(ctx context.Context, params domain.ListExternalPrincipalAccessParams) ([]domain.ExternalPrincipalAccess, error)
 	Update(ctx context.Context, id string, params domain.UpdateExternalPrincipalAccessParams) (*domain.ExternalPrincipalAccess, error)
 	Revoke(ctx context.Context, id string, revokedAt time.Time) error
@@ -86,6 +86,7 @@ type AuthorizationAuditRepository interface {
 type ConversationRepository interface {
 	WithTx(tx pgx.Tx) ConversationRepository
 	Create(ctx context.Context, params domain.CreateConversationParams) (*domain.Conversation, error)
+	GetCanonicalDM(ctx context.Context, workspaceID, userAID, userBID string) (*domain.Conversation, error)
 	Get(ctx context.Context, id string) (*domain.Conversation, error)
 	Update(ctx context.Context, id string, params domain.UpdateConversationParams) (*domain.Conversation, error)
 	SetTopic(ctx context.Context, id string, params domain.SetTopicParams) (*domain.Conversation, error)
@@ -104,6 +105,7 @@ type ConversationRepository interface {
 type MessageRepository interface {
 	WithTx(tx pgx.Tx) MessageRepository
 	Create(ctx context.Context, params domain.PostMessageParams) (*domain.Message, error)
+	GetRow(ctx context.Context, channelID, ts string) (*domain.Message, error)
 	Get(ctx context.Context, channelID, ts string) (*domain.Message, error)
 	Update(ctx context.Context, channelID, ts string, params domain.UpdateMessageParams) (*domain.Message, error)
 	Delete(ctx context.Context, channelID, ts string) error
@@ -165,11 +167,11 @@ type BookmarkRepository interface {
 type FileRepository interface {
 	WithTx(tx pgx.Tx) FileRepository
 	Create(ctx context.Context, f *domain.File) error
-	Get(ctx context.Context, teamID, id string) (*domain.File, error)
-	Update(ctx context.Context, teamID string, f *domain.File) error
-	Delete(ctx context.Context, teamID, id string) error
+	Get(ctx context.Context, workspaceID, id string) (*domain.File, error)
+	Update(ctx context.Context, workspaceID string, f *domain.File) error
+	Delete(ctx context.Context, workspaceID, id string) error
 	List(ctx context.Context, params domain.ListFilesParams) (*domain.CursorPage[domain.File], error)
-	ShareToChannel(ctx context.Context, teamID, fileID, channelID string) error
+	ShareToChannel(ctx context.Context, workspaceID, fileID, channelID string) error
 }
 
 // EventRepository defines data access operations for event subscriptions.
@@ -180,7 +182,7 @@ type EventRepository interface {
 	UpdateSubscription(ctx context.Context, id string, params domain.UpdateEventSubscriptionParams) (*domain.EventSubscription, error)
 	DeleteSubscription(ctx context.Context, id string) error
 	ListSubscriptions(ctx context.Context, params domain.ListEventSubscriptionsParams) ([]domain.EventSubscription, error)
-	ListSubscriptionsByEvent(ctx context.Context, teamID, eventType, resourceType, resourceID string) ([]domain.EventSubscription, error)
+	ListSubscriptionsByEvent(ctx context.Context, workspaceID, eventType, resourceType, resourceID string) ([]domain.EventSubscription, error)
 }
 
 // AuthRepository defines data access operations for OAuth-backed auth.
@@ -189,9 +191,20 @@ type AuthRepository interface {
 	CreateSession(ctx context.Context, params domain.CreateAuthSessionParams) (*domain.AuthSession, error)
 	GetSessionByHash(ctx context.Context, sessionHash string) (*domain.AuthSession, error)
 	RevokeSessionByHash(ctx context.Context, sessionHash string) error
-	GetOAuthAccount(ctx context.Context, teamID string, provider domain.AuthProvider, providerSubject string) (*domain.OAuthAccount, error)
+	GetOAuthAccount(ctx context.Context, workspaceID string, provider domain.AuthProvider, providerSubject string) (*domain.OAuthAccount, error)
 	ListOAuthAccountsBySubject(ctx context.Context, provider domain.AuthProvider, providerSubject string) ([]domain.OAuthAccount, error)
 	UpsertOAuthAccount(ctx context.Context, params domain.UpsertOAuthAccountParams) (*domain.OAuthAccount, error)
+}
+
+type MCPOAuthRepository interface {
+	WithTx(tx pgx.Tx) MCPOAuthRepository
+	CreateAuthorizationCode(ctx context.Context, params domain.CreateMCPOAuthAuthorizationCodeParams) (*domain.MCPOAuthAuthorizationCode, string, error)
+	GetAuthorizationCodeByHash(ctx context.Context, codeHash string) (*domain.MCPOAuthAuthorizationCode, error)
+	MarkAuthorizationCodeUsed(ctx context.Context, id string, usedAt time.Time) error
+	CreateRefreshToken(ctx context.Context, params domain.CreateMCPOAuthRefreshTokenParams) (*domain.MCPOAuthRefreshToken, string, error)
+	GetRefreshTokenByHash(ctx context.Context, tokenHash string) (*domain.MCPOAuthRefreshToken, error)
+	RotateRefreshToken(ctx context.Context, oldID, newID string, revokedAt time.Time) error
+	RevokeRefreshToken(ctx context.Context, id string, revokedAt time.Time) error
 }
 
 // APIKeyRepository defines data access operations for API keys.
@@ -217,6 +230,8 @@ type InternalEventStoreRepository interface {
 	GetByAggregate(ctx context.Context, aggregateType, aggregateID string) ([]domain.InternalEvent, error)
 	// GetAllSince returns events since a given ID for incremental projection rebuilds.
 	GetAllSince(ctx context.Context, sinceID int64, limit int) ([]domain.InternalEvent, error)
+	// GetAllSinceByShard returns events for one shard since a given shard-local checkpoint.
+	GetAllSinceByShard(ctx context.Context, shardID int, sinceID int64, limit int) ([]domain.InternalEvent, error)
 }
 
 type ExternalEventRepository interface {
@@ -230,7 +245,7 @@ type ExternalEventRepository interface {
 }
 
 type ExternalEventPrincipal struct {
-	TeamID      string
+	WorkspaceID string
 	UserID      string
 	APIKeyID    string
 	Permissions []string

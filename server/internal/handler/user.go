@@ -28,8 +28,8 @@ func (h *UserHandler) Create(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteError(w, r, domain.ErrInvalidArgument)
 		return
 	}
-	if teamID := ctxutil.GetTeamID(r.Context()); teamID != "" {
-		params.TeamID = teamID
+	if workspaceID := ctxutil.GetWorkspaceID(r.Context()); workspaceID != "" {
+		params.WorkspaceID = workspaceID
 	}
 
 	user, err := h.svc.Create(r.Context(), params)
@@ -96,12 +96,12 @@ func (h *UserHandler) List(w http.ResponseWriter, r *http.Request) {
 
 	limit, _ := strconv.Atoi(q.Get("limit"))
 	params := domain.ListUsersParams{
-		TeamID: q.Get("team_id"),
+		WorkspaceID: q.Get("workspace_id"),
 		Cursor: q.Get("cursor"),
 		Limit:  limit,
 	}
-	if teamID := ctxutil.GetTeamID(r.Context()); teamID != "" {
-		params.TeamID = teamID
+	if workspaceID := ctxutil.GetWorkspaceID(r.Context()); workspaceID != "" {
+		params.WorkspaceID = workspaceID
 	}
 
 	page, err := h.svc.List(r.Context(), params)

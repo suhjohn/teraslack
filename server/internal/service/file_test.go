@@ -16,11 +16,11 @@ type mockFileRepo struct {
 	files map[string]*domain.File
 
 	lastCreateFile     *domain.File
-	lastGetTeamID      string
-	lastUpdateTeamID   string
-	lastDeleteTeamID   string
+	lastGetWorkspaceID      string
+	lastUpdateWorkspaceID   string
+	lastDeleteWorkspaceID   string
 	lastListParams     domain.ListFilesParams
-	lastShareTeamID    string
+	lastShareWorkspaceID    string
 	lastShareFileID    string
 	lastShareChannelID string
 	shareErr           error
@@ -45,20 +45,20 @@ func (m *mockFileRepo) Create(_ context.Context, f *domain.File) error {
 	return nil
 }
 
-func (m *mockFileRepo) Get(_ context.Context, teamID, id string) (*domain.File, error) {
-	m.lastGetTeamID = teamID
+func (m *mockFileRepo) Get(_ context.Context, workspaceID, id string) (*domain.File, error) {
+	m.lastGetWorkspaceID = workspaceID
 	f, ok := m.files[id]
-	if !ok || f.TeamID != teamID {
+	if !ok || f.WorkspaceID != workspaceID {
 		return nil, domain.ErrNotFound
 	}
 	copy := *f
 	return &copy, nil
 }
 
-func (m *mockFileRepo) Update(_ context.Context, teamID string, f *domain.File) error {
-	m.lastUpdateTeamID = teamID
+func (m *mockFileRepo) Update(_ context.Context, workspaceID string, f *domain.File) error {
+	m.lastUpdateWorkspaceID = workspaceID
 	existing, ok := m.files[f.ID]
-	if !ok || existing.TeamID != teamID {
+	if !ok || existing.WorkspaceID != workspaceID {
 		return domain.ErrNotFound
 	}
 	copy := *f
@@ -66,10 +66,10 @@ func (m *mockFileRepo) Update(_ context.Context, teamID string, f *domain.File) 
 	return nil
 }
 
-func (m *mockFileRepo) Delete(_ context.Context, teamID, id string) error {
-	m.lastDeleteTeamID = teamID
+func (m *mockFileRepo) Delete(_ context.Context, workspaceID, id string) error {
+	m.lastDeleteWorkspaceID = workspaceID
 	f, ok := m.files[id]
-	if !ok || f.TeamID != teamID {
+	if !ok || f.WorkspaceID != workspaceID {
 		return domain.ErrNotFound
 	}
 	delete(m.files, id)
@@ -80,7 +80,7 @@ func (m *mockFileRepo) List(_ context.Context, params domain.ListFilesParams) (*
 	m.lastListParams = params
 	items := make([]domain.File, 0, len(m.files))
 	for _, f := range m.files {
-		if f.TeamID != params.TeamID {
+		if f.WorkspaceID != params.WorkspaceID {
 			continue
 		}
 		if params.ChannelID != "" {
@@ -94,15 +94,15 @@ func (m *mockFileRepo) List(_ context.Context, params domain.ListFilesParams) (*
 	return &domain.CursorPage[domain.File]{Items: items, HasMore: false}, nil
 }
 
-func (m *mockFileRepo) ShareToChannel(_ context.Context, teamID, fileID, channelID string) error {
-	m.lastShareTeamID = teamID
+func (m *mockFileRepo) ShareToChannel(_ context.Context, workspaceID, fileID, channelID string) error {
+	m.lastShareWorkspaceID = workspaceID
 	m.lastShareFileID = fileID
 	m.lastShareChannelID = channelID
 	if m.shareErr != nil {
 		return m.shareErr
 	}
 	f, ok := m.files[fileID]
-	if !ok || f.TeamID != teamID {
+	if !ok || f.WorkspaceID != workspaceID {
 		return domain.ErrNotFound
 	}
 	return nil
@@ -134,34 +134,34 @@ func TestFileService_AddRemoteFile_UsesAuthContext(t *testing.T) {
 	if err != nil {
 		t.Fatalf("add remote file: %v", err)
 	}
-	if file.TeamID != "T123" {
-		t.Fatalf("team_id = %q, want T123", file.TeamID)
+	if file.WorkspaceID != "T123" {
+		t.Fatalf("workspace_id = %q, want T123", file.WorkspaceID)
 	}
 	if file.UserID != "U456" {
 		t.Fatalf("user_id = %q, want U456", file.UserID)
 	}
-	if repo.lastCreateFile == nil || repo.lastCreateFile.TeamID != "T123" {
-		t.Fatalf("repo create did not persist team_id")
+	if repo.lastCreateFile == nil || repo.lastCreateFile.WorkspaceID != "T123" {
+		t.Fatalf("repo create did not persist workspace_id")
 	}
 	if len(recorder.events) != 1 {
 		t.Fatalf("expected 1 recorded event, got %d", len(recorder.events))
 	}
-	if recorder.events[0].TeamID != "T123" {
-		t.Fatalf("event team_id = %q, want T123", recorder.events[0].TeamID)
+	if recorder.events[0].WorkspaceID != "T123" {
+		t.Fatalf("event workspace_id = %q, want T123", recorder.events[0].WorkspaceID)
 	}
 	var payload domain.File
 	if err := json.Unmarshal(recorder.events[0].Payload, &payload); err != nil {
 		t.Fatalf("unmarshal event payload: %v", err)
 	}
-	if payload.TeamID != "T123" {
-		t.Fatalf("payload team_id = %q, want T123", payload.TeamID)
+	if payload.WorkspaceID != "T123" {
+		t.Fatalf("payload workspace_id = %q, want T123", payload.WorkspaceID)
 	}
 }
 
 func TestFileService_FileOperations_UseTeamContext(t *testing.T) {
 	t.Run("get", func(t *testing.T) {
 		repo := newMockFileRepo()
-		repo.files["F_1"] = &domain.File{ID: "F_1", TeamID: "T123", UserID: "U1", Name: "doc"}
+		repo.files["F_1"] = &domain.File{ID: "F_1", WorkspaceID: "T123", UserID: "U1", Name: "doc"}
 		svc := NewFileService(repo, nil, "", "http://localhost:8080", nil, mockTxBeginner{}, nil)
 
 		ctx := ctxutil.WithUser(context.Background(), "U456", "T123")
@@ -169,18 +169,18 @@ func TestFileService_FileOperations_UseTeamContext(t *testing.T) {
 		if err != nil {
 			t.Fatalf("get: %v", err)
 		}
-		if f.TeamID != "T123" {
-			t.Fatalf("team_id = %q, want T123", f.TeamID)
+		if f.WorkspaceID != "T123" {
+			t.Fatalf("workspace_id = %q, want T123", f.WorkspaceID)
 		}
-		if repo.lastGetTeamID != "T123" {
-			t.Fatalf("repo saw team_id = %q, want T123", repo.lastGetTeamID)
+		if repo.lastGetWorkspaceID != "T123" {
+			t.Fatalf("repo saw workspace_id = %q, want T123", repo.lastGetWorkspaceID)
 		}
 	})
 
 	t.Run("list", func(t *testing.T) {
 		repo := newMockFileRepo()
-		repo.files["F_1"] = &domain.File{ID: "F_1", TeamID: "T123", UserID: "U1", Name: "doc"}
-		repo.files["F_2"] = &domain.File{ID: "F_2", TeamID: "T999", UserID: "U2", Name: "other"}
+		repo.files["F_1"] = &domain.File{ID: "F_1", WorkspaceID: "T123", UserID: "U1", Name: "doc"}
+		repo.files["F_2"] = &domain.File{ID: "F_2", WorkspaceID: "T999", UserID: "U2", Name: "other"}
 		svc := NewFileService(repo, nil, "", "http://localhost:8080", nil, mockTxBeginner{}, nil)
 
 		ctx := ctxutil.WithUser(context.Background(), "U456", "T123")
@@ -188,8 +188,8 @@ func TestFileService_FileOperations_UseTeamContext(t *testing.T) {
 		if err != nil {
 			t.Fatalf("list: %v", err)
 		}
-		if repo.lastListParams.TeamID != "T123" {
-			t.Fatalf("repo saw team_id = %q, want T123", repo.lastListParams.TeamID)
+		if repo.lastListParams.WorkspaceID != "T123" {
+			t.Fatalf("repo saw workspace_id = %q, want T123", repo.lastListParams.WorkspaceID)
 		}
 		if len(page.Items) != 1 {
 			t.Fatalf("items = %d, want 1", len(page.Items))
@@ -198,7 +198,7 @@ func TestFileService_FileOperations_UseTeamContext(t *testing.T) {
 
 	t.Run("delete", func(t *testing.T) {
 		repo := newMockFileRepo()
-		repo.files["F_1"] = &domain.File{ID: "F_1", TeamID: "T123", UserID: "U456", Name: "doc"}
+		repo.files["F_1"] = &domain.File{ID: "F_1", WorkspaceID: "T123", UserID: "U456", Name: "doc"}
 		recorder := &captureRecorder{}
 		svc := NewFileService(repo, nil, "", "http://localhost:8080", recorder, mockTxBeginner{}, nil)
 
@@ -206,17 +206,17 @@ func TestFileService_FileOperations_UseTeamContext(t *testing.T) {
 		if err := svc.Delete(ctx, "F_1"); err != nil {
 			t.Fatalf("delete: %v", err)
 		}
-		if repo.lastDeleteTeamID != "T123" {
-			t.Fatalf("repo saw team_id = %q, want T123", repo.lastDeleteTeamID)
+		if repo.lastDeleteWorkspaceID != "T123" {
+			t.Fatalf("repo saw workspace_id = %q, want T123", repo.lastDeleteWorkspaceID)
 		}
-		if len(recorder.events) != 1 || recorder.events[0].TeamID != "T123" {
-			t.Fatalf("delete event team_id = %q, want T123", recorder.events[0].TeamID)
+		if len(recorder.events) != 1 || recorder.events[0].WorkspaceID != "T123" {
+			t.Fatalf("delete event workspace_id = %q, want T123", recorder.events[0].WorkspaceID)
 		}
 	})
 
 	t.Run("share", func(t *testing.T) {
 		repo := newMockFileRepo()
-		repo.files["F_1"] = &domain.File{ID: "F_1", TeamID: "T123", UserID: "U456", Name: "doc"}
+		repo.files["F_1"] = &domain.File{ID: "F_1", WorkspaceID: "T123", UserID: "U456", Name: "doc"}
 		recorder := &captureRecorder{}
 		svc := NewFileService(repo, nil, "", "http://localhost:8080", recorder, mockTxBeginner{}, nil)
 
@@ -224,18 +224,18 @@ func TestFileService_FileOperations_UseTeamContext(t *testing.T) {
 		if err := svc.ShareRemoteFile(ctx, domain.ShareRemoteFileParams{FileID: "F_1", Channels: []string{"C1"}}); err != nil {
 			t.Fatalf("share: %v", err)
 		}
-		if repo.lastShareTeamID != "T123" {
-			t.Fatalf("repo saw team_id = %q, want T123", repo.lastShareTeamID)
+		if repo.lastShareWorkspaceID != "T123" {
+			t.Fatalf("repo saw workspace_id = %q, want T123", repo.lastShareWorkspaceID)
 		}
-		if len(recorder.events) != 1 || recorder.events[0].TeamID != "T123" {
-			t.Fatalf("share event team_id = %q, want T123", recorder.events[0].TeamID)
+		if len(recorder.events) != 1 || recorder.events[0].WorkspaceID != "T123" {
+			t.Fatalf("share event workspace_id = %q, want T123", recorder.events[0].WorkspaceID)
 		}
 	})
 }
 
 func TestFileService_ShareRemoteFile_DuplicateShareDoesNotRecordEvent(t *testing.T) {
 	repo := newMockFileRepo()
-	repo.files["F_1"] = &domain.File{ID: "F_1", TeamID: "T123", UserID: "U456", Name: "doc"}
+	repo.files["F_1"] = &domain.File{ID: "F_1", WorkspaceID: "T123", UserID: "U456", Name: "doc"}
 	repo.shareErr = domain.ErrAlreadyShared
 	recorder := &captureRecorder{}
 	svc := NewFileService(repo, nil, "", "http://localhost:8080", recorder, mockTxBeginner{}, nil)
@@ -251,7 +251,7 @@ func TestFileService_ShareRemoteFile_DuplicateShareDoesNotRecordEvent(t *testing
 
 func TestFileService_DeleteAndShareRequireOwnerOrAdmin(t *testing.T) {
 	repo := newMockFileRepo()
-	repo.files["F_1"] = &domain.File{ID: "F_1", TeamID: "T123", UserID: "U_OWNER", Name: "doc"}
+	repo.files["F_1"] = &domain.File{ID: "F_1", WorkspaceID: "T123", UserID: "U_OWNER", Name: "doc"}
 	svc := NewFileService(repo, nil, "", "http://localhost:8080", &captureRecorder{}, mockTxBeginner{}, nil)
 
 	memberCtx := ctxutil.WithUser(context.Background(), "U_MEMBER", "T123")

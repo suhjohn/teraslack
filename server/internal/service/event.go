@@ -36,11 +36,11 @@ func NewEventService(repo repository.EventRepository, userRepo repository.UserRe
 }
 
 func (s *EventService) CreateSubscription(ctx context.Context, params domain.CreateEventSubscriptionParams) (*domain.EventSubscription, error) {
-	teamID, err := resolveTeamID(ctx, params.TeamID)
+	workspaceID, err := resolveWorkspaceID(ctx, params.WorkspaceID)
 	if err != nil {
 		return nil, err
 	}
-	params.TeamID = teamID
+	params.WorkspaceID = workspaceID
 	if params.URL == "" {
 		return nil, fmt.Errorf("url: %w", domain.ErrInvalidArgument)
 	}
@@ -71,7 +71,7 @@ func (s *EventService) CreateSubscription(ctx context.Context, params domain.Cre
 		EventType:     domain.EventSubscriptionCreated,
 		AggregateType: domain.AggregateSubscription,
 		AggregateID:   sub.ID,
-		TeamID:        sub.TeamID,
+		WorkspaceID:        sub.WorkspaceID,
 		ActorID:       ctxutil.GetActingUserID(ctx),
 		Payload:       payload,
 	}); err != nil {
@@ -97,7 +97,7 @@ func (s *EventService) GetSubscription(ctx context.Context, id string) (*domain.
 	if err != nil {
 		return nil, err
 	}
-	if err := ensureTeamAccess(ctx, sub.TeamID); err != nil {
+	if err := ensureWorkspaceAccess(ctx, sub.WorkspaceID); err != nil {
 		return nil, err
 	}
 	return sub, nil
@@ -120,7 +120,7 @@ func (s *EventService) UpdateSubscription(ctx context.Context, id string, params
 	if err != nil {
 		return nil, err
 	}
-	if err := ensureTeamAccess(ctx, sub.TeamID); err != nil {
+	if err := ensureWorkspaceAccess(ctx, sub.WorkspaceID); err != nil {
 		return nil, err
 	}
 
@@ -139,7 +139,7 @@ func (s *EventService) UpdateSubscription(ctx context.Context, id string, params
 		EventType:     domain.EventSubscriptionUpdated,
 		AggregateType: domain.AggregateSubscription,
 		AggregateID:   sub.ID,
-		TeamID:        sub.TeamID,
+		WorkspaceID:        sub.WorkspaceID,
 		ActorID:       ctxutil.GetActingUserID(ctx),
 		Payload:       payload,
 	}); err != nil {
@@ -161,12 +161,12 @@ func (s *EventService) DeleteSubscription(ctx context.Context, id string) error 
 			return err
 		}
 	}
-	// Get subscription before deleting to capture team_id for event
+	// Get subscription before deleting to capture workspace_id for event
 	sub, err := s.repo.GetSubscription(ctx, id)
 	if err != nil {
 		return err
 	}
-	if err := ensureTeamAccess(ctx, sub.TeamID); err != nil {
+	if err := ensureWorkspaceAccess(ctx, sub.WorkspaceID); err != nil {
 		return err
 	}
 
@@ -184,7 +184,7 @@ func (s *EventService) DeleteSubscription(ctx context.Context, id string) error 
 		EventType:     domain.EventSubscriptionDeleted,
 		AggregateType: domain.AggregateSubscription,
 		AggregateID:   id,
-		TeamID:        sub.TeamID,
+		WorkspaceID:        sub.WorkspaceID,
 		ActorID:       ctxutil.GetActingUserID(ctx),
 		Payload:       payload,
 	}); err != nil {
@@ -203,10 +203,10 @@ func (s *EventService) ListSubscriptions(ctx context.Context, params domain.List
 			return nil, err
 		}
 	}
-	teamID, err := resolveTeamID(ctx, params.TeamID)
+	workspaceID, err := resolveWorkspaceID(ctx, params.WorkspaceID)
 	if err != nil {
 		return nil, err
 	}
-	params.TeamID = teamID
+	params.WorkspaceID = workspaceID
 	return s.repo.ListSubscriptions(ctx, params)
 }

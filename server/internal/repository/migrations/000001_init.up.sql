@@ -46,7 +46,7 @@ CREATE TABLE public.api_keys (
     key_hash text NOT NULL,
     key_prefix text NOT NULL,
     key_hint text NOT NULL,
-    team_id text NOT NULL,
+    workspace_id text NOT NULL,
     principal_id text NOT NULL,
     created_by text NOT NULL,
     on_behalf_of text DEFAULT ''::text NOT NULL,
@@ -73,7 +73,7 @@ CREATE TABLE public.api_keys (
 
 CREATE TABLE public.auth_sessions (
     id text NOT NULL,
-    team_id text NOT NULL,
+    workspace_id text NOT NULL,
     user_id text NOT NULL,
     session_hash text NOT NULL,
     provider text NOT NULL,
@@ -149,7 +149,7 @@ CREATE TABLE public.conversation_members (
 --
 
 CREATE TABLE public.conversation_reads (
-    team_id text NOT NULL,
+    workspace_id text NOT NULL,
     conversation_id text NOT NULL,
     user_id text NOT NULL,
     last_read_ts text NOT NULL,
@@ -163,7 +163,7 @@ CREATE TABLE public.conversation_reads (
 
 CREATE TABLE public.conversations (
     id text NOT NULL,
-    team_id text NOT NULL,
+    workspace_id text NOT NULL,
     name text DEFAULT ''::text NOT NULL,
     type text NOT NULL,
     creator_id text NOT NULL,
@@ -187,7 +187,7 @@ CREATE TABLE public.conversations (
 
 CREATE TABLE public.event_subscriptions (
     id text NOT NULL,
-    team_id text NOT NULL,
+    workspace_id text NOT NULL,
     url text NOT NULL,
     enabled boolean DEFAULT true NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
@@ -237,7 +237,7 @@ ALTER SEQUENCE public.external_event_projection_failures_id_seq OWNED BY public.
 
 CREATE TABLE public.external_events (
     id bigint NOT NULL,
-    team_id text NOT NULL,
+    workspace_id text NOT NULL,
     type text NOT NULL,
     resource_type text NOT NULL,
     resource_id text NOT NULL,
@@ -332,7 +332,7 @@ CREATE TABLE public.files (
     upload_complete boolean DEFAULT false NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
-    team_id text NOT NULL
+    workspace_id text NOT NULL
 );
 
 
@@ -345,7 +345,7 @@ CREATE TABLE public.internal_events (
     event_type text NOT NULL,
     aggregate_type text NOT NULL,
     aggregate_id text NOT NULL,
-    team_id text DEFAULT ''::text NOT NULL,
+    workspace_id text DEFAULT ''::text NOT NULL,
     actor_id text DEFAULT ''::text NOT NULL,
     payload jsonb NOT NULL,
     metadata jsonb,
@@ -403,7 +403,7 @@ CREATE TABLE public.messages (
 
 CREATE TABLE public.oauth_accounts (
     id text NOT NULL,
-    team_id text NOT NULL,
+    workspace_id text NOT NULL,
     user_id text NOT NULL,
     provider text NOT NULL,
     provider_subject text NOT NULL,
@@ -472,22 +472,22 @@ ALTER SEQUENCE public.reactions_id_seq OWNED BY public.reactions.id;
 
 
 --
--- Name: team_event_feed; Type: TABLE; Schema: public; Owner: -
+-- Name: workspace_event_feed; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE public.team_event_feed (
+CREATE TABLE public.workspace_event_feed (
     feed_id bigint NOT NULL,
-    team_id text NOT NULL,
+    workspace_id text NOT NULL,
     external_event_id bigint NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL
 );
 
 
 --
--- Name: team_event_feed_feed_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+-- Name: workspace_event_feed_feed_id_seq; Type: SEQUENCE; Schema: public; Owner: -
 --
 
-CREATE SEQUENCE public.team_event_feed_feed_id_seq
+CREATE SEQUENCE public.workspace_event_feed_feed_id_seq
     START WITH 1
     INCREMENT BY 1
     NO MINVALUE
@@ -496,10 +496,10 @@ CREATE SEQUENCE public.team_event_feed_feed_id_seq
 
 
 --
--- Name: team_event_feed_feed_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+-- Name: workspace_event_feed_feed_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
 --
 
-ALTER SEQUENCE public.team_event_feed_feed_id_seq OWNED BY public.team_event_feed.feed_id;
+ALTER SEQUENCE public.workspace_event_feed_feed_id_seq OWNED BY public.workspace_event_feed.feed_id;
 
 
 --
@@ -581,7 +581,7 @@ CREATE TABLE public.usergroup_members (
 
 CREATE TABLE public.usergroups (
     id text NOT NULL,
-    team_id text NOT NULL,
+    workspace_id text NOT NULL,
     name text NOT NULL,
     handle text NOT NULL,
     description text DEFAULT ''::text NOT NULL,
@@ -601,7 +601,7 @@ CREATE TABLE public.usergroups (
 
 CREATE TABLE public.users (
     id text NOT NULL,
-    team_id text NOT NULL,
+    workspace_id text NOT NULL,
     name text NOT NULL,
     real_name text DEFAULT ''::text NOT NULL,
     display_name text DEFAULT ''::text NOT NULL,
@@ -618,14 +618,14 @@ CREATE TABLE public.users (
 
 
 --
--- Name: workspace_external_teams; Type: TABLE; Schema: public; Owner: -
+-- Name: workspace_external_workspaces; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE public.workspace_external_teams (
+CREATE TABLE public.workspace_external_workspaces (
     id text NOT NULL,
     workspace_id text NOT NULL,
-    external_team_id text NOT NULL,
-    external_team_name text DEFAULT ''::text NOT NULL,
+    external_workspace_id text NOT NULL,
+    external_workspace_name text DEFAULT ''::text NOT NULL,
     connection_type text DEFAULT 'slack_connect'::text NOT NULL,
     connected boolean DEFAULT true NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
@@ -702,10 +702,10 @@ ALTER TABLE ONLY public.reactions ALTER COLUMN id SET DEFAULT nextval('public.re
 
 
 --
--- Name: team_event_feed feed_id; Type: DEFAULT; Schema: public; Owner: -
+-- Name: workspace_event_feed feed_id; Type: DEFAULT; Schema: public; Owner: -
 --
 
-ALTER TABLE ONLY public.team_event_feed ALTER COLUMN feed_id SET DEFAULT nextval('public.team_event_feed_feed_id_seq'::regclass);
+ALTER TABLE ONLY public.workspace_event_feed ALTER COLUMN feed_id SET DEFAULT nextval('public.workspace_event_feed_feed_id_seq'::regclass);
 
 
 --
@@ -827,11 +827,11 @@ ALTER TABLE ONLY public.external_events
 
 
 --
--- Name: external_events external_events_team_id_dedupe_key_key; Type: CONSTRAINT; Schema: public; Owner: -
+-- Name: external_events external_events_workspace_id_dedupe_key_key; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.external_events
-    ADD CONSTRAINT external_events_team_id_dedupe_key_key UNIQUE (team_id, dedupe_key);
+    ADD CONSTRAINT external_events_workspace_id_dedupe_key_key UNIQUE (workspace_id, dedupe_key);
 
 
 --
@@ -923,19 +923,19 @@ ALTER TABLE ONLY public.reactions
 
 
 --
--- Name: team_event_feed team_event_feed_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+-- Name: workspace_event_feed workspace_event_feed_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
-ALTER TABLE ONLY public.team_event_feed
-    ADD CONSTRAINT team_event_feed_pkey PRIMARY KEY (feed_id);
+ALTER TABLE ONLY public.workspace_event_feed
+    ADD CONSTRAINT workspace_event_feed_pkey PRIMARY KEY (feed_id);
 
 
 --
--- Name: team_event_feed team_event_feed_team_id_external_event_id_key; Type: CONSTRAINT; Schema: public; Owner: -
+-- Name: workspace_event_feed workspace_event_feed_workspace_id_external_event_id_key; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
-ALTER TABLE ONLY public.team_event_feed
-    ADD CONSTRAINT team_event_feed_team_id_external_event_id_key UNIQUE (team_id, external_event_id);
+ALTER TABLE ONLY public.workspace_event_feed
+    ADD CONSTRAINT workspace_event_feed_workspace_id_external_event_id_key UNIQUE (workspace_id, external_event_id);
 
 
 --
@@ -995,19 +995,19 @@ ALTER TABLE ONLY public.users
 
 
 --
--- Name: workspace_external_teams workspace_external_teams_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+-- Name: workspace_external_workspaces workspace_external_workspaces_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
-ALTER TABLE ONLY public.workspace_external_teams
-    ADD CONSTRAINT workspace_external_teams_pkey PRIMARY KEY (id);
+ALTER TABLE ONLY public.workspace_external_workspaces
+    ADD CONSTRAINT workspace_external_workspaces_pkey PRIMARY KEY (id);
 
 
 --
--- Name: workspace_external_teams workspace_external_teams_workspace_id_external_team_id_key; Type: CONSTRAINT; Schema: public; Owner: -
+-- Name: workspace_external_workspaces workspace_external_workspaces_workspace_id_external_workspace_id_key; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
-ALTER TABLE ONLY public.workspace_external_teams
-    ADD CONSTRAINT workspace_external_teams_workspace_id_external_team_id_key UNIQUE (workspace_id, external_team_id);
+ALTER TABLE ONLY public.workspace_external_workspaces
+    ADD CONSTRAINT workspace_external_workspaces_workspace_id_external_workspace_id_key UNIQUE (workspace_id, external_workspace_id);
 
 
 --
@@ -1040,10 +1040,10 @@ CREATE INDEX idx_api_keys_principal_id ON public.api_keys USING btree (principal
 
 
 --
--- Name: idx_api_keys_team_id; Type: INDEX; Schema: public; Owner: -
+-- Name: idx_api_keys_workspace_id; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX idx_api_keys_team_id ON public.api_keys USING btree (team_id);
+CREATE INDEX idx_api_keys_workspace_id ON public.api_keys USING btree (workspace_id);
 
 
 --
@@ -1082,10 +1082,10 @@ CREATE INDEX idx_conversation_members_user_id ON public.conversation_members USI
 
 
 --
--- Name: idx_conversation_reads_team_id_user_id; Type: INDEX; Schema: public; Owner: -
+-- Name: idx_conversation_reads_workspace_id_user_id; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX idx_conversation_reads_team_id_user_id ON public.conversation_reads USING btree (team_id, user_id);
+CREATE INDEX idx_conversation_reads_workspace_id_user_id ON public.conversation_reads USING btree (workspace_id, user_id);
 
 
 --
@@ -1096,10 +1096,10 @@ CREATE INDEX idx_conversations_name ON public.conversations USING btree (name);
 
 
 --
--- Name: idx_conversations_team_id; Type: INDEX; Schema: public; Owner: -
+-- Name: idx_conversations_workspace_id; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX idx_conversations_team_id ON public.conversations USING btree (team_id);
+CREATE INDEX idx_conversations_workspace_id ON public.conversations USING btree (workspace_id);
 
 
 --
@@ -1110,10 +1110,10 @@ CREATE INDEX idx_conversations_type ON public.conversations USING btree (type);
 
 
 --
--- Name: idx_event_subscriptions_team_id; Type: INDEX; Schema: public; Owner: -
+-- Name: idx_event_subscriptions_workspace_id; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX idx_event_subscriptions_team_id ON public.event_subscriptions USING btree (team_id);
+CREATE INDEX idx_event_subscriptions_workspace_id ON public.event_subscriptions USING btree (workspace_id);
 
 
 --
@@ -1131,24 +1131,24 @@ CREATE INDEX idx_external_events_source_internal_event_id ON public.external_eve
 
 
 --
--- Name: idx_external_events_team_id_desc; Type: INDEX; Schema: public; Owner: -
+-- Name: idx_external_events_workspace_id_desc; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX idx_external_events_team_id_desc ON public.external_events USING btree (team_id, id DESC);
+CREATE INDEX idx_external_events_workspace_id_desc ON public.external_events USING btree (workspace_id, id DESC);
 
 
 --
 -- Name: idx_external_events_team_resource_id_desc; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX idx_external_events_team_resource_id_desc ON public.external_events USING btree (team_id, resource_type, resource_id, id DESC);
+CREATE INDEX idx_external_events_team_resource_id_desc ON public.external_events USING btree (workspace_id, resource_type, resource_id, id DESC);
 
 
 --
 -- Name: idx_external_events_team_type_id_desc; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX idx_external_events_team_type_id_desc ON public.external_events USING btree (team_id, type, id DESC);
+CREATE INDEX idx_external_events_team_type_id_desc ON public.external_events USING btree (workspace_id, type, id DESC);
 
 
 --
@@ -1166,24 +1166,24 @@ CREATE INDEX idx_file_event_feed_file_id_external_event_id ON public.file_event_
 
 
 --
--- Name: idx_files_team_id; Type: INDEX; Schema: public; Owner: -
+-- Name: idx_files_workspace_id; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX idx_files_team_id ON public.files USING btree (team_id);
-
-
---
--- Name: idx_files_team_id_file_id; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX idx_files_team_id_file_id ON public.files USING btree (team_id, id);
+CREATE INDEX idx_files_workspace_id ON public.files USING btree (workspace_id);
 
 
 --
--- Name: idx_files_team_id_user_id; Type: INDEX; Schema: public; Owner: -
+-- Name: idx_files_workspace_id_file_id; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX idx_files_team_id_user_id ON public.files USING btree (team_id, user_id);
+CREATE INDEX idx_files_workspace_id_file_id ON public.files USING btree (workspace_id, id);
+
+
+--
+-- Name: idx_files_workspace_id_user_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_files_workspace_id_user_id ON public.files USING btree (workspace_id, user_id);
 
 
 --
@@ -1204,7 +1204,7 @@ CREATE INDEX idx_internal_events_aggregate ON public.internal_events USING btree
 -- Name: idx_internal_events_team; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX idx_internal_events_team ON public.internal_events USING btree (team_id, created_at DESC);
+CREATE INDEX idx_internal_events_team ON public.internal_events USING btree (workspace_id, created_at DESC);
 
 
 --
@@ -1239,7 +1239,7 @@ CREATE INDEX idx_messages_user_id ON public.messages USING btree (user_id);
 -- Name: idx_oauth_accounts_identity; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE UNIQUE INDEX idx_oauth_accounts_identity ON public.oauth_accounts USING btree (team_id, provider, provider_subject);
+CREATE UNIQUE INDEX idx_oauth_accounts_identity ON public.oauth_accounts USING btree (workspace_id, provider, provider_subject);
 
 
 --
@@ -1257,17 +1257,17 @@ CREATE INDEX idx_reactions_message ON public.reactions USING btree (channel_id, 
 
 
 --
--- Name: idx_team_event_feed_external_event_id; Type: INDEX; Schema: public; Owner: -
+-- Name: idx_workspace_event_feed_external_event_id; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX idx_team_event_feed_external_event_id ON public.team_event_feed USING btree (external_event_id);
+CREATE INDEX idx_workspace_event_feed_external_event_id ON public.workspace_event_feed USING btree (external_event_id);
 
 
 --
--- Name: idx_team_event_feed_team_id_external_event_id; Type: INDEX; Schema: public; Owner: -
+-- Name: idx_workspace_event_feed_workspace_id_external_event_id; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX idx_team_event_feed_team_id_external_event_id ON public.team_event_feed USING btree (team_id, external_event_id);
+CREATE INDEX idx_workspace_event_feed_workspace_id_external_event_id ON public.workspace_event_feed USING btree (workspace_id, external_event_id);
 
 
 --
@@ -1302,14 +1302,14 @@ CREATE INDEX idx_usergroup_event_feed_usergroup_id_external_event_id ON public.u
 -- Name: idx_usergroups_team_handle; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE UNIQUE INDEX idx_usergroups_team_handle ON public.usergroups USING btree (team_id, handle);
+CREATE UNIQUE INDEX idx_usergroups_team_handle ON public.usergroups USING btree (workspace_id, handle);
 
 
 --
--- Name: idx_usergroups_team_id; Type: INDEX; Schema: public; Owner: -
+-- Name: idx_usergroups_workspace_id; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX idx_usergroups_team_id ON public.usergroups USING btree (team_id);
+CREATE INDEX idx_usergroups_workspace_id ON public.usergroups USING btree (workspace_id);
 
 
 --
@@ -1344,21 +1344,21 @@ CREATE INDEX idx_users_principal_type ON public.users USING btree (principal_typ
 -- Name: idx_users_team_email; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE UNIQUE INDEX idx_users_team_email ON public.users USING btree (team_id, email) WHERE (email <> ''::text);
+CREATE UNIQUE INDEX idx_users_team_email ON public.users USING btree (workspace_id, email) WHERE (email <> ''::text);
 
 
 --
--- Name: idx_users_team_id; Type: INDEX; Schema: public; Owner: -
+-- Name: idx_users_workspace_id; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX idx_users_team_id ON public.users USING btree (team_id);
+CREATE INDEX idx_users_workspace_id ON public.users USING btree (workspace_id);
 
 
 --
--- Name: idx_workspace_external_teams_workspace_id; Type: INDEX; Schema: public; Owner: -
+-- Name: idx_workspace_external_workspaces_workspace_id; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX idx_workspace_external_teams_workspace_id ON public.workspace_external_teams USING btree (workspace_id);
+CREATE INDEX idx_workspace_external_workspaces_workspace_id ON public.workspace_external_workspaces USING btree (workspace_id);
 
 
 --
@@ -1646,11 +1646,11 @@ ALTER TABLE ONLY public.reactions
 
 
 --
--- Name: team_event_feed team_event_feed_external_event_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+-- Name: workspace_event_feed workspace_event_feed_external_event_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
-ALTER TABLE ONLY public.team_event_feed
-    ADD CONSTRAINT team_event_feed_external_event_id_fkey FOREIGN KEY (external_event_id) REFERENCES public.external_events(id) ON DELETE CASCADE;
+ALTER TABLE ONLY public.workspace_event_feed
+    ADD CONSTRAINT workspace_event_feed_external_event_id_fkey FOREIGN KEY (external_event_id) REFERENCES public.external_events(id) ON DELETE CASCADE;
 
 
 --
@@ -1710,16 +1710,16 @@ ALTER TABLE ONLY public.usergroups
 
 
 --
--- Name: workspace_external_teams workspace_external_teams_workspace_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+-- Name: workspace_external_workspaces workspace_external_workspaces_workspace_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
-ALTER TABLE ONLY public.workspace_external_teams
-    ADD CONSTRAINT workspace_external_teams_workspace_id_fkey FOREIGN KEY (workspace_id) REFERENCES public.workspaces(id) ON DELETE CASCADE;
+ALTER TABLE ONLY public.workspace_external_workspaces
+    ADD CONSTRAINT workspace_external_workspaces_workspace_id_fkey FOREIGN KEY (workspace_id) REFERENCES public.workspaces(id) ON DELETE CASCADE;
 
 
 CREATE TABLE IF NOT EXISTS public.user_role_assignments (
     id text NOT NULL,
-    team_id text NOT NULL,
+    workspace_id text NOT NULL,
     user_id text NOT NULL,
     role_key text NOT NULL,
     assigned_by text NOT NULL,
@@ -1727,10 +1727,10 @@ CREATE TABLE IF NOT EXISTS public.user_role_assignments (
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_user_role_assignments_unique
-    ON public.user_role_assignments USING btree (team_id, user_id, role_key);
+    ON public.user_role_assignments USING btree (workspace_id, user_id, role_key);
 
 CREATE INDEX IF NOT EXISTS idx_user_role_assignments_user
-    ON public.user_role_assignments USING btree (team_id, user_id);
+    ON public.user_role_assignments USING btree (workspace_id, user_id);
 
 ALTER TABLE ONLY public.user_role_assignments
     ADD CONSTRAINT user_role_assignments_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id) ON DELETE CASCADE;
@@ -1782,10 +1782,10 @@ ALTER TABLE ONLY public.conversation_posting_policies
 
 CREATE TABLE IF NOT EXISTS public.external_principal_access (
     id text NOT NULL,
-    host_team_id text NOT NULL,
+    host_workspace_id text NOT NULL,
     principal_id text NOT NULL,
     principal_type text NOT NULL,
-    home_team_id text NOT NULL,
+    home_workspace_id text NOT NULL,
     access_mode text NOT NULL,
     allowed_capabilities jsonb DEFAULT '[]'::jsonb NOT NULL,
     granted_by text NOT NULL,
@@ -1798,10 +1798,10 @@ ALTER TABLE ONLY public.external_principal_access
     ADD CONSTRAINT external_principal_access_pkey PRIMARY KEY (id);
 
 CREATE INDEX IF NOT EXISTS idx_external_principal_access_principal
-    ON public.external_principal_access USING btree (host_team_id, principal_id);
+    ON public.external_principal_access USING btree (host_workspace_id, principal_id);
 
 ALTER TABLE ONLY public.external_principal_access
-    ADD CONSTRAINT external_principal_access_host_team_id_fkey FOREIGN KEY (host_team_id) REFERENCES public.workspaces(id) ON DELETE CASCADE;
+    ADD CONSTRAINT external_principal_access_host_workspace_id_fkey FOREIGN KEY (host_workspace_id) REFERENCES public.workspaces(id) ON DELETE CASCADE;
 
 ALTER TABLE ONLY public.external_principal_access
     ADD CONSTRAINT external_principal_access_principal_id_fkey FOREIGN KEY (principal_id) REFERENCES public.users(id) ON DELETE CASCADE;
@@ -1835,7 +1835,7 @@ ALTER TABLE ONLY public.external_principal_conversation_assignments
 
 CREATE TABLE IF NOT EXISTS public.authorization_audit_log (
     id text NOT NULL,
-    team_id text NOT NULL,
+    workspace_id text NOT NULL,
     actor_id text,
     api_key_id text,
     on_behalf_of text,
@@ -1850,16 +1850,236 @@ ALTER TABLE ONLY public.authorization_audit_log
     ADD CONSTRAINT authorization_audit_log_pkey PRIMARY KEY (id);
 
 CREATE INDEX IF NOT EXISTS idx_authorization_audit_log_team_created
-    ON public.authorization_audit_log USING btree (team_id, created_at DESC, id DESC);
+    ON public.authorization_audit_log USING btree (workspace_id, created_at DESC, id DESC);
 
 ALTER TABLE ONLY public.authorization_audit_log
-    ADD CONSTRAINT authorization_audit_log_team_id_fkey FOREIGN KEY (team_id) REFERENCES public.workspaces(id) ON DELETE CASCADE;
+    ADD CONSTRAINT authorization_audit_log_workspace_id_fkey FOREIGN KEY (workspace_id) REFERENCES public.workspaces(id) ON DELETE CASCADE;
 
 ALTER TABLE ONLY public.authorization_audit_log
     ADD CONSTRAINT authorization_audit_log_actor_id_fkey FOREIGN KEY (actor_id) REFERENCES public.users(id) ON DELETE SET NULL;
 
 ALTER TABLE ONLY public.authorization_audit_log
     ADD CONSTRAINT authorization_audit_log_on_behalf_of_fkey FOREIGN KEY (on_behalf_of) REFERENCES public.users(id) ON DELETE SET NULL;
+
+UPDATE public.users
+SET account_type = 'member'
+WHERE principal_type = 'human' AND account_type = '';
+
+ALTER TABLE public.users
+    ADD CONSTRAINT users_account_type_by_principal_check CHECK (
+        (principal_type = 'human' AND account_type = ANY (ARRAY['primary_admin'::text, 'admin'::text, 'member'::text])) OR
+        (principal_type <> 'human' AND account_type = ''::text)
+    );
+
+CREATE TABLE public.workspace_invites (
+    id text NOT NULL,
+    workspace_id text NOT NULL,
+    email text NOT NULL,
+    invited_by text NOT NULL,
+    token_hash text NOT NULL,
+    accepted_by_user_id text,
+    expires_at timestamp with time zone NOT NULL,
+    accepted_at timestamp with time zone,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+ALTER TABLE ONLY public.workspace_invites
+    ADD CONSTRAINT workspace_invites_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY public.workspace_invites
+    ADD CONSTRAINT workspace_invites_token_hash_key UNIQUE (token_hash);
+
+CREATE INDEX idx_workspace_invites_workspace_id ON public.workspace_invites USING btree (workspace_id);
+CREATE INDEX idx_workspace_invites_email ON public.workspace_invites USING btree (LOWER(email));
+
+CREATE TRIGGER trg_workspace_invites_updated_at BEFORE UPDATE ON public.workspace_invites
+    FOR EACH ROW EXECUTE FUNCTION public.update_updated_at();
+
+ALTER TABLE ONLY public.workspace_invites
+    ADD CONSTRAINT workspace_invites_workspace_id_fkey FOREIGN KEY (workspace_id) REFERENCES public.workspaces(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY public.workspace_invites
+    ADD CONSTRAINT workspace_invites_invited_by_fkey FOREIGN KEY (invited_by) REFERENCES public.users(id);
+
+ALTER TABLE ONLY public.workspace_invites
+    ADD CONSTRAINT workspace_invites_accepted_by_user_id_fkey FOREIGN KEY (accepted_by_user_id) REFERENCES public.users(id);
+
+DROP INDEX IF EXISTS public.idx_workspaces_domain;
+
+CREATE UNIQUE INDEX idx_workspaces_domain
+    ON public.workspaces (domain);
+
+ALTER TABLE public.api_keys ALTER COLUMN principal_id DROP NOT NULL;
+ALTER TABLE public.api_keys ALTER COLUMN principal_id SET DEFAULT '';
+ALTER TABLE public.api_keys ALTER COLUMN principal_id DROP DEFAULT;
+UPDATE public.api_keys SET principal_id = NULL WHERE principal_id = '';
+
+ALTER TABLE public.conversations
+ADD COLUMN last_message_ts text,
+ADD COLUMN last_activity_ts text;
+
+CREATE TABLE public.canonical_dms (
+    workspace_id text NOT NULL,
+    user_low_id text NOT NULL,
+    user_high_id text NOT NULL,
+    conversation_id text NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    PRIMARY KEY (workspace_id, user_low_id, user_high_id),
+    UNIQUE (conversation_id)
+);
+
+CREATE TABLE public.thread_participants (
+    channel_id text NOT NULL,
+    thread_ts text NOT NULL,
+    user_id text NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    PRIMARY KEY (channel_id, thread_ts, user_id)
+);
+
+ALTER TABLE public.canonical_dms
+    ADD CONSTRAINT canonical_dms_conversation_id_fkey
+    FOREIGN KEY (conversation_id) REFERENCES public.conversations(id) ON DELETE CASCADE;
+
+ALTER TABLE public.canonical_dms
+    ADD CONSTRAINT canonical_dms_user_low_id_fkey
+    FOREIGN KEY (user_low_id) REFERENCES public.users(id) ON DELETE CASCADE;
+
+ALTER TABLE public.canonical_dms
+    ADD CONSTRAINT canonical_dms_user_high_id_fkey
+    FOREIGN KEY (user_high_id) REFERENCES public.users(id) ON DELETE CASCADE;
+
+ALTER TABLE public.thread_participants
+    ADD CONSTRAINT thread_participants_channel_id_thread_ts_fkey
+    FOREIGN KEY (channel_id, thread_ts) REFERENCES public.messages(channel_id, ts) ON DELETE CASCADE;
+
+ALTER TABLE public.thread_participants
+    ADD CONSTRAINT thread_participants_user_id_fkey
+    FOREIGN KEY (user_id) REFERENCES public.users(id) ON DELETE CASCADE;
+
+CREATE INDEX idx_conversations_last_activity_ts
+ON public.conversations (last_activity_ts DESC NULLS LAST, id DESC);
+
+CREATE INDEX idx_conversation_members_user_conversation
+ON public.conversation_members (user_id, conversation_id);
+
+CREATE INDEX idx_thread_participants_thread
+ON public.thread_participants (channel_id, thread_ts);
+
+UPDATE public.conversations c
+SET last_message_ts = latest.ts
+FROM (
+    SELECT channel_id, MAX(ts) AS ts
+    FROM public.messages
+    WHERE thread_ts IS NULL AND is_deleted = FALSE
+    GROUP BY channel_id
+) AS latest
+WHERE c.id = latest.channel_id;
+
+UPDATE public.conversations c
+SET last_activity_ts = latest.ts
+FROM (
+    SELECT channel_id, MAX(ts) AS ts
+    FROM public.messages
+    WHERE is_deleted = FALSE
+    GROUP BY channel_id
+) AS latest
+WHERE c.id = latest.channel_id;
+
+INSERT INTO public.thread_participants (channel_id, thread_ts, user_id)
+SELECT DISTINCT m.channel_id, m.thread_ts, m.user_id
+FROM public.messages m
+WHERE m.thread_ts IS NOT NULL AND m.is_deleted = FALSE;
+
+INSERT INTO public.canonical_dms (workspace_id, user_low_id, user_high_id, conversation_id)
+SELECT
+    c.workspace_id,
+    members.user_low_id,
+    members.user_high_id,
+    c.id
+FROM public.conversations c
+JOIN (
+    SELECT
+        cm.conversation_id,
+        MIN(cm.user_id) AS user_low_id,
+        MAX(cm.user_id) AS user_high_id
+    FROM public.conversation_members cm
+    GROUP BY cm.conversation_id
+    HAVING COUNT(*) = 2
+) AS members
+    ON members.conversation_id = c.id
+WHERE c.type = 'im';
+
+ALTER TABLE public.internal_events
+ADD COLUMN shard_key text NOT NULL DEFAULT '',
+ADD COLUMN shard_id integer NOT NULL DEFAULT 0;
+
+UPDATE public.internal_events
+SET shard_key = CASE
+        WHEN aggregate_type = 'conversation' THEN aggregate_id
+        WHEN workspace_id <> '' THEN workspace_id
+        ELSE aggregate_id
+    END;
+
+UPDATE public.internal_events
+SET shard_id = ((hashtext(shard_key)::bigint & 2147483647) % 16)::integer;
+
+CREATE INDEX idx_internal_events_shard_id_id
+ON public.internal_events (shard_id, id);
+
+CREATE INDEX idx_internal_events_shard_key_id
+ON public.internal_events (shard_key, id);
+
+CREATE TABLE public.oauth_authorization_codes (
+    id text PRIMARY KEY,
+    code_hash text NOT NULL UNIQUE,
+    client_id text NOT NULL,
+    client_name text NOT NULL,
+    redirect_uri text NOT NULL,
+    workspace_id text NOT NULL REFERENCES public.workspaces(id) ON DELETE CASCADE,
+    user_id text NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
+    scope text[] NOT NULL DEFAULT '{}',
+    resource text NOT NULL,
+    code_challenge text NOT NULL,
+    code_challenge_method text NOT NULL,
+    expires_at timestamptz NOT NULL,
+    used_at timestamptz,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT oauth_authorization_codes_code_challenge_method_check CHECK (code_challenge_method = 'S256')
+);
+
+CREATE INDEX idx_oauth_authorization_codes_user_id ON public.oauth_authorization_codes(user_id);
+CREATE INDEX idx_oauth_authorization_codes_workspace_id ON public.oauth_authorization_codes(workspace_id);
+CREATE INDEX idx_oauth_authorization_codes_expires_at ON public.oauth_authorization_codes(expires_at);
+
+CREATE TRIGGER trg_oauth_authorization_codes_updated_at
+BEFORE UPDATE ON public.oauth_authorization_codes
+FOR EACH ROW EXECUTE FUNCTION public.update_updated_at();
+
+CREATE TABLE public.oauth_refresh_tokens (
+    id text PRIMARY KEY,
+    token_hash text NOT NULL UNIQUE,
+    client_id text NOT NULL,
+    client_name text NOT NULL,
+    workspace_id text NOT NULL REFERENCES public.workspaces(id) ON DELETE CASCADE,
+    user_id text NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
+    scope text[] NOT NULL DEFAULT '{}',
+    resource text NOT NULL,
+    expires_at timestamptz NOT NULL,
+    revoked_at timestamptz,
+    rotated_to_id text REFERENCES public.oauth_refresh_tokens(id) ON DELETE SET NULL,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX idx_oauth_refresh_tokens_user_id ON public.oauth_refresh_tokens(user_id);
+CREATE INDEX idx_oauth_refresh_tokens_workspace_id ON public.oauth_refresh_tokens(workspace_id);
+CREATE INDEX idx_oauth_refresh_tokens_expires_at ON public.oauth_refresh_tokens(expires_at);
+
+CREATE TRIGGER trg_oauth_refresh_tokens_updated_at
+BEFORE UPDATE ON public.oauth_refresh_tokens
+FOR EACH ROW EXECUTE FUNCTION public.update_updated_at();
 
 
 --

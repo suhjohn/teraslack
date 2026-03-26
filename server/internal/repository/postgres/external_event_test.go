@@ -42,7 +42,7 @@ func TestExternalEventRepoInsertFeedRow_RoutesByResourceType(t *testing.T) {
 		resourceType string
 		wantTable    string
 	}{
-		{name: "team", resourceType: domain.ResourceTypeTeam, wantTable: "team_event_feed"},
+		{name: "workspace", resourceType: domain.ResourceTypeWorkspace, wantTable: "workspace_event_feed"},
 		{name: "conversation", resourceType: domain.ResourceTypeConversation, wantTable: "conversation_event_feed"},
 		{name: "file", resourceType: domain.ResourceTypeFile, wantTable: "file_event_feed"},
 		{name: "user", resourceType: domain.ResourceTypeUser, wantTable: "user_event_feed"},
@@ -90,7 +90,7 @@ func TestPrincipalCanReadExternalResourceType(t *testing.T) {
 	t.Parallel()
 
 	restricted := repository.ExternalEventPrincipal{
-		TeamID:      "T123",
+		WorkspaceID: "T123",
 		UserID:      "U123",
 		APIKeyID:    "AK123",
 		Permissions: []string{domain.PermissionConversationsCreate},
@@ -98,12 +98,12 @@ func TestPrincipalCanReadExternalResourceType(t *testing.T) {
 	if principalCanReadExternalResourceType(restricted, domain.ResourceTypeConversation) {
 		t.Fatal("conversation events should require messages.read for restricted API keys")
 	}
-	if !principalCanReadExternalResourceType(restricted, domain.ResourceTypeTeam) {
-		t.Fatal("team events should remain visible within the team")
+	if !principalCanReadExternalResourceType(restricted, domain.ResourceTypeWorkspace) {
+		t.Fatal("workspace events should remain visible within the workspace")
 	}
 
 	reader := repository.ExternalEventPrincipal{
-		TeamID:      "T123",
+		WorkspaceID: "T123",
 		UserID:      "U123",
 		APIKeyID:    "AK123",
 		Permissions: []string{domain.PermissionMessagesRead},
@@ -112,13 +112,13 @@ func TestPrincipalCanReadExternalResourceType(t *testing.T) {
 		t.Fatal("messages.read should allow conversation events")
 	}
 
-	sessionPrincipal := repository.ExternalEventPrincipal{TeamID: "T123", UserID: "U123"}
+	sessionPrincipal := repository.ExternalEventPrincipal{WorkspaceID: "T123", UserID: "U123"}
 	if !principalCanReadExternalResourceType(sessionPrincipal, domain.ResourceTypeConversation) {
 		t.Fatal("human sessions should remain unrestricted")
 	}
 
 	empty := repository.ExternalEventPrincipal{
-		TeamID:      "T123",
+		WorkspaceID: "T123",
 		UserID:      "U123",
 		APIKeyID:    "AK123",
 		Permissions: []string{},
@@ -128,23 +128,30 @@ func TestPrincipalCanReadExternalResourceType(t *testing.T) {
 	}
 }
 
-func TestVisibleIDsSubquery_ExcludesDisallowedResourceFamilies(t *testing.T) {
+func TestAllowedResourceTypes_ExcludesDisallowedResourceFamilies(t *testing.T) {
 	t.Parallel()
 
-	repo := NewExternalEventRepo(&execCaptureDB{})
 	principal := repository.ExternalEventPrincipal{
-		TeamID:      "T123",
+		WorkspaceID: "T123",
 		UserID:      "U123",
 		APIKeyID:    "AK123",
 		Permissions: []string{domain.PermissionConversationsCreate},
 	}
 
-	args := []any{principal.TeamID, int64(0)}
-	query := repo.visibleIDsSubquery(principal, nil, domain.ListExternalEventsParams{}, &args)
-	if strings.Contains(query, "conversation_event_feed") {
-		t.Fatalf("query should not include conversation feed: %s", query)
+	resourceTypes := allowedResourceTypes(principal)
+	if slicesContain(resourceTypes, domain.ResourceTypeConversation) {
+		t.Fatalf("resource types should not include conversation: %#v", resourceTypes)
 	}
-	if !strings.Contains(query, "team_event_feed") {
-		t.Fatalf("query should still include team feed: %s", query)
+	if !slicesContain(resourceTypes, domain.ResourceTypeWorkspace) {
+		t.Fatalf("resource types should still include workspace: %#v", resourceTypes)
 	}
+}
+
+func slicesContain(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
 }

@@ -103,46 +103,52 @@ func (m *mockWorkspaceRepo) ListIntegrationLogs(_ context.Context, _ string, _ i
 	return []domain.WorkspaceIntegrationLog{}, nil
 }
 
-func (m *mockWorkspaceRepo) ListExternalTeams(_ context.Context, _ string) ([]domain.ExternalTeam, error) {
-	return []domain.ExternalTeam{}, nil
+func (m *mockWorkspaceRepo) ListExternalWorkspaces(_ context.Context, _ string) ([]domain.ExternalWorkspace, error) {
+	return []domain.ExternalWorkspace{}, nil
 }
 
-func (m *mockWorkspaceRepo) DisconnectExternalTeam(_ context.Context, _, _ string) error {
+func (m *mockWorkspaceRepo) DisconnectExternalWorkspace(_ context.Context, _, _ string) error {
 	return nil
 }
 
-func TestWorkspaceService_TeamInfoUsesContextTeam(t *testing.T) {
+func TestWorkspaceService_WorkspaceInfoUsesContextWorkspace(t *testing.T) {
 	workspaceRepo := newMockWorkspaceRepo()
 	workspaceRepo.workspaces["T123"] = &domain.Workspace{ID: "T123", Name: "Acme"}
 	svc := NewWorkspaceService(workspaceRepo, newMockUserRepoTenant(), nil, mockTxBeginner{}, nil)
 
-	ctx := context.WithValue(context.Background(), ctxutil.ContextKeyTeamID, "T123")
+	ctx := context.WithValue(context.Background(), ctxutil.ContextKeyWorkspaceID, "T123")
 
-	ws, err := svc.TeamInfo(ctx, "")
+	ws, err := svc.WorkspaceInfo(ctx, "")
 	if err != nil {
-		t.Fatalf("TeamInfo empty team_id: %v", err)
+		t.Fatalf("WorkspaceInfo empty workspace_id: %v", err)
 	}
 	if ws.ID != "T123" {
 		t.Fatalf("expected T123, got %s", ws.ID)
 	}
 
-	if _, err := svc.TeamInfo(ctx, "T999"); err == nil || !errors.Is(err, domain.ErrForbidden) {
-		t.Fatalf("expected forbidden for mismatched team_id, got %v", err)
+	if _, err := svc.WorkspaceInfo(ctx, "T999"); err == nil || !errors.Is(err, domain.ErrForbidden) {
+		t.Fatalf("expected forbidden for mismatched workspace_id, got %v", err)
 	}
 }
 
 func TestWorkspaceService_AdminCreateRequiresAdmin(t *testing.T) {
 	workspaceRepo := newMockWorkspaceRepo()
 	userRepo := newMockUserRepoTenant()
-	userRepo.users["U123"] = &domain.User{ID: "U123", TeamID: "T123", Name: "alice", PrincipalType: domain.PrincipalTypeHuman}
+	userRepo.users["U_ADMIN"] = &domain.User{
+		ID:            "U_ADMIN",
+		WorkspaceID:   "T123",
+		Name:          "alice",
+		Email:         "alice@example.com",
+		PrincipalType: domain.PrincipalTypeHuman,
+	}
 	svc := NewWorkspaceService(workspaceRepo, userRepo, nil, mockTxBeginner{}, nil)
 
-	ctx := ctxutil.WithUser(context.Background(), "U123", "T123")
+	ctx := ctxutil.WithUser(context.Background(), "U_ADMIN", "T123")
 	if _, err := svc.AdminCreate(ctx, domain.CreateWorkspaceParams{Name: "Acme"}); err == nil || !errors.Is(err, domain.ErrForbidden) {
 		t.Fatalf("expected forbidden for non-admin create, got %v", err)
 	}
 
-	userRepo.users["U123"].AccountType = domain.AccountTypeAdmin
+	userRepo.users["U_ADMIN"].AccountType = domain.AccountTypeAdmin
 	ws, err := svc.AdminCreate(ctx, domain.CreateWorkspaceParams{Name: "Acme"})
 	if err != nil {
 		t.Fatalf("AdminCreate admin: %v", err)
@@ -150,22 +156,67 @@ func TestWorkspaceService_AdminCreateRequiresAdmin(t *testing.T) {
 	if ws.Name != "Acme" {
 		t.Fatalf("expected Acme, got %s", ws.Name)
 	}
+	createdUser, err := userRepo.GetByTeamEmail(context.Background(), ws.ID, "alice@example.com")
+	if err != nil {
+		t.Fatalf("expected creator membership in new workspace: %v", err)
+	}
+	if createdUser.EffectiveAccountType() != domain.AccountTypePrimaryAdmin {
+		t.Fatalf("expected primary admin membership, got %s", createdUser.EffectiveAccountType())
+	}
 }
 
-func TestWorkspaceService_AdminCanTargetOtherWorkspace(t *testing.T) {
+func TestWorkspaceService_AdminListReturnsWorkspaceMemberships(t *testing.T) {
 	workspaceRepo := newMockWorkspaceRepo()
-	workspaceRepo.workspaces["T999"] = &domain.Workspace{ID: "T999", Name: "Before"}
+	workspaceRepo.workspaces["T123"] = &domain.Workspace{ID: "T123", Name: "Current"}
+	workspaceRepo.workspaces["T999"] = &domain.Workspace{ID: "T999", Name: "Other"}
 	userRepo := newMockUserRepoTenant()
-	userRepo.users["U123"] = &domain.User{ID: "U123", TeamID: "T123", Name: "alice", PrincipalType: domain.PrincipalTypeHuman, AccountType: domain.AccountTypeAdmin}
+	userRepo.users["U123"] = &domain.User{
+		ID:            "U123",
+		WorkspaceID:   "T123",
+		Name:          "alice",
+		Email:         "alice@example.com",
+		PrincipalType: domain.PrincipalTypeHuman,
+		AccountType:   domain.AccountTypeAdmin,
+	}
+	userRepo.users["U999"] = &domain.User{
+		ID:            "U999",
+		WorkspaceID:   "T999",
+		Name:          "alice",
+		Email:         "alice@example.com",
+		PrincipalType: domain.PrincipalTypeHuman,
+		AccountType:   domain.AccountTypeMember,
+	}
 	svc := NewWorkspaceService(workspaceRepo, userRepo, nil, mockTxBeginner{}, nil)
 
 	ctx := ctxutil.WithUser(context.Background(), "U123", "T123")
-	ws, err := svc.AdminSetName(ctx, "T999", "After")
+
+	workspaces, err := svc.AdminList(ctx)
 	if err != nil {
-		t.Fatalf("AdminSetName: %v", err)
+		t.Fatalf("AdminList: %v", err)
 	}
-	if ws.ID != "T999" || ws.Name != "After" {
-		t.Fatalf("unexpected workspace after rename: %+v", ws)
+	if len(workspaces) != 2 {
+		t.Fatalf("expected 2 workspaces, got %d", len(workspaces))
+	}
+	seen := map[string]bool{}
+	for _, workspace := range workspaces {
+		seen[workspace.ID] = true
+	}
+	if !seen["T123"] || !seen["T999"] {
+		t.Fatalf("expected memberships for T123 and T999, got %+v", workspaces)
+	}
+}
+
+func TestWorkspaceService_AdminCannotTargetOtherWorkspace(t *testing.T) {
+	workspaceRepo := newMockWorkspaceRepo()
+	workspaceRepo.workspaces["T123"] = &domain.Workspace{ID: "T123", Name: "Current"}
+	workspaceRepo.workspaces["T999"] = &domain.Workspace{ID: "T999", Name: "Before"}
+	userRepo := newMockUserRepoTenant()
+	userRepo.users["U123"] = &domain.User{ID: "U123", WorkspaceID: "T123", Name: "alice", PrincipalType: domain.PrincipalTypeHuman, AccountType: domain.AccountTypeAdmin}
+	svc := NewWorkspaceService(workspaceRepo, userRepo, nil, mockTxBeginner{}, nil)
+
+	ctx := ctxutil.WithUser(context.Background(), "U123", "T123")
+	if _, err := svc.AdminSetName(ctx, "T999", "After"); err == nil || !errors.Is(err, domain.ErrForbidden) {
+		t.Fatalf("expected forbidden for cross-workspace admin update, got %v", err)
 	}
 }
 
@@ -173,8 +224,8 @@ func TestWorkspaceService_TransferPrimaryAdmin(t *testing.T) {
 	workspaceRepo := newMockWorkspaceRepo()
 	workspaceRepo.workspaces["T123"] = &domain.Workspace{ID: "T123", Name: "Acme"}
 	userRepo := newMockUserRepoTenant()
-	userRepo.users["U_PRIMARY"] = &domain.User{ID: "U_PRIMARY", TeamID: "T123", PrincipalType: domain.PrincipalTypeHuman, AccountType: domain.AccountTypePrimaryAdmin}
-	userRepo.users["U_ADMIN"] = &domain.User{ID: "U_ADMIN", TeamID: "T123", PrincipalType: domain.PrincipalTypeHuman, AccountType: domain.AccountTypeAdmin}
+	userRepo.users["U_PRIMARY"] = &domain.User{ID: "U_PRIMARY", WorkspaceID: "T123", PrincipalType: domain.PrincipalTypeHuman, AccountType: domain.AccountTypePrimaryAdmin}
+	userRepo.users["U_ADMIN"] = &domain.User{ID: "U_ADMIN", WorkspaceID: "T123", PrincipalType: domain.PrincipalTypeHuman, AccountType: domain.AccountTypeAdmin}
 	svc := NewWorkspaceService(workspaceRepo, userRepo, nil, mockTxBeginner{}, nil)
 
 	ctx := ctxutil.WithUser(context.Background(), "U_PRIMARY", "T123")

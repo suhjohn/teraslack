@@ -86,14 +86,14 @@ func (s *ConversationAccessService) SetManagers(ctx context.Context, conversatio
 	if err != nil {
 		return nil, err
 	}
-	if err := ensureTeamAccess(ctx, conv.TeamID); err != nil {
+	if err := ensureWorkspaceAccess(ctx, conv.WorkspaceID); err != nil {
 		return nil, err
 	}
 	if err := s.authorizeManagerMutation(ctx, conv); err != nil {
 		return nil, err
 	}
 
-	normalizedUserIDs, err := s.normalizeManagerUserIDs(ctx, conv.TeamID, userIDs)
+	normalizedUserIDs, err := s.normalizeManagerUserIDs(ctx, conv.WorkspaceID, userIDs)
 	if err != nil {
 		return nil, err
 	}
@@ -132,7 +132,7 @@ func (s *ConversationAccessService) SetManagers(ctx context.Context, conversatio
 			EventType:     domain.EventConversationManagerAdded,
 			AggregateType: domain.AggregateConversation,
 			AggregateID:   conversationID,
-			TeamID:        conv.TeamID,
+			WorkspaceID:        conv.WorkspaceID,
 			ActorID:       assignedBy,
 			Payload:       payload,
 		}); err != nil {
@@ -148,7 +148,7 @@ func (s *ConversationAccessService) SetManagers(ctx context.Context, conversatio
 			EventType:     domain.EventConversationManagerRemoved,
 			AggregateType: domain.AggregateConversation,
 			AggregateID:   conversationID,
-			TeamID:        conv.TeamID,
+			WorkspaceID:        conv.WorkspaceID,
 			ActorID:       assignedBy,
 			Payload:       payload,
 		}); err != nil {
@@ -159,7 +159,7 @@ func (s *ConversationAccessService) SetManagers(ctx context.Context, conversatio
 	if err := tx.Commit(ctx); err != nil {
 		return nil, fmt.Errorf("commit tx: %w", err)
 	}
-	if err := recordAuthorizationAudit(ctx, s.auditRepo, nil, conv.TeamID, domain.AuditActionConversationManagersUpdated, "conversation", conversationID, map[string]any{
+	if err := recordAuthorizationAudit(ctx, s.auditRepo, nil, conv.WorkspaceID, domain.AuditActionConversationManagersUpdated, "conversation", conversationID, map[string]any{
 		"user_ids": normalizedUserIDs,
 	}); err != nil {
 		return nil, fmt.Errorf("record authorization audit log: %w", err)
@@ -200,13 +200,13 @@ func (s *ConversationAccessService) SetPostingPolicy(ctx context.Context, policy
 	if err != nil {
 		return nil, err
 	}
-	if err := ensureTeamAccess(ctx, conv.TeamID); err != nil {
+	if err := ensureWorkspaceAccess(ctx, conv.WorkspaceID); err != nil {
 		return nil, err
 	}
 	if err := s.authorizePostingPolicyMutation(ctx, conv); err != nil {
 		return nil, err
 	}
-	if err := s.validatePostingPolicy(ctx, conv.TeamID, &policy); err != nil {
+	if err := s.validatePostingPolicy(ctx, conv.WorkspaceID, &policy); err != nil {
 		return nil, err
 	}
 
@@ -230,7 +230,7 @@ func (s *ConversationAccessService) SetPostingPolicy(ctx context.Context, policy
 		EventType:     domain.EventConversationPostingPolicyUpdated,
 		AggregateType: domain.AggregateConversation,
 		AggregateID:   policy.ConversationID,
-		TeamID:        conv.TeamID,
+		WorkspaceID:        conv.WorkspaceID,
 		ActorID:       policy.UpdatedBy,
 		Payload:       payload,
 	}); err != nil {
@@ -240,7 +240,7 @@ func (s *ConversationAccessService) SetPostingPolicy(ctx context.Context, policy
 	if err := tx.Commit(ctx); err != nil {
 		return nil, fmt.Errorf("commit tx: %w", err)
 	}
-	if err := recordAuthorizationAudit(ctx, s.auditRepo, nil, conv.TeamID, domain.AuditActionPostingPolicyUpdated, "conversation", policy.ConversationID, updated); err != nil {
+	if err := recordAuthorizationAudit(ctx, s.auditRepo, nil, conv.WorkspaceID, domain.AuditActionPostingPolicyUpdated, "conversation", policy.ConversationID, updated); err != nil {
 		return nil, fmt.Errorf("record authorization audit log: %w", err)
 	}
 	return updated, nil
@@ -250,7 +250,7 @@ func (s *ConversationAccessService) CanManageConversation(ctx context.Context, c
 	if conv == nil {
 		return fmt.Errorf("conversation: %w", domain.ErrInvalidArgument)
 	}
-	if err := ensureTeamAccess(ctx, conv.TeamID); err != nil {
+	if err := ensureWorkspaceAccess(ctx, conv.WorkspaceID); err != nil {
 		return err
 	}
 	if isInternalCallWithoutAuth(ctx) {
@@ -279,7 +279,7 @@ func (s *ConversationAccessService) CanArchiveConversation(ctx context.Context, 
 	if conv == nil {
 		return fmt.Errorf("conversation: %w", domain.ErrInvalidArgument)
 	}
-	if err := ensureTeamAccess(ctx, conv.TeamID); err != nil {
+	if err := ensureWorkspaceAccess(ctx, conv.WorkspaceID); err != nil {
 		return err
 	}
 	if isInternalCallWithoutAuth(ctx) {
@@ -308,7 +308,7 @@ func (s *ConversationAccessService) CanPost(ctx context.Context, conv *domain.Co
 	if conv == nil {
 		return fmt.Errorf("conversation: %w", domain.ErrInvalidArgument)
 	}
-	if err := ensureTeamAccess(ctx, conv.TeamID); err != nil {
+	if err := ensureWorkspaceAccess(ctx, conv.WorkspaceID); err != nil {
 		return err
 	}
 	if isInternalCallWithoutAuth(ctx) {
@@ -351,7 +351,7 @@ func (s *ConversationAccessService) CanPost(ctx context.Context, conv *domain.Co
 		}
 		return domain.ErrForbidden
 	case domain.ConversationPostingPolicyCustom:
-		allowed, err := s.actorMatchesCustomPostingPolicy(ctx, conv.TeamID, actorID, policy)
+		allowed, err := s.actorMatchesCustomPostingPolicy(ctx, conv.WorkspaceID, actorID, policy)
 		if err != nil {
 			return err
 		}
@@ -368,7 +368,7 @@ func (s *ConversationAccessService) ensureConversationVisible(ctx context.Contex
 	if conv == nil {
 		return fmt.Errorf("conversation: %w", domain.ErrInvalidArgument)
 	}
-	if err := ensureTeamAccess(ctx, conv.TeamID); err != nil {
+	if err := ensureWorkspaceAccess(ctx, conv.WorkspaceID); err != nil {
 		return err
 	}
 	switch conv.Type {
@@ -434,7 +434,7 @@ func (s *ConversationAccessService) isActorConversationManager(ctx context.Conte
 	return s.repo.IsManager(ctx, conversationID, actorID)
 }
 
-func (s *ConversationAccessService) normalizeManagerUserIDs(ctx context.Context, teamID string, userIDs []string) ([]string, error) {
+func (s *ConversationAccessService) normalizeManagerUserIDs(ctx context.Context, workspaceID string, userIDs []string) ([]string, error) {
 	seen := make(map[string]struct{}, len(userIDs))
 	normalized := make([]string, 0, len(userIDs))
 	for _, userID := range userIDs {
@@ -448,7 +448,7 @@ func (s *ConversationAccessService) normalizeManagerUserIDs(ctx context.Context,
 		if err != nil {
 			return nil, fmt.Errorf("manager user %s: %w", userID, err)
 		}
-		if user.TeamID != teamID || user.PrincipalType != domain.PrincipalTypeHuman {
+		if user.WorkspaceID != workspaceID || user.PrincipalType != domain.PrincipalTypeHuman {
 			return nil, fmt.Errorf("manager user_ids: %w", domain.ErrInvalidArgument)
 		}
 		seen[userID] = struct{}{}
@@ -458,7 +458,7 @@ func (s *ConversationAccessService) normalizeManagerUserIDs(ctx context.Context,
 	return normalized, nil
 }
 
-func (s *ConversationAccessService) validatePostingPolicy(ctx context.Context, teamID string, policy *domain.ConversationPostingPolicy) error {
+func (s *ConversationAccessService) validatePostingPolicy(ctx context.Context, workspaceID string, policy *domain.ConversationPostingPolicy) error {
 	if !domain.IsValidConversationPostingPolicyType(policy.PolicyType) {
 		return fmt.Errorf("policy_type: %w", domain.ErrInvalidArgument)
 	}
@@ -484,7 +484,7 @@ func (s *ConversationAccessService) validatePostingPolicy(ctx context.Context, t
 		if err != nil {
 			return fmt.Errorf("allowed_user_ids: %w", err)
 		}
-		if user.TeamID != teamID {
+		if user.WorkspaceID != workspaceID {
 			return fmt.Errorf("allowed_user_ids: %w", domain.ErrInvalidArgument)
 		}
 	}
@@ -496,14 +496,14 @@ func (s *ConversationAccessService) validatePostingPolicy(ctx context.Context, t
 		if err != nil {
 			return fmt.Errorf("allowed_usergroup_ids: %w", err)
 		}
-		if usergroup.TeamID != teamID {
+		if usergroup.WorkspaceID != workspaceID {
 			return fmt.Errorf("allowed_usergroup_ids: %w", domain.ErrInvalidArgument)
 		}
 	}
 	return nil
 }
 
-func (s *ConversationAccessService) actorMatchesCustomPostingPolicy(ctx context.Context, teamID, actorID string, policy *domain.ConversationPostingPolicy) (bool, error) {
+func (s *ConversationAccessService) actorMatchesCustomPostingPolicy(ctx context.Context, workspaceID, actorID string, policy *domain.ConversationPostingPolicy) (bool, error) {
 	if containsString(policy.AllowedUserIDs, actorID) {
 		return true, nil
 	}
@@ -511,14 +511,14 @@ func (s *ConversationAccessService) actorMatchesCustomPostingPolicy(ctx context.
 	if err != nil {
 		return false, err
 	}
-	if actor.TeamID != teamID {
+	if actor.WorkspaceID != workspaceID {
 		return false, domain.ErrForbidden
 	}
 	if containsAccountType(policy.AllowedAccountTypes, actor.EffectiveAccountType()) {
 		return true, nil
 	}
 	if s.roleRepo != nil {
-		roles, err := s.roleRepo.ListByUser(ctx, teamID, actorID)
+		roles, err := s.roleRepo.ListByUser(ctx, workspaceID, actorID)
 		if err == nil {
 			for _, role := range roles {
 				if containsDelegatedRole(policy.AllowedDelegatedRoles, role) {

@@ -21,6 +21,7 @@ type ExternalEventProjector struct {
 	checkpoints  repository.ProjectorCheckpointRepository
 	logger       *slog.Logger
 	pollInterval time.Duration
+	ownedShards  []int
 }
 
 func NewExternalEventProjector(
@@ -40,7 +41,16 @@ func NewExternalEventProjector(
 		checkpoints:  checkpoints,
 		logger:       logger,
 		pollInterval: 200 * time.Millisecond,
+		ownedShards:  allInternalEventShards(),
 	}
+}
+
+func (p *ExternalEventProjector) SetOwnedShards(shards []int) {
+	if len(shards) == 0 {
+		p.ownedShards = allInternalEventShards()
+		return
+	}
+	p.ownedShards = append([]int(nil), shards...)
 }
 
 func (p *ExternalEventProjector) Start(ctx context.Context) {
@@ -64,13 +74,22 @@ func (p *ExternalEventProjector) Start(ctx context.Context) {
 }
 
 func (p *ExternalEventProjector) ProcessPending(ctx context.Context) error {
-	lastID, err := p.checkpoints.Get(ctx, externalEventProjectorName)
+	for _, shardID := range p.ownedShards {
+		if err := p.processPendingShard(ctx, shardID); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (p *ExternalEventProjector) processPendingShard(ctx context.Context, shardID int) error {
+	checkpointName := externalEventProjectorCheckpointName(shardID)
+	lastID, err := p.checkpoints.Get(ctx, checkpointName)
 	if err != nil {
 		return err
 	}
-
 	for {
-		events, err := p.internal.GetAllSince(ctx, lastID, 100)
+		events, err := p.internal.GetAllSinceByShard(ctx, shardID, lastID, 100)
 		if err != nil {
 			return err
 		}
@@ -94,13 +113,13 @@ func (p *ExternalEventProjector) ProcessPending(ctx context.Context) error {
 				if err := externalRepo.RecordProjectionFailure(ctx, internalEvent.ID, projectErr.Error()); err != nil {
 					return err
 				}
-				if err := checkpoints.Set(ctx, externalEventProjectorName, batchLastID); err != nil {
+				if err := checkpoints.Set(ctx, checkpointName, batchLastID); err != nil {
 					return err
 				}
 				if err := tx.Commit(ctx); err != nil {
 					return fmt.Errorf("commit projector failure state: %w", err)
 				}
-				return fmt.Errorf("project internal event %d (%s): %w", internalEvent.ID, internalEvent.EventType, projectErr)
+				return fmt.Errorf("project internal event %d (%s) on shard %d: %w", internalEvent.ID, internalEvent.EventType, shardID, projectErr)
 			}
 
 			for _, externalEvent := range projected {
@@ -108,20 +127,20 @@ func (p *ExternalEventProjector) ProcessPending(ctx context.Context) error {
 					if recErr := externalRepo.RecordProjectionFailure(ctx, internalEvent.ID, err.Error()); recErr != nil {
 						return recErr
 					}
-					if err := checkpoints.Set(ctx, externalEventProjectorName, batchLastID); err != nil {
+					if err := checkpoints.Set(ctx, checkpointName, batchLastID); err != nil {
 						return err
 					}
 					if err := tx.Commit(ctx); err != nil {
 						return fmt.Errorf("commit projector failure state: %w", err)
 					}
-					return fmt.Errorf("persist external event for internal event %d: %w", internalEvent.ID, err)
+					return fmt.Errorf("persist external event for internal event %d on shard %d: %w", internalEvent.ID, shardID, err)
 				}
 			}
 
 			batchLastID = internalEvent.ID
 		}
 
-		if err := checkpoints.Set(ctx, externalEventProjectorName, batchLastID); err != nil {
+		if err := checkpoints.Set(ctx, checkpointName, batchLastID); err != nil {
 			return err
 		}
 		if err := tx.Commit(ctx); err != nil {
@@ -135,8 +154,10 @@ func (p *ExternalEventProjector) Rebuild(ctx context.Context) error {
 	if err := p.external.Rebuild(ctx, nil); err != nil {
 		return err
 	}
-	if err := p.checkpoints.Set(ctx, externalEventProjectorName, 0); err != nil {
-		return err
+	for _, shardID := range p.ownedShards {
+		if err := p.checkpoints.Set(ctx, externalEventProjectorCheckpointName(shardID), 0); err != nil {
+			return err
+		}
 	}
 	return p.ProcessPending(ctx)
 }
@@ -145,12 +166,24 @@ func (p *ExternalEventProjector) RebuildFeeds(ctx context.Context) error {
 	return p.external.RebuildFeeds(ctx)
 }
 
+func externalEventProjectorCheckpointName(shardID int) string {
+	return fmt.Sprintf("%s:shard:%d", externalEventProjectorName, shardID)
+}
+
+func allInternalEventShards() []int {
+	shards := make([]int, domain.InternalEventShardCount)
+	for i := range shards {
+		shards[i] = i
+	}
+	return shards
+}
+
 func projectExternalEvents(internalEvent domain.InternalEvent) ([]domain.ExternalEvent, error) {
 	switch internalEvent.EventType {
-	case domain.EventTeamCreated:
-		return singleExternalEvent(internalEvent, domain.EventTypeTeamCreated, domain.ResourceTypeTeam, internalEvent.TeamID, safeWorkspacePayload)
-	case domain.EventTeamUpdated:
-		return singleExternalEvent(internalEvent, domain.EventTypeTeamUpdated, domain.ResourceTypeTeam, internalEvent.TeamID, safeWorkspacePayload)
+	case domain.EventWorkspaceCreated:
+		return singleExternalEvent(internalEvent, domain.EventTypeWorkspaceCreated, domain.ResourceTypeWorkspace, internalEvent.WorkspaceID, safeWorkspacePayload)
+	case domain.EventWorkspaceUpdated:
+		return singleExternalEvent(internalEvent, domain.EventTypeWorkspaceUpdated, domain.ResourceTypeWorkspace, internalEvent.WorkspaceID, safeWorkspacePayload)
 	case domain.EventUserCreated:
 		return singleExternalEvent(internalEvent, domain.EventTypeUserCreated, domain.ResourceTypeUser, internalEvent.AggregateID, safeUserPayload)
 	case domain.EventUserUpdated:
@@ -216,17 +249,17 @@ func projectExternalEvents(internalEvent domain.InternalEvent) ([]domain.Externa
 	case domain.EventFileShared:
 		return projectFileShared(internalEvent)
 	case domain.EventSubscriptionCreated:
-		return singleExternalEvent(internalEvent, domain.EventTypeEventSubscriptionCreated, domain.ResourceTypeTeam, internalEvent.TeamID, safeEventSubscriptionPayload)
+		return singleExternalEvent(internalEvent, domain.EventTypeEventSubscriptionCreated, domain.ResourceTypeWorkspace, internalEvent.WorkspaceID, safeEventSubscriptionPayload)
 	case domain.EventSubscriptionUpdated:
-		return singleExternalEvent(internalEvent, domain.EventTypeEventSubscriptionUpdated, domain.ResourceTypeTeam, internalEvent.TeamID, safeEventSubscriptionPayload)
+		return singleExternalEvent(internalEvent, domain.EventTypeEventSubscriptionUpdated, domain.ResourceTypeWorkspace, internalEvent.WorkspaceID, safeEventSubscriptionPayload)
 	case domain.EventSubscriptionDeleted:
-		return singleExternalEvent(internalEvent, domain.EventTypeEventSubscriptionDeleted, domain.ResourceTypeTeam, internalEvent.TeamID, eventSubscriptionDeletePayload)
+		return singleExternalEvent(internalEvent, domain.EventTypeEventSubscriptionDeleted, domain.ResourceTypeWorkspace, internalEvent.WorkspaceID, eventSubscriptionDeletePayload)
 	case domain.EventExternalPrincipalAccessGranted:
-		return singleExternalEvent(internalEvent, domain.EventTypeExternalPrincipalAccessGranted, domain.ResourceTypeTeam, internalEvent.TeamID, safeExternalPrincipalAccessPayload)
+		return singleExternalEvent(internalEvent, domain.EventTypeExternalPrincipalAccessGranted, domain.ResourceTypeWorkspace, internalEvent.WorkspaceID, safeExternalPrincipalAccessPayload)
 	case domain.EventExternalPrincipalAccessUpdated:
-		return singleExternalEvent(internalEvent, domain.EventTypeExternalPrincipalAccessUpdated, domain.ResourceTypeTeam, internalEvent.TeamID, safeExternalPrincipalAccessPayload)
+		return singleExternalEvent(internalEvent, domain.EventTypeExternalPrincipalAccessUpdated, domain.ResourceTypeWorkspace, internalEvent.WorkspaceID, safeExternalPrincipalAccessPayload)
 	case domain.EventExternalPrincipalAccessRevoked:
-		return singleExternalEvent(internalEvent, domain.EventTypeExternalPrincipalAccessRevoked, domain.ResourceTypeTeam, internalEvent.TeamID, safeExternalPrincipalAccessPayload)
+		return singleExternalEvent(internalEvent, domain.EventTypeExternalPrincipalAccessRevoked, domain.ResourceTypeWorkspace, internalEvent.WorkspaceID, safeExternalPrincipalAccessPayload)
 	default:
 		return nil, nil
 	}
@@ -242,7 +275,7 @@ func singleExternalEvent(
 		return nil, err
 	}
 	return []domain.ExternalEvent{{
-		TeamID:                 internalEvent.TeamID,
+		WorkspaceID:                 internalEvent.WorkspaceID,
 		Type:                   eventType,
 		ResourceType:           resourceType,
 		ResourceID:             resourceID,
@@ -275,7 +308,7 @@ func projectMessageSnapshot(internalEvent domain.InternalEvent, eventType string
 		return nil, err
 	}
 	return []domain.ExternalEvent{{
-		TeamID:                 internalEvent.TeamID,
+		WorkspaceID:                 internalEvent.WorkspaceID,
 		Type:                   eventType,
 		ResourceType:           domain.ResourceTypeConversation,
 		ResourceID:             msg.ChannelID,
@@ -304,7 +337,7 @@ func projectReactionChange(internalEvent domain.InternalEvent, eventType string)
 		return nil, err
 	}
 	return []domain.ExternalEvent{{
-		TeamID:                 internalEvent.TeamID,
+		WorkspaceID:                 internalEvent.WorkspaceID,
 		Type:                   eventType,
 		ResourceType:           domain.ResourceTypeConversation,
 		ResourceID:             payload.Reaction.ChannelID,
@@ -322,7 +355,7 @@ func projectPinChange(internalEvent domain.InternalEvent, eventType string) ([]d
 		return nil, err
 	}
 	return []domain.ExternalEvent{{
-		TeamID:                 internalEvent.TeamID,
+		WorkspaceID:                 internalEvent.WorkspaceID,
 		Type:                   eventType,
 		ResourceType:           domain.ResourceTypeConversation,
 		ResourceID:             channelID,
@@ -355,7 +388,7 @@ func projectBookmarkSnapshot(internalEvent domain.InternalEvent, eventType strin
 		return nil, err
 	}
 	return []domain.ExternalEvent{{
-		TeamID:                 internalEvent.TeamID,
+		WorkspaceID:                 internalEvent.WorkspaceID,
 		Type:                   eventType,
 		ResourceType:           domain.ResourceTypeConversation,
 		ResourceID:             bookmark.ChannelID,
@@ -380,7 +413,7 @@ func projectBookmarkDeleted(internalEvent domain.InternalEvent) ([]domain.Extern
 		return nil, err
 	}
 	return []domain.ExternalEvent{{
-		TeamID:                 internalEvent.TeamID,
+		WorkspaceID:                 internalEvent.WorkspaceID,
 		Type:                   domain.EventTypeConversationBookmarkDeleted,
 		ResourceType:           domain.ResourceTypeConversation,
 		ResourceID:             payload.ChannelID,
@@ -408,7 +441,7 @@ func projectFileShared(internalEvent domain.InternalEvent) ([]domain.ExternalEve
 		return nil, err
 	}
 	return []domain.ExternalEvent{{
-		TeamID:                 internalEvent.TeamID,
+		WorkspaceID:                 internalEvent.WorkspaceID,
 		Type:                   domain.EventTypeFileShared,
 		ResourceType:           domain.ResourceTypeFile,
 		ResourceID:             payload.FileID,
@@ -550,7 +583,7 @@ func safeFilePayload(internalEvent domain.InternalEvent) (json.RawMessage, error
 	}
 	return marshalJSON(map[string]any{
 		"id":           file.ID,
-		"team_id":      file.TeamID,
+		"workspace_id":      file.WorkspaceID,
 		"name":         file.Name,
 		"title":        file.Title,
 		"mimetype":     file.Mimetype,
@@ -581,7 +614,7 @@ func safeEventSubscriptionPayload(internalEvent domain.InternalEvent) (json.RawM
 	}
 	return marshalJSON(map[string]any{
 		"id":            sub.ID,
-		"team_id":       sub.TeamID,
+		"workspace_id":       sub.WorkspaceID,
 		"url":           sub.URL,
 		"type":          sub.Type,
 		"resource_type": sub.ResourceType,

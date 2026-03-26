@@ -48,45 +48,53 @@ func (s *APIKeyService) Create(ctx context.Context, params domain.CreateAPIKeyPa
 	if params.Name == "" {
 		return nil, "", fmt.Errorf("name: %w", domain.ErrInvalidArgument)
 	}
-	teamID, err := resolveTeamID(ctx, params.TeamID)
+	workspaceID, err := resolveWorkspaceID(ctx, params.WorkspaceID)
 	if err != nil {
 		return nil, "", err
 	}
-	params.TeamID = teamID
-	if params.PrincipalID == "" {
-		return nil, "", fmt.Errorf("principal_id: %w", domain.ErrInvalidArgument)
-	}
+	params.WorkspaceID = workspaceID
 
-	// Verify the principal exists
-	principal, err := s.userRepo.Get(ctx, params.PrincipalID)
-	if err != nil {
-		return nil, "", fmt.Errorf("principal: %w", err)
-	}
-	actor, err := s.authorizePrincipalKeyAccess(ctx, principal)
-	if err != nil {
-		return nil, "", err
-	}
-	if params.CreatedBy == "" && actor != nil {
-		params.CreatedBy = actor.ID
-	}
-	if actor != nil {
-		if err := validateAPIKeyPermissions(principal, params.Permissions); err != nil {
-			return nil, "", err
+	if params.UserID == "" {
+		// System key (not user-scoped) — only admins can create these.
+		if !isInternalCallWithoutAuth(ctx) {
+			actor, err := loadActingUser(ctx, s.userRepo)
+			if err != nil {
+				return nil, "", err
+			}
+			if !defaultAuthorizer.IsWorkspaceAdminAccount(actor.EffectiveAccountType()) {
+				return nil, "", domain.ErrForbidden
+			}
+			if params.CreatedBy == "" {
+				params.CreatedBy = actor.ID
+			}
 		}
-		if err := s.validateExternalAccessPermissions(ctx, params.TeamID, principal, params.Permissions); err != nil {
-			return nil, "", err
+		if params.CreatedBy == "" {
+			return nil, "", fmt.Errorf("created_by: %w", domain.ErrInvalidArgument)
 		}
-	}
-
-	// If on_behalf_of is set, verify that principal exists too
-	if params.OnBehalfOf != "" {
-		onBehalfOf, err := s.userRepo.Get(ctx, params.OnBehalfOf)
+	} else {
+		// User-scoped key — validate access to the target user.
+		user, err := s.userRepo.Get(ctx, params.UserID)
 		if err != nil {
-			return nil, "", fmt.Errorf("on_behalf_of principal: %w", err)
+			return nil, "", fmt.Errorf("user: %w", err)
 		}
-		if err := s.authorizeDelegatedKeyIssuance(ctx, actor, principal, onBehalfOf); err != nil {
+		actor, err := s.authorizeAPIKeyUserAccess(ctx, user)
+		if err != nil {
 			return nil, "", err
 		}
+		if params.CreatedBy == "" && actor != nil {
+			params.CreatedBy = actor.ID
+		}
+		if actor != nil {
+			if err := validateAPIKeyPermissions(user, params.Permissions); err != nil {
+				return nil, "", err
+			}
+			if err := s.validateExternalAccessPermissions(ctx, params.WorkspaceID, user, params.Permissions); err != nil {
+				return nil, "", err
+			}
+		}
+	}
+	if err := s.validateAPIKeyCreator(ctx, params.WorkspaceID, params.CreatedBy); err != nil {
+		return nil, "", err
 	}
 
 	tx, err := s.db.Begin(ctx)
@@ -105,7 +113,7 @@ func (s *APIKeyService) Create(ctx context.Context, params domain.CreateAPIKeyPa
 		EventType:     domain.EventAPIKeyCreated,
 		AggregateType: domain.AggregateAPIKey,
 		AggregateID:   key.ID,
-		TeamID:        key.TeamID,
+		WorkspaceID:        key.WorkspaceID,
 		ActorID:       ctxutil.GetActingUserID(ctx),
 		Payload:       payload,
 	}); err != nil {
@@ -115,9 +123,9 @@ func (s *APIKeyService) Create(ctx context.Context, params domain.CreateAPIKeyPa
 	if err := tx.Commit(ctx); err != nil {
 		return nil, "", fmt.Errorf("commit tx: %w", err)
 	}
-	if err := recordAuthorizationAudit(ctx, s.auditRepo, nil, key.TeamID, domain.AuditActionAPIKeyCreated, "api_key", key.ID, map[string]any{
-		"principal_id": key.PrincipalID,
-		"permissions":  key.Permissions,
+	if err := recordAuthorizationAudit(ctx, s.auditRepo, nil, key.WorkspaceID, domain.AuditActionAPIKeyCreated, "api_key", key.ID, map[string]any{
+		"user_id":     key.UserID,
+		"permissions": key.Permissions,
 	}); err != nil {
 		return nil, "", fmt.Errorf("record authorization audit log: %w", err)
 	}
@@ -130,10 +138,10 @@ func (s *APIKeyService) Get(ctx context.Context, id string) (*domain.APIKey, err
 	if err != nil {
 		return nil, err
 	}
-	if err := ensureTeamAccess(ctx, key.TeamID); err != nil {
+	if err := ensureWorkspaceAccess(ctx, key.WorkspaceID); err != nil {
 		return nil, err
 	}
-	if _, err := s.authorizePrincipalKeyID(ctx, key.PrincipalID); err != nil {
+	if _, err := s.authorizeAPIKeyUserID(ctx, key.UserID); err != nil {
 		return nil, err
 	}
 	key.KeyHash = ""
@@ -142,20 +150,21 @@ func (s *APIKeyService) Get(ctx context.Context, id string) (*domain.APIKey, err
 
 // List retrieves API keys with pagination and filtering.
 func (s *APIKeyService) List(ctx context.Context, params domain.ListAPIKeysParams) (*domain.CursorPage[domain.APIKey], error) {
-	teamID, err := resolveTeamID(ctx, params.TeamID)
+	workspaceID, err := resolveWorkspaceID(ctx, params.WorkspaceID)
 	if err != nil {
 		return nil, err
 	}
-	params.TeamID = teamID
+	params.WorkspaceID = workspaceID
 	if requiresAuthenticatedActor(ctx) {
 		actor, err := loadActingUser(ctx, s.userRepo)
 		if err != nil {
 			return nil, err
 		}
 		if !defaultAuthorizer.IsWorkspaceAdminAccount(actor.EffectiveAccountType()) {
-			params.PrincipalID = actor.ID
-		} else if params.PrincipalID != "" {
-			if _, err := s.authorizePrincipalKeyID(ctx, params.PrincipalID); err != nil {
+			params.UserID = actor.ID
+		}
+		if params.UserID != "" {
+			if _, err := s.authorizeAPIKeyUserID(ctx, params.UserID); err != nil {
 				return nil, err
 			}
 		}
@@ -169,10 +178,10 @@ func (s *APIKeyService) Revoke(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
-	if err := ensureTeamAccess(ctx, key.TeamID); err != nil {
+	if err := ensureWorkspaceAccess(ctx, key.WorkspaceID); err != nil {
 		return err
 	}
-	if _, err := s.authorizePrincipalKeyID(ctx, key.PrincipalID); err != nil {
+	if _, err := s.authorizeAPIKeyUserID(ctx, key.UserID); err != nil {
 		return err
 	}
 
@@ -197,7 +206,7 @@ func (s *APIKeyService) Revoke(ctx context.Context, id string) error {
 		EventType:     domain.EventAPIKeyRevoked,
 		AggregateType: domain.AggregateAPIKey,
 		AggregateID:   key.ID,
-		TeamID:        key.TeamID,
+		WorkspaceID:        key.WorkspaceID,
 		ActorID:       ctxutil.GetActingUserID(ctx),
 		Payload:       payload,
 	}); err != nil {
@@ -207,8 +216,8 @@ func (s *APIKeyService) Revoke(ctx context.Context, id string) error {
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("commit tx: %w", err)
 	}
-	if err := recordAuthorizationAudit(ctx, s.auditRepo, nil, key.TeamID, domain.AuditActionAPIKeyRevoked, "api_key", key.ID, map[string]any{
-		"principal_id": key.PrincipalID,
+	if err := recordAuthorizationAudit(ctx, s.auditRepo, nil, key.WorkspaceID, domain.AuditActionAPIKeyRevoked, "api_key", key.ID, map[string]any{
+		"user_id": key.UserID,
 	}); err != nil {
 		return fmt.Errorf("record authorization audit log: %w", err)
 	}
@@ -221,18 +230,18 @@ func (s *APIKeyService) Update(ctx context.Context, id string, params domain.Upd
 	if err != nil {
 		return nil, err
 	}
-	if err := ensureTeamAccess(ctx, existing.TeamID); err != nil {
+	if err := ensureWorkspaceAccess(ctx, existing.WorkspaceID); err != nil {
 		return nil, err
 	}
-	principal, err := s.authorizePrincipalKeyID(ctx, existing.PrincipalID)
+	user, err := s.authorizeAPIKeyUserID(ctx, existing.UserID)
 	if err != nil {
 		return nil, err
 	}
 	if params.Permissions != nil && !isInternalCallWithoutAuth(ctx) {
-		if err := validateAPIKeyPermissions(principal, *params.Permissions); err != nil {
+		if err := validateAPIKeyPermissions(user, *params.Permissions); err != nil {
 			return nil, err
 		}
-		if err := s.validateExternalAccessPermissions(ctx, existing.TeamID, principal, *params.Permissions); err != nil {
+		if err := s.validateExternalAccessPermissions(ctx, existing.WorkspaceID, user, *params.Permissions); err != nil {
 			return nil, err
 		}
 	}
@@ -253,7 +262,7 @@ func (s *APIKeyService) Update(ctx context.Context, id string, params domain.Upd
 		EventType:     domain.EventAPIKeyUpdated,
 		AggregateType: domain.AggregateAPIKey,
 		AggregateID:   key.ID,
-		TeamID:        key.TeamID,
+		WorkspaceID:        key.WorkspaceID,
 		ActorID:       ctxutil.GetActingUserID(ctx),
 		Payload:       payload,
 	}); err != nil {
@@ -263,9 +272,9 @@ func (s *APIKeyService) Update(ctx context.Context, id string, params domain.Upd
 	if err := tx.Commit(ctx); err != nil {
 		return nil, fmt.Errorf("commit tx: %w", err)
 	}
-	if err := recordAuthorizationAudit(ctx, s.auditRepo, nil, key.TeamID, domain.AuditActionAPIKeyUpdated, "api_key", key.ID, map[string]any{
-		"principal_id": key.PrincipalID,
-		"permissions":  key.Permissions,
+	if err := recordAuthorizationAudit(ctx, s.auditRepo, nil, key.WorkspaceID, domain.AuditActionAPIKeyUpdated, "api_key", key.ID, map[string]any{
+		"user_id":     key.UserID,
+		"permissions": key.Permissions,
 	}); err != nil {
 		return nil, fmt.Errorf("record authorization audit log: %w", err)
 	}
@@ -298,10 +307,10 @@ func (s *APIKeyService) Rotate(ctx context.Context, id string, params domain.Rot
 	if err != nil {
 		return nil, "", err
 	}
-	if err := ensureTeamAccess(ctx, oldKey.TeamID); err != nil {
+	if err := ensureWorkspaceAccess(ctx, oldKey.WorkspaceID); err != nil {
 		return nil, "", err
 	}
-	if _, err := s.authorizePrincipalKeyID(ctx, oldKey.PrincipalID); err != nil {
+	if _, err := s.authorizeAPIKeyUserID(ctx, oldKey.UserID); err != nil {
 		return nil, "", err
 	}
 
@@ -313,12 +322,9 @@ func (s *APIKeyService) Rotate(ctx context.Context, id string, params domain.Rot
 	newKey, rawKey, err := txRepo.Create(ctx, domain.CreateAPIKeyParams{
 		Name:        oldKey.Name + " (rotated)",
 		Description: oldKey.Description,
-		TeamID:      oldKey.TeamID,
-		PrincipalID: oldKey.PrincipalID,
+		WorkspaceID:      oldKey.WorkspaceID,
+		UserID:      oldKey.UserID,
 		CreatedBy:   oldKey.CreatedBy,
-		OnBehalfOf:  oldKey.OnBehalfOf,
-		Type:        oldKey.Type,
-		Environment: oldKey.Environment,
 		Permissions: oldKey.Permissions,
 	})
 	if err != nil {
@@ -331,7 +337,7 @@ func (s *APIKeyService) Rotate(ctx context.Context, id string, params domain.Rot
 		EventType:     domain.EventAPIKeyCreated,
 		AggregateType: domain.AggregateAPIKey,
 		AggregateID:   newKey.ID,
-		TeamID:        newKey.TeamID,
+		WorkspaceID:        newKey.WorkspaceID,
 		ActorID:       ctxutil.GetActingUserID(ctx),
 		Payload:       newKeyPayload,
 	}); err != nil {
@@ -352,7 +358,7 @@ func (s *APIKeyService) Rotate(ctx context.Context, id string, params domain.Rot
 		EventType:     domain.EventAPIKeyRotated,
 		AggregateType: domain.AggregateAPIKey,
 		AggregateID:   oldKey.ID,
-		TeamID:        oldKey.TeamID,
+		WorkspaceID:        oldKey.WorkspaceID,
 		ActorID:       ctxutil.GetActingUserID(ctx),
 		Payload:       payload,
 	}); err != nil {
@@ -362,7 +368,7 @@ func (s *APIKeyService) Rotate(ctx context.Context, id string, params domain.Rot
 	if err := tx.Commit(ctx); err != nil {
 		return nil, "", fmt.Errorf("commit tx: %w", err)
 	}
-	if err := recordAuthorizationAudit(ctx, s.auditRepo, nil, oldKey.TeamID, domain.AuditActionAPIKeyRotated, "api_key", oldKey.ID, map[string]any{
+	if err := recordAuthorizationAudit(ctx, s.auditRepo, nil, oldKey.WorkspaceID, domain.AuditActionAPIKeyRotated, "api_key", oldKey.ID, map[string]any{
 		"new_key_id": newKey.ID,
 	}); err != nil {
 		return nil, "", fmt.Errorf("record authorization audit log: %w", err)
@@ -392,16 +398,6 @@ func (s *APIKeyService) ValidateAPIKey(ctx context.Context, rawKey string) (*dom
 		return nil, domain.ErrTokenRevoked
 	}
 
-	principal, err := s.userRepo.Get(ctx, key.PrincipalID)
-	if err != nil {
-		return nil, domain.ErrInvalidAuth
-	}
-	if s.externalAccess != nil {
-		if access, accessErr := s.externalAccess.GetActiveByPrincipal(ctx, key.TeamID, key.PrincipalID); accessErr == nil && access != nil {
-			key.Permissions = intersectPermissions(key.Permissions, access.AllowedCapabilities)
-		}
-	}
-
 	// Update usage asynchronously (fire-and-forget, non-critical)
 	go func() {
 		if err := s.repo.UpdateUsage(context.Background(), key.ID); err != nil {
@@ -409,16 +405,36 @@ func (s *APIKeyService) ValidateAPIKey(ctx context.Context, rawKey string) (*dom
 		}
 	}()
 
+	// System key (no user_id) — acts as a system principal with admin access.
+	if key.UserID == "" {
+		return &domain.APIKeyValidation{
+			WorkspaceID:        key.WorkspaceID,
+			PrincipalType: domain.PrincipalTypeSystem,
+			AccountType:   domain.AccountTypeAdmin,
+			KeyID:         key.ID,
+			Permissions:   key.Permissions,
+		}, nil
+	}
+
+	// User-scoped key — resolve the user for principal/account info.
+	user, err := s.userRepo.Get(ctx, key.UserID)
+	if err != nil {
+		return nil, domain.ErrInvalidAuth
+	}
+	if s.externalAccess != nil {
+		if access, accessErr := s.externalAccess.GetActiveByPrincipal(ctx, key.WorkspaceID, key.UserID); accessErr == nil && access != nil {
+			key.Permissions = intersectPermissions(key.Permissions, access.AllowedCapabilities)
+		}
+	}
+
 	return &domain.APIKeyValidation{
-		TeamID:        key.TeamID,
-		PrincipalID:   key.PrincipalID,
-		PrincipalType: principal.PrincipalType,
-		AccountType:   principal.EffectiveAccountType(),
-		IsBot:         principal.IsBot,
-		OnBehalfOf:    key.OnBehalfOf,
+		WorkspaceID:        key.WorkspaceID,
+		UserID:        key.UserID,
+		PrincipalType: user.PrincipalType,
+		AccountType:   user.EffectiveAccountType(),
+		IsBot:         user.IsBot,
 		KeyID:         key.ID,
 		Permissions:   key.Permissions,
-		Environment:   key.Environment,
 	}, nil
 }
 
@@ -433,20 +449,48 @@ func parseDuration(s string) (time.Duration, error) {
 	return time.ParseDuration(s)
 }
 
-func (s *APIKeyService) authorizePrincipalKeyID(ctx context.Context, principalID string) (*domain.User, error) {
-	principal, err := s.userRepo.Get(ctx, principalID)
-	if err != nil {
-		return nil, err
+func (s *APIKeyService) validateAPIKeyCreator(ctx context.Context, workspaceID, createdBy string) error {
+	if createdBy == "" {
+		return nil
 	}
-	_, err = s.authorizePrincipalKeyAccess(ctx, principal)
+	creator, err := s.userRepo.Get(ctx, createdBy)
 	if err != nil {
-		return nil, err
+		return fmt.Errorf("created_by: %w", err)
 	}
-	return principal, nil
+	if creator.WorkspaceID != workspaceID {
+		return fmt.Errorf("created_by: %w", domain.ErrForbidden)
+	}
+	return nil
 }
 
-func (s *APIKeyService) authorizePrincipalKeyAccess(ctx context.Context, principal *domain.User) (*domain.User, error) {
-	if principal == nil {
+func (s *APIKeyService) authorizeAPIKeyUserID(ctx context.Context, userID string) (*domain.User, error) {
+	// System key (no user_id) — only admins can manage these.
+	if userID == "" {
+		if isInternalCallWithoutAuth(ctx) {
+			return nil, nil
+		}
+		actor, err := loadActingUser(ctx, s.userRepo)
+		if err != nil {
+			return nil, err
+		}
+		if !defaultAuthorizer.IsWorkspaceAdminAccount(actor.EffectiveAccountType()) {
+			return nil, domain.ErrForbidden
+		}
+		return nil, nil
+	}
+	user, err := s.userRepo.Get(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	_, err = s.authorizeAPIKeyUserAccess(ctx, user)
+	if err != nil {
+		return nil, err
+	}
+	return user, nil
+}
+
+func (s *APIKeyService) authorizeAPIKeyUserAccess(ctx context.Context, user *domain.User) (*domain.User, error) {
+	if user == nil {
 		return nil, domain.ErrNotFound
 	}
 	if isInternalCallWithoutAuth(ctx) {
@@ -456,11 +500,11 @@ func (s *APIKeyService) authorizePrincipalKeyAccess(ctx context.Context, princip
 	if err != nil {
 		return nil, err
 	}
-	if err := ensureTeamAccess(ctx, principal.TeamID); err != nil {
-		if ctxutil.GetTeamID(ctx) == "" || principal.PrincipalType != domain.PrincipalTypeAgent || s.externalAccess == nil {
+	if err := ensureWorkspaceAccess(ctx, user.WorkspaceID); err != nil {
+		if ctxutil.GetWorkspaceID(ctx) == "" || user.PrincipalType != domain.PrincipalTypeAgent || s.externalAccess == nil {
 			return nil, err
 		}
-		access, accessErr := s.externalAccess.GetActiveByPrincipal(ctx, ctxutil.GetTeamID(ctx), principal.ID)
+		access, accessErr := s.externalAccess.GetActiveByPrincipal(ctx, ctxutil.GetWorkspaceID(ctx), user.ID)
 		if accessErr != nil || access == nil {
 			return nil, err
 		}
@@ -468,38 +512,22 @@ func (s *APIKeyService) authorizePrincipalKeyAccess(ctx context.Context, princip
 			return nil, domain.ErrForbidden
 		}
 	}
-	if actor.ID == principal.ID {
+	if actor.ID == user.ID {
 		return actor, nil
 	}
-	if canManagePrincipal(actor, principal) {
+	if user.PrincipalType == domain.PrincipalTypeAgent && user.OwnerID == actor.ID {
 		return actor, nil
 	}
-	if principal.PrincipalType == domain.PrincipalTypeAgent && s.externalAccess != nil {
-		access, err := s.externalAccess.GetActiveByPrincipal(ctx, ctxutil.GetTeamID(ctx), principal.ID)
+	if canManagePrincipal(actor, user) {
+		return actor, nil
+	}
+	if user.PrincipalType == domain.PrincipalTypeAgent && s.externalAccess != nil {
+		access, err := s.externalAccess.GetActiveByPrincipal(ctx, ctxutil.GetWorkspaceID(ctx), user.ID)
 		if err == nil && access != nil && defaultAuthorizer.IsWorkspaceAdminAccount(actor.EffectiveAccountType()) {
 			return actor, nil
 		}
 	}
 	return nil, domain.ErrForbidden
-}
-
-func (s *APIKeyService) authorizeDelegatedKeyIssuance(ctx context.Context, actor, principal, onBehalfOf *domain.User) error {
-	if isInternalCallWithoutAuth(ctx) {
-		return nil
-	}
-	if actor == nil || principal == nil || onBehalfOf == nil {
-		return domain.ErrForbidden
-	}
-	if !defaultAuthorizer.IsWorkspaceAdminAccount(actor.EffectiveAccountType()) {
-		return domain.ErrForbidden
-	}
-	if actor.ID != principal.ID && !canManagePrincipal(actor, principal) {
-		return domain.ErrForbidden
-	}
-	if actor.ID != onBehalfOf.ID && !canManagePrincipal(actor, onBehalfOf) {
-		return domain.ErrForbidden
-	}
-	return nil
 }
 
 func validateAPIKeyPermissions(principal *domain.User, permissions []string) error {
@@ -530,11 +558,11 @@ func validateAPIKeyPermissions(principal *domain.User, permissions []string) err
 	return nil
 }
 
-func (s *APIKeyService) validateExternalAccessPermissions(ctx context.Context, teamID string, principal *domain.User, permissions []string) error {
-	if principal == nil || principal.PrincipalType != domain.PrincipalTypeAgent || s.externalAccess == nil || teamID == "" || principal.TeamID == teamID {
+func (s *APIKeyService) validateExternalAccessPermissions(ctx context.Context, workspaceID string, principal *domain.User, permissions []string) error {
+	if principal == nil || principal.PrincipalType != domain.PrincipalTypeAgent || s.externalAccess == nil || workspaceID == "" || principal.WorkspaceID == workspaceID {
 		return nil
 	}
-	access, err := s.externalAccess.GetActiveByPrincipal(ctx, teamID, principal.ID)
+	access, err := s.externalAccess.GetActiveByPrincipal(ctx, workspaceID, principal.ID)
 	if err != nil || access == nil {
 		return domain.ErrForbidden
 	}

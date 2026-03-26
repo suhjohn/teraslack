@@ -5,7 +5,7 @@ import "time"
 // Usergroup represents a group of users (e.g., agent capability groups).
 type Usergroup struct {
 	ID          string    `json:"id"`
-	TeamID      string    `json:"team_id"`
+	WorkspaceID      string    `json:"workspace_id"`
 	Name        string    `json:"name"`
 	Handle      string    `json:"handle"`
 	Description string    `json:"description"`
@@ -20,7 +20,7 @@ type Usergroup struct {
 
 // CreateUsergroupParams holds the parameters for creating a usergroup.
 type CreateUsergroupParams struct {
-	TeamID      string   `json:"team_id"`
+	WorkspaceID      string   `json:"workspace_id"`
 	Name        string   `json:"name"`
 	Handle      string   `json:"handle"`
 	Description string   `json:"description"`
@@ -38,6 +38,6 @@ type UpdateUsergroupParams struct {
 
 // ListUsergroupsParams holds filter/pagination options for listing usergroups.
 type ListUsergroupsParams struct {
-	TeamID         string `json:"team_id"`
+	WorkspaceID         string `json:"workspace_id"`
 	IncludeDisabled bool  `json:"include_disabled"`
 }

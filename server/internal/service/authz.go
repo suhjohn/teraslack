@@ -14,17 +14,17 @@ type Authorizer struct{}
 
 var defaultAuthorizer = Authorizer{}
 
-func resolveTeamID(ctx context.Context, requested string) (string, error) {
-	if ctxTeam := ctxutil.GetTeamID(ctx); ctxTeam != "" {
-		if requested != "" && requested != ctxTeam {
+func resolveWorkspaceID(ctx context.Context, requested string) (string, error) {
+	if ctxWorkspace := ctxutil.GetWorkspaceID(ctx); ctxWorkspace != "" {
+		if requested != "" && requested != ctxWorkspace {
 			return "", domain.ErrForbidden
 		}
-		return ctxTeam, nil
+		return ctxWorkspace, nil
 	}
 	if requested != "" {
 		return requested, nil
 	}
-	return "", fmt.Errorf("team_id: %w", domain.ErrInvalidArgument)
+	return "", fmt.Errorf("workspace_id: %w", domain.ErrInvalidArgument)
 }
 
 func resolveActorID(ctx context.Context, requested string) (string, error) {
@@ -37,11 +37,11 @@ func resolveActorID(ctx context.Context, requested string) (string, error) {
 	return "", fmt.Errorf("user_id: %w", domain.ErrInvalidArgument)
 }
 
-func ensureTeamAccess(ctx context.Context, resourceTeamID string) error {
-	if resourceTeamID == "" {
+func ensureWorkspaceAccess(ctx context.Context, resourceWorkspaceID string) error {
+	if resourceWorkspaceID == "" {
 		return nil
 	}
-	if ctxTeam := ctxutil.GetTeamID(ctx); ctxTeam != "" && ctxTeam != resourceTeamID {
+	if ctxWorkspace := ctxutil.GetWorkspaceID(ctx); ctxWorkspace != "" && ctxWorkspace != resourceWorkspaceID {
 		return domain.ErrForbidden
 	}
 	return nil
@@ -70,7 +70,7 @@ func requirePermission(ctx context.Context, permission string) error {
 }
 
 func requiresAuthenticatedActor(ctx context.Context) bool {
-	return ctxutil.GetActingUserID(ctx) != "" || ctxutil.GetAPIKeyID(ctx) != "" || ctxutil.GetTeamID(ctx) != ""
+	return ctxutil.GetActingUserID(ctx) != "" || ctxutil.GetAPIKeyID(ctx) != "" || ctxutil.GetWorkspaceID(ctx) != ""
 }
 
 func isInternalCallWithoutAuth(ctx context.Context) bool {
@@ -135,7 +135,7 @@ func (a Authorizer) RequireWorkspaceAdminActor(ctx context.Context, userRepo rep
 	if err != nil {
 		return nil, err
 	}
-	if err := ensureTeamAccess(ctx, actor.TeamID); err != nil {
+	if err := ensureWorkspaceAccess(ctx, actor.WorkspaceID); err != nil {
 		return nil, err
 	}
 	if !a.IsWorkspaceAdminAccount(actor.EffectiveAccountType()) {

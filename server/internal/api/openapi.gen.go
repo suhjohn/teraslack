@@ -29,45 +29,6 @@ const (
 	BearerAuthScopes = "bearerAuth.Scopes"
 )
 
-// Defines values for APIKeyEnvironment.
-const (
-	Live APIKeyEnvironment = "live"
-	Test APIKeyEnvironment = "test"
-)
-
-// Valid indicates whether the value is a known member of the APIKeyEnvironment enum.
-func (e APIKeyEnvironment) Valid() bool {
-	switch e {
-	case Live:
-		return true
-	case Test:
-		return true
-	default:
-		return false
-	}
-}
-
-// Defines values for APIKeyType.
-const (
-	Persistent APIKeyType = "persistent"
-	Restricted APIKeyType = "restricted"
-	Session    APIKeyType = "session"
-)
-
-// Valid indicates whether the value is a known member of the APIKeyType enum.
-func (e APIKeyType) Valid() bool {
-	switch e {
-	case Persistent:
-		return true
-	case Restricted:
-		return true
-	case Session:
-		return true
-	default:
-		return false
-	}
-}
-
 // Defines values for AccountType.
 const (
 	Admin        AccountType = "admin"
@@ -159,9 +120,9 @@ func (e ConversationType) Valid() bool {
 const (
 	CreateEventSubscriptionRequestResourceTypeConversation CreateEventSubscriptionRequestResourceType = "conversation"
 	CreateEventSubscriptionRequestResourceTypeFile         CreateEventSubscriptionRequestResourceType = "file"
-	CreateEventSubscriptionRequestResourceTypeTeam         CreateEventSubscriptionRequestResourceType = "team"
 	CreateEventSubscriptionRequestResourceTypeUser         CreateEventSubscriptionRequestResourceType = "user"
 	CreateEventSubscriptionRequestResourceTypeUsergroup    CreateEventSubscriptionRequestResourceType = "usergroup"
+	CreateEventSubscriptionRequestResourceTypeWorkspace    CreateEventSubscriptionRequestResourceType = "workspace"
 )
 
 // Valid indicates whether the value is a known member of the CreateEventSubscriptionRequestResourceType enum.
@@ -171,11 +132,11 @@ func (e CreateEventSubscriptionRequestResourceType) Valid() bool {
 		return true
 	case CreateEventSubscriptionRequestResourceTypeFile:
 		return true
-	case CreateEventSubscriptionRequestResourceTypeTeam:
-		return true
 	case CreateEventSubscriptionRequestResourceTypeUser:
 		return true
 	case CreateEventSubscriptionRequestResourceTypeUsergroup:
+		return true
+	case CreateEventSubscriptionRequestResourceTypeWorkspace:
 		return true
 	default:
 		return false
@@ -216,9 +177,9 @@ func (e DelegatedRole) Valid() bool {
 const (
 	EventSubscriptionResourceTypeConversation EventSubscriptionResourceType = "conversation"
 	EventSubscriptionResourceTypeFile         EventSubscriptionResourceType = "file"
-	EventSubscriptionResourceTypeTeam         EventSubscriptionResourceType = "team"
 	EventSubscriptionResourceTypeUser         EventSubscriptionResourceType = "user"
 	EventSubscriptionResourceTypeUsergroup    EventSubscriptionResourceType = "usergroup"
+	EventSubscriptionResourceTypeWorkspace    EventSubscriptionResourceType = "workspace"
 )
 
 // Valid indicates whether the value is a known member of the EventSubscriptionResourceType enum.
@@ -228,11 +189,11 @@ func (e EventSubscriptionResourceType) Valid() bool {
 		return true
 	case EventSubscriptionResourceTypeFile:
 		return true
-	case EventSubscriptionResourceTypeTeam:
-		return true
 	case EventSubscriptionResourceTypeUser:
 		return true
 	case EventSubscriptionResourceTypeUsergroup:
+		return true
+	case EventSubscriptionResourceTypeWorkspace:
 		return true
 	default:
 		return false
@@ -243,9 +204,9 @@ func (e EventSubscriptionResourceType) Valid() bool {
 const (
 	EventSubscriptionUpdateRequestResourceTypeConversation EventSubscriptionUpdateRequestResourceType = "conversation"
 	EventSubscriptionUpdateRequestResourceTypeFile         EventSubscriptionUpdateRequestResourceType = "file"
-	EventSubscriptionUpdateRequestResourceTypeTeam         EventSubscriptionUpdateRequestResourceType = "team"
 	EventSubscriptionUpdateRequestResourceTypeUser         EventSubscriptionUpdateRequestResourceType = "user"
 	EventSubscriptionUpdateRequestResourceTypeUsergroup    EventSubscriptionUpdateRequestResourceType = "usergroup"
+	EventSubscriptionUpdateRequestResourceTypeWorkspace    EventSubscriptionUpdateRequestResourceType = "workspace"
 )
 
 // Valid indicates whether the value is a known member of the EventSubscriptionUpdateRequestResourceType enum.
@@ -255,11 +216,11 @@ func (e EventSubscriptionUpdateRequestResourceType) Valid() bool {
 		return true
 	case EventSubscriptionUpdateRequestResourceTypeFile:
 		return true
-	case EventSubscriptionUpdateRequestResourceTypeTeam:
-		return true
 	case EventSubscriptionUpdateRequestResourceTypeUser:
 		return true
 	case EventSubscriptionUpdateRequestResourceTypeUsergroup:
+		return true
+	case EventSubscriptionUpdateRequestResourceTypeWorkspace:
 		return true
 	default:
 		return false
@@ -270,9 +231,9 @@ func (e EventSubscriptionUpdateRequestResourceType) Valid() bool {
 const (
 	ExternalEventResourceTypeConversation ExternalEventResourceType = "conversation"
 	ExternalEventResourceTypeFile         ExternalEventResourceType = "file"
-	ExternalEventResourceTypeTeam         ExternalEventResourceType = "team"
 	ExternalEventResourceTypeUser         ExternalEventResourceType = "user"
 	ExternalEventResourceTypeUsergroup    ExternalEventResourceType = "usergroup"
+	ExternalEventResourceTypeWorkspace    ExternalEventResourceType = "workspace"
 )
 
 // Valid indicates whether the value is a known member of the ExternalEventResourceType enum.
@@ -282,11 +243,11 @@ func (e ExternalEventResourceType) Valid() bool {
 		return true
 	case ExternalEventResourceTypeFile:
 		return true
-	case ExternalEventResourceTypeTeam:
-		return true
 	case ExternalEventResourceTypeUser:
 		return true
 	case ExternalEventResourceTypeUsergroup:
+		return true
+	case ExternalEventResourceTypeWorkspace:
 		return true
 	default:
 		return false
@@ -369,9 +330,9 @@ func (e WorkspaceDiscoverability) Valid() bool {
 const (
 	ListEventsParamsResourceTypeConversation ListEventsParamsResourceType = "conversation"
 	ListEventsParamsResourceTypeFile         ListEventsParamsResourceType = "file"
-	ListEventsParamsResourceTypeTeam         ListEventsParamsResourceType = "team"
 	ListEventsParamsResourceTypeUser         ListEventsParamsResourceType = "user"
 	ListEventsParamsResourceTypeUsergroup    ListEventsParamsResourceType = "usergroup"
+	ListEventsParamsResourceTypeWorkspace    ListEventsParamsResourceType = "workspace"
 )
 
 // Valid indicates whether the value is a known member of the ListEventsParamsResourceType enum.
@@ -381,62 +342,97 @@ func (e ListEventsParamsResourceType) Valid() bool {
 		return true
 	case ListEventsParamsResourceTypeFile:
 		return true
-	case ListEventsParamsResourceTypeTeam:
-		return true
 	case ListEventsParamsResourceTypeUser:
 		return true
 	case ListEventsParamsResourceTypeUsergroup:
+		return true
+	case ListEventsParamsResourceTypeWorkspace:
 		return true
 	default:
 		return false
 	}
 }
 
-// APIError defines model for APIError.
+// APIError Standard error envelope returned for all non-2xx responses.
 type APIError struct {
-	Code      string        `json:"code"`
-	Errors    *[]FieldError `json:"errors,omitempty"`
-	Message   string        `json:"message"`
-	RequestId *string       `json:"request_id,omitempty"`
+	// Code Machine-readable error code (e.g. "not_found", "validation_error").
+	Code string `json:"code"`
+
+	// Errors Field-level validation errors, present when code is "validation_error".
+	Errors *[]FieldError `json:"errors,omitempty"`
+
+	// Message Human-readable error description.
+	Message string `json:"message"`
+
+	// RequestId Unique request identifier for debugging.
+	RequestId *string `json:"request_id,omitempty"`
 }
 
-// APIKey defines model for APIKey.
+// APIKey An API key used to authenticate requests. Keys are scoped to a workspace and optionally to a specific user.
 type APIKey struct {
-	CreatedAt         time.Time         `json:"created_at"`
-	CreatedBy         string            `json:"created_by"`
-	Description       *string           `json:"description,omitempty"`
-	Environment       APIKeyEnvironment `json:"environment"`
-	ExpiresAt         *time.Time        `json:"expires_at,omitempty"`
-	GracePeriodEndsAt *time.Time        `json:"grace_period_ends_at,omitempty"`
-	Id                string            `json:"id"`
-	KeyHash           *string           `json:"key_hash,omitempty"`
-	KeyHint           string            `json:"key_hint"`
-	KeyPrefix         string            `json:"key_prefix"`
-	LastUsedAt        *time.Time        `json:"last_used_at,omitempty"`
-	Name              string            `json:"name"`
-	OnBehalfOf        *string           `json:"on_behalf_of,omitempty"`
-	Permissions       []string          `json:"permissions"`
-	PrincipalId       string            `json:"principal_id"`
-	RequestCount      int64             `json:"request_count"`
-	Revoked           bool              `json:"revoked"`
-	RevokedAt         *time.Time        `json:"revoked_at,omitempty"`
-	RotatedToId       *string           `json:"rotated_to_id,omitempty"`
-	TeamId            string            `json:"team_id"`
-	Type              APIKeyType        `json:"type"`
-	UpdatedAt         time.Time         `json:"updated_at"`
+	CreatedAt time.Time `json:"created_at"`
+
+	// CreatedBy User who created this key.
+	CreatedBy string `json:"created_by"`
+
+	// Description Optional longer description of the key's purpose.
+	Description *string `json:"description,omitempty"`
+
+	// ExpiresAt When this key expires. Null means no expiration.
+	ExpiresAt *time.Time `json:"expires_at,omitempty"`
+
+	// GracePeriodEndsAt During rotation, the old key remains valid until this time.
+	GracePeriodEndsAt *time.Time `json:"grace_period_ends_at,omitempty"`
+
+	// Id Unique API key identifier.
+	Id string `json:"id"`
+
+	// KeyHash SHA-256 hash of the secret (never returned in list responses).
+	KeyHash *string `json:"key_hash,omitempty"`
+
+	// KeyHint Masked version of the key shown in the UI (e.g. "tsk_abc...xyz").
+	KeyHint string `json:"key_hint"`
+
+	// KeyPrefix First characters of the key for identification (e.g. "tsk_abc").
+	KeyPrefix string `json:"key_prefix"`
+
+	// LastUsedAt Timestamp of the most recent authenticated request using this key.
+	LastUsedAt *time.Time `json:"last_used_at,omitempty"`
+
+	// Name Human-readable name for this key.
+	Name string `json:"name"`
+
+	// Permissions List of permission strings granted to this key.
+	Permissions []string `json:"permissions"`
+
+	// RequestCount Total number of requests made with this key.
+	RequestCount int64 `json:"request_count"`
+
+	// Revoked Whether this key has been revoked.
+	Revoked bool `json:"revoked"`
+
+	// RevokedAt When this key was revoked.
+	RevokedAt *time.Time `json:"revoked_at,omitempty"`
+
+	// RotatedToId If this key was rotated, the ID of the replacement key.
+	RotatedToId *string   `json:"rotated_to_id,omitempty"`
+	UpdatedAt   time.Time `json:"updated_at"`
+
+	// UserId User this key acts on behalf of. Empty for workspace-level keys.
+	UserId string `json:"user_id"`
+
+	// WorkspaceId Workspace this key is scoped to.
+	WorkspaceId string `json:"workspace_id"`
 }
 
-// APIKeyEnvironment defines model for APIKeyEnvironment.
-type APIKeyEnvironment string
-
-// APIKeySecretResponse defines model for APIKeySecretResponse.
+// APIKeySecretResponse Returned when a key is created or rotated. The secret is only shown once.
 type APIKeySecretResponse struct {
+	// ApiKey An API key used to authenticate requests. Keys are scoped to a workspace and optionally to a specific user.
 	ApiKey APIKey `json:"api_key"`
+
+	// Secret The full API key secret. Store this securely — it cannot be retrieved again.
 	Secret string `json:"secret"`
 }
-
-// APIKeyType defines model for APIKeyType.
-type APIKeyType string
 
 // APIKeysCollection defines model for APIKeysCollection.
 type APIKeysCollection struct {
@@ -444,53 +440,98 @@ type APIKeysCollection struct {
 	NextCursor *string  `json:"next_cursor,omitempty"`
 }
 
-// AccountType defines model for AccountType.
+// AccountType Permission tier within a workspace.
 type AccountType string
 
 // AddRemoteFileRequest defines model for AddRemoteFileRequest.
 type AddRemoteFileRequest struct {
-	ExternalUrl string  `json:"external_url"`
-	Filetype    string  `json:"filetype"`
-	Title       string  `json:"title"`
-	UserId      *string `json:"user_id,omitempty"`
+	// ExternalUrl URL where the file is hosted.
+	ExternalUrl string `json:"external_url"`
+
+	// Filetype File type identifier (e.g. "pdf", "png").
+	Filetype string `json:"filetype"`
+
+	// Title Display title for the remote file.
+	Title string `json:"title"`
+
+	// UserId User adding the file. Defaults to the authenticated user.
+	UserId *string `json:"user_id,omitempty"`
 }
 
-// AuthMeResponse defines model for AuthMeResponse.
+// AuthMeResponse The authenticated identity of the current request.
 type AuthMeResponse struct {
-	AccountType   *AccountType  `json:"account_type,omitempty"`
-	IsBot         bool          `json:"is_bot"`
+	// AccountType Permission tier within a workspace.
+	AccountType *AccountType `json:"account_type,omitempty"`
+
+	// IsBot Whether the caller is a bot/agent.
+	IsBot bool `json:"is_bot"`
+
+	// PrincipalType The kind of identity: human user, AI agent, or system service.
 	PrincipalType PrincipalType `json:"principal_type"`
-	TeamId        string        `json:"team_id"`
-	UserId        string        `json:"user_id"`
+
+	// UserId User identity of the caller.
+	UserId string `json:"user_id"`
+
+	// WorkspaceId Workspace the caller is authenticated in.
+	WorkspaceId string `json:"workspace_id"`
 }
 
-// AuthProvider defines model for AuthProvider.
+// AuthProvider Supported OAuth provider.
 type AuthProvider string
 
-// AuthSession defines model for AuthSession.
+// AuthSession An authenticated session created via OAuth.
 type AuthSession struct {
-	CreatedAt time.Time    `json:"created_at"`
-	ExpiresAt time.Time    `json:"expires_at"`
-	Id        string       `json:"id"`
-	Provider  AuthProvider `json:"provider"`
-	RevokedAt *time.Time   `json:"revoked_at,omitempty"`
-	TeamId    string       `json:"team_id"`
-	Token     *string      `json:"token,omitempty"`
-	UserId    string       `json:"user_id"`
+	CreatedAt time.Time `json:"created_at"`
+
+	// ExpiresAt When the session expires.
+	ExpiresAt time.Time `json:"expires_at"`
+
+	// Id Unique session identifier.
+	Id string `json:"id"`
+
+	// Provider Supported OAuth provider.
+	Provider AuthProvider `json:"provider"`
+
+	// RevokedAt When the session was revoked (logged out).
+	RevokedAt *time.Time `json:"revoked_at,omitempty"`
+
+	// Token Session token (only returned on creation).
+	Token *string `json:"token,omitempty"`
+
+	// UserId Authenticated user.
+	UserId string `json:"user_id"`
+
+	// WorkspaceId Workspace the user authenticated into.
+	WorkspaceId string `json:"workspace_id"`
 }
 
-// AuthorizationAuditLog defines model for AuthorizationAuditLog.
+// AuthorizationAuditLog A record of an authorization-relevant action (permission change, access grant, etc.).
 type AuthorizationAuditLog struct {
-	Action     string          `json:"action"`
-	ActorId    *string         `json:"actor_id,omitempty"`
-	ApiKeyId   *string         `json:"api_key_id,omitempty"`
-	CreatedAt  time.Time       `json:"created_at"`
-	Id         string          `json:"id"`
-	Metadata   *FreeFormObject `json:"metadata,omitempty"`
-	OnBehalfOf *string         `json:"on_behalf_of,omitempty"`
-	Resource   string          `json:"resource"`
-	ResourceId string          `json:"resource_id"`
-	TeamId     string          `json:"team_id"`
+	// Action Action performed (e.g. "grant_access", "revoke_key").
+	Action string `json:"action"`
+
+	// ActorId User who performed the action.
+	ActorId *string `json:"actor_id,omitempty"`
+
+	// ApiKeyId API key used to perform the action (if applicable).
+	ApiKeyId  *string   `json:"api_key_id,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
+
+	// Id Unique audit log entry identifier.
+	Id       string          `json:"id"`
+	Metadata *FreeFormObject `json:"metadata,omitempty"`
+
+	// OnBehalfOf User the action was performed on behalf of (for delegated actions).
+	OnBehalfOf *string `json:"on_behalf_of,omitempty"`
+
+	// Resource Type of resource affected.
+	Resource string `json:"resource"`
+
+	// ResourceId Identifier of the resource affected.
+	ResourceId string `json:"resource_id"`
+
+	// WorkspaceId Workspace where the action occurred.
+	WorkspaceId string `json:"workspace_id"`
 }
 
 // AuthorizationAuditLogsCollection defines model for AuthorizationAuditLogsCollection.
@@ -499,25 +540,47 @@ type AuthorizationAuditLogsCollection struct {
 	NextCursor *string                 `json:"next_cursor,omitempty"`
 }
 
-// Bookmark defines model for Bookmark.
+// Bookmark A saved link in a conversation's bookmark bar.
 type Bookmark struct {
+	// ChannelId Conversation this bookmark belongs to.
 	ChannelId string    `json:"channel_id"`
 	CreatedAt time.Time `json:"created_at"`
-	CreatedBy string    `json:"created_by"`
-	Emoji     *string   `json:"emoji,omitempty"`
-	Id        string    `json:"id"`
-	Link      string    `json:"link"`
-	Title     string    `json:"title"`
+
+	// CreatedBy User who created the bookmark.
+	CreatedBy string `json:"created_by"`
+
+	// Emoji Optional emoji icon displayed next to the title.
+	Emoji *string `json:"emoji,omitempty"`
+
+	// Id Unique bookmark identifier.
+	Id string `json:"id"`
+
+	// Link URL the bookmark points to.
+	Link string `json:"link"`
+
+	// Title Display title for the bookmark.
+	Title string `json:"title"`
+
+	// Type Bookmark type (e.g. "link").
 	Type      string    `json:"type"`
 	UpdatedAt time.Time `json:"updated_at"`
-	UpdatedBy string    `json:"updated_by"`
+
+	// UpdatedBy User who last updated the bookmark.
+	UpdatedBy string `json:"updated_by"`
 }
 
 // BookmarkUpdateRequest defines model for BookmarkUpdateRequest.
 type BookmarkUpdateRequest struct {
-	Emoji     *string `json:"emoji,omitempty"`
-	Link      *string `json:"link,omitempty"`
-	Title     *string `json:"title,omitempty"`
+	// Emoji New emoji icon.
+	Emoji *string `json:"emoji,omitempty"`
+
+	// Link New URL.
+	Link *string `json:"link,omitempty"`
+
+	// Title New title.
+	Title *string `json:"title,omitempty"`
+
+	// UpdatedBy User making the update. Defaults to the authenticated user.
 	UpdatedBy *string `json:"updated_by,omitempty"`
 }
 
@@ -529,81 +592,131 @@ type BookmarksCollection struct {
 
 // CompleteUploadRequest defines model for CompleteUploadRequest.
 type CompleteUploadRequest struct {
+	// ChannelId Conversation to share the file in after upload.
 	ChannelId *string `json:"channel_id,omitempty"`
-	FileId    *string `json:"file_id,omitempty"`
-	ThreadTs  *string `json:"thread_ts,omitempty"`
-	Title     *string `json:"title,omitempty"`
+
+	// FileId File identifier returned from the upload URL request.
+	FileId *string `json:"file_id,omitempty"`
+
+	// ThreadTs Thread to share the file in (if sharing in a thread).
+	ThreadTs *string `json:"thread_ts,omitempty"`
+
+	// Title Display title for the file.
+	Title *string `json:"title,omitempty"`
 }
 
-// Conversation defines model for Conversation.
+// Conversation A conversation — a channel, DM, or group DM where messages are exchanged.
 type Conversation struct {
-	CreatedAt  time.Time        `json:"created_at"`
-	CreatorId  string           `json:"creator_id"`
-	Id         string           `json:"id"`
-	IsArchived bool             `json:"is_archived"`
-	Name       string           `json:"name"`
-	NumMembers int32            `json:"num_members"`
-	Purpose    TopicPurpose     `json:"purpose"`
-	TeamId     string           `json:"team_id"`
-	Topic      TopicPurpose     `json:"topic"`
-	Type       ConversationType `json:"type"`
-	UpdatedAt  time.Time        `json:"updated_at"`
+	CreatedAt time.Time `json:"created_at"`
+
+	// CreatorId User who created this conversation.
+	CreatorId string `json:"creator_id"`
+
+	// HasUnread Whether the authenticated user has unread messages in this conversation.
+	HasUnread *bool `json:"has_unread,omitempty"`
+
+	// Id Unique conversation identifier.
+	Id string `json:"id"`
+
+	// IsArchived Whether the conversation has been archived.
+	IsArchived bool `json:"is_archived"`
+
+	// LastActivityTs Timestamp of the most recent activity (message, reaction, etc.).
+	LastActivityTs *string `json:"last_activity_ts,omitempty"`
+
+	// LastMessageTs Timestamp of the most recent message.
+	LastMessageTs *string `json:"last_message_ts,omitempty"`
+
+	// LastReadTs Timestamp of the last message the authenticated user has read.
+	LastReadTs *string `json:"last_read_ts,omitempty"`
+
+	// Name Display name of the conversation (e.g. "general", "deploy-alerts").
+	Name string `json:"name"`
+
+	// NumMembers Current number of members in the conversation.
+	NumMembers int32        `json:"num_members"`
+	Purpose    TopicPurpose `json:"purpose"`
+	Topic      TopicPurpose `json:"topic"`
+
+	// Type Channel type: public_channel, private_channel, im (1:1 DM), or mpim (group DM).
+	Type      ConversationType `json:"type"`
+	UpdatedAt time.Time        `json:"updated_at"`
+
+	// WorkspaceId Workspace this conversation belongs to.
+	WorkspaceId string `json:"workspace_id"`
 }
 
 // ConversationInviteRequest defines model for ConversationInviteRequest.
 type ConversationInviteRequest struct {
+	// UserIds User IDs to add as members.
 	UserIds []string `json:"user_ids"`
 }
 
 // ConversationManagersResponse defines model for ConversationManagersResponse.
 type ConversationManagersResponse struct {
-	ConversationId string   `json:"conversation_id"`
-	UserIds        []string `json:"user_ids"`
+	// ConversationId Conversation identifier.
+	ConversationId string `json:"conversation_id"`
+
+	// UserIds User IDs who are managers of this conversation.
+	UserIds []string `json:"user_ids"`
 }
 
 // ConversationManagersUpdateRequest defines model for ConversationManagersUpdateRequest.
 type ConversationManagersUpdateRequest struct {
+	// UserIds Complete list of manager user IDs (replaces existing managers).
 	UserIds []string `json:"user_ids"`
 }
 
 // ConversationPostingPolicyResponse defines model for ConversationPostingPolicyResponse.
 type ConversationPostingPolicyResponse struct {
-	AllowedAccountTypes   *[]AccountType                `json:"allowed_account_types,omitempty"`
-	AllowedDelegatedRoles *[]DelegatedRole              `json:"allowed_delegated_roles,omitempty"`
-	AllowedUserIds        *[]string                     `json:"allowed_user_ids,omitempty"`
-	AllowedUsergroupIds   *[]string                     `json:"allowed_usergroup_ids,omitempty"`
-	ConversationId        string                        `json:"conversation_id"`
-	PolicyType            ConversationPostingPolicyType `json:"policy_type"`
-	UpdatedAt             *time.Time                    `json:"updated_at,omitempty"`
-	UpdatedBy             *string                       `json:"updated_by,omitempty"`
+	AllowedAccountTypes   *[]AccountType   `json:"allowed_account_types,omitempty"`
+	AllowedDelegatedRoles *[]DelegatedRole `json:"allowed_delegated_roles,omitempty"`
+	AllowedUserIds        *[]string        `json:"allowed_user_ids,omitempty"`
+	AllowedUsergroupIds   *[]string        `json:"allowed_usergroup_ids,omitempty"`
+	ConversationId        string           `json:"conversation_id"`
+
+	// PolicyType Who is allowed to post messages in a conversation.
+	PolicyType ConversationPostingPolicyType `json:"policy_type"`
+	UpdatedAt  *time.Time                    `json:"updated_at,omitempty"`
+	UpdatedBy  *string                       `json:"updated_by,omitempty"`
 }
 
-// ConversationPostingPolicyType defines model for ConversationPostingPolicyType.
+// ConversationPostingPolicyType Who is allowed to post messages in a conversation.
 type ConversationPostingPolicyType string
 
 // ConversationPostingPolicyUpdateRequest defines model for ConversationPostingPolicyUpdateRequest.
 type ConversationPostingPolicyUpdateRequest struct {
-	AllowedAccountTypes   *[]AccountType                `json:"allowed_account_types,omitempty"`
-	AllowedDelegatedRoles *[]DelegatedRole              `json:"allowed_delegated_roles,omitempty"`
-	AllowedUserIds        *[]string                     `json:"allowed_user_ids,omitempty"`
-	AllowedUsergroupIds   *[]string                     `json:"allowed_usergroup_ids,omitempty"`
-	PolicyType            ConversationPostingPolicyType `json:"policy_type"`
+	AllowedAccountTypes   *[]AccountType   `json:"allowed_account_types,omitempty"`
+	AllowedDelegatedRoles *[]DelegatedRole `json:"allowed_delegated_roles,omitempty"`
+	AllowedUserIds        *[]string        `json:"allowed_user_ids,omitempty"`
+	AllowedUsergroupIds   *[]string        `json:"allowed_usergroup_ids,omitempty"`
+
+	// PolicyType Who is allowed to post messages in a conversation.
+	PolicyType ConversationPostingPolicyType `json:"policy_type"`
 }
 
 // ConversationReadUpdateRequest defines model for ConversationReadUpdateRequest.
 type ConversationReadUpdateRequest struct {
+	// LastReadTs Timestamp of the last message the user has read.
 	LastReadTs string `json:"last_read_ts"`
 }
 
-// ConversationType defines model for ConversationType.
+// ConversationType Channel type: public_channel, private_channel, im (1:1 DM), or mpim (group DM).
 type ConversationType string
 
 // ConversationUpdateRequest defines model for ConversationUpdateRequest.
 type ConversationUpdateRequest struct {
-	IsArchived *bool   `json:"is_archived,omitempty"`
-	Name       *string `json:"name,omitempty"`
-	Purpose    *string `json:"purpose,omitempty"`
-	Topic      *string `json:"topic,omitempty"`
+	// IsArchived Set to true to archive, false to unarchive.
+	IsArchived *bool `json:"is_archived,omitempty"`
+
+	// Name New display name.
+	Name *string `json:"name,omitempty"`
+
+	// Purpose New purpose text.
+	Purpose *string `json:"purpose,omitempty"`
+
+	// Topic New topic text.
+	Topic *string `json:"topic,omitempty"`
 }
 
 // ConversationsCollection defines model for ConversationsCollection.
@@ -614,130 +727,244 @@ type ConversationsCollection struct {
 
 // CreateAPIKeyRequest defines model for CreateAPIKeyRequest.
 type CreateAPIKeyRequest struct {
-	CreatedBy   *string           `json:"created_by,omitempty"`
-	Description *string           `json:"description,omitempty"`
-	Environment APIKeyEnvironment `json:"environment"`
-	ExpiresIn   *string           `json:"expires_in,omitempty"`
-	Name        string            `json:"name"`
-	OnBehalfOf  *string           `json:"on_behalf_of,omitempty"`
-	Permissions *[]string         `json:"permissions,omitempty"`
-	PrincipalId string            `json:"principal_id"`
-	TeamId      string            `json:"team_id"`
-	Type        APIKeyType        `json:"type"`
+	// CreatedBy User creating the key. Defaults to the authenticated user.
+	CreatedBy *string `json:"created_by,omitempty"`
+
+	// Description Optional longer description of the key's purpose.
+	Description *string `json:"description,omitempty"`
+
+	// ExpiresIn Duration until expiration (e.g. "30d", "24h"). Omit for no expiration.
+	ExpiresIn *string `json:"expires_in,omitempty"`
+
+	// Name Human-readable name for the key.
+	Name string `json:"name"`
+
+	// Permissions Permission strings to grant (e.g. "messages:write", "conversations:read"). Omit for full access.
+	Permissions *[]string `json:"permissions,omitempty"`
+
+	// UserId User this key acts on behalf of. Omit for workspace-level keys.
+	UserId *string `json:"user_id,omitempty"`
+
+	// WorkspaceId Workspace to scope this key to.
+	WorkspaceId string `json:"workspace_id"`
 }
 
 // CreateBookmarkRequest defines model for CreateBookmarkRequest.
 type CreateBookmarkRequest struct {
+	// ChannelId Conversation to add the bookmark to (if not in the URL path).
 	ChannelId *string `json:"channel_id,omitempty"`
+
+	// CreatedBy User creating the bookmark. Defaults to the authenticated user.
 	CreatedBy *string `json:"created_by,omitempty"`
-	Emoji     *string `json:"emoji,omitempty"`
-	Link      string  `json:"link"`
-	Title     string  `json:"title"`
-	Type      string  `json:"type"`
+
+	// Emoji Optional emoji icon.
+	Emoji *string `json:"emoji,omitempty"`
+
+	// Link URL the bookmark points to.
+	Link string `json:"link"`
+
+	// Title Display title.
+	Title string `json:"title"`
+
+	// Type Bookmark type (e.g. "link").
+	Type string `json:"type"`
 }
 
 // CreateConversationRequest defines model for CreateConversationRequest.
 type CreateConversationRequest struct {
-	CreatorId string           `json:"creator_id"`
-	Name      string           `json:"name"`
-	Purpose   string           `json:"purpose"`
-	TeamId    string           `json:"team_id"`
-	Topic     string           `json:"topic"`
-	Type      ConversationType `json:"type"`
+	// CreatorId User creating the conversation (becomes the first member).
+	CreatorId string `json:"creator_id"`
+
+	// Name Display name for the conversation.
+	Name string `json:"name"`
+
+	// Purpose Initial purpose/description for the conversation.
+	Purpose string `json:"purpose"`
+
+	// Topic Initial topic for the conversation.
+	Topic string `json:"topic"`
+
+	// Type Channel type: public_channel, private_channel, im (1:1 DM), or mpim (group DM).
+	Type ConversationType `json:"type"`
+
+	// UserIds Additional users to invite on creation.
+	UserIds *[]string `json:"user_ids,omitempty"`
+
+	// WorkspaceId Workspace to create the conversation in.
+	WorkspaceId string `json:"workspace_id"`
 }
 
 // CreateEventSubscriptionRequest defines model for CreateEventSubscriptionRequest.
 type CreateEventSubscriptionRequest struct {
-	ResourceId   *string                                     `json:"resource_id,omitempty"`
+	// ResourceId Filter events to a specific resource instance.
+	ResourceId *string `json:"resource_id,omitempty"`
+
+	// ResourceType Filter events to a specific resource type.
 	ResourceType *CreateEventSubscriptionRequestResourceType `json:"resource_type,omitempty"`
-	Secret       string                                      `json:"secret"`
-	TeamId       string                                      `json:"team_id"`
-	Type         *string                                     `json:"type,omitempty"`
-	Url          string                                      `json:"url"`
+
+	// Secret Shared secret used to compute the HMAC-SHA256 signature on each delivery.
+	Secret string `json:"secret"`
+
+	// Type Filter to a specific event type. Omit to receive all types.
+	Type *string `json:"type,omitempty"`
+
+	// Url HTTPS URL where events will be delivered via POST.
+	Url string `json:"url"`
+
+	// WorkspaceId Workspace to subscribe to events for.
+	WorkspaceId string `json:"workspace_id"`
 }
 
-// CreateEventSubscriptionRequestResourceType defines model for CreateEventSubscriptionRequest.ResourceType.
+// CreateEventSubscriptionRequestResourceType Filter events to a specific resource type.
 type CreateEventSubscriptionRequestResourceType string
 
 // CreateExternalPrincipalAccessRequest defines model for CreateExternalPrincipalAccessRequest.
 type CreateExternalPrincipalAccessRequest struct {
+	// AccessMode Level of access granted to an external principal.
 	AccessMode          ExternalPrincipalAccessMode `json:"access_mode"`
 	AllowedCapabilities *[]string                   `json:"allowed_capabilities,omitempty"`
 	ConversationIds     *[]string                   `json:"conversation_ids,omitempty"`
 	ExpiresAt           *time.Time                  `json:"expires_at,omitempty"`
-	HomeTeamId          string                      `json:"home_team_id"`
-	HostTeamId          string                      `json:"host_team_id"`
+	HomeWorkspaceId     string                      `json:"home_workspace_id"`
+	HostWorkspaceId     string                      `json:"host_workspace_id"`
 	PrincipalId         string                      `json:"principal_id"`
-	PrincipalType       PrincipalType               `json:"principal_type"`
+
+	// PrincipalType The kind of identity: human user, AI agent, or system service.
+	PrincipalType PrincipalType `json:"principal_type"`
 }
 
 // CreateUserRequest defines model for CreateUserRequest.
 type CreateUserRequest struct {
-	AccountType   *AccountType  `json:"account_type,omitempty"`
-	DisplayName   string        `json:"display_name"`
-	Email         string        `json:"email"`
-	IsBot         bool          `json:"is_bot"`
-	Name          string        `json:"name"`
-	OwnerId       *string       `json:"owner_id,omitempty"`
+	// AccountType Permission tier within a workspace.
+	AccountType *AccountType `json:"account_type,omitempty"`
+
+	// DisplayName Name shown in the UI.
+	DisplayName string `json:"display_name"`
+
+	// Email Email address.
+	Email string `json:"email"`
+
+	// IsBot Set to true for bot/agent identities.
+	IsBot bool `json:"is_bot"`
+
+	// Name Unique username within the workspace.
+	Name string `json:"name"`
+
+	// OwnerId For agent users, the human user who owns this agent.
+	OwnerId *string `json:"owner_id,omitempty"`
+
+	// PrincipalType The kind of identity: human user, AI agent, or system service.
 	PrincipalType PrincipalType `json:"principal_type"`
 	Profile       UserProfile   `json:"profile"`
-	RealName      string        `json:"real_name"`
-	TeamId        string        `json:"team_id"`
+
+	// RealName Full name.
+	RealName string `json:"real_name"`
+
+	// WorkspaceId Workspace to create the user in.
+	WorkspaceId string `json:"workspace_id"`
 }
 
 // CreateUsergroupRequest defines model for CreateUsergroupRequest.
 type CreateUsergroupRequest struct {
-	CreatedBy   *string   `json:"created_by,omitempty"`
-	Description string    `json:"description"`
-	Handle      string    `json:"handle"`
-	Name        string    `json:"name"`
-	TeamId      string    `json:"team_id"`
-	Users       *[]string `json:"users,omitempty"`
+	// CreatedBy User creating the group. Defaults to the authenticated user.
+	CreatedBy *string `json:"created_by,omitempty"`
+
+	// Description Description of the group's purpose.
+	Description string `json:"description"`
+
+	// Handle Short handle for @-mentions (e.g. "engineering").
+	Handle string `json:"handle"`
+
+	// Name Display name.
+	Name string `json:"name"`
+
+	// Users Initial member user IDs.
+	Users *[]string `json:"users,omitempty"`
+
+	// WorkspaceId Workspace to create the usergroup in.
+	WorkspaceId string `json:"workspace_id"`
 }
 
 // CreateWorkspaceRequest defines model for CreateWorkspaceRequest.
 type CreateWorkspaceRequest struct {
-	Billing         WorkspaceBilling         `json:"billing"`
-	DefaultChannels []string                 `json:"default_channels"`
-	Description     string                   `json:"description"`
+	Billing WorkspaceBilling `json:"billing"`
+
+	// DefaultChannels Conversation IDs new members are automatically added to.
+	DefaultChannels []string `json:"default_channels"`
+
+	// Description Short description of the workspace.
+	Description string `json:"description"`
+
+	// Discoverability Whether the workspace can be discovered and joined without an invite.
 	Discoverability WorkspaceDiscoverability `json:"discoverability"`
-	Domain          string                   `json:"domain"`
-	EmailDomain     string                   `json:"email_domain"`
-	Icon            WorkspaceIcon            `json:"icon"`
-	Name            string                   `json:"name"`
-	Preferences     FreeFormObject           `json:"preferences"`
-	ProfileFields   []WorkspaceProfileField  `json:"profile_fields"`
+
+	// Domain Unique URL-safe slug (e.g. "acme-corp").
+	Domain string `json:"domain"`
+
+	// EmailDomain Email domain for auto-joining (e.g. "acme.com").
+	EmailDomain string        `json:"email_domain"`
+	Icon        WorkspaceIcon `json:"icon"`
+
+	// Name Display name of the workspace.
+	Name        string         `json:"name"`
+	Preferences FreeFormObject `json:"preferences"`
+
+	// ProfileFields Custom profile fields for workspace members.
+	ProfileFields []WorkspaceProfileField `json:"profile_fields"`
 }
 
-// DelegatedRole defines model for DelegatedRole.
+// DelegatedRole Fine-grained administrative role that can be granted to a user.
 type DelegatedRole string
 
-// EventSubscription defines model for EventSubscription.
+// EventSubscription A webhook subscription that delivers events to an external URL.
 type EventSubscription struct {
-	CreatedAt    time.Time                      `json:"created_at"`
-	Enabled      bool                           `json:"enabled"`
-	Id           string                         `json:"id"`
-	ResourceId   *string                        `json:"resource_id,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
+
+	// Enabled Whether this subscription is currently active.
+	Enabled bool `json:"enabled"`
+
+	// Id Unique subscription identifier.
+	Id string `json:"id"`
+
+	// ResourceId Filter events to a specific resource instance.
+	ResourceId *string `json:"resource_id,omitempty"`
+
+	// ResourceType Filter events to a specific resource type.
 	ResourceType *EventSubscriptionResourceType `json:"resource_type,omitempty"`
-	TeamId       string                         `json:"team_id"`
-	Type         *string                        `json:"type,omitempty"`
-	UpdatedAt    time.Time                      `json:"updated_at"`
-	Url          string                         `json:"url"`
+
+	// Type Filter to a specific event type (e.g. "conversation.message.created"). Omit to receive all types.
+	Type      *string   `json:"type,omitempty"`
+	UpdatedAt time.Time `json:"updated_at"`
+
+	// Url HTTPS URL where events are delivered via POST.
+	Url string `json:"url"`
+
+	// WorkspaceId Workspace this subscription belongs to.
+	WorkspaceId string `json:"workspace_id"`
 }
 
-// EventSubscriptionResourceType defines model for EventSubscription.ResourceType.
+// EventSubscriptionResourceType Filter events to a specific resource type.
 type EventSubscriptionResourceType string
 
 // EventSubscriptionUpdateRequest defines model for EventSubscriptionUpdateRequest.
 type EventSubscriptionUpdateRequest struct {
-	Enabled      *bool                                       `json:"enabled,omitempty"`
-	ResourceId   *string                                     `json:"resource_id,omitempty"`
+	// Enabled Set to false to pause deliveries without deleting the subscription.
+	Enabled *bool `json:"enabled,omitempty"`
+
+	// ResourceId New resource ID filter.
+	ResourceId *string `json:"resource_id,omitempty"`
+
+	// ResourceType New resource type filter.
 	ResourceType *EventSubscriptionUpdateRequestResourceType `json:"resource_type,omitempty"`
-	Type         *string                                     `json:"type,omitempty"`
-	Url          *string                                     `json:"url,omitempty"`
+
+	// Type New event type filter.
+	Type *string `json:"type,omitempty"`
+
+	// Url New delivery URL.
+	Url *string `json:"url,omitempty"`
 }
 
-// EventSubscriptionUpdateRequestResourceType defines model for EventSubscriptionUpdateRequest.ResourceType.
+// EventSubscriptionUpdateRequestResourceType New resource type filter.
 type EventSubscriptionUpdateRequestResourceType string
 
 // EventSubscriptionsCollection defines model for EventSubscriptionsCollection.
@@ -746,18 +973,31 @@ type EventSubscriptionsCollection struct {
 	NextCursor *string             `json:"next_cursor,omitempty"`
 }
 
-// ExternalEvent defines model for ExternalEvent.
+// ExternalEvent An event representing something that happened in the system (message sent, user joined, etc.).
 type ExternalEvent struct {
-	Id           int64                     `json:"id"`
-	OccurredAt   time.Time                 `json:"occurred_at"`
-	Payload      map[string]interface{}    `json:"payload"`
-	ResourceId   string                    `json:"resource_id"`
+	// Id Monotonically increasing event ID. Use as cursor for pagination.
+	Id int64 `json:"id"`
+
+	// OccurredAt When the event occurred.
+	OccurredAt time.Time `json:"occurred_at"`
+
+	// Payload Event-specific data (e.g. the full message object for a message event).
+	Payload map[string]interface{} `json:"payload"`
+
+	// ResourceId Identifier of the resource that produced the event.
+	ResourceId string `json:"resource_id"`
+
+	// ResourceType Type of resource that produced the event.
 	ResourceType ExternalEventResourceType `json:"resource_type"`
-	TeamId       string                    `json:"team_id"`
-	Type         string                    `json:"type"`
+
+	// Type Event type (e.g. "conversation.message.created", "user.updated").
+	Type string `json:"type"`
+
+	// WorkspaceId Workspace where the event occurred.
+	WorkspaceId string `json:"workspace_id"`
 }
 
-// ExternalEventResourceType defines model for ExternalEvent.ResourceType.
+// ExternalEventResourceType Type of resource that produced the event.
 type ExternalEventResourceType string
 
 // ExternalEventsCollection defines model for ExternalEventsCollection.
@@ -767,20 +1007,41 @@ type ExternalEventsCollection struct {
 	NextCursor *string         `json:"next_cursor,omitempty"`
 }
 
-// ExternalPrincipalAccess defines model for ExternalPrincipalAccess.
+// ExternalPrincipalAccess An access grant allowing an external principal to participate in a host workspace.
 type ExternalPrincipalAccess struct {
-	AccessMode          ExternalPrincipalAccessMode `json:"access_mode"`
-	AllowedCapabilities *[]string                   `json:"allowed_capabilities,omitempty"`
-	ConversationIds     *[]string                   `json:"conversation_ids,omitempty"`
-	CreatedAt           time.Time                   `json:"created_at"`
-	ExpiresAt           *time.Time                  `json:"expires_at,omitempty"`
-	GrantedBy           string                      `json:"granted_by"`
-	HomeTeamId          string                      `json:"home_team_id"`
-	HostTeamId          string                      `json:"host_team_id"`
-	Id                  string                      `json:"id"`
-	PrincipalId         string                      `json:"principal_id"`
-	PrincipalType       PrincipalType               `json:"principal_type"`
-	RevokedAt           *time.Time                  `json:"revoked_at,omitempty"`
+	// AccessMode Level of access granted to an external principal.
+	AccessMode ExternalPrincipalAccessMode `json:"access_mode"`
+
+	// AllowedCapabilities Specific capabilities granted (e.g. "read", "write").
+	AllowedCapabilities *[]string `json:"allowed_capabilities,omitempty"`
+
+	// ConversationIds Conversations the principal can access. Empty means all conversations.
+	ConversationIds *[]string `json:"conversation_ids,omitempty"`
+	CreatedAt       time.Time `json:"created_at"`
+
+	// ExpiresAt When the access grant expires.
+	ExpiresAt *time.Time `json:"expires_at,omitempty"`
+
+	// GrantedBy User who granted the access.
+	GrantedBy string `json:"granted_by"`
+
+	// HomeWorkspaceId Workspace the principal belongs to.
+	HomeWorkspaceId string `json:"home_workspace_id"`
+
+	// HostWorkspaceId Workspace granting access.
+	HostWorkspaceId string `json:"host_workspace_id"`
+
+	// Id Unique access grant identifier.
+	Id string `json:"id"`
+
+	// PrincipalId External user or agent being granted access.
+	PrincipalId string `json:"principal_id"`
+
+	// PrincipalType The kind of identity: human user, AI agent, or system service.
+	PrincipalType PrincipalType `json:"principal_type"`
+
+	// RevokedAt When the access was revoked.
+	RevokedAt *time.Time `json:"revoked_at,omitempty"`
 }
 
 // ExternalPrincipalAccessCollection defines model for ExternalPrincipalAccessCollection.
@@ -789,51 +1050,83 @@ type ExternalPrincipalAccessCollection struct {
 	NextCursor *string                   `json:"next_cursor,omitempty"`
 }
 
-// ExternalPrincipalAccessMode defines model for ExternalPrincipalAccessMode.
+// ExternalPrincipalAccessMode Level of access granted to an external principal.
 type ExternalPrincipalAccessMode string
 
-// ExternalTeam defines model for ExternalTeam.
-type ExternalTeam struct {
-	Connected      bool       `json:"connected"`
-	ConnectionType string     `json:"connection_type"`
-	CreatedAt      time.Time  `json:"created_at"`
-	DisconnectedAt *time.Time `json:"disconnected_at,omitempty"`
-	ExternalTeamId string     `json:"external_team_id"`
-	Id             string     `json:"id"`
-	Name           string     `json:"name"`
+// ExternalWorkspace defines model for ExternalWorkspace.
+type ExternalWorkspace struct {
+	Connected           bool       `json:"connected"`
+	ConnectionType      string     `json:"connection_type"`
+	CreatedAt           time.Time  `json:"created_at"`
+	DisconnectedAt      *time.Time `json:"disconnected_at,omitempty"`
+	ExternalWorkspaceId string     `json:"external_workspace_id"`
+	Id                  string     `json:"id"`
+	Name                string     `json:"name"`
 }
 
-// ExternalTeamsCollection defines model for ExternalTeamsCollection.
-type ExternalTeamsCollection struct {
-	Items      []ExternalTeam `json:"items"`
-	NextCursor *string        `json:"next_cursor,omitempty"`
+// ExternalWorkspacesCollection defines model for ExternalWorkspacesCollection.
+type ExternalWorkspacesCollection struct {
+	Items      []ExternalWorkspace `json:"items"`
+	NextCursor *string             `json:"next_cursor,omitempty"`
 }
 
-// FieldError defines model for FieldError.
+// FieldError A single field-level validation error.
 type FieldError struct {
-	Code    string `json:"code"`
-	Field   string `json:"field"`
+	// Code Machine-readable validation code (e.g. "required", "too_long").
+	Code string `json:"code"`
+
+	// Field JSON path of the invalid field (e.g. "name").
+	Field string `json:"field"`
+
+	// Message Human-readable explanation of the validation failure.
 	Message string `json:"message"`
 }
 
-// File defines model for File.
+// File An uploaded or external file.
 type File struct {
-	Channels           *[]string `json:"channels,omitempty"`
-	CreatedAt          time.Time `json:"created_at"`
-	ExternalUrl        *string   `json:"external_url,omitempty"`
-	Filetype           string    `json:"filetype"`
-	Id                 string    `json:"id"`
-	IsExternal         bool      `json:"is_external"`
-	Mimetype           string    `json:"mimetype"`
-	Name               string    `json:"name"`
-	Permalink          string    `json:"permalink"`
-	Size               int64     `json:"size"`
-	TeamId             string    `json:"team_id"`
-	Title              string    `json:"title"`
-	UpdatedAt          time.Time `json:"updated_at"`
-	UrlPrivate         string    `json:"url_private"`
-	UrlPrivateDownload string    `json:"url_private_download"`
-	UserId             string    `json:"user_id"`
+	// Channels Conversations this file has been shared to.
+	Channels  *[]string `json:"channels,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
+
+	// ExternalUrl For external files, the original URL.
+	ExternalUrl *string `json:"external_url,omitempty"`
+
+	// Filetype Short file type identifier (e.g. "png", "pdf").
+	Filetype string `json:"filetype"`
+
+	// Id Unique file identifier.
+	Id string `json:"id"`
+
+	// IsExternal Whether this file is hosted externally.
+	IsExternal bool `json:"is_external"`
+
+	// Mimetype MIME type (e.g. "image/png", "application/pdf").
+	Mimetype string `json:"mimetype"`
+
+	// Name Original filename.
+	Name string `json:"name"`
+
+	// Permalink Permanent link to the file.
+	Permalink string `json:"permalink"`
+
+	// Size File size in bytes.
+	Size int64 `json:"size"`
+
+	// Title Display title for the file.
+	Title     string    `json:"title"`
+	UpdatedAt time.Time `json:"updated_at"`
+
+	// UrlPrivate Authenticated URL to view the file.
+	UrlPrivate string `json:"url_private"`
+
+	// UrlPrivateDownload Authenticated URL to download the file.
+	UrlPrivateDownload string `json:"url_private_download"`
+
+	// UserId User who uploaded the file.
+	UserId string `json:"user_id"`
+
+	// WorkspaceId Workspace this file belongs to.
+	WorkspaceId string `json:"workspace_id"`
 }
 
 // FilesCollection defines model for FilesCollection.
@@ -850,49 +1143,87 @@ type FreeFormObject map[string]interface{}
 
 // GetUploadURLRequest defines model for GetUploadURLRequest.
 type GetUploadURLRequest struct {
+	// Filename Name of the file being uploaded.
 	Filename string `json:"filename"`
-	Length   int64  `json:"length"`
+
+	// Length File size in bytes.
+	Length int64 `json:"length"`
 }
 
 // GetUploadURLResponse defines model for GetUploadURLResponse.
 type GetUploadURLResponse struct {
-	FileId    string `json:"file_id"`
+	// FileId File identifier to use when completing the upload.
+	FileId string `json:"file_id"`
+
+	// UploadUrl Pre-signed URL to upload the file content via PUT.
 	UploadUrl string `json:"upload_url"`
 }
 
 // HealthStatusResponse defines model for HealthStatusResponse.
 type HealthStatusResponse struct {
+	// Status Service health status.
 	Status HealthStatusResponseStatus `json:"status"`
 }
 
-// HealthStatusResponseStatus defines model for HealthStatusResponse.Status.
+// HealthStatusResponseStatus Service health status.
 type HealthStatusResponseStatus string
 
-// Message defines model for Message.
+// Message A single message within a conversation.
 type Message struct {
-	Blocks          *FreeFormJSON `json:"blocks,omitempty"`
-	ChannelId       string        `json:"channel_id"`
-	CreatedAt       time.Time     `json:"created_at"`
-	EditedAt        *string       `json:"edited_at,omitempty"`
-	EditedBy        *string       `json:"edited_by,omitempty"`
-	IsDeleted       bool          `json:"is_deleted"`
-	LatestReply     *string       `json:"latest_reply,omitempty"`
-	Metadata        *FreeFormJSON `json:"metadata,omitempty"`
-	Reactions       *[]Reaction   `json:"reactions,omitempty"`
-	ReplyCount      int32         `json:"reply_count"`
-	ReplyUsersCount int32         `json:"reply_users_count"`
-	Subtype         *string       `json:"subtype,omitempty"`
-	Text            string        `json:"text"`
-	ThreadTs        *string       `json:"thread_ts,omitempty"`
-	Ts              string        `json:"ts"`
-	Type            string        `json:"type"`
-	UpdatedAt       time.Time     `json:"updated_at"`
-	UserId          string        `json:"user_id"`
+	Blocks *FreeFormJSON `json:"blocks,omitempty"`
+
+	// ChannelId Conversation this message belongs to.
+	ChannelId string    `json:"channel_id"`
+	CreatedAt time.Time `json:"created_at"`
+
+	// EditedAt Timestamp of the last edit.
+	EditedAt *string `json:"edited_at,omitempty"`
+
+	// EditedBy User who last edited the message.
+	EditedBy *string `json:"edited_by,omitempty"`
+
+	// IsDeleted Whether this message has been soft-deleted.
+	IsDeleted bool `json:"is_deleted"`
+
+	// LatestReply Timestamp of the most recent reply in the thread.
+	LatestReply *string       `json:"latest_reply,omitempty"`
+	Metadata    *FreeFormJSON `json:"metadata,omitempty"`
+
+	// Reactions Emoji reactions on this message.
+	Reactions *[]Reaction `json:"reactions,omitempty"`
+
+	// ReplyCount Total number of replies in the thread (0 if not a thread parent).
+	ReplyCount int32 `json:"reply_count"`
+
+	// ReplyUsersCount Number of distinct users who have replied in the thread.
+	ReplyUsersCount int32 `json:"reply_users_count"`
+
+	// Subtype Message subtype for system messages (e.g. "channel_join", "channel_topic").
+	Subtype *string `json:"subtype,omitempty"`
+
+	// Text Plain-text content of the message.
+	Text string `json:"text"`
+
+	// ThreadTs If this message is a reply, the timestamp of the parent message.
+	ThreadTs *string `json:"thread_ts,omitempty"`
+
+	// Ts Message timestamp — the unique identifier for this message within its conversation.
+	Ts string `json:"ts"`
+
+	// Type Message type (typically "message").
+	Type      string    `json:"type"`
+	UpdatedAt time.Time `json:"updated_at"`
+
+	// UserId User who sent the message.
+	UserId string `json:"user_id"`
 }
 
 // MessageReactionRequest defines model for MessageReactionRequest.
 type MessageReactionRequest struct {
-	Name   string  `json:"name"`
+	// Name Emoji name to react with (e.g. "thumbsup").
+	Name string `json:"name"`
+
+	// UserId User adding the reaction. Defaults to the authenticated user.
 	UserId *string `json:"user_id,omitempty"`
 }
 
@@ -902,18 +1233,28 @@ type MessagesCollection struct {
 	NextCursor *string   `json:"next_cursor,omitempty"`
 }
 
-// Pin defines model for Pin.
+// Pin A pinned message in a conversation.
 type Pin struct {
-	ChannelId string    `json:"channel_id"`
-	MessageTs string    `json:"message_ts"`
-	PinnedAt  time.Time `json:"pinned_at"`
-	PinnedBy  string    `json:"pinned_by"`
+	// ChannelId Conversation the pin belongs to.
+	ChannelId string `json:"channel_id"`
+
+	// MessageTs Timestamp of the pinned message.
+	MessageTs string `json:"message_ts"`
+
+	// PinnedAt When the message was pinned.
+	PinnedAt time.Time `json:"pinned_at"`
+
+	// PinnedBy User who pinned the message.
+	PinnedBy string `json:"pinned_by"`
 }
 
 // PinCreateRequest defines model for PinCreateRequest.
 type PinCreateRequest struct {
-	MessageTs string  `json:"message_ts"`
-	UserId    *string `json:"user_id,omitempty"`
+	// MessageTs Timestamp of the message to pin.
+	MessageTs string `json:"message_ts"`
+
+	// UserId User pinning the message. Defaults to the authenticated user.
+	UserId *string `json:"user_id,omitempty"`
 }
 
 // PinsCollection defines model for PinsCollection.
@@ -924,44 +1265,73 @@ type PinsCollection struct {
 
 // PostMessageRequest defines model for PostMessageRequest.
 type PostMessageRequest struct {
-	Blocks         *FreeFormJSON `json:"blocks,omitempty"`
-	ChannelId      string        `json:"channel_id"`
-	Metadata       *FreeFormJSON `json:"metadata,omitempty"`
-	ReplyBroadcast *bool         `json:"reply_broadcast,omitempty"`
-	Text           string        `json:"text"`
-	ThreadTs       *string       `json:"thread_ts,omitempty"`
-	UserId         string        `json:"user_id"`
+	Blocks *FreeFormJSON `json:"blocks,omitempty"`
+
+	// ChannelId Conversation to post the message in.
+	ChannelId string        `json:"channel_id"`
+	Metadata  *FreeFormJSON `json:"metadata,omitempty"`
+
+	// ReplyBroadcast When true, also post the reply to the channel (not just the thread).
+	ReplyBroadcast *bool `json:"reply_broadcast,omitempty"`
+
+	// Text Plain-text content of the message.
+	Text string `json:"text"`
+
+	// ThreadTs Parent message timestamp to reply in a thread.
+	ThreadTs *string `json:"thread_ts,omitempty"`
+
+	// UserId User sending the message.
+	UserId string `json:"user_id"`
 }
 
-// PrincipalType defines model for PrincipalType.
+// PrincipalType The kind of identity: human user, AI agent, or system service.
 type PrincipalType string
 
-// Reaction defines model for Reaction.
+// Reaction An emoji reaction on a message.
 type Reaction struct {
-	Count int32    `json:"count"`
-	Name  string   `json:"name"`
+	// Count Total number of users who added this reaction.
+	Count int32 `json:"count"`
+
+	// Name Emoji name (e.g. "thumbsup", "heart").
+	Name string `json:"name"`
+
+	// Users User IDs who added this reaction.
 	Users []string `json:"users"`
 }
 
 // RotateAPIKeyRequest defines model for RotateAPIKeyRequest.
 type RotateAPIKeyRequest struct {
+	// GracePeriod Duration the old key remains valid after rotation (e.g. "1h", "24h"). Defaults to immediate revocation.
 	GracePeriod *string `json:"grace_period,omitempty"`
 }
 
 // SearchRequest defines model for SearchRequest.
 type SearchRequest struct {
-	Cursor *string   `json:"cursor,omitempty"`
-	Limit  *int32    `json:"limit,omitempty"`
-	Query  string    `json:"query"`
-	TeamId string    `json:"team_id"`
-	Types  *[]string `json:"types,omitempty"`
+	// Cursor Pagination cursor from a previous search response.
+	Cursor *string `json:"cursor,omitempty"`
+
+	// Limit Maximum number of results to return.
+	Limit *int32 `json:"limit,omitempty"`
+
+	// Query Free-text search query.
+	Query string `json:"query"`
+
+	// Types Restrict results to specific resource types (e.g. ["message", "user"]).
+	Types *[]string `json:"types,omitempty"`
+
+	// WorkspaceId Workspace to search within.
+	WorkspaceId string `json:"workspace_id"`
 }
 
-// SearchResult defines model for SearchResult.
+// SearchResult A single search result.
 type SearchResult struct {
-	Data  FreeFormJSON `json:"data"`
-	Score float64      `json:"score"`
-	Type  string       `json:"type"`
+	Data FreeFormJSON `json:"data"`
+
+	// Score Relevance score (higher is more relevant).
+	Score float64 `json:"score"`
+
+	// Type Resource type of the result (e.g. "message", "user", "conversation").
+	Type string `json:"type"`
 }
 
 // SearchResultsCollection defines model for SearchResultsCollection.
@@ -972,14 +1342,23 @@ type SearchResultsCollection struct {
 
 // ShareRemoteFileRequest defines model for ShareRemoteFileRequest.
 type ShareRemoteFileRequest struct {
+	// Channels Conversation IDs to share the file in.
 	Channels []string `json:"channels"`
-	FileId   *string  `json:"file_id,omitempty"`
+
+	// FileId File identifier to share.
+	FileId *string `json:"file_id,omitempty"`
 }
 
 // StringsCollection defines model for StringsCollection.
 type StringsCollection struct {
 	Items      []string `json:"items"`
 	NextCursor *string  `json:"next_cursor,omitempty"`
+}
+
+// SwitchCurrentSessionWorkspaceRequest defines model for SwitchCurrentSessionWorkspaceRequest.
+type SwitchCurrentSessionWorkspaceRequest struct {
+	// WorkspaceId Workspace to switch the current browser session into.
+	WorkspaceId string `json:"workspace_id"`
 }
 
 // TopicPurpose defines model for TopicPurpose.
@@ -996,13 +1375,19 @@ type TransferPrimaryAdminRequest struct {
 
 // UpdateAPIKeyRequest defines model for UpdateAPIKeyRequest.
 type UpdateAPIKeyRequest struct {
-	Description *string   `json:"description,omitempty"`
-	Name        *string   `json:"name,omitempty"`
+	// Description New description.
+	Description *string `json:"description,omitempty"`
+
+	// Name New name.
+	Name *string `json:"name,omitempty"`
+
+	// Permissions New permission set (replaces existing permissions entirely).
 	Permissions *[]string `json:"permissions,omitempty"`
 }
 
 // UpdateExternalPrincipalAccessRequest defines model for UpdateExternalPrincipalAccessRequest.
 type UpdateExternalPrincipalAccessRequest struct {
+	// AccessMode Level of access granted to an external principal.
 	AccessMode          *ExternalPrincipalAccessMode `json:"access_mode,omitempty"`
 	AllowedCapabilities *[]string                    `json:"allowed_capabilities,omitempty"`
 	ConversationIds     *[]string                    `json:"conversation_ids,omitempty"`
@@ -1013,17 +1398,28 @@ type UpdateExternalPrincipalAccessRequest struct {
 type UpdateMessageRequest struct {
 	Blocks   *FreeFormJSON `json:"blocks,omitempty"`
 	Metadata *FreeFormJSON `json:"metadata,omitempty"`
-	Text     *string       `json:"text,omitempty"`
+
+	// Text New plain-text content.
+	Text *string `json:"text,omitempty"`
 }
 
 // UpdateUserRequest defines model for UpdateUserRequest.
 type UpdateUserRequest struct {
+	// AccountType Permission tier within a workspace.
 	AccountType *AccountType `json:"account_type,omitempty"`
-	Deleted     *bool        `json:"deleted,omitempty"`
-	DisplayName *string      `json:"display_name,omitempty"`
-	Email       *string      `json:"email,omitempty"`
-	Profile     *UserProfile `json:"profile,omitempty"`
-	RealName    *string      `json:"real_name,omitempty"`
+
+	// Deleted Set to true to deactivate the user.
+	Deleted *bool `json:"deleted,omitempty"`
+
+	// DisplayName New display name.
+	DisplayName *string `json:"display_name,omitempty"`
+
+	// Email New email address.
+	Email   *string      `json:"email,omitempty"`
+	Profile *UserProfile `json:"profile,omitempty"`
+
+	// RealName New full name.
+	RealName *string `json:"real_name,omitempty"`
 }
 
 // UpdateUserRolesRequest defines model for UpdateUserRolesRequest.
@@ -1033,9 +1429,11 @@ type UpdateUserRolesRequest struct {
 
 // UpdateWorkspaceRequest defines model for UpdateWorkspaceRequest.
 type UpdateWorkspaceRequest struct {
-	Billing         *WorkspaceBilling         `json:"billing,omitempty"`
-	DefaultChannels *[]string                 `json:"default_channels,omitempty"`
-	Description     *string                   `json:"description,omitempty"`
+	Billing         *WorkspaceBilling `json:"billing,omitempty"`
+	DefaultChannels *[]string         `json:"default_channels,omitempty"`
+	Description     *string           `json:"description,omitempty"`
+
+	// Discoverability Whether the workspace can be discovered and joined without an invite.
 	Discoverability *WorkspaceDiscoverability `json:"discoverability,omitempty"`
 	Domain          *string                   `json:"domain,omitempty"`
 	EmailDomain     *string                   `json:"email_domain,omitempty"`
@@ -1045,23 +1443,46 @@ type UpdateWorkspaceRequest struct {
 	ProfileFields   *[]WorkspaceProfileField  `json:"profile_fields,omitempty"`
 }
 
-// User defines model for User.
+// User A user identity — can represent a human, an AI agent, or a system service.
 type User struct {
-	AccountType    AccountType      `json:"account_type"`
-	CreatedAt      time.Time        `json:"created_at"`
+	// AccountType Permission tier within a workspace.
+	AccountType AccountType `json:"account_type"`
+	CreatedAt   time.Time   `json:"created_at"`
+
+	// DelegatedRoles Administrative roles delegated to this user.
 	DelegatedRoles *[]DelegatedRole `json:"delegated_roles,omitempty"`
-	Deleted        bool             `json:"deleted"`
-	DisplayName    string           `json:"display_name"`
-	Email          string           `json:"email"`
-	Id             string           `json:"id"`
-	IsBot          bool             `json:"is_bot"`
-	Name           string           `json:"name"`
-	OwnerId        *string          `json:"owner_id,omitempty"`
-	PrincipalType  PrincipalType    `json:"principal_type"`
-	Profile        UserProfile      `json:"profile"`
-	RealName       string           `json:"real_name"`
-	TeamId         string           `json:"team_id"`
-	UpdatedAt      time.Time        `json:"updated_at"`
+
+	// Deleted Whether this user has been deactivated.
+	Deleted bool `json:"deleted"`
+
+	// DisplayName Name shown in the UI. Falls back to real_name if empty.
+	DisplayName string `json:"display_name"`
+
+	// Email Email address associated with the user.
+	Email string `json:"email"`
+
+	// Id Unique user identifier.
+	Id string `json:"id"`
+
+	// IsBot Whether this user is a bot/agent (true) or human (false).
+	IsBot bool `json:"is_bot"`
+
+	// Name Unique username within the workspace (used for @-mentions).
+	Name string `json:"name"`
+
+	// OwnerId For agent users, the human user who owns this agent.
+	OwnerId *string `json:"owner_id,omitempty"`
+
+	// PrincipalType The kind of identity: human user, AI agent, or system service.
+	PrincipalType PrincipalType `json:"principal_type"`
+	Profile       UserProfile   `json:"profile"`
+
+	// RealName Full name of the user.
+	RealName  string    `json:"real_name"`
+	UpdatedAt time.Time `json:"updated_at"`
+
+	// WorkspaceId Workspace this user belongs to.
+	WorkspaceId string `json:"workspace_id"`
 }
 
 // UserProfile defines model for UserProfile.
@@ -1091,34 +1512,64 @@ type UserRolesResponse struct {
 	UserId         string          `json:"user_id"`
 }
 
-// Usergroup defines model for Usergroup.
+// Usergroup A named group of users that can be @-mentioned together.
 type Usergroup struct {
-	CreatedAt   time.Time `json:"created_at"`
-	CreatedBy   string    `json:"created_by"`
-	Description string    `json:"description"`
-	Enabled     bool      `json:"enabled"`
-	Handle      string    `json:"handle"`
-	Id          string    `json:"id"`
-	IsExternal  bool      `json:"is_external"`
-	Name        string    `json:"name"`
-	TeamId      string    `json:"team_id"`
-	UpdatedAt   time.Time `json:"updated_at"`
-	UpdatedBy   string    `json:"updated_by"`
-	UserCount   int32     `json:"user_count"`
+	CreatedAt time.Time `json:"created_at"`
+
+	// CreatedBy User who created the usergroup.
+	CreatedBy string `json:"created_by"`
+
+	// Description Description of the usergroup's purpose.
+	Description string `json:"description"`
+
+	// Enabled Whether this usergroup is active.
+	Enabled bool `json:"enabled"`
+
+	// Handle Short handle used for @-mentions (e.g. "engineering").
+	Handle string `json:"handle"`
+
+	// Id Unique usergroup identifier.
+	Id string `json:"id"`
+
+	// IsExternal Whether this usergroup includes external members.
+	IsExternal bool `json:"is_external"`
+
+	// Name Display name of the usergroup.
+	Name      string    `json:"name"`
+	UpdatedAt time.Time `json:"updated_at"`
+
+	// UpdatedBy User who last updated the usergroup.
+	UpdatedBy string `json:"updated_by"`
+
+	// UserCount Number of members in the usergroup.
+	UserCount int32 `json:"user_count"`
+
+	// WorkspaceId Workspace this usergroup belongs to.
+	WorkspaceId string `json:"workspace_id"`
 }
 
 // UsergroupMembersUpdateRequest defines model for UsergroupMembersUpdateRequest.
 type UsergroupMembersUpdateRequest struct {
+	// Users Complete list of user IDs (replaces all existing members).
 	Users []string `json:"users"`
 }
 
 // UsergroupUpdateRequest defines model for UsergroupUpdateRequest.
 type UsergroupUpdateRequest struct {
+	// Description New description.
 	Description *string `json:"description,omitempty"`
-	Enabled     *bool   `json:"enabled,omitempty"`
-	Handle      *string `json:"handle,omitempty"`
-	Name        *string `json:"name,omitempty"`
-	UpdatedBy   *string `json:"updated_by,omitempty"`
+
+	// Enabled Set to false to disable the usergroup.
+	Enabled *bool `json:"enabled,omitempty"`
+
+	// Handle New @-mention handle.
+	Handle *string `json:"handle,omitempty"`
+
+	// Name New display name.
+	Name *string `json:"name,omitempty"`
+
+	// UpdatedBy User making the update.
+	UpdatedBy *string `json:"updated_by,omitempty"`
 }
 
 // UsergroupsCollection defines model for UsergroupsCollection.
@@ -1133,21 +1584,37 @@ type UsersCollection struct {
 	NextCursor *string `json:"next_cursor,omitempty"`
 }
 
-// Workspace defines model for Workspace.
+// Workspace A workspace. The top-level organizational unit.
 type Workspace struct {
-	Billing         WorkspaceBilling         `json:"billing"`
-	CreatedAt       time.Time                `json:"created_at"`
-	DefaultChannels []string                 `json:"default_channels"`
-	Description     string                   `json:"description"`
+	Billing   WorkspaceBilling `json:"billing"`
+	CreatedAt time.Time        `json:"created_at"`
+
+	// DefaultChannels Conversation IDs that new members are automatically added to.
+	DefaultChannels []string `json:"default_channels"`
+
+	// Description Short description of the workspace.
+	Description string `json:"description"`
+
+	// Discoverability Whether the workspace can be discovered and joined without an invite.
 	Discoverability WorkspaceDiscoverability `json:"discoverability"`
-	Domain          string                   `json:"domain"`
-	EmailDomain     string                   `json:"email_domain"`
-	Icon            WorkspaceIcon            `json:"icon"`
-	Id              string                   `json:"id"`
-	Name            string                   `json:"name"`
-	Preferences     FreeFormObject           `json:"preferences"`
-	ProfileFields   []WorkspaceProfileField  `json:"profile_fields"`
-	UpdatedAt       time.Time                `json:"updated_at"`
+
+	// Domain Unique URL-safe slug for the workspace (e.g. "acme-corp").
+	Domain string `json:"domain"`
+
+	// EmailDomain Email domain used for auto-joining (e.g. "acme.com").
+	EmailDomain string        `json:"email_domain"`
+	Icon        WorkspaceIcon `json:"icon"`
+
+	// Id Unique workspace identifier.
+	Id string `json:"id"`
+
+	// Name Display name of the workspace.
+	Name        string         `json:"name"`
+	Preferences FreeFormObject `json:"preferences"`
+
+	// ProfileFields Custom profile fields defined for this workspace.
+	ProfileFields []WorkspaceProfileField `json:"profile_fields"`
+	UpdatedAt     time.Time               `json:"updated_at"`
 }
 
 // WorkspaceAccessLog defines model for WorkspaceAccessLog.
@@ -1181,7 +1648,7 @@ type WorkspaceBilling struct {
 	Status       string  `json:"status"`
 }
 
-// WorkspaceDiscoverability defines model for WorkspaceDiscoverability.
+// WorkspaceDiscoverability Whether the workspace can be discovered and joined without an invite.
 type WorkspaceDiscoverability string
 
 // WorkspaceIcon defines model for WorkspaceIcon.
@@ -1233,7 +1700,7 @@ type WorkspacesCollection struct {
 // APIKeyIDPath defines model for APIKeyIDPath.
 type APIKeyIDPath = string
 
-// AuthProviderPath defines model for AuthProviderPath.
+// AuthProviderPath Supported OAuth provider.
 type AuthProviderPath = AuthProvider
 
 // BookmarkIDPath defines model for BookmarkIDPath.
@@ -1254,8 +1721,8 @@ type EventSubscriptionIDPath = string
 // ExternalPrincipalAccessIDPath defines model for ExternalPrincipalAccessIDPath.
 type ExternalPrincipalAccessIDPath = string
 
-// ExternalTeamIDPath defines model for ExternalTeamIDPath.
-type ExternalTeamIDPath = string
+// ExternalWorkspaceIDPath defines model for ExternalWorkspaceIDPath.
+type ExternalWorkspaceIDPath = string
 
 // FileIDPath defines model for FileIDPath.
 type FileIDPath = string
@@ -1269,12 +1736,6 @@ type MessageTSPath = string
 // ReactionNamePath defines model for ReactionNamePath.
 type ReactionNamePath = string
 
-// TeamIDPath defines model for TeamIDPath.
-type TeamIDPath = string
-
-// TeamIDQuery defines model for TeamIDQuery.
-type TeamIDQuery = string
-
 // UserIDPath defines model for UserIDPath.
 type UserIDPath = string
 
@@ -1284,57 +1745,100 @@ type UserIDPathNamed = string
 // UsergroupIDPath defines model for UsergroupIDPath.
 type UsergroupIDPath = string
 
-// ApiErrorResponse defines model for ApiErrorResponse.
+// WorkspaceIDPath defines model for WorkspaceIDPath.
+type WorkspaceIDPath = string
+
+// WorkspaceIDQuery defines model for WorkspaceIDQuery.
+type WorkspaceIDQuery = string
+
+// ApiErrorResponse Standard error envelope returned for all non-2xx responses.
 type ApiErrorResponse = APIError
 
 // ListApiKeysParams defines parameters for ListApiKeys.
 type ListApiKeysParams struct {
-	TeamId         *TeamIDQuery `form:"team_id,omitempty" json:"team_id,omitempty"`
-	PrincipalId    *string      `form:"principal_id,omitempty" json:"principal_id,omitempty"`
-	IncludeRevoked *bool        `form:"include_revoked,omitempty" json:"include_revoked,omitempty"`
-	Cursor         *CursorQuery `form:"cursor,omitempty" json:"cursor,omitempty"`
-	Limit          *LimitQuery  `form:"limit,omitempty" json:"limit,omitempty"`
+	// WorkspaceId Filter results by workspace identifier.
+	WorkspaceId *WorkspaceIDQuery `form:"workspace_id,omitempty" json:"workspace_id,omitempty"`
+
+	// UserId Filter API keys owned by this user.
+	UserId *string `form:"user_id,omitempty" json:"user_id,omitempty"`
+
+	// IncludeRevoked When true, include revoked API keys in results.
+	IncludeRevoked *bool `form:"include_revoked,omitempty" json:"include_revoked,omitempty"`
+
+	// Cursor Opaque pagination cursor returned by a previous request.
+	Cursor *CursorQuery `form:"cursor,omitempty" json:"cursor,omitempty"`
+
+	// Limit Maximum number of items to return per page.
+	Limit *LimitQuery `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
 // CompleteOAuthParams defines parameters for CompleteOAuth.
 type CompleteOAuthParams struct {
-	Code  string `form:"code" json:"code"`
+	// Code Authorization code returned by the OAuth provider.
+	Code string `form:"code" json:"code"`
+
+	// State OAuth state parameter for CSRF validation.
 	State string `form:"state" json:"state"`
 }
 
 // StartOAuthParams defines parameters for StartOAuth.
 type StartOAuthParams struct {
-	TeamId     *TeamIDQuery `form:"team_id,omitempty" json:"team_id,omitempty"`
-	RedirectTo *string      `form:"redirect_to,omitempty" json:"redirect_to,omitempty"`
+	// WorkspaceId Filter results by workspace identifier.
+	WorkspaceId *WorkspaceIDQuery `form:"workspace_id,omitempty" json:"workspace_id,omitempty"`
+
+	// RedirectTo URL to redirect to after successful authentication.
+	RedirectTo *string `form:"redirect_to,omitempty" json:"redirect_to,omitempty"`
 }
 
 // ListConversationsParams defines parameters for ListConversations.
 type ListConversationsParams struct {
-	TeamId          *TeamIDQuery        `form:"team_id,omitempty" json:"team_id,omitempty"`
-	Cursor          *CursorQuery        `form:"cursor,omitempty" json:"cursor,omitempty"`
-	Limit           *LimitQuery         `form:"limit,omitempty" json:"limit,omitempty"`
-	Types           *[]ConversationType `form:"types,omitempty" json:"types,omitempty"`
-	ExcludeArchived *bool               `form:"exclude_archived,omitempty" json:"exclude_archived,omitempty"`
+	// WorkspaceId Filter results by workspace identifier.
+	WorkspaceId *WorkspaceIDQuery `form:"workspace_id,omitempty" json:"workspace_id,omitempty"`
+
+	// Cursor Opaque pagination cursor returned by a previous request.
+	Cursor *CursorQuery `form:"cursor,omitempty" json:"cursor,omitempty"`
+
+	// Limit Maximum number of items to return per page.
+	Limit *LimitQuery `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Types Comma-separated conversation types to include.
+	Types *[]ConversationType `form:"types,omitempty" json:"types,omitempty"`
+
+	// ExcludeArchived When true, omit archived conversations from results.
+	ExcludeArchived *bool `form:"exclude_archived,omitempty" json:"exclude_archived,omitempty"`
 }
 
 // ListConversationMembersParams defines parameters for ListConversationMembers.
 type ListConversationMembersParams struct {
+	// Cursor Opaque pagination cursor returned by a previous request.
 	Cursor *CursorQuery `form:"cursor,omitempty" json:"cursor,omitempty"`
-	Limit  *LimitQuery  `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Limit Maximum number of items to return per page.
+	Limit *LimitQuery `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
 // ListEventSubscriptionsParams defines parameters for ListEventSubscriptions.
 type ListEventSubscriptionsParams struct {
-	TeamId *TeamIDQuery `form:"team_id,omitempty" json:"team_id,omitempty"`
+	// WorkspaceId Filter results by workspace identifier.
+	WorkspaceId *WorkspaceIDQuery `form:"workspace_id,omitempty" json:"workspace_id,omitempty"`
 }
 
 // ListEventsParams defines parameters for ListEvents.
 type ListEventsParams struct {
-	After        *string                       `form:"after,omitempty" json:"after,omitempty"`
-	Limit        *LimitQuery                   `form:"limit,omitempty" json:"limit,omitempty"`
-	Type         *string                       `form:"type,omitempty" json:"type,omitempty"`
+	// After Opaque pagination cursor returned as `next_cursor`.
+	After *string `form:"after,omitempty" json:"after,omitempty"`
+
+	// Limit Maximum number of items to return per page.
+	Limit *LimitQuery `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Type Filter by event type (e.g. "conversation.message.created").
+	Type *string `form:"type,omitempty" json:"type,omitempty"`
+
+	// ResourceType Filter by the type of resource that produced the event.
 	ResourceType *ListEventsParamsResourceType `form:"resource_type,omitempty" json:"resource_type,omitempty"`
-	ResourceId   *string                       `form:"resource_id,omitempty" json:"resource_id,omitempty"`
+
+	// ResourceId Filter by the specific resource that produced the event.
+	ResourceId *string `form:"resource_id,omitempty" json:"resource_id,omitempty"`
 }
 
 // ListEventsParamsResourceType defines parameters for ListEvents.
@@ -1342,56 +1846,92 @@ type ListEventsParamsResourceType string
 
 // ListExternalPrincipalAccessParams defines parameters for ListExternalPrincipalAccess.
 type ListExternalPrincipalAccessParams struct {
-	HostTeamId *string `form:"host_team_id,omitempty" json:"host_team_id,omitempty"`
+	// HostWorkspaceId Filter by the workspace granting access.
+	HostWorkspaceId *string `form:"host_workspace_id,omitempty" json:"host_workspace_id,omitempty"`
 }
 
 // ListFilesParams defines parameters for ListFiles.
 type ListFilesParams struct {
-	ConversationId *string      `form:"conversation_id,omitempty" json:"conversation_id,omitempty"`
-	UserId         *string      `form:"user_id,omitempty" json:"user_id,omitempty"`
-	Cursor         *CursorQuery `form:"cursor,omitempty" json:"cursor,omitempty"`
-	Limit          *LimitQuery  `form:"limit,omitempty" json:"limit,omitempty"`
+	// ConversationId Filter files shared in this conversation.
+	ConversationId *string `form:"conversation_id,omitempty" json:"conversation_id,omitempty"`
+
+	// UserId Filter files uploaded by this user.
+	UserId *string `form:"user_id,omitempty" json:"user_id,omitempty"`
+
+	// Cursor Opaque pagination cursor returned by a previous request.
+	Cursor *CursorQuery `form:"cursor,omitempty" json:"cursor,omitempty"`
+
+	// Limit Maximum number of items to return per page.
+	Limit *LimitQuery `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
 // ListMessagesParams defines parameters for ListMessages.
 type ListMessagesParams struct {
-	ConversationId     *string      `form:"conversation_id,omitempty" json:"conversation_id,omitempty"`
-	ThreadTs           *string      `form:"thread_ts,omitempty" json:"thread_ts,omitempty"`
-	Latest             *string      `form:"latest,omitempty" json:"latest,omitempty"`
-	Oldest             *string      `form:"oldest,omitempty" json:"oldest,omitempty"`
-	Inclusive          *bool        `form:"inclusive,omitempty" json:"inclusive,omitempty"`
-	IncludeAllMetadata *bool        `form:"include_all_metadata,omitempty" json:"include_all_metadata,omitempty"`
-	Cursor             *CursorQuery `form:"cursor,omitempty" json:"cursor,omitempty"`
-	Limit              *LimitQuery  `form:"limit,omitempty" json:"limit,omitempty"`
-}
+	// ConversationId Return messages from this conversation.
+	ConversationId *string `form:"conversation_id,omitempty" json:"conversation_id,omitempty"`
 
-// ListTeamAccessLogsParams defines parameters for ListTeamAccessLogs.
-type ListTeamAccessLogsParams struct {
-	Limit *LimitQuery `form:"limit,omitempty" json:"limit,omitempty"`
-}
+	// ThreadTs Return only replies in this thread (identified by the parent message timestamp).
+	ThreadTs *string `form:"thread_ts,omitempty" json:"thread_ts,omitempty"`
 
-// ListTeamAuthorizationAuditLogsParams defines parameters for ListTeamAuthorizationAuditLogs.
-type ListTeamAuthorizationAuditLogsParams struct {
-	Limit *LimitQuery `form:"limit,omitempty" json:"limit,omitempty"`
-}
+	// Latest End of time range (message timestamp). Only messages before this timestamp are returned.
+	Latest *string `form:"latest,omitempty" json:"latest,omitempty"`
 
-// ListTeamIntegrationLogsParams defines parameters for ListTeamIntegrationLogs.
-type ListTeamIntegrationLogsParams struct {
+	// Oldest Start of time range (message timestamp). Only messages after this timestamp are returned.
+	Oldest *string `form:"oldest,omitempty" json:"oldest,omitempty"`
+
+	// Inclusive When true, include messages with timestamps exactly matching latest or oldest.
+	Inclusive *bool `form:"inclusive,omitempty" json:"inclusive,omitempty"`
+
+	// IncludeAllMetadata When true, include full metadata on each message.
+	IncludeAllMetadata *bool `form:"include_all_metadata,omitempty" json:"include_all_metadata,omitempty"`
+
+	// Cursor Opaque pagination cursor returned by a previous request.
+	Cursor *CursorQuery `form:"cursor,omitempty" json:"cursor,omitempty"`
+
+	// Limit Maximum number of items to return per page.
 	Limit *LimitQuery `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
 // ListUsergroupsParams defines parameters for ListUsergroups.
 type ListUsergroupsParams struct {
-	TeamId          *TeamIDQuery `form:"team_id,omitempty" json:"team_id,omitempty"`
-	IncludeDisabled *bool        `form:"include_disabled,omitempty" json:"include_disabled,omitempty"`
+	// WorkspaceId Filter results by workspace identifier.
+	WorkspaceId *WorkspaceIDQuery `form:"workspace_id,omitempty" json:"workspace_id,omitempty"`
+
+	// IncludeDisabled When true, include disabled usergroups in results.
+	IncludeDisabled *bool `form:"include_disabled,omitempty" json:"include_disabled,omitempty"`
 }
 
 // ListUsersParams defines parameters for ListUsers.
 type ListUsersParams struct {
-	TeamId *TeamIDQuery `form:"team_id,omitempty" json:"team_id,omitempty"`
+	// WorkspaceId Filter results by workspace identifier.
+	WorkspaceId *WorkspaceIDQuery `form:"workspace_id,omitempty" json:"workspace_id,omitempty"`
+
+	// Cursor Opaque pagination cursor returned by a previous request.
 	Cursor *CursorQuery `form:"cursor,omitempty" json:"cursor,omitempty"`
-	Limit  *LimitQuery  `form:"limit,omitempty" json:"limit,omitempty"`
-	Email  *string      `form:"email,omitempty" json:"email,omitempty"`
+
+	// Limit Maximum number of items to return per page.
+	Limit *LimitQuery `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Email Filter by exact email address.
+	Email *string `form:"email,omitempty" json:"email,omitempty"`
+}
+
+// ListWorkspaceAccessLogsParams defines parameters for ListWorkspaceAccessLogs.
+type ListWorkspaceAccessLogsParams struct {
+	// Limit Maximum number of items to return per page.
+	Limit *LimitQuery `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
+// ListWorkspaceAuthorizationAuditLogsParams defines parameters for ListWorkspaceAuthorizationAuditLogs.
+type ListWorkspaceAuthorizationAuditLogsParams struct {
+	// Limit Maximum number of items to return per page.
+	Limit *LimitQuery `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
+// ListWorkspaceIntegrationLogsParams defines parameters for ListWorkspaceIntegrationLogs.
+type ListWorkspaceIntegrationLogsParams struct {
+	// Limit Maximum number of items to return per page.
+	Limit *LimitQuery `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
 // CreateApiKeyJSONRequestBody defines body for CreateApiKey for application/json ContentType.
@@ -1402,6 +1942,9 @@ type UpdateApiKeyJSONRequestBody = UpdateAPIKeyRequest
 
 // RotateApiKeyJSONRequestBody defines body for RotateApiKey for application/json ContentType.
 type RotateApiKeyJSONRequestBody = RotateAPIKeyRequest
+
+// SwitchCurrentSessionWorkspaceJSONRequestBody defines body for SwitchCurrentSessionWorkspace for application/json ContentType.
+type SwitchCurrentSessionWorkspaceJSONRequestBody = SwitchCurrentSessionWorkspaceRequest
 
 // CreateConversationJSONRequestBody defines body for CreateConversation for application/json ContentType.
 type CreateConversationJSONRequestBody = CreateConversationRequest
@@ -1466,15 +2009,6 @@ type CreateMessageReactionJSONRequestBody = MessageReactionRequest
 // SearchJSONRequestBody defines body for Search for application/json ContentType.
 type SearchJSONRequestBody = SearchRequest
 
-// CreateTeamJSONRequestBody defines body for CreateTeam for application/json ContentType.
-type CreateTeamJSONRequestBody = CreateWorkspaceRequest
-
-// UpdateTeamJSONRequestBody defines body for UpdateTeam for application/json ContentType.
-type UpdateTeamJSONRequestBody = UpdateWorkspaceRequest
-
-// TransferPrimaryAdminJSONRequestBody defines body for TransferPrimaryAdmin for application/json ContentType.
-type TransferPrimaryAdminJSONRequestBody = TransferPrimaryAdminRequest
-
 // CreateUsergroupJSONRequestBody defines body for CreateUsergroup for application/json ContentType.
 type CreateUsergroupJSONRequestBody = CreateUsergroupRequest
 
@@ -1492,6 +2026,15 @@ type UpdateUserJSONRequestBody = UpdateUserRequest
 
 // UpdateUserRolesJSONRequestBody defines body for UpdateUserRoles for application/json ContentType.
 type UpdateUserRolesJSONRequestBody = UpdateUserRolesRequest
+
+// CreateWorkspaceJSONRequestBody defines body for CreateWorkspace for application/json ContentType.
+type CreateWorkspaceJSONRequestBody = CreateWorkspaceRequest
+
+// UpdateWorkspaceJSONRequestBody defines body for UpdateWorkspace for application/json ContentType.
+type UpdateWorkspaceJSONRequestBody = UpdateWorkspaceRequest
+
+// TransferPrimaryAdminJSONRequestBody defines body for TransferPrimaryAdmin for application/json ContentType.
+type TransferPrimaryAdminJSONRequestBody = TransferPrimaryAdminRequest
 
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
@@ -1525,6 +2068,9 @@ type ServerInterface interface {
 
 	// (DELETE /auth/sessions/current)
 	DeleteCurrentSession(w http.ResponseWriter, r *http.Request)
+
+	// (POST /auth/sessions/current/workspace)
+	SwitchCurrentSessionWorkspace(w http.ResponseWriter, r *http.Request)
 
 	// (GET /conversations)
 	ListConversations(w http.ResponseWriter, r *http.Request, params ListConversationsParams)
@@ -1664,54 +2210,6 @@ type ServerInterface interface {
 	// (POST /search)
 	Search(w http.ResponseWriter, r *http.Request)
 
-	// (GET /teams)
-	ListTeams(w http.ResponseWriter, r *http.Request)
-
-	// (POST /teams)
-	CreateTeam(w http.ResponseWriter, r *http.Request)
-
-	// (GET /teams/{id})
-	GetTeam(w http.ResponseWriter, r *http.Request, id TeamIDPath)
-
-	// (PATCH /teams/{id})
-	UpdateTeam(w http.ResponseWriter, r *http.Request, id TeamIDPath)
-
-	// (GET /teams/{id}/access-logs)
-	ListTeamAccessLogs(w http.ResponseWriter, r *http.Request, id TeamIDPath, params ListTeamAccessLogsParams)
-
-	// (GET /teams/{id}/admins)
-	ListTeamAdmins(w http.ResponseWriter, r *http.Request, id TeamIDPath)
-
-	// (GET /teams/{id}/authorization-audit-logs)
-	ListTeamAuthorizationAuditLogs(w http.ResponseWriter, r *http.Request, id TeamIDPath, params ListTeamAuthorizationAuditLogsParams)
-
-	// (GET /teams/{id}/billable-info)
-	GetTeamBillableInfo(w http.ResponseWriter, r *http.Request, id TeamIDPath)
-
-	// (GET /teams/{id}/billing)
-	GetTeamBilling(w http.ResponseWriter, r *http.Request, id TeamIDPath)
-
-	// (GET /teams/{id}/external-teams)
-	ListExternalTeams(w http.ResponseWriter, r *http.Request, id TeamIDPath)
-
-	// (DELETE /teams/{id}/external-teams/{external_team_id})
-	DisconnectExternalTeam(w http.ResponseWriter, r *http.Request, id TeamIDPath, externalTeamId ExternalTeamIDPath)
-
-	// (GET /teams/{id}/integration-logs)
-	ListTeamIntegrationLogs(w http.ResponseWriter, r *http.Request, id TeamIDPath, params ListTeamIntegrationLogsParams)
-
-	// (GET /teams/{id}/owners)
-	ListTeamOwners(w http.ResponseWriter, r *http.Request, id TeamIDPath)
-
-	// (GET /teams/{id}/preferences)
-	GetTeamPreferences(w http.ResponseWriter, r *http.Request, id TeamIDPath)
-
-	// (POST /teams/{id}/primary-admin)
-	TransferPrimaryAdmin(w http.ResponseWriter, r *http.Request, id TeamIDPath)
-
-	// (GET /teams/{id}/profile-fields)
-	ListTeamProfileFields(w http.ResponseWriter, r *http.Request, id TeamIDPath)
-
 	// (GET /usergroups)
 	ListUsergroups(w http.ResponseWriter, r *http.Request, params ListUsergroupsParams)
 
@@ -1747,6 +2245,54 @@ type ServerInterface interface {
 
 	// (PUT /users/{id}/roles)
 	UpdateUserRoles(w http.ResponseWriter, r *http.Request, id UserIDPath)
+
+	// (GET /workspaces)
+	ListWorkspaces(w http.ResponseWriter, r *http.Request)
+
+	// (POST /workspaces)
+	CreateWorkspace(w http.ResponseWriter, r *http.Request)
+
+	// (GET /workspaces/{id})
+	GetWorkspace(w http.ResponseWriter, r *http.Request, id WorkspaceIDPath)
+
+	// (PATCH /workspaces/{id})
+	UpdateWorkspace(w http.ResponseWriter, r *http.Request, id WorkspaceIDPath)
+
+	// (GET /workspaces/{id}/access-logs)
+	ListWorkspaceAccessLogs(w http.ResponseWriter, r *http.Request, id WorkspaceIDPath, params ListWorkspaceAccessLogsParams)
+
+	// (GET /workspaces/{id}/admins)
+	ListWorkspaceAdmins(w http.ResponseWriter, r *http.Request, id WorkspaceIDPath)
+
+	// (GET /workspaces/{id}/authorization-audit-logs)
+	ListWorkspaceAuthorizationAuditLogs(w http.ResponseWriter, r *http.Request, id WorkspaceIDPath, params ListWorkspaceAuthorizationAuditLogsParams)
+
+	// (GET /workspaces/{id}/billable-info)
+	GetWorkspaceBillableInfo(w http.ResponseWriter, r *http.Request, id WorkspaceIDPath)
+
+	// (GET /workspaces/{id}/billing)
+	GetWorkspaceBilling(w http.ResponseWriter, r *http.Request, id WorkspaceIDPath)
+
+	// (GET /workspaces/{id}/external-workspaces)
+	ListExternalWorkspaces(w http.ResponseWriter, r *http.Request, id WorkspaceIDPath)
+
+	// (DELETE /workspaces/{id}/external-workspaces/{external_workspace_id})
+	DisconnectExternalWorkspace(w http.ResponseWriter, r *http.Request, id WorkspaceIDPath, externalWorkspaceId ExternalWorkspaceIDPath)
+
+	// (GET /workspaces/{id}/integration-logs)
+	ListWorkspaceIntegrationLogs(w http.ResponseWriter, r *http.Request, id WorkspaceIDPath, params ListWorkspaceIntegrationLogsParams)
+
+	// (GET /workspaces/{id}/owners)
+	ListWorkspaceOwners(w http.ResponseWriter, r *http.Request, id WorkspaceIDPath)
+
+	// (GET /workspaces/{id}/preferences)
+	GetWorkspacePreferences(w http.ResponseWriter, r *http.Request, id WorkspaceIDPath)
+
+	// (POST /workspaces/{id}/primary-admin)
+	TransferPrimaryAdmin(w http.ResponseWriter, r *http.Request, id WorkspaceIDPath)
+
+	// (GET /workspaces/{id}/profile-fields)
+	ListWorkspaceProfileFields(w http.ResponseWriter, r *http.Request, id WorkspaceIDPath)
 }
 
 // ServerInterfaceWrapper converts contexts to parameters.
@@ -1772,19 +2318,19 @@ func (siw *ServerInterfaceWrapper) ListApiKeys(w http.ResponseWriter, r *http.Re
 	// Parameter object where we will unmarshal all parameters from the context
 	var params ListApiKeysParams
 
-	// ------------- Optional query parameter "team_id" -------------
+	// ------------- Optional query parameter "workspace_id" -------------
 
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "team_id", r.URL.Query(), &params.TeamId, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "workspace_id", r.URL.Query(), &params.WorkspaceId, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
 	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "team_id", Err: err})
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "workspace_id", Err: err})
 		return
 	}
 
-	// ------------- Optional query parameter "principal_id" -------------
+	// ------------- Optional query parameter "user_id" -------------
 
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "principal_id", r.URL.Query(), &params.PrincipalId, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "user_id", r.URL.Query(), &params.UserId, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
 	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "principal_id", Err: err})
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "user_id", Err: err})
 		return
 	}
 
@@ -2062,11 +2608,11 @@ func (siw *ServerInterfaceWrapper) StartOAuth(w http.ResponseWriter, r *http.Req
 	// Parameter object where we will unmarshal all parameters from the context
 	var params StartOAuthParams
 
-	// ------------- Optional query parameter "team_id" -------------
+	// ------------- Optional query parameter "workspace_id" -------------
 
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "team_id", r.URL.Query(), &params.TeamId, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "workspace_id", r.URL.Query(), &params.WorkspaceId, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
 	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "team_id", Err: err})
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "workspace_id", Err: err})
 		return
 	}
 
@@ -2109,6 +2655,26 @@ func (siw *ServerInterfaceWrapper) DeleteCurrentSession(w http.ResponseWriter, r
 	handler.ServeHTTP(w, r)
 }
 
+// SwitchCurrentSessionWorkspace operation middleware
+func (siw *ServerInterfaceWrapper) SwitchCurrentSessionWorkspace(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SwitchCurrentSessionWorkspace(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ListConversations operation middleware
 func (siw *ServerInterfaceWrapper) ListConversations(w http.ResponseWriter, r *http.Request) {
 
@@ -2123,11 +2689,11 @@ func (siw *ServerInterfaceWrapper) ListConversations(w http.ResponseWriter, r *h
 	// Parameter object where we will unmarshal all parameters from the context
 	var params ListConversationsParams
 
-	// ------------- Optional query parameter "team_id" -------------
+	// ------------- Optional query parameter "workspace_id" -------------
 
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "team_id", r.URL.Query(), &params.TeamId, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "workspace_id", r.URL.Query(), &params.WorkspaceId, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
 	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "team_id", Err: err})
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "workspace_id", Err: err})
 		return
 	}
 
@@ -2790,11 +3356,11 @@ func (siw *ServerInterfaceWrapper) ListEventSubscriptions(w http.ResponseWriter,
 	// Parameter object where we will unmarshal all parameters from the context
 	var params ListEventSubscriptionsParams
 
-	// ------------- Optional query parameter "team_id" -------------
+	// ------------- Optional query parameter "workspace_id" -------------
 
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "team_id", r.URL.Query(), &params.TeamId, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "workspace_id", r.URL.Query(), &params.WorkspaceId, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
 	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "team_id", Err: err})
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "workspace_id", Err: err})
 		return
 	}
 
@@ -3001,11 +3567,11 @@ func (siw *ServerInterfaceWrapper) ListExternalPrincipalAccess(w http.ResponseWr
 	// Parameter object where we will unmarshal all parameters from the context
 	var params ListExternalPrincipalAccessParams
 
-	// ------------- Optional query parameter "host_team_id" -------------
+	// ------------- Optional query parameter "host_workspace_id" -------------
 
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "host_team_id", r.URL.Query(), &params.HostTeamId, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "host_workspace_id", r.URL.Query(), &params.HostWorkspaceId, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
 	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "host_team_id", Err: err})
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "host_workspace_id", Err: err})
 		return
 	}
 
@@ -3706,522 +4272,6 @@ func (siw *ServerInterfaceWrapper) Search(w http.ResponseWriter, r *http.Request
 	handler.ServeHTTP(w, r)
 }
 
-// ListTeams operation middleware
-func (siw *ServerInterfaceWrapper) ListTeams(w http.ResponseWriter, r *http.Request) {
-
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
-
-	r = r.WithContext(ctx)
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.ListTeams(w, r)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// CreateTeam operation middleware
-func (siw *ServerInterfaceWrapper) CreateTeam(w http.ResponseWriter, r *http.Request) {
-
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
-
-	r = r.WithContext(ctx)
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.CreateTeam(w, r)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// GetTeam operation middleware
-func (siw *ServerInterfaceWrapper) GetTeam(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-
-	// ------------- Path parameter "id" -------------
-	var id TeamIDPath
-
-	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
-		return
-	}
-
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
-
-	r = r.WithContext(ctx)
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.GetTeam(w, r, id)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// UpdateTeam operation middleware
-func (siw *ServerInterfaceWrapper) UpdateTeam(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-
-	// ------------- Path parameter "id" -------------
-	var id TeamIDPath
-
-	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
-		return
-	}
-
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
-
-	r = r.WithContext(ctx)
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.UpdateTeam(w, r, id)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// ListTeamAccessLogs operation middleware
-func (siw *ServerInterfaceWrapper) ListTeamAccessLogs(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-
-	// ------------- Path parameter "id" -------------
-	var id TeamIDPath
-
-	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
-		return
-	}
-
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
-
-	r = r.WithContext(ctx)
-
-	// Parameter object where we will unmarshal all parameters from the context
-	var params ListTeamAccessLogsParams
-
-	// ------------- Optional query parameter "limit" -------------
-
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: "int32"})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
-		return
-	}
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.ListTeamAccessLogs(w, r, id, params)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// ListTeamAdmins operation middleware
-func (siw *ServerInterfaceWrapper) ListTeamAdmins(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-
-	// ------------- Path parameter "id" -------------
-	var id TeamIDPath
-
-	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
-		return
-	}
-
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
-
-	r = r.WithContext(ctx)
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.ListTeamAdmins(w, r, id)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// ListTeamAuthorizationAuditLogs operation middleware
-func (siw *ServerInterfaceWrapper) ListTeamAuthorizationAuditLogs(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-
-	// ------------- Path parameter "id" -------------
-	var id TeamIDPath
-
-	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
-		return
-	}
-
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
-
-	r = r.WithContext(ctx)
-
-	// Parameter object where we will unmarshal all parameters from the context
-	var params ListTeamAuthorizationAuditLogsParams
-
-	// ------------- Optional query parameter "limit" -------------
-
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: "int32"})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
-		return
-	}
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.ListTeamAuthorizationAuditLogs(w, r, id, params)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// GetTeamBillableInfo operation middleware
-func (siw *ServerInterfaceWrapper) GetTeamBillableInfo(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-
-	// ------------- Path parameter "id" -------------
-	var id TeamIDPath
-
-	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
-		return
-	}
-
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
-
-	r = r.WithContext(ctx)
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.GetTeamBillableInfo(w, r, id)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// GetTeamBilling operation middleware
-func (siw *ServerInterfaceWrapper) GetTeamBilling(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-
-	// ------------- Path parameter "id" -------------
-	var id TeamIDPath
-
-	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
-		return
-	}
-
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
-
-	r = r.WithContext(ctx)
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.GetTeamBilling(w, r, id)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// ListExternalTeams operation middleware
-func (siw *ServerInterfaceWrapper) ListExternalTeams(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-
-	// ------------- Path parameter "id" -------------
-	var id TeamIDPath
-
-	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
-		return
-	}
-
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
-
-	r = r.WithContext(ctx)
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.ListExternalTeams(w, r, id)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// DisconnectExternalTeam operation middleware
-func (siw *ServerInterfaceWrapper) DisconnectExternalTeam(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-
-	// ------------- Path parameter "id" -------------
-	var id TeamIDPath
-
-	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
-		return
-	}
-
-	// ------------- Path parameter "external_team_id" -------------
-	var externalTeamId ExternalTeamIDPath
-
-	err = runtime.BindStyledParameterWithOptions("simple", "external_team_id", r.PathValue("external_team_id"), &externalTeamId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "external_team_id", Err: err})
-		return
-	}
-
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
-
-	r = r.WithContext(ctx)
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.DisconnectExternalTeam(w, r, id, externalTeamId)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// ListTeamIntegrationLogs operation middleware
-func (siw *ServerInterfaceWrapper) ListTeamIntegrationLogs(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-
-	// ------------- Path parameter "id" -------------
-	var id TeamIDPath
-
-	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
-		return
-	}
-
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
-
-	r = r.WithContext(ctx)
-
-	// Parameter object where we will unmarshal all parameters from the context
-	var params ListTeamIntegrationLogsParams
-
-	// ------------- Optional query parameter "limit" -------------
-
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: "int32"})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
-		return
-	}
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.ListTeamIntegrationLogs(w, r, id, params)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// ListTeamOwners operation middleware
-func (siw *ServerInterfaceWrapper) ListTeamOwners(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-
-	// ------------- Path parameter "id" -------------
-	var id TeamIDPath
-
-	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
-		return
-	}
-
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
-
-	r = r.WithContext(ctx)
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.ListTeamOwners(w, r, id)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// GetTeamPreferences operation middleware
-func (siw *ServerInterfaceWrapper) GetTeamPreferences(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-
-	// ------------- Path parameter "id" -------------
-	var id TeamIDPath
-
-	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
-		return
-	}
-
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
-
-	r = r.WithContext(ctx)
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.GetTeamPreferences(w, r, id)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// TransferPrimaryAdmin operation middleware
-func (siw *ServerInterfaceWrapper) TransferPrimaryAdmin(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-
-	// ------------- Path parameter "id" -------------
-	var id TeamIDPath
-
-	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
-		return
-	}
-
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
-
-	r = r.WithContext(ctx)
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.TransferPrimaryAdmin(w, r, id)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// ListTeamProfileFields operation middleware
-func (siw *ServerInterfaceWrapper) ListTeamProfileFields(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-
-	// ------------- Path parameter "id" -------------
-	var id TeamIDPath
-
-	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
-		return
-	}
-
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
-
-	r = r.WithContext(ctx)
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.ListTeamProfileFields(w, r, id)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
 // ListUsergroups operation middleware
 func (siw *ServerInterfaceWrapper) ListUsergroups(w http.ResponseWriter, r *http.Request) {
 
@@ -4236,11 +4286,11 @@ func (siw *ServerInterfaceWrapper) ListUsergroups(w http.ResponseWriter, r *http
 	// Parameter object where we will unmarshal all parameters from the context
 	var params ListUsergroupsParams
 
-	// ------------- Optional query parameter "team_id" -------------
+	// ------------- Optional query parameter "workspace_id" -------------
 
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "team_id", r.URL.Query(), &params.TeamId, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "workspace_id", r.URL.Query(), &params.WorkspaceId, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
 	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "team_id", Err: err})
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "workspace_id", Err: err})
 		return
 	}
 
@@ -4421,11 +4471,11 @@ func (siw *ServerInterfaceWrapper) ListUsers(w http.ResponseWriter, r *http.Requ
 	// Parameter object where we will unmarshal all parameters from the context
 	var params ListUsersParams
 
-	// ------------- Optional query parameter "team_id" -------------
+	// ------------- Optional query parameter "workspace_id" -------------
 
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "team_id", r.URL.Query(), &params.TeamId, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "workspace_id", r.URL.Query(), &params.WorkspaceId, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
 	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "team_id", Err: err})
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "workspace_id", Err: err})
 		return
 	}
 
@@ -4608,6 +4658,522 @@ func (siw *ServerInterfaceWrapper) UpdateUserRoles(w http.ResponseWriter, r *htt
 	handler.ServeHTTP(w, r)
 }
 
+// ListWorkspaces operation middleware
+func (siw *ServerInterfaceWrapper) ListWorkspaces(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListWorkspaces(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateWorkspace operation middleware
+func (siw *ServerInterfaceWrapper) CreateWorkspace(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateWorkspace(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetWorkspace operation middleware
+func (siw *ServerInterfaceWrapper) GetWorkspace(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "id" -------------
+	var id WorkspaceIDPath
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetWorkspace(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdateWorkspace operation middleware
+func (siw *ServerInterfaceWrapper) UpdateWorkspace(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "id" -------------
+	var id WorkspaceIDPath
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateWorkspace(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListWorkspaceAccessLogs operation middleware
+func (siw *ServerInterfaceWrapper) ListWorkspaceAccessLogs(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "id" -------------
+	var id WorkspaceIDPath
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListWorkspaceAccessLogsParams
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: "int32"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListWorkspaceAccessLogs(w, r, id, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListWorkspaceAdmins operation middleware
+func (siw *ServerInterfaceWrapper) ListWorkspaceAdmins(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "id" -------------
+	var id WorkspaceIDPath
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListWorkspaceAdmins(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListWorkspaceAuthorizationAuditLogs operation middleware
+func (siw *ServerInterfaceWrapper) ListWorkspaceAuthorizationAuditLogs(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "id" -------------
+	var id WorkspaceIDPath
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListWorkspaceAuthorizationAuditLogsParams
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: "int32"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListWorkspaceAuthorizationAuditLogs(w, r, id, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetWorkspaceBillableInfo operation middleware
+func (siw *ServerInterfaceWrapper) GetWorkspaceBillableInfo(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "id" -------------
+	var id WorkspaceIDPath
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetWorkspaceBillableInfo(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetWorkspaceBilling operation middleware
+func (siw *ServerInterfaceWrapper) GetWorkspaceBilling(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "id" -------------
+	var id WorkspaceIDPath
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetWorkspaceBilling(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListExternalWorkspaces operation middleware
+func (siw *ServerInterfaceWrapper) ListExternalWorkspaces(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "id" -------------
+	var id WorkspaceIDPath
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListExternalWorkspaces(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DisconnectExternalWorkspace operation middleware
+func (siw *ServerInterfaceWrapper) DisconnectExternalWorkspace(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "id" -------------
+	var id WorkspaceIDPath
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "external_workspace_id" -------------
+	var externalWorkspaceId ExternalWorkspaceIDPath
+
+	err = runtime.BindStyledParameterWithOptions("simple", "external_workspace_id", r.PathValue("external_workspace_id"), &externalWorkspaceId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "external_workspace_id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DisconnectExternalWorkspace(w, r, id, externalWorkspaceId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListWorkspaceIntegrationLogs operation middleware
+func (siw *ServerInterfaceWrapper) ListWorkspaceIntegrationLogs(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "id" -------------
+	var id WorkspaceIDPath
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListWorkspaceIntegrationLogsParams
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: "int32"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListWorkspaceIntegrationLogs(w, r, id, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListWorkspaceOwners operation middleware
+func (siw *ServerInterfaceWrapper) ListWorkspaceOwners(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "id" -------------
+	var id WorkspaceIDPath
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListWorkspaceOwners(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetWorkspacePreferences operation middleware
+func (siw *ServerInterfaceWrapper) GetWorkspacePreferences(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "id" -------------
+	var id WorkspaceIDPath
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetWorkspacePreferences(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// TransferPrimaryAdmin operation middleware
+func (siw *ServerInterfaceWrapper) TransferPrimaryAdmin(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "id" -------------
+	var id WorkspaceIDPath
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.TransferPrimaryAdmin(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListWorkspaceProfileFields operation middleware
+func (siw *ServerInterfaceWrapper) ListWorkspaceProfileFields(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "id" -------------
+	var id WorkspaceIDPath
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListWorkspaceProfileFields(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 type UnescapedCookieParamError struct {
 	ParamName string
 	Err       error
@@ -4738,6 +5304,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc("GET "+options.BaseURL+"/auth/oauth/{provider}/callback", wrapper.CompleteOAuth)
 	m.HandleFunc("GET "+options.BaseURL+"/auth/oauth/{provider}/start", wrapper.StartOAuth)
 	m.HandleFunc("DELETE "+options.BaseURL+"/auth/sessions/current", wrapper.DeleteCurrentSession)
+	m.HandleFunc("POST "+options.BaseURL+"/auth/sessions/current/workspace", wrapper.SwitchCurrentSessionWorkspace)
 	m.HandleFunc("GET "+options.BaseURL+"/conversations", wrapper.ListConversations)
 	m.HandleFunc("POST "+options.BaseURL+"/conversations", wrapper.CreateConversation)
 	m.HandleFunc("DELETE "+options.BaseURL+"/conversations/{conversation_id}/bookmarks/{bookmark_id}", wrapper.DeleteBookmark)
@@ -4784,22 +5351,6 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc("POST "+options.BaseURL+"/messages/{conversation_id}/{message_ts}/reactions", wrapper.CreateMessageReaction)
 	m.HandleFunc("DELETE "+options.BaseURL+"/messages/{conversation_id}/{message_ts}/reactions/{reaction_name}", wrapper.DeleteMessageReaction)
 	m.HandleFunc("POST "+options.BaseURL+"/search", wrapper.Search)
-	m.HandleFunc("GET "+options.BaseURL+"/teams", wrapper.ListTeams)
-	m.HandleFunc("POST "+options.BaseURL+"/teams", wrapper.CreateTeam)
-	m.HandleFunc("GET "+options.BaseURL+"/teams/{id}", wrapper.GetTeam)
-	m.HandleFunc("PATCH "+options.BaseURL+"/teams/{id}", wrapper.UpdateTeam)
-	m.HandleFunc("GET "+options.BaseURL+"/teams/{id}/access-logs", wrapper.ListTeamAccessLogs)
-	m.HandleFunc("GET "+options.BaseURL+"/teams/{id}/admins", wrapper.ListTeamAdmins)
-	m.HandleFunc("GET "+options.BaseURL+"/teams/{id}/authorization-audit-logs", wrapper.ListTeamAuthorizationAuditLogs)
-	m.HandleFunc("GET "+options.BaseURL+"/teams/{id}/billable-info", wrapper.GetTeamBillableInfo)
-	m.HandleFunc("GET "+options.BaseURL+"/teams/{id}/billing", wrapper.GetTeamBilling)
-	m.HandleFunc("GET "+options.BaseURL+"/teams/{id}/external-teams", wrapper.ListExternalTeams)
-	m.HandleFunc("DELETE "+options.BaseURL+"/teams/{id}/external-teams/{external_team_id}", wrapper.DisconnectExternalTeam)
-	m.HandleFunc("GET "+options.BaseURL+"/teams/{id}/integration-logs", wrapper.ListTeamIntegrationLogs)
-	m.HandleFunc("GET "+options.BaseURL+"/teams/{id}/owners", wrapper.ListTeamOwners)
-	m.HandleFunc("GET "+options.BaseURL+"/teams/{id}/preferences", wrapper.GetTeamPreferences)
-	m.HandleFunc("POST "+options.BaseURL+"/teams/{id}/primary-admin", wrapper.TransferPrimaryAdmin)
-	m.HandleFunc("GET "+options.BaseURL+"/teams/{id}/profile-fields", wrapper.ListTeamProfileFields)
 	m.HandleFunc("GET "+options.BaseURL+"/usergroups", wrapper.ListUsergroups)
 	m.HandleFunc("POST "+options.BaseURL+"/usergroups", wrapper.CreateUsergroup)
 	m.HandleFunc("GET "+options.BaseURL+"/usergroups/{id}", wrapper.GetUsergroup)
@@ -4812,6 +5363,22 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc("PATCH "+options.BaseURL+"/users/{id}", wrapper.UpdateUser)
 	m.HandleFunc("GET "+options.BaseURL+"/users/{id}/roles", wrapper.GetUserRoles)
 	m.HandleFunc("PUT "+options.BaseURL+"/users/{id}/roles", wrapper.UpdateUserRoles)
+	m.HandleFunc("GET "+options.BaseURL+"/workspaces", wrapper.ListWorkspaces)
+	m.HandleFunc("POST "+options.BaseURL+"/workspaces", wrapper.CreateWorkspace)
+	m.HandleFunc("GET "+options.BaseURL+"/workspaces/{id}", wrapper.GetWorkspace)
+	m.HandleFunc("PATCH "+options.BaseURL+"/workspaces/{id}", wrapper.UpdateWorkspace)
+	m.HandleFunc("GET "+options.BaseURL+"/workspaces/{id}/access-logs", wrapper.ListWorkspaceAccessLogs)
+	m.HandleFunc("GET "+options.BaseURL+"/workspaces/{id}/admins", wrapper.ListWorkspaceAdmins)
+	m.HandleFunc("GET "+options.BaseURL+"/workspaces/{id}/authorization-audit-logs", wrapper.ListWorkspaceAuthorizationAuditLogs)
+	m.HandleFunc("GET "+options.BaseURL+"/workspaces/{id}/billable-info", wrapper.GetWorkspaceBillableInfo)
+	m.HandleFunc("GET "+options.BaseURL+"/workspaces/{id}/billing", wrapper.GetWorkspaceBilling)
+	m.HandleFunc("GET "+options.BaseURL+"/workspaces/{id}/external-workspaces", wrapper.ListExternalWorkspaces)
+	m.HandleFunc("DELETE "+options.BaseURL+"/workspaces/{id}/external-workspaces/{external_workspace_id}", wrapper.DisconnectExternalWorkspace)
+	m.HandleFunc("GET "+options.BaseURL+"/workspaces/{id}/integration-logs", wrapper.ListWorkspaceIntegrationLogs)
+	m.HandleFunc("GET "+options.BaseURL+"/workspaces/{id}/owners", wrapper.ListWorkspaceOwners)
+	m.HandleFunc("GET "+options.BaseURL+"/workspaces/{id}/preferences", wrapper.GetWorkspacePreferences)
+	m.HandleFunc("POST "+options.BaseURL+"/workspaces/{id}/primary-admin", wrapper.TransferPrimaryAdmin)
+	m.HandleFunc("GET "+options.BaseURL+"/workspaces/{id}/profile-fields", wrapper.ListWorkspaceProfileFields)
 
 	return m
 }
@@ -5126,6 +5693,33 @@ type DeleteCurrentSessiondefaultJSONResponse struct {
 }
 
 func (response DeleteCurrentSessiondefaultJSONResponse) VisitDeleteCurrentSessionResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type SwitchCurrentSessionWorkspaceRequestObject struct {
+	Body *SwitchCurrentSessionWorkspaceJSONRequestBody
+}
+
+type SwitchCurrentSessionWorkspaceResponseObject interface {
+	VisitSwitchCurrentSessionWorkspaceResponse(w http.ResponseWriter) error
+}
+
+type SwitchCurrentSessionWorkspace204Response = NoContentResponse
+
+func (response SwitchCurrentSessionWorkspace204Response) VisitSwitchCurrentSessionWorkspaceResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type SwitchCurrentSessionWorkspacedefaultJSONResponse struct {
+	Body       APIError
+	StatusCode int
+}
+
+func (response SwitchCurrentSessionWorkspacedefaultJSONResponse) VisitSwitchCurrentSessionWorkspaceResponse(w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(response.StatusCode)
 
@@ -6532,481 +7126,6 @@ func (response SearchdefaultJSONResponse) VisitSearchResponse(w http.ResponseWri
 	return json.NewEncoder(w).Encode(response.Body)
 }
 
-type ListTeamsRequestObject struct {
-}
-
-type ListTeamsResponseObject interface {
-	VisitListTeamsResponse(w http.ResponseWriter) error
-}
-
-type ListTeams200JSONResponse WorkspacesCollection
-
-func (response ListTeams200JSONResponse) VisitListTeamsResponse(w http.ResponseWriter) error {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(200)
-
-	return json.NewEncoder(w).Encode(response)
-}
-
-type ListTeamsdefaultJSONResponse struct {
-	Body       APIError
-	StatusCode int
-}
-
-func (response ListTeamsdefaultJSONResponse) VisitListTeamsResponse(w http.ResponseWriter) error {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(response.StatusCode)
-
-	return json.NewEncoder(w).Encode(response.Body)
-}
-
-type CreateTeamRequestObject struct {
-	Body *CreateTeamJSONRequestBody
-}
-
-type CreateTeamResponseObject interface {
-	VisitCreateTeamResponse(w http.ResponseWriter) error
-}
-
-type CreateTeam201ResponseHeaders struct {
-	Location string
-}
-
-type CreateTeam201JSONResponse struct {
-	Body    Workspace
-	Headers CreateTeam201ResponseHeaders
-}
-
-func (response CreateTeam201JSONResponse) VisitCreateTeamResponse(w http.ResponseWriter) error {
-	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("Location", fmt.Sprint(response.Headers.Location))
-	w.WriteHeader(201)
-
-	return json.NewEncoder(w).Encode(response.Body)
-}
-
-type CreateTeamdefaultJSONResponse struct {
-	Body       APIError
-	StatusCode int
-}
-
-func (response CreateTeamdefaultJSONResponse) VisitCreateTeamResponse(w http.ResponseWriter) error {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(response.StatusCode)
-
-	return json.NewEncoder(w).Encode(response.Body)
-}
-
-type GetTeamRequestObject struct {
-	Id TeamIDPath `json:"id"`
-}
-
-type GetTeamResponseObject interface {
-	VisitGetTeamResponse(w http.ResponseWriter) error
-}
-
-type GetTeam200JSONResponse Workspace
-
-func (response GetTeam200JSONResponse) VisitGetTeamResponse(w http.ResponseWriter) error {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(200)
-
-	return json.NewEncoder(w).Encode(response)
-}
-
-type GetTeamdefaultJSONResponse struct {
-	Body       APIError
-	StatusCode int
-}
-
-func (response GetTeamdefaultJSONResponse) VisitGetTeamResponse(w http.ResponseWriter) error {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(response.StatusCode)
-
-	return json.NewEncoder(w).Encode(response.Body)
-}
-
-type UpdateTeamRequestObject struct {
-	Id   TeamIDPath `json:"id"`
-	Body *UpdateTeamJSONRequestBody
-}
-
-type UpdateTeamResponseObject interface {
-	VisitUpdateTeamResponse(w http.ResponseWriter) error
-}
-
-type UpdateTeam200JSONResponse Workspace
-
-func (response UpdateTeam200JSONResponse) VisitUpdateTeamResponse(w http.ResponseWriter) error {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(200)
-
-	return json.NewEncoder(w).Encode(response)
-}
-
-type UpdateTeamdefaultJSONResponse struct {
-	Body       APIError
-	StatusCode int
-}
-
-func (response UpdateTeamdefaultJSONResponse) VisitUpdateTeamResponse(w http.ResponseWriter) error {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(response.StatusCode)
-
-	return json.NewEncoder(w).Encode(response.Body)
-}
-
-type ListTeamAccessLogsRequestObject struct {
-	Id     TeamIDPath `json:"id"`
-	Params ListTeamAccessLogsParams
-}
-
-type ListTeamAccessLogsResponseObject interface {
-	VisitListTeamAccessLogsResponse(w http.ResponseWriter) error
-}
-
-type ListTeamAccessLogs200JSONResponse WorkspaceAccessLogsCollection
-
-func (response ListTeamAccessLogs200JSONResponse) VisitListTeamAccessLogsResponse(w http.ResponseWriter) error {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(200)
-
-	return json.NewEncoder(w).Encode(response)
-}
-
-type ListTeamAccessLogsdefaultJSONResponse struct {
-	Body       APIError
-	StatusCode int
-}
-
-func (response ListTeamAccessLogsdefaultJSONResponse) VisitListTeamAccessLogsResponse(w http.ResponseWriter) error {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(response.StatusCode)
-
-	return json.NewEncoder(w).Encode(response.Body)
-}
-
-type ListTeamAdminsRequestObject struct {
-	Id TeamIDPath `json:"id"`
-}
-
-type ListTeamAdminsResponseObject interface {
-	VisitListTeamAdminsResponse(w http.ResponseWriter) error
-}
-
-type ListTeamAdmins200JSONResponse UsersCollection
-
-func (response ListTeamAdmins200JSONResponse) VisitListTeamAdminsResponse(w http.ResponseWriter) error {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(200)
-
-	return json.NewEncoder(w).Encode(response)
-}
-
-type ListTeamAdminsdefaultJSONResponse struct {
-	Body       APIError
-	StatusCode int
-}
-
-func (response ListTeamAdminsdefaultJSONResponse) VisitListTeamAdminsResponse(w http.ResponseWriter) error {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(response.StatusCode)
-
-	return json.NewEncoder(w).Encode(response.Body)
-}
-
-type ListTeamAuthorizationAuditLogsRequestObject struct {
-	Id     TeamIDPath `json:"id"`
-	Params ListTeamAuthorizationAuditLogsParams
-}
-
-type ListTeamAuthorizationAuditLogsResponseObject interface {
-	VisitListTeamAuthorizationAuditLogsResponse(w http.ResponseWriter) error
-}
-
-type ListTeamAuthorizationAuditLogs200JSONResponse AuthorizationAuditLogsCollection
-
-func (response ListTeamAuthorizationAuditLogs200JSONResponse) VisitListTeamAuthorizationAuditLogsResponse(w http.ResponseWriter) error {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(200)
-
-	return json.NewEncoder(w).Encode(response)
-}
-
-type ListTeamAuthorizationAuditLogsdefaultJSONResponse struct {
-	Body       APIError
-	StatusCode int
-}
-
-func (response ListTeamAuthorizationAuditLogsdefaultJSONResponse) VisitListTeamAuthorizationAuditLogsResponse(w http.ResponseWriter) error {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(response.StatusCode)
-
-	return json.NewEncoder(w).Encode(response.Body)
-}
-
-type GetTeamBillableInfoRequestObject struct {
-	Id TeamIDPath `json:"id"`
-}
-
-type GetTeamBillableInfoResponseObject interface {
-	VisitGetTeamBillableInfoResponse(w http.ResponseWriter) error
-}
-
-type GetTeamBillableInfo200JSONResponse WorkspaceBillableInfoMap
-
-func (response GetTeamBillableInfo200JSONResponse) VisitGetTeamBillableInfoResponse(w http.ResponseWriter) error {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(200)
-
-	return json.NewEncoder(w).Encode(response)
-}
-
-type GetTeamBillableInfodefaultJSONResponse struct {
-	Body       APIError
-	StatusCode int
-}
-
-func (response GetTeamBillableInfodefaultJSONResponse) VisitGetTeamBillableInfoResponse(w http.ResponseWriter) error {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(response.StatusCode)
-
-	return json.NewEncoder(w).Encode(response.Body)
-}
-
-type GetTeamBillingRequestObject struct {
-	Id TeamIDPath `json:"id"`
-}
-
-type GetTeamBillingResponseObject interface {
-	VisitGetTeamBillingResponse(w http.ResponseWriter) error
-}
-
-type GetTeamBilling200JSONResponse WorkspaceBilling
-
-func (response GetTeamBilling200JSONResponse) VisitGetTeamBillingResponse(w http.ResponseWriter) error {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(200)
-
-	return json.NewEncoder(w).Encode(response)
-}
-
-type GetTeamBillingdefaultJSONResponse struct {
-	Body       APIError
-	StatusCode int
-}
-
-func (response GetTeamBillingdefaultJSONResponse) VisitGetTeamBillingResponse(w http.ResponseWriter) error {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(response.StatusCode)
-
-	return json.NewEncoder(w).Encode(response.Body)
-}
-
-type ListExternalTeamsRequestObject struct {
-	Id TeamIDPath `json:"id"`
-}
-
-type ListExternalTeamsResponseObject interface {
-	VisitListExternalTeamsResponse(w http.ResponseWriter) error
-}
-
-type ListExternalTeams200JSONResponse ExternalTeamsCollection
-
-func (response ListExternalTeams200JSONResponse) VisitListExternalTeamsResponse(w http.ResponseWriter) error {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(200)
-
-	return json.NewEncoder(w).Encode(response)
-}
-
-type ListExternalTeamsdefaultJSONResponse struct {
-	Body       APIError
-	StatusCode int
-}
-
-func (response ListExternalTeamsdefaultJSONResponse) VisitListExternalTeamsResponse(w http.ResponseWriter) error {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(response.StatusCode)
-
-	return json.NewEncoder(w).Encode(response.Body)
-}
-
-type DisconnectExternalTeamRequestObject struct {
-	Id             TeamIDPath         `json:"id"`
-	ExternalTeamId ExternalTeamIDPath `json:"external_team_id"`
-}
-
-type DisconnectExternalTeamResponseObject interface {
-	VisitDisconnectExternalTeamResponse(w http.ResponseWriter) error
-}
-
-type DisconnectExternalTeam204Response = NoContentResponse
-
-func (response DisconnectExternalTeam204Response) VisitDisconnectExternalTeamResponse(w http.ResponseWriter) error {
-	w.WriteHeader(204)
-	return nil
-}
-
-type DisconnectExternalTeamdefaultJSONResponse struct {
-	Body       APIError
-	StatusCode int
-}
-
-func (response DisconnectExternalTeamdefaultJSONResponse) VisitDisconnectExternalTeamResponse(w http.ResponseWriter) error {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(response.StatusCode)
-
-	return json.NewEncoder(w).Encode(response.Body)
-}
-
-type ListTeamIntegrationLogsRequestObject struct {
-	Id     TeamIDPath `json:"id"`
-	Params ListTeamIntegrationLogsParams
-}
-
-type ListTeamIntegrationLogsResponseObject interface {
-	VisitListTeamIntegrationLogsResponse(w http.ResponseWriter) error
-}
-
-type ListTeamIntegrationLogs200JSONResponse WorkspaceIntegrationLogsCollection
-
-func (response ListTeamIntegrationLogs200JSONResponse) VisitListTeamIntegrationLogsResponse(w http.ResponseWriter) error {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(200)
-
-	return json.NewEncoder(w).Encode(response)
-}
-
-type ListTeamIntegrationLogsdefaultJSONResponse struct {
-	Body       APIError
-	StatusCode int
-}
-
-func (response ListTeamIntegrationLogsdefaultJSONResponse) VisitListTeamIntegrationLogsResponse(w http.ResponseWriter) error {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(response.StatusCode)
-
-	return json.NewEncoder(w).Encode(response.Body)
-}
-
-type ListTeamOwnersRequestObject struct {
-	Id TeamIDPath `json:"id"`
-}
-
-type ListTeamOwnersResponseObject interface {
-	VisitListTeamOwnersResponse(w http.ResponseWriter) error
-}
-
-type ListTeamOwners200JSONResponse UsersCollection
-
-func (response ListTeamOwners200JSONResponse) VisitListTeamOwnersResponse(w http.ResponseWriter) error {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(200)
-
-	return json.NewEncoder(w).Encode(response)
-}
-
-type ListTeamOwnersdefaultJSONResponse struct {
-	Body       APIError
-	StatusCode int
-}
-
-func (response ListTeamOwnersdefaultJSONResponse) VisitListTeamOwnersResponse(w http.ResponseWriter) error {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(response.StatusCode)
-
-	return json.NewEncoder(w).Encode(response.Body)
-}
-
-type GetTeamPreferencesRequestObject struct {
-	Id TeamIDPath `json:"id"`
-}
-
-type GetTeamPreferencesResponseObject interface {
-	VisitGetTeamPreferencesResponse(w http.ResponseWriter) error
-}
-
-type GetTeamPreferences200JSONResponse FreeFormObject
-
-func (response GetTeamPreferences200JSONResponse) VisitGetTeamPreferencesResponse(w http.ResponseWriter) error {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(200)
-
-	return json.NewEncoder(w).Encode(response)
-}
-
-type GetTeamPreferencesdefaultJSONResponse struct {
-	Body       APIError
-	StatusCode int
-}
-
-func (response GetTeamPreferencesdefaultJSONResponse) VisitGetTeamPreferencesResponse(w http.ResponseWriter) error {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(response.StatusCode)
-
-	return json.NewEncoder(w).Encode(response.Body)
-}
-
-type TransferPrimaryAdminRequestObject struct {
-	Id   TeamIDPath `json:"id"`
-	Body *TransferPrimaryAdminJSONRequestBody
-}
-
-type TransferPrimaryAdminResponseObject interface {
-	VisitTransferPrimaryAdminResponse(w http.ResponseWriter) error
-}
-
-type TransferPrimaryAdmin200JSONResponse User
-
-func (response TransferPrimaryAdmin200JSONResponse) VisitTransferPrimaryAdminResponse(w http.ResponseWriter) error {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(200)
-
-	return json.NewEncoder(w).Encode(response)
-}
-
-type TransferPrimaryAdmindefaultJSONResponse struct {
-	Body       APIError
-	StatusCode int
-}
-
-func (response TransferPrimaryAdmindefaultJSONResponse) VisitTransferPrimaryAdminResponse(w http.ResponseWriter) error {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(response.StatusCode)
-
-	return json.NewEncoder(w).Encode(response.Body)
-}
-
-type ListTeamProfileFieldsRequestObject struct {
-	Id TeamIDPath `json:"id"`
-}
-
-type ListTeamProfileFieldsResponseObject interface {
-	VisitListTeamProfileFieldsResponse(w http.ResponseWriter) error
-}
-
-type ListTeamProfileFields200JSONResponse WorkspaceProfileFieldsCollection
-
-func (response ListTeamProfileFields200JSONResponse) VisitListTeamProfileFieldsResponse(w http.ResponseWriter) error {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(200)
-
-	return json.NewEncoder(w).Encode(response)
-}
-
-type ListTeamProfileFieldsdefaultJSONResponse struct {
-	Body       APIError
-	StatusCode int
-}
-
-func (response ListTeamProfileFieldsdefaultJSONResponse) VisitListTeamProfileFieldsResponse(w http.ResponseWriter) error {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(response.StatusCode)
-
-	return json.NewEncoder(w).Encode(response.Body)
-}
-
 type ListUsergroupsRequestObject struct {
 	Params ListUsergroupsParams
 }
@@ -7373,6 +7492,481 @@ func (response UpdateUserRolesdefaultJSONResponse) VisitUpdateUserRolesResponse(
 	return json.NewEncoder(w).Encode(response.Body)
 }
 
+type ListWorkspacesRequestObject struct {
+}
+
+type ListWorkspacesResponseObject interface {
+	VisitListWorkspacesResponse(w http.ResponseWriter) error
+}
+
+type ListWorkspaces200JSONResponse WorkspacesCollection
+
+func (response ListWorkspaces200JSONResponse) VisitListWorkspacesResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ListWorkspacesdefaultJSONResponse struct {
+	Body       APIError
+	StatusCode int
+}
+
+func (response ListWorkspacesdefaultJSONResponse) VisitListWorkspacesResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type CreateWorkspaceRequestObject struct {
+	Body *CreateWorkspaceJSONRequestBody
+}
+
+type CreateWorkspaceResponseObject interface {
+	VisitCreateWorkspaceResponse(w http.ResponseWriter) error
+}
+
+type CreateWorkspace201ResponseHeaders struct {
+	Location string
+}
+
+type CreateWorkspace201JSONResponse struct {
+	Body    Workspace
+	Headers CreateWorkspace201ResponseHeaders
+}
+
+func (response CreateWorkspace201JSONResponse) VisitCreateWorkspaceResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Location", fmt.Sprint(response.Headers.Location))
+	w.WriteHeader(201)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type CreateWorkspacedefaultJSONResponse struct {
+	Body       APIError
+	StatusCode int
+}
+
+func (response CreateWorkspacedefaultJSONResponse) VisitCreateWorkspaceResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type GetWorkspaceRequestObject struct {
+	Id WorkspaceIDPath `json:"id"`
+}
+
+type GetWorkspaceResponseObject interface {
+	VisitGetWorkspaceResponse(w http.ResponseWriter) error
+}
+
+type GetWorkspace200JSONResponse Workspace
+
+func (response GetWorkspace200JSONResponse) VisitGetWorkspaceResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type GetWorkspacedefaultJSONResponse struct {
+	Body       APIError
+	StatusCode int
+}
+
+func (response GetWorkspacedefaultJSONResponse) VisitGetWorkspaceResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type UpdateWorkspaceRequestObject struct {
+	Id   WorkspaceIDPath `json:"id"`
+	Body *UpdateWorkspaceJSONRequestBody
+}
+
+type UpdateWorkspaceResponseObject interface {
+	VisitUpdateWorkspaceResponse(w http.ResponseWriter) error
+}
+
+type UpdateWorkspace200JSONResponse Workspace
+
+func (response UpdateWorkspace200JSONResponse) VisitUpdateWorkspaceResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type UpdateWorkspacedefaultJSONResponse struct {
+	Body       APIError
+	StatusCode int
+}
+
+func (response UpdateWorkspacedefaultJSONResponse) VisitUpdateWorkspaceResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type ListWorkspaceAccessLogsRequestObject struct {
+	Id     WorkspaceIDPath `json:"id"`
+	Params ListWorkspaceAccessLogsParams
+}
+
+type ListWorkspaceAccessLogsResponseObject interface {
+	VisitListWorkspaceAccessLogsResponse(w http.ResponseWriter) error
+}
+
+type ListWorkspaceAccessLogs200JSONResponse WorkspaceAccessLogsCollection
+
+func (response ListWorkspaceAccessLogs200JSONResponse) VisitListWorkspaceAccessLogsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ListWorkspaceAccessLogsdefaultJSONResponse struct {
+	Body       APIError
+	StatusCode int
+}
+
+func (response ListWorkspaceAccessLogsdefaultJSONResponse) VisitListWorkspaceAccessLogsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type ListWorkspaceAdminsRequestObject struct {
+	Id WorkspaceIDPath `json:"id"`
+}
+
+type ListWorkspaceAdminsResponseObject interface {
+	VisitListWorkspaceAdminsResponse(w http.ResponseWriter) error
+}
+
+type ListWorkspaceAdmins200JSONResponse UsersCollection
+
+func (response ListWorkspaceAdmins200JSONResponse) VisitListWorkspaceAdminsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ListWorkspaceAdminsdefaultJSONResponse struct {
+	Body       APIError
+	StatusCode int
+}
+
+func (response ListWorkspaceAdminsdefaultJSONResponse) VisitListWorkspaceAdminsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type ListWorkspaceAuthorizationAuditLogsRequestObject struct {
+	Id     WorkspaceIDPath `json:"id"`
+	Params ListWorkspaceAuthorizationAuditLogsParams
+}
+
+type ListWorkspaceAuthorizationAuditLogsResponseObject interface {
+	VisitListWorkspaceAuthorizationAuditLogsResponse(w http.ResponseWriter) error
+}
+
+type ListWorkspaceAuthorizationAuditLogs200JSONResponse AuthorizationAuditLogsCollection
+
+func (response ListWorkspaceAuthorizationAuditLogs200JSONResponse) VisitListWorkspaceAuthorizationAuditLogsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ListWorkspaceAuthorizationAuditLogsdefaultJSONResponse struct {
+	Body       APIError
+	StatusCode int
+}
+
+func (response ListWorkspaceAuthorizationAuditLogsdefaultJSONResponse) VisitListWorkspaceAuthorizationAuditLogsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type GetWorkspaceBillableInfoRequestObject struct {
+	Id WorkspaceIDPath `json:"id"`
+}
+
+type GetWorkspaceBillableInfoResponseObject interface {
+	VisitGetWorkspaceBillableInfoResponse(w http.ResponseWriter) error
+}
+
+type GetWorkspaceBillableInfo200JSONResponse WorkspaceBillableInfoMap
+
+func (response GetWorkspaceBillableInfo200JSONResponse) VisitGetWorkspaceBillableInfoResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type GetWorkspaceBillableInfodefaultJSONResponse struct {
+	Body       APIError
+	StatusCode int
+}
+
+func (response GetWorkspaceBillableInfodefaultJSONResponse) VisitGetWorkspaceBillableInfoResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type GetWorkspaceBillingRequestObject struct {
+	Id WorkspaceIDPath `json:"id"`
+}
+
+type GetWorkspaceBillingResponseObject interface {
+	VisitGetWorkspaceBillingResponse(w http.ResponseWriter) error
+}
+
+type GetWorkspaceBilling200JSONResponse WorkspaceBilling
+
+func (response GetWorkspaceBilling200JSONResponse) VisitGetWorkspaceBillingResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type GetWorkspaceBillingdefaultJSONResponse struct {
+	Body       APIError
+	StatusCode int
+}
+
+func (response GetWorkspaceBillingdefaultJSONResponse) VisitGetWorkspaceBillingResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type ListExternalWorkspacesRequestObject struct {
+	Id WorkspaceIDPath `json:"id"`
+}
+
+type ListExternalWorkspacesResponseObject interface {
+	VisitListExternalWorkspacesResponse(w http.ResponseWriter) error
+}
+
+type ListExternalWorkspaces200JSONResponse ExternalWorkspacesCollection
+
+func (response ListExternalWorkspaces200JSONResponse) VisitListExternalWorkspacesResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ListExternalWorkspacesdefaultJSONResponse struct {
+	Body       APIError
+	StatusCode int
+}
+
+func (response ListExternalWorkspacesdefaultJSONResponse) VisitListExternalWorkspacesResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type DisconnectExternalWorkspaceRequestObject struct {
+	Id                  WorkspaceIDPath         `json:"id"`
+	ExternalWorkspaceId ExternalWorkspaceIDPath `json:"external_workspace_id"`
+}
+
+type DisconnectExternalWorkspaceResponseObject interface {
+	VisitDisconnectExternalWorkspaceResponse(w http.ResponseWriter) error
+}
+
+type DisconnectExternalWorkspace204Response = NoContentResponse
+
+func (response DisconnectExternalWorkspace204Response) VisitDisconnectExternalWorkspaceResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type DisconnectExternalWorkspacedefaultJSONResponse struct {
+	Body       APIError
+	StatusCode int
+}
+
+func (response DisconnectExternalWorkspacedefaultJSONResponse) VisitDisconnectExternalWorkspaceResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type ListWorkspaceIntegrationLogsRequestObject struct {
+	Id     WorkspaceIDPath `json:"id"`
+	Params ListWorkspaceIntegrationLogsParams
+}
+
+type ListWorkspaceIntegrationLogsResponseObject interface {
+	VisitListWorkspaceIntegrationLogsResponse(w http.ResponseWriter) error
+}
+
+type ListWorkspaceIntegrationLogs200JSONResponse WorkspaceIntegrationLogsCollection
+
+func (response ListWorkspaceIntegrationLogs200JSONResponse) VisitListWorkspaceIntegrationLogsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ListWorkspaceIntegrationLogsdefaultJSONResponse struct {
+	Body       APIError
+	StatusCode int
+}
+
+func (response ListWorkspaceIntegrationLogsdefaultJSONResponse) VisitListWorkspaceIntegrationLogsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type ListWorkspaceOwnersRequestObject struct {
+	Id WorkspaceIDPath `json:"id"`
+}
+
+type ListWorkspaceOwnersResponseObject interface {
+	VisitListWorkspaceOwnersResponse(w http.ResponseWriter) error
+}
+
+type ListWorkspaceOwners200JSONResponse UsersCollection
+
+func (response ListWorkspaceOwners200JSONResponse) VisitListWorkspaceOwnersResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ListWorkspaceOwnersdefaultJSONResponse struct {
+	Body       APIError
+	StatusCode int
+}
+
+func (response ListWorkspaceOwnersdefaultJSONResponse) VisitListWorkspaceOwnersResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type GetWorkspacePreferencesRequestObject struct {
+	Id WorkspaceIDPath `json:"id"`
+}
+
+type GetWorkspacePreferencesResponseObject interface {
+	VisitGetWorkspacePreferencesResponse(w http.ResponseWriter) error
+}
+
+type GetWorkspacePreferences200JSONResponse FreeFormObject
+
+func (response GetWorkspacePreferences200JSONResponse) VisitGetWorkspacePreferencesResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type GetWorkspacePreferencesdefaultJSONResponse struct {
+	Body       APIError
+	StatusCode int
+}
+
+func (response GetWorkspacePreferencesdefaultJSONResponse) VisitGetWorkspacePreferencesResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type TransferPrimaryAdminRequestObject struct {
+	Id   WorkspaceIDPath `json:"id"`
+	Body *TransferPrimaryAdminJSONRequestBody
+}
+
+type TransferPrimaryAdminResponseObject interface {
+	VisitTransferPrimaryAdminResponse(w http.ResponseWriter) error
+}
+
+type TransferPrimaryAdmin200JSONResponse User
+
+func (response TransferPrimaryAdmin200JSONResponse) VisitTransferPrimaryAdminResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type TransferPrimaryAdmindefaultJSONResponse struct {
+	Body       APIError
+	StatusCode int
+}
+
+func (response TransferPrimaryAdmindefaultJSONResponse) VisitTransferPrimaryAdminResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type ListWorkspaceProfileFieldsRequestObject struct {
+	Id WorkspaceIDPath `json:"id"`
+}
+
+type ListWorkspaceProfileFieldsResponseObject interface {
+	VisitListWorkspaceProfileFieldsResponse(w http.ResponseWriter) error
+}
+
+type ListWorkspaceProfileFields200JSONResponse WorkspaceProfileFieldsCollection
+
+func (response ListWorkspaceProfileFields200JSONResponse) VisitListWorkspaceProfileFieldsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ListWorkspaceProfileFieldsdefaultJSONResponse struct {
+	Body       APIError
+	StatusCode int
+}
+
+func (response ListWorkspaceProfileFieldsdefaultJSONResponse) VisitListWorkspaceProfileFieldsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
 // StrictServerInterface represents all server handlers.
 type StrictServerInterface interface {
 
@@ -7405,6 +7999,9 @@ type StrictServerInterface interface {
 
 	// (DELETE /auth/sessions/current)
 	DeleteCurrentSession(ctx context.Context, request DeleteCurrentSessionRequestObject) (DeleteCurrentSessionResponseObject, error)
+
+	// (POST /auth/sessions/current/workspace)
+	SwitchCurrentSessionWorkspace(ctx context.Context, request SwitchCurrentSessionWorkspaceRequestObject) (SwitchCurrentSessionWorkspaceResponseObject, error)
 
 	// (GET /conversations)
 	ListConversations(ctx context.Context, request ListConversationsRequestObject) (ListConversationsResponseObject, error)
@@ -7544,54 +8141,6 @@ type StrictServerInterface interface {
 	// (POST /search)
 	Search(ctx context.Context, request SearchRequestObject) (SearchResponseObject, error)
 
-	// (GET /teams)
-	ListTeams(ctx context.Context, request ListTeamsRequestObject) (ListTeamsResponseObject, error)
-
-	// (POST /teams)
-	CreateTeam(ctx context.Context, request CreateTeamRequestObject) (CreateTeamResponseObject, error)
-
-	// (GET /teams/{id})
-	GetTeam(ctx context.Context, request GetTeamRequestObject) (GetTeamResponseObject, error)
-
-	// (PATCH /teams/{id})
-	UpdateTeam(ctx context.Context, request UpdateTeamRequestObject) (UpdateTeamResponseObject, error)
-
-	// (GET /teams/{id}/access-logs)
-	ListTeamAccessLogs(ctx context.Context, request ListTeamAccessLogsRequestObject) (ListTeamAccessLogsResponseObject, error)
-
-	// (GET /teams/{id}/admins)
-	ListTeamAdmins(ctx context.Context, request ListTeamAdminsRequestObject) (ListTeamAdminsResponseObject, error)
-
-	// (GET /teams/{id}/authorization-audit-logs)
-	ListTeamAuthorizationAuditLogs(ctx context.Context, request ListTeamAuthorizationAuditLogsRequestObject) (ListTeamAuthorizationAuditLogsResponseObject, error)
-
-	// (GET /teams/{id}/billable-info)
-	GetTeamBillableInfo(ctx context.Context, request GetTeamBillableInfoRequestObject) (GetTeamBillableInfoResponseObject, error)
-
-	// (GET /teams/{id}/billing)
-	GetTeamBilling(ctx context.Context, request GetTeamBillingRequestObject) (GetTeamBillingResponseObject, error)
-
-	// (GET /teams/{id}/external-teams)
-	ListExternalTeams(ctx context.Context, request ListExternalTeamsRequestObject) (ListExternalTeamsResponseObject, error)
-
-	// (DELETE /teams/{id}/external-teams/{external_team_id})
-	DisconnectExternalTeam(ctx context.Context, request DisconnectExternalTeamRequestObject) (DisconnectExternalTeamResponseObject, error)
-
-	// (GET /teams/{id}/integration-logs)
-	ListTeamIntegrationLogs(ctx context.Context, request ListTeamIntegrationLogsRequestObject) (ListTeamIntegrationLogsResponseObject, error)
-
-	// (GET /teams/{id}/owners)
-	ListTeamOwners(ctx context.Context, request ListTeamOwnersRequestObject) (ListTeamOwnersResponseObject, error)
-
-	// (GET /teams/{id}/preferences)
-	GetTeamPreferences(ctx context.Context, request GetTeamPreferencesRequestObject) (GetTeamPreferencesResponseObject, error)
-
-	// (POST /teams/{id}/primary-admin)
-	TransferPrimaryAdmin(ctx context.Context, request TransferPrimaryAdminRequestObject) (TransferPrimaryAdminResponseObject, error)
-
-	// (GET /teams/{id}/profile-fields)
-	ListTeamProfileFields(ctx context.Context, request ListTeamProfileFieldsRequestObject) (ListTeamProfileFieldsResponseObject, error)
-
 	// (GET /usergroups)
 	ListUsergroups(ctx context.Context, request ListUsergroupsRequestObject) (ListUsergroupsResponseObject, error)
 
@@ -7627,6 +8176,54 @@ type StrictServerInterface interface {
 
 	// (PUT /users/{id}/roles)
 	UpdateUserRoles(ctx context.Context, request UpdateUserRolesRequestObject) (UpdateUserRolesResponseObject, error)
+
+	// (GET /workspaces)
+	ListWorkspaces(ctx context.Context, request ListWorkspacesRequestObject) (ListWorkspacesResponseObject, error)
+
+	// (POST /workspaces)
+	CreateWorkspace(ctx context.Context, request CreateWorkspaceRequestObject) (CreateWorkspaceResponseObject, error)
+
+	// (GET /workspaces/{id})
+	GetWorkspace(ctx context.Context, request GetWorkspaceRequestObject) (GetWorkspaceResponseObject, error)
+
+	// (PATCH /workspaces/{id})
+	UpdateWorkspace(ctx context.Context, request UpdateWorkspaceRequestObject) (UpdateWorkspaceResponseObject, error)
+
+	// (GET /workspaces/{id}/access-logs)
+	ListWorkspaceAccessLogs(ctx context.Context, request ListWorkspaceAccessLogsRequestObject) (ListWorkspaceAccessLogsResponseObject, error)
+
+	// (GET /workspaces/{id}/admins)
+	ListWorkspaceAdmins(ctx context.Context, request ListWorkspaceAdminsRequestObject) (ListWorkspaceAdminsResponseObject, error)
+
+	// (GET /workspaces/{id}/authorization-audit-logs)
+	ListWorkspaceAuthorizationAuditLogs(ctx context.Context, request ListWorkspaceAuthorizationAuditLogsRequestObject) (ListWorkspaceAuthorizationAuditLogsResponseObject, error)
+
+	// (GET /workspaces/{id}/billable-info)
+	GetWorkspaceBillableInfo(ctx context.Context, request GetWorkspaceBillableInfoRequestObject) (GetWorkspaceBillableInfoResponseObject, error)
+
+	// (GET /workspaces/{id}/billing)
+	GetWorkspaceBilling(ctx context.Context, request GetWorkspaceBillingRequestObject) (GetWorkspaceBillingResponseObject, error)
+
+	// (GET /workspaces/{id}/external-workspaces)
+	ListExternalWorkspaces(ctx context.Context, request ListExternalWorkspacesRequestObject) (ListExternalWorkspacesResponseObject, error)
+
+	// (DELETE /workspaces/{id}/external-workspaces/{external_workspace_id})
+	DisconnectExternalWorkspace(ctx context.Context, request DisconnectExternalWorkspaceRequestObject) (DisconnectExternalWorkspaceResponseObject, error)
+
+	// (GET /workspaces/{id}/integration-logs)
+	ListWorkspaceIntegrationLogs(ctx context.Context, request ListWorkspaceIntegrationLogsRequestObject) (ListWorkspaceIntegrationLogsResponseObject, error)
+
+	// (GET /workspaces/{id}/owners)
+	ListWorkspaceOwners(ctx context.Context, request ListWorkspaceOwnersRequestObject) (ListWorkspaceOwnersResponseObject, error)
+
+	// (GET /workspaces/{id}/preferences)
+	GetWorkspacePreferences(ctx context.Context, request GetWorkspacePreferencesRequestObject) (GetWorkspacePreferencesResponseObject, error)
+
+	// (POST /workspaces/{id}/primary-admin)
+	TransferPrimaryAdmin(ctx context.Context, request TransferPrimaryAdminRequestObject) (TransferPrimaryAdminResponseObject, error)
+
+	// (GET /workspaces/{id}/profile-fields)
+	ListWorkspaceProfileFields(ctx context.Context, request ListWorkspaceProfileFieldsRequestObject) (ListWorkspaceProfileFieldsResponseObject, error)
 }
 
 type StrictHandlerFunc = strictnethttp.StrictHTTPHandlerFunc
@@ -7931,6 +8528,37 @@ func (sh *strictHandler) DeleteCurrentSession(w http.ResponseWriter, r *http.Req
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(DeleteCurrentSessionResponseObject); ok {
 		if err := validResponse.VisitDeleteCurrentSessionResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// SwitchCurrentSessionWorkspace operation middleware
+func (sh *strictHandler) SwitchCurrentSessionWorkspace(w http.ResponseWriter, r *http.Request) {
+	var request SwitchCurrentSessionWorkspaceRequestObject
+
+	var body SwitchCurrentSessionWorkspaceJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.SwitchCurrentSessionWorkspace(ctx, request.(SwitchCurrentSessionWorkspaceRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "SwitchCurrentSessionWorkspace")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(SwitchCurrentSessionWorkspaceResponseObject); ok {
+		if err := validResponse.VisitSwitchCurrentSessionWorkspaceResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -9276,443 +9904,6 @@ func (sh *strictHandler) Search(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// ListTeams operation middleware
-func (sh *strictHandler) ListTeams(w http.ResponseWriter, r *http.Request) {
-	var request ListTeamsRequestObject
-
-	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.ListTeams(ctx, request.(ListTeamsRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "ListTeams")
-	}
-
-	response, err := handler(r.Context(), w, r, request)
-
-	if err != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(ListTeamsResponseObject); ok {
-		if err := validResponse.VisitListTeamsResponse(w); err != nil {
-			sh.options.ResponseErrorHandlerFunc(w, r, err)
-		}
-	} else if response != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
-	}
-}
-
-// CreateTeam operation middleware
-func (sh *strictHandler) CreateTeam(w http.ResponseWriter, r *http.Request) {
-	var request CreateTeamRequestObject
-
-	var body CreateTeamJSONRequestBody
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
-		return
-	}
-	request.Body = &body
-
-	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.CreateTeam(ctx, request.(CreateTeamRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "CreateTeam")
-	}
-
-	response, err := handler(r.Context(), w, r, request)
-
-	if err != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(CreateTeamResponseObject); ok {
-		if err := validResponse.VisitCreateTeamResponse(w); err != nil {
-			sh.options.ResponseErrorHandlerFunc(w, r, err)
-		}
-	} else if response != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
-	}
-}
-
-// GetTeam operation middleware
-func (sh *strictHandler) GetTeam(w http.ResponseWriter, r *http.Request, id TeamIDPath) {
-	var request GetTeamRequestObject
-
-	request.Id = id
-
-	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.GetTeam(ctx, request.(GetTeamRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "GetTeam")
-	}
-
-	response, err := handler(r.Context(), w, r, request)
-
-	if err != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(GetTeamResponseObject); ok {
-		if err := validResponse.VisitGetTeamResponse(w); err != nil {
-			sh.options.ResponseErrorHandlerFunc(w, r, err)
-		}
-	} else if response != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
-	}
-}
-
-// UpdateTeam operation middleware
-func (sh *strictHandler) UpdateTeam(w http.ResponseWriter, r *http.Request, id TeamIDPath) {
-	var request UpdateTeamRequestObject
-
-	request.Id = id
-
-	var body UpdateTeamJSONRequestBody
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
-		return
-	}
-	request.Body = &body
-
-	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.UpdateTeam(ctx, request.(UpdateTeamRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "UpdateTeam")
-	}
-
-	response, err := handler(r.Context(), w, r, request)
-
-	if err != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(UpdateTeamResponseObject); ok {
-		if err := validResponse.VisitUpdateTeamResponse(w); err != nil {
-			sh.options.ResponseErrorHandlerFunc(w, r, err)
-		}
-	} else if response != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
-	}
-}
-
-// ListTeamAccessLogs operation middleware
-func (sh *strictHandler) ListTeamAccessLogs(w http.ResponseWriter, r *http.Request, id TeamIDPath, params ListTeamAccessLogsParams) {
-	var request ListTeamAccessLogsRequestObject
-
-	request.Id = id
-	request.Params = params
-
-	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.ListTeamAccessLogs(ctx, request.(ListTeamAccessLogsRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "ListTeamAccessLogs")
-	}
-
-	response, err := handler(r.Context(), w, r, request)
-
-	if err != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(ListTeamAccessLogsResponseObject); ok {
-		if err := validResponse.VisitListTeamAccessLogsResponse(w); err != nil {
-			sh.options.ResponseErrorHandlerFunc(w, r, err)
-		}
-	} else if response != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
-	}
-}
-
-// ListTeamAdmins operation middleware
-func (sh *strictHandler) ListTeamAdmins(w http.ResponseWriter, r *http.Request, id TeamIDPath) {
-	var request ListTeamAdminsRequestObject
-
-	request.Id = id
-
-	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.ListTeamAdmins(ctx, request.(ListTeamAdminsRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "ListTeamAdmins")
-	}
-
-	response, err := handler(r.Context(), w, r, request)
-
-	if err != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(ListTeamAdminsResponseObject); ok {
-		if err := validResponse.VisitListTeamAdminsResponse(w); err != nil {
-			sh.options.ResponseErrorHandlerFunc(w, r, err)
-		}
-	} else if response != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
-	}
-}
-
-// ListTeamAuthorizationAuditLogs operation middleware
-func (sh *strictHandler) ListTeamAuthorizationAuditLogs(w http.ResponseWriter, r *http.Request, id TeamIDPath, params ListTeamAuthorizationAuditLogsParams) {
-	var request ListTeamAuthorizationAuditLogsRequestObject
-
-	request.Id = id
-	request.Params = params
-
-	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.ListTeamAuthorizationAuditLogs(ctx, request.(ListTeamAuthorizationAuditLogsRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "ListTeamAuthorizationAuditLogs")
-	}
-
-	response, err := handler(r.Context(), w, r, request)
-
-	if err != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(ListTeamAuthorizationAuditLogsResponseObject); ok {
-		if err := validResponse.VisitListTeamAuthorizationAuditLogsResponse(w); err != nil {
-			sh.options.ResponseErrorHandlerFunc(w, r, err)
-		}
-	} else if response != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
-	}
-}
-
-// GetTeamBillableInfo operation middleware
-func (sh *strictHandler) GetTeamBillableInfo(w http.ResponseWriter, r *http.Request, id TeamIDPath) {
-	var request GetTeamBillableInfoRequestObject
-
-	request.Id = id
-
-	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.GetTeamBillableInfo(ctx, request.(GetTeamBillableInfoRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "GetTeamBillableInfo")
-	}
-
-	response, err := handler(r.Context(), w, r, request)
-
-	if err != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(GetTeamBillableInfoResponseObject); ok {
-		if err := validResponse.VisitGetTeamBillableInfoResponse(w); err != nil {
-			sh.options.ResponseErrorHandlerFunc(w, r, err)
-		}
-	} else if response != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
-	}
-}
-
-// GetTeamBilling operation middleware
-func (sh *strictHandler) GetTeamBilling(w http.ResponseWriter, r *http.Request, id TeamIDPath) {
-	var request GetTeamBillingRequestObject
-
-	request.Id = id
-
-	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.GetTeamBilling(ctx, request.(GetTeamBillingRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "GetTeamBilling")
-	}
-
-	response, err := handler(r.Context(), w, r, request)
-
-	if err != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(GetTeamBillingResponseObject); ok {
-		if err := validResponse.VisitGetTeamBillingResponse(w); err != nil {
-			sh.options.ResponseErrorHandlerFunc(w, r, err)
-		}
-	} else if response != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
-	}
-}
-
-// ListExternalTeams operation middleware
-func (sh *strictHandler) ListExternalTeams(w http.ResponseWriter, r *http.Request, id TeamIDPath) {
-	var request ListExternalTeamsRequestObject
-
-	request.Id = id
-
-	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.ListExternalTeams(ctx, request.(ListExternalTeamsRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "ListExternalTeams")
-	}
-
-	response, err := handler(r.Context(), w, r, request)
-
-	if err != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(ListExternalTeamsResponseObject); ok {
-		if err := validResponse.VisitListExternalTeamsResponse(w); err != nil {
-			sh.options.ResponseErrorHandlerFunc(w, r, err)
-		}
-	} else if response != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
-	}
-}
-
-// DisconnectExternalTeam operation middleware
-func (sh *strictHandler) DisconnectExternalTeam(w http.ResponseWriter, r *http.Request, id TeamIDPath, externalTeamId ExternalTeamIDPath) {
-	var request DisconnectExternalTeamRequestObject
-
-	request.Id = id
-	request.ExternalTeamId = externalTeamId
-
-	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.DisconnectExternalTeam(ctx, request.(DisconnectExternalTeamRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "DisconnectExternalTeam")
-	}
-
-	response, err := handler(r.Context(), w, r, request)
-
-	if err != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(DisconnectExternalTeamResponseObject); ok {
-		if err := validResponse.VisitDisconnectExternalTeamResponse(w); err != nil {
-			sh.options.ResponseErrorHandlerFunc(w, r, err)
-		}
-	} else if response != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
-	}
-}
-
-// ListTeamIntegrationLogs operation middleware
-func (sh *strictHandler) ListTeamIntegrationLogs(w http.ResponseWriter, r *http.Request, id TeamIDPath, params ListTeamIntegrationLogsParams) {
-	var request ListTeamIntegrationLogsRequestObject
-
-	request.Id = id
-	request.Params = params
-
-	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.ListTeamIntegrationLogs(ctx, request.(ListTeamIntegrationLogsRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "ListTeamIntegrationLogs")
-	}
-
-	response, err := handler(r.Context(), w, r, request)
-
-	if err != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(ListTeamIntegrationLogsResponseObject); ok {
-		if err := validResponse.VisitListTeamIntegrationLogsResponse(w); err != nil {
-			sh.options.ResponseErrorHandlerFunc(w, r, err)
-		}
-	} else if response != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
-	}
-}
-
-// ListTeamOwners operation middleware
-func (sh *strictHandler) ListTeamOwners(w http.ResponseWriter, r *http.Request, id TeamIDPath) {
-	var request ListTeamOwnersRequestObject
-
-	request.Id = id
-
-	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.ListTeamOwners(ctx, request.(ListTeamOwnersRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "ListTeamOwners")
-	}
-
-	response, err := handler(r.Context(), w, r, request)
-
-	if err != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(ListTeamOwnersResponseObject); ok {
-		if err := validResponse.VisitListTeamOwnersResponse(w); err != nil {
-			sh.options.ResponseErrorHandlerFunc(w, r, err)
-		}
-	} else if response != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
-	}
-}
-
-// GetTeamPreferences operation middleware
-func (sh *strictHandler) GetTeamPreferences(w http.ResponseWriter, r *http.Request, id TeamIDPath) {
-	var request GetTeamPreferencesRequestObject
-
-	request.Id = id
-
-	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.GetTeamPreferences(ctx, request.(GetTeamPreferencesRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "GetTeamPreferences")
-	}
-
-	response, err := handler(r.Context(), w, r, request)
-
-	if err != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(GetTeamPreferencesResponseObject); ok {
-		if err := validResponse.VisitGetTeamPreferencesResponse(w); err != nil {
-			sh.options.ResponseErrorHandlerFunc(w, r, err)
-		}
-	} else if response != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
-	}
-}
-
-// TransferPrimaryAdmin operation middleware
-func (sh *strictHandler) TransferPrimaryAdmin(w http.ResponseWriter, r *http.Request, id TeamIDPath) {
-	var request TransferPrimaryAdminRequestObject
-
-	request.Id = id
-
-	var body TransferPrimaryAdminJSONRequestBody
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
-		return
-	}
-	request.Body = &body
-
-	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.TransferPrimaryAdmin(ctx, request.(TransferPrimaryAdminRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "TransferPrimaryAdmin")
-	}
-
-	response, err := handler(r.Context(), w, r, request)
-
-	if err != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(TransferPrimaryAdminResponseObject); ok {
-		if err := validResponse.VisitTransferPrimaryAdminResponse(w); err != nil {
-			sh.options.ResponseErrorHandlerFunc(w, r, err)
-		}
-	} else if response != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
-	}
-}
-
-// ListTeamProfileFields operation middleware
-func (sh *strictHandler) ListTeamProfileFields(w http.ResponseWriter, r *http.Request, id TeamIDPath) {
-	var request ListTeamProfileFieldsRequestObject
-
-	request.Id = id
-
-	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.ListTeamProfileFields(ctx, request.(ListTeamProfileFieldsRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "ListTeamProfileFields")
-	}
-
-	response, err := handler(r.Context(), w, r, request)
-
-	if err != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(ListTeamProfileFieldsResponseObject); ok {
-		if err := validResponse.VisitListTeamProfileFieldsResponse(w); err != nil {
-			sh.options.ResponseErrorHandlerFunc(w, r, err)
-		}
-	} else if response != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
-	}
-}
-
 // ListUsergroups operation middleware
 func (sh *strictHandler) ListUsergroups(w http.ResponseWriter, r *http.Request, params ListUsergroupsParams) {
 	var request ListUsergroupsRequestObject
@@ -10063,115 +10254,631 @@ func (sh *strictHandler) UpdateUserRoles(w http.ResponseWriter, r *http.Request,
 	}
 }
 
+// ListWorkspaces operation middleware
+func (sh *strictHandler) ListWorkspaces(w http.ResponseWriter, r *http.Request) {
+	var request ListWorkspacesRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListWorkspaces(ctx, request.(ListWorkspacesRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListWorkspaces")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListWorkspacesResponseObject); ok {
+		if err := validResponse.VisitListWorkspacesResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateWorkspace operation middleware
+func (sh *strictHandler) CreateWorkspace(w http.ResponseWriter, r *http.Request) {
+	var request CreateWorkspaceRequestObject
+
+	var body CreateWorkspaceJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateWorkspace(ctx, request.(CreateWorkspaceRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateWorkspace")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateWorkspaceResponseObject); ok {
+		if err := validResponse.VisitCreateWorkspaceResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetWorkspace operation middleware
+func (sh *strictHandler) GetWorkspace(w http.ResponseWriter, r *http.Request, id WorkspaceIDPath) {
+	var request GetWorkspaceRequestObject
+
+	request.Id = id
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetWorkspace(ctx, request.(GetWorkspaceRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetWorkspace")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetWorkspaceResponseObject); ok {
+		if err := validResponse.VisitGetWorkspaceResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// UpdateWorkspace operation middleware
+func (sh *strictHandler) UpdateWorkspace(w http.ResponseWriter, r *http.Request, id WorkspaceIDPath) {
+	var request UpdateWorkspaceRequestObject
+
+	request.Id = id
+
+	var body UpdateWorkspaceJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.UpdateWorkspace(ctx, request.(UpdateWorkspaceRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "UpdateWorkspace")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(UpdateWorkspaceResponseObject); ok {
+		if err := validResponse.VisitUpdateWorkspaceResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListWorkspaceAccessLogs operation middleware
+func (sh *strictHandler) ListWorkspaceAccessLogs(w http.ResponseWriter, r *http.Request, id WorkspaceIDPath, params ListWorkspaceAccessLogsParams) {
+	var request ListWorkspaceAccessLogsRequestObject
+
+	request.Id = id
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListWorkspaceAccessLogs(ctx, request.(ListWorkspaceAccessLogsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListWorkspaceAccessLogs")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListWorkspaceAccessLogsResponseObject); ok {
+		if err := validResponse.VisitListWorkspaceAccessLogsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListWorkspaceAdmins operation middleware
+func (sh *strictHandler) ListWorkspaceAdmins(w http.ResponseWriter, r *http.Request, id WorkspaceIDPath) {
+	var request ListWorkspaceAdminsRequestObject
+
+	request.Id = id
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListWorkspaceAdmins(ctx, request.(ListWorkspaceAdminsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListWorkspaceAdmins")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListWorkspaceAdminsResponseObject); ok {
+		if err := validResponse.VisitListWorkspaceAdminsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListWorkspaceAuthorizationAuditLogs operation middleware
+func (sh *strictHandler) ListWorkspaceAuthorizationAuditLogs(w http.ResponseWriter, r *http.Request, id WorkspaceIDPath, params ListWorkspaceAuthorizationAuditLogsParams) {
+	var request ListWorkspaceAuthorizationAuditLogsRequestObject
+
+	request.Id = id
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListWorkspaceAuthorizationAuditLogs(ctx, request.(ListWorkspaceAuthorizationAuditLogsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListWorkspaceAuthorizationAuditLogs")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListWorkspaceAuthorizationAuditLogsResponseObject); ok {
+		if err := validResponse.VisitListWorkspaceAuthorizationAuditLogsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetWorkspaceBillableInfo operation middleware
+func (sh *strictHandler) GetWorkspaceBillableInfo(w http.ResponseWriter, r *http.Request, id WorkspaceIDPath) {
+	var request GetWorkspaceBillableInfoRequestObject
+
+	request.Id = id
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetWorkspaceBillableInfo(ctx, request.(GetWorkspaceBillableInfoRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetWorkspaceBillableInfo")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetWorkspaceBillableInfoResponseObject); ok {
+		if err := validResponse.VisitGetWorkspaceBillableInfoResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetWorkspaceBilling operation middleware
+func (sh *strictHandler) GetWorkspaceBilling(w http.ResponseWriter, r *http.Request, id WorkspaceIDPath) {
+	var request GetWorkspaceBillingRequestObject
+
+	request.Id = id
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetWorkspaceBilling(ctx, request.(GetWorkspaceBillingRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetWorkspaceBilling")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetWorkspaceBillingResponseObject); ok {
+		if err := validResponse.VisitGetWorkspaceBillingResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListExternalWorkspaces operation middleware
+func (sh *strictHandler) ListExternalWorkspaces(w http.ResponseWriter, r *http.Request, id WorkspaceIDPath) {
+	var request ListExternalWorkspacesRequestObject
+
+	request.Id = id
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListExternalWorkspaces(ctx, request.(ListExternalWorkspacesRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListExternalWorkspaces")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListExternalWorkspacesResponseObject); ok {
+		if err := validResponse.VisitListExternalWorkspacesResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DisconnectExternalWorkspace operation middleware
+func (sh *strictHandler) DisconnectExternalWorkspace(w http.ResponseWriter, r *http.Request, id WorkspaceIDPath, externalWorkspaceId ExternalWorkspaceIDPath) {
+	var request DisconnectExternalWorkspaceRequestObject
+
+	request.Id = id
+	request.ExternalWorkspaceId = externalWorkspaceId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DisconnectExternalWorkspace(ctx, request.(DisconnectExternalWorkspaceRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DisconnectExternalWorkspace")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DisconnectExternalWorkspaceResponseObject); ok {
+		if err := validResponse.VisitDisconnectExternalWorkspaceResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListWorkspaceIntegrationLogs operation middleware
+func (sh *strictHandler) ListWorkspaceIntegrationLogs(w http.ResponseWriter, r *http.Request, id WorkspaceIDPath, params ListWorkspaceIntegrationLogsParams) {
+	var request ListWorkspaceIntegrationLogsRequestObject
+
+	request.Id = id
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListWorkspaceIntegrationLogs(ctx, request.(ListWorkspaceIntegrationLogsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListWorkspaceIntegrationLogs")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListWorkspaceIntegrationLogsResponseObject); ok {
+		if err := validResponse.VisitListWorkspaceIntegrationLogsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListWorkspaceOwners operation middleware
+func (sh *strictHandler) ListWorkspaceOwners(w http.ResponseWriter, r *http.Request, id WorkspaceIDPath) {
+	var request ListWorkspaceOwnersRequestObject
+
+	request.Id = id
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListWorkspaceOwners(ctx, request.(ListWorkspaceOwnersRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListWorkspaceOwners")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListWorkspaceOwnersResponseObject); ok {
+		if err := validResponse.VisitListWorkspaceOwnersResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetWorkspacePreferences operation middleware
+func (sh *strictHandler) GetWorkspacePreferences(w http.ResponseWriter, r *http.Request, id WorkspaceIDPath) {
+	var request GetWorkspacePreferencesRequestObject
+
+	request.Id = id
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetWorkspacePreferences(ctx, request.(GetWorkspacePreferencesRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetWorkspacePreferences")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetWorkspacePreferencesResponseObject); ok {
+		if err := validResponse.VisitGetWorkspacePreferencesResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// TransferPrimaryAdmin operation middleware
+func (sh *strictHandler) TransferPrimaryAdmin(w http.ResponseWriter, r *http.Request, id WorkspaceIDPath) {
+	var request TransferPrimaryAdminRequestObject
+
+	request.Id = id
+
+	var body TransferPrimaryAdminJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.TransferPrimaryAdmin(ctx, request.(TransferPrimaryAdminRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "TransferPrimaryAdmin")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(TransferPrimaryAdminResponseObject); ok {
+		if err := validResponse.VisitTransferPrimaryAdminResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListWorkspaceProfileFields operation middleware
+func (sh *strictHandler) ListWorkspaceProfileFields(w http.ResponseWriter, r *http.Request, id WorkspaceIDPath) {
+	var request ListWorkspaceProfileFieldsRequestObject
+
+	request.Id = id
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListWorkspaceProfileFields(ctx, request.(ListWorkspaceProfileFieldsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListWorkspaceProfileFields")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListWorkspaceProfileFieldsResponseObject); ok {
+		if err := validResponse.VisitListWorkspaceProfileFieldsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // Base64 encoded, gzipped, json marshaled Swagger object
 var swaggerSpec = []string{
 
-	"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",
-	"mUN8+Hz43wAAAP//0Iu6dfoBAQA=",
+	"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",
 }
 
 // GetSwagger returns the content of the embedded swagger specification file

@@ -1,0 +1,169 @@
+services:
+  db:
+    volumes:
+      - pgdata_dev:/var/lib/postgresql/data
+  server:
+    image: teraslack-server-local-dev
+    build:
+      context: ./server
+      dockerfile: Dockerfile.dev
+    working_dir: /workspace
+    command: ["go", "run", "./cmd/server"]
+    develop:
+      watch:
+        - action: sync+restart
+          path: ./server
+          target: /workspace
+          ignore:
+            - .git/
+            - bin/
+            - Dockerfile
+            - Dockerfile.dev
+            - go.mod
+            - go.sum
+        - action: rebuild
+          path: ./server/go.mod
+        - action: rebuild
+          path: ./server/go.sum
+        - action: rebuild
+          path: ./server/Dockerfile.dev
+
+  external-event-projector:
+    image: teraslack-server-local-dev
+    build:
+      context: ./server
+      dockerfile: Dockerfile.dev
+    working_dir: /workspace
+    command: ["go", "run", "./cmd/external-event-projector"]
+    develop:
+      watch:
+        - action: sync+restart
+          path: ./server
+          target: /workspace
+          ignore:
+            - .git/
+            - bin/
+            - Dockerfile
+            - Dockerfile.dev
+            - go.mod
+            - go.sum
+        - action: rebuild
+          path: ./server/go.mod
+        - action: rebuild
+          path: ./server/go.sum
+        - action: rebuild
+          path: ./server/Dockerfile.dev
+
+  webhook-producer:
+    image: teraslack-server-local-dev
+    build:
+      context: ./server
+      dockerfile: Dockerfile.dev
+    working_dir: /workspace
+    command: ["go", "run", "./cmd/webhook-producer"]
+    develop:
+      watch:
+        - action: sync+restart
+          path: ./server
+          target: /workspace
+          ignore:
+            - .git/
+            - bin/
+            - Dockerfile
+            - Dockerfile.dev
+            - go.mod
+            - go.sum
+        - action: rebuild
+          path: ./server/go.mod
+        - action: rebuild
+          path: ./server/go.sum
+        - action: rebuild
+          path: ./server/Dockerfile.dev
+
+  webhook-worker:
+    image: teraslack-server-local-dev
+    build:
+      context: ./server
+      dockerfile: Dockerfile.dev
+    working_dir: /workspace
+    command: ["go", "run", "./cmd/webhook-worker"]
+    develop:
+      watch:
+        - action: sync+restart
+          path: ./server
+          target: /workspace
+          ignore:
+            - .git/
+            - bin/
+            - Dockerfile
+            - Dockerfile.dev
+            - go.mod
+            - go.sum
+        - action: rebuild
+          path: ./server/go.mod
+        - action: rebuild
+          path: ./server/go.sum
+        - action: rebuild
+          path: ./server/Dockerfile.dev
+
+  indexer:
+    image: teraslack-server-local-dev
+    build:
+      context: ./server
+      dockerfile: Dockerfile.dev
+    working_dir: /workspace
+    command: ["go", "run", "./cmd/indexer"]
+    develop:
+      watch:
+        - action: sync+restart
+          path: ./server
+          target: /workspace
+          ignore:
+            - .git/
+            - bin/
+            - Dockerfile
+            - Dockerfile.dev
+            - go.mod
+            - go.sum
+        - action: rebuild
+          path: ./server/go.mod
+        - action: rebuild
+          path: ./server/go.sum
+        - action: rebuild
+          path: ./server/Dockerfile.dev
+
+  frontend:
+    image: teraslack-frontend-local-dev
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.dev
+    environment:
+      VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:${API_PORT:-38080}}
+    ports:
+      - "${FRONTEND_PORT:-3201}:3201"
+    depends_on:
+      - server
+    restart: unless-stopped
+    develop:
+      watch:
+        - action: sync
+          path: ./frontend/src
+          target: /app/src
+        - action: sync
+          path: ./frontend/public
+          target: /app/public
+        - action: sync
+          path: ./frontend/vite.config.ts
+          target: /app/vite.config.ts
+        - action: sync
+          path: ./frontend/tsconfig.json
+          target: /app/tsconfig.json
+        - action: rebuild
+          path: ./frontend/package.json
+        - action: rebuild
+          path: ./frontend/bun.lock
+        - action: rebuild
+          path: ./frontend/Dockerfile.dev
+
+volumes:
+  pgdata_dev:

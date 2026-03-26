@@ -1,10 +1,23 @@
-export default function Footer() {
-  const year = new Date().getFullYear()
+import { Link } from '@tanstack/react-router'
 
+export default function Footer() {
   return (
-    <footer className="mt-20 border-t border-[var(--line)] px-4 pb-10 pt-8">
-      <div className="page-wrap text-xs text-[var(--ink-soft)]">
-        <p className="m-0">&copy; {year} Teraslack</p>
+    <footer className="site-footer mt-20 px-4">
+      <div className="site-footer-inner">
+        <span className="uppercase tracking-[0.06em] text-[var(--sys-home-fg)]">
+          Teraslack Inc.
+        </span>
+        <div className="flex flex-wrap gap-4">
+          <Link to="/docs" className="sys-link">
+            Docs
+          </Link>
+          <Link to="/privacy" className="sys-link">
+            Privacy
+          </Link>
+          <Link to="/terms" className="sys-link">
+            Terms
+          </Link>
+        </div>
       </div>
     </footer>
   )

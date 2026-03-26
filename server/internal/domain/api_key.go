@@ -11,43 +11,23 @@ const (
 	PrincipalTypeSystem PrincipalType = "system"
 )
 
-// APIKeyType describes the intended use of an API key.
-type APIKeyType string
-
-const (
-	APIKeyTypePersistent APIKeyType = "persistent" // Long-lived key
-	APIKeyTypeSession    APIKeyType = "session"    // Short-lived, auto-expires
-	APIKeyTypeRestricted APIKeyType = "restricted" // Scoped to specific resources
-)
-
-// APIKeyEnvironment distinguishes live vs test keys.
-type APIKeyEnvironment string
-
-const (
-	APIKeyEnvLive APIKeyEnvironment = "live"
-	APIKeyEnvTest APIKeyEnvironment = "test"
-)
-
 // APIKey represents a managed API key for authentication.
 type APIKey struct {
-	ID           string            `json:"id"`
-	Name         string            `json:"name"`
-	Description  string            `json:"description,omitempty"`
-	KeyHash      string            `json:"key_hash,omitempty"` // SHA-256 hash of the raw key
-	KeyPrefix    string            `json:"key_prefix"`         // e.g. "sk_live_" — stored for display
-	KeyHint      string            `json:"key_hint"`           // Last 4 chars for identification
-	TeamID       string            `json:"team_id"`
-	PrincipalID  string            `json:"principal_id"`           // The principal this key acts as
-	CreatedBy    string            `json:"created_by"`             // The principal who created this key
-	OnBehalfOf   string            `json:"on_behalf_of,omitempty"` // Delegation — actions attributed to this principal
-	Type         APIKeyType        `json:"type"`
-	Environment  APIKeyEnvironment `json:"environment"`
-	Permissions  []string          `json:"permissions"`
-	ExpiresAt    *time.Time        `json:"expires_at,omitempty"`
-	LastUsedAt   *time.Time        `json:"last_used_at,omitempty"`
-	RequestCount int64             `json:"request_count"`
-	Revoked      bool              `json:"revoked"`
-	RevokedAt    *time.Time        `json:"revoked_at,omitempty"`
+	ID           string     `json:"id"`
+	Name         string     `json:"name"`
+	Description  string     `json:"description,omitempty"`
+	KeyHash      string     `json:"key_hash,omitempty"` // SHA-256 hash of the raw key
+	KeyPrefix    string     `json:"key_prefix"`         // e.g. "sk_" — stored for display
+	KeyHint      string     `json:"key_hint"`           // Last 4 chars for identification
+	WorkspaceID       string     `json:"workspace_id"`
+	UserID       string     `json:"user_id"`
+	CreatedBy    string     `json:"created_by"`
+	Permissions  []string   `json:"permissions"`
+	ExpiresAt    *time.Time `json:"expires_at,omitempty"`
+	LastUsedAt   *time.Time `json:"last_used_at,omitempty"`
+	RequestCount int64      `json:"request_count"`
+	Revoked      bool       `json:"revoked"`
+	RevokedAt    *time.Time `json:"revoked_at,omitempty"`
 	// For key rotation: if this key was rotated, the old key remains valid
 	// until grace_period_ends_at.
 	RotatedToID       string     `json:"rotated_to_id,omitempty"`
@@ -68,16 +48,13 @@ func (k *APIKey) Redacted() *APIKey {
 
 // CreateAPIKeyParams holds the parameters for creating a new API key.
 type CreateAPIKeyParams struct {
-	Name        string            `json:"name"`
-	Description string            `json:"description,omitempty"`
-	TeamID      string            `json:"team_id"`
-	PrincipalID string            `json:"principal_id"`
-	CreatedBy   string            `json:"created_by,omitempty"` // Defaults to principal_id if empty
-	OnBehalfOf  string            `json:"on_behalf_of,omitempty"`
-	Type        APIKeyType        `json:"type"`
-	Environment APIKeyEnvironment `json:"environment"`
-	Permissions []string          `json:"permissions,omitempty"`
-	ExpiresIn   string            `json:"expires_in,omitempty"` // Duration string e.g. "1h", "30d"
+	Name        string   `json:"name"`
+	Description string   `json:"description,omitempty"`
+	WorkspaceID      string   `json:"workspace_id"`
+	UserID      string   `json:"user_id"`
+	CreatedBy   string   `json:"created_by,omitempty"` // Defaults to user_id for user-scoped keys; required for system keys without an authenticated actor.
+	Permissions []string `json:"permissions,omitempty"`
+	ExpiresIn   string   `json:"expires_in,omitempty"` // Duration string e.g. "1h", "30d"
 }
 
 // UpdateAPIKeyParams holds the parameters for updating an API key.
@@ -94,8 +71,8 @@ type RotateAPIKeyParams struct {
 
 // ListAPIKeysParams holds pagination and filter options.
 type ListAPIKeysParams struct {
-	TeamID         string `json:"team_id"`
-	PrincipalID    string `json:"principal_id,omitempty"`
+	WorkspaceID         string `json:"workspace_id"`
+	UserID         string `json:"user_id,omitempty"`
 	IncludeRevoked bool   `json:"include_revoked,omitempty"`
 	Cursor         string `json:"cursor,omitempty"`
 	Limit          int    `json:"limit,omitempty"`
@@ -103,13 +80,11 @@ type ListAPIKeysParams struct {
 
 // APIKeyValidation is the result of validating an API key.
 type APIKeyValidation struct {
-	TeamID        string            `json:"team_id"`
-	PrincipalID   string            `json:"principal_id"`
-	PrincipalType PrincipalType     `json:"principal_type"`
-	AccountType   AccountType       `json:"account_type,omitempty"`
-	IsBot         bool              `json:"is_bot"`
-	OnBehalfOf    string            `json:"on_behalf_of,omitempty"`
-	KeyID         string            `json:"key_id"`
-	Permissions   []string          `json:"permissions"`
-	Environment   APIKeyEnvironment `json:"environment"`
+	WorkspaceID        string        `json:"workspace_id"`
+	UserID        string        `json:"user_id"`
+	PrincipalType PrincipalType `json:"principal_type"`
+	AccountType   AccountType   `json:"account_type,omitempty"`
+	IsBot         bool          `json:"is_bot"`
+	KeyID         string        `json:"key_id"`
+	Permissions   []string      `json:"permissions"`
 }

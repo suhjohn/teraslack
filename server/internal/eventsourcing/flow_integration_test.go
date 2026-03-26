@@ -26,6 +26,7 @@ type testEnv struct {
 	pool        *pgxpool.Pool
 	userSvc     *service.UserService
 	convSvc     *service.ConversationService
+	convReadSvc *service.ConversationReadService
 	msgSvc      *service.MessageService
 	pinSvc      *service.PinService
 	bookmarkSvc *service.BookmarkService
@@ -50,6 +51,7 @@ func setupAllServices(t *testing.T) *testEnv {
 
 	userRepo := pgRepo.NewUserRepo(pool)
 	convRepo := pgRepo.NewConversationRepo(pool)
+	convReadRepo := pgRepo.NewConversationReadRepo(pool)
 	msgRepo := pgRepo.NewMessageRepo(pool)
 	pinRepo := pgRepo.NewPinRepo(pool)
 	bookmarkRepo := pgRepo.NewBookmarkRepo(pool)
@@ -67,6 +69,7 @@ func setupAllServices(t *testing.T) *testEnv {
 		pool:        pool,
 		userSvc:     service.NewUserService(userRepo, recorder, pool, logger),
 		convSvc:     service.NewConversationService(convRepo, userRepo, recorder, pool, logger),
+		convReadSvc: service.NewConversationReadService(convReadRepo, convRepo),
 		msgSvc:      service.NewMessageService(msgRepo, convRepo, recorder, pool, logger),
 		pinSvc:      service.NewPinService(pinRepo, convRepo, msgRepo, recorder, pool, logger),
 		bookmarkSvc: service.NewBookmarkService(bookmarkRepo, convRepo, recorder, pool, logger),
@@ -83,13 +86,13 @@ func setupAllServices(t *testing.T) *testEnv {
 	}
 }
 
-func createSession(t *testing.T, env *testEnv, teamID, userID string) *domain.AuthSession {
+func createSession(t *testing.T, env *testEnv, workspaceID, userID string) *domain.AuthSession {
 	t.Helper()
 	session, err := pgRepo.NewAuthRepo(env.pool).CreateSession(context.Background(), domain.CreateAuthSessionParams{
-		TeamID:    teamID,
-		UserID:    userID,
-		Provider:  domain.AuthProviderGitHub,
-		ExpiresAt: time.Now().UTC().Add(24 * time.Hour),
+		WorkspaceID: workspaceID,
+		UserID:      userID,
+		Provider:    domain.AuthProviderGitHub,
+		ExpiresAt:   time.Now().UTC().Add(24 * time.Hour),
 	})
 	if err != nil {
 		t.Fatalf("create session: %v", err)
@@ -101,10 +104,10 @@ func createSession(t *testing.T, env *testEnv, teamID, userID string) *domain.Au
 // Query helpers
 // ---------------------------------------------------------------------------
 
-func queryEventTypes(t *testing.T, env *testEnv, teamID string) []string {
+func queryEventTypes(t *testing.T, env *testEnv, workspaceID string) []string {
 	t.Helper()
 	rows, err := env.pool.Query(context.Background(),
-		"SELECT event_type FROM internal_events WHERE team_id = $1 ORDER BY id ASC", teamID)
+		"SELECT event_type FROM internal_events WHERE workspace_id = $1 ORDER BY id ASC", workspaceID)
 	if err != nil {
 		t.Fatalf("query events: %v", err)
 	}
@@ -154,7 +157,7 @@ func queryServiceEvent(t *testing.T, env *testEnv, eventType, aggType, aggID str
 
 	var evt domain.InternalEvent
 	err := env.pool.QueryRow(context.Background(),
-		`SELECT id, event_type, aggregate_type, aggregate_id, team_id, actor_id, payload, metadata, created_at
+		`SELECT id, event_type, aggregate_type, aggregate_id, workspace_id, actor_id, payload, metadata, created_at
 		 FROM internal_events
 		 WHERE event_type = $1 AND aggregate_type = $2 AND aggregate_id = $3
 		 ORDER BY id DESC
@@ -165,7 +168,7 @@ func queryServiceEvent(t *testing.T, env *testEnv, eventType, aggType, aggID str
 		&evt.EventType,
 		&evt.AggregateType,
 		&evt.AggregateID,
-		&evt.TeamID,
+		&evt.WorkspaceID,
 		&evt.ActorID,
 		&evt.Payload,
 		&evt.Metadata,
@@ -206,8 +209,10 @@ func assertJSONEqual(t *testing.T, got, want []byte) {
 
 func strPtr(s string) *string { return &s }
 
+func boolPtr(b bool) *bool { return &b }
+
 // ---------------------------------------------------------------------------
-// Flow 1: Workspace Bootstrap & Team Collaboration
+// Flow 1: Workspace Bootstrap & Workspace Collaboration
 // ---------------------------------------------------------------------------
 //
 // Scenario: A brand-new workspace is set up from scratch and exercises every
@@ -232,7 +237,7 @@ func strPtr(s string) *string { return &s }
 //  13. (Unhappy) Duplicate invite → expect ErrAlreadyInChannel.
 //  14. (Unhappy) Duplicate pin → expect error.
 //  15. (Unhappy) Post to nonexistent channel → expect error.
-//  16. (Unhappy) Create user with empty team_id → expect ErrInvalidArgument.
+//  16. (Unhappy) Create user with empty workspace_id → expect ErrInvalidArgument.
 //  17. Verify bookmark list returns the created bookmark.
 func TestFlow_WorkspaceBootstrap(t *testing.T) {
 	if testing.Short() {
@@ -240,11 +245,11 @@ func TestFlow_WorkspaceBootstrap(t *testing.T) {
 	}
 	env := setupAllServices(t)
 	ctx := context.Background()
-	teamID := "T-bootstrap"
+	workspaceID := "T-bootstrap"
 
 	// Step 1: Create admin (human)
 	admin, err := env.userSvc.Create(ctx, domain.CreateUserParams{
-		TeamID: teamID, Name: "admin", Email: "admin@example.com",
+		WorkspaceID: workspaceID, Name: "admin", Email: "admin@example.com",
 		PrincipalType: domain.PrincipalTypeHuman, AccountType: domain.AccountTypeAdmin,
 	})
 	if err != nil {
@@ -256,7 +261,7 @@ func TestFlow_WorkspaceBootstrap(t *testing.T) {
 
 	// Step 2: Create second user
 	alice, err := env.userSvc.Create(ctx, domain.CreateUserParams{
-		TeamID: teamID, Name: "alice", Email: "alice@example.com",
+		WorkspaceID: workspaceID, Name: "alice", Email: "alice@example.com",
 		PrincipalType: domain.PrincipalTypeHuman,
 	})
 	if err != nil {
@@ -265,7 +270,7 @@ func TestFlow_WorkspaceBootstrap(t *testing.T) {
 
 	// Step 3: Create public channel
 	general, err := env.convSvc.Create(ctx, domain.CreateConversationParams{
-		TeamID: teamID, Name: "general",
+		WorkspaceID: workspaceID, Name: "general",
 		Type: domain.ConversationTypePublicChannel, CreatorID: admin.ID,
 	})
 	if err != nil {
@@ -335,8 +340,8 @@ func TestFlow_WorkspaceBootstrap(t *testing.T) {
 		t.Errorf("member count = %d, want 2", len(members.Items))
 	}
 
-	// Verify event sequence — some events (reaction, bookmark) have empty team_id,
-	// so query all events in the DB, not just by team
+	// Verify event sequence — some events (reaction, bookmark) have empty workspace_id,
+	// so query all events in the DB, not just by workspace
 	var allEvents []string
 	eRows, _ := env.pool.Query(ctx, "SELECT event_type FROM internal_events ORDER BY id ASC")
 	for eRows.Next() {
@@ -392,10 +397,10 @@ func TestFlow_WorkspaceBootstrap(t *testing.T) {
 		t.Error("post to nonexistent channel: expected error")
 	}
 
-	// Missing team_id
+	// Missing workspace_id
 	_, err = env.userSvc.Create(ctx, domain.CreateUserParams{Name: "bad", Email: "bad@x.com"})
 	if !errors.Is(err, domain.ErrInvalidArgument) {
-		t.Errorf("empty team_id: got %v, want ErrInvalidArgument", err)
+		t.Errorf("empty workspace_id: got %v, want ErrInvalidArgument", err)
 	}
 
 	// Verify bookmark list
@@ -436,10 +441,10 @@ func TestFlow_ChannelLifecycle(t *testing.T) {
 	}
 	env := setupAllServices(t)
 	ctx := context.Background()
-	teamID := "T-channel"
+	workspaceID := "T-channel"
 
 	user, err := env.userSvc.Create(ctx, domain.CreateUserParams{
-		TeamID: teamID, Name: "owner", Email: "owner@example.com",
+		WorkspaceID: workspaceID, Name: "owner", Email: "owner@example.com",
 		PrincipalType: domain.PrincipalTypeHuman,
 	})
 	if err != nil {
@@ -447,7 +452,7 @@ func TestFlow_ChannelLifecycle(t *testing.T) {
 	}
 
 	ch, err := env.convSvc.Create(ctx, domain.CreateConversationParams{
-		TeamID: teamID, Name: "project-alpha",
+		WorkspaceID: workspaceID, Name: "project-alpha",
 		Type: domain.ConversationTypePublicChannel, CreatorID: user.ID,
 	})
 	if err != nil {
@@ -524,7 +529,7 @@ func TestFlow_ChannelLifecycle(t *testing.T) {
 
 	// List exclude_archived
 	convs, err := env.convSvc.List(ctx, domain.ListConversationsParams{
-		TeamID: teamID, ExcludeArchived: true, Limit: 100,
+		WorkspaceID: workspaceID, ExcludeArchived: true, Limit: 100,
 	})
 	if err != nil {
 		t.Fatalf("list: %v", err)
@@ -549,7 +554,7 @@ func TestFlow_ChannelLifecycle(t *testing.T) {
 	}
 
 	// Verify events
-	events := queryEventTypes(t, env, teamID)
+	events := queryEventTypes(t, env, workspaceID)
 	expected := []string{
 		domain.EventUserCreated, domain.EventConversationCreated,
 		domain.EventConversationTopicSet, domain.EventConversationPurposeSet,
@@ -574,11 +579,11 @@ func TestFlow_ChannelLifecycle(t *testing.T) {
 // Steps:
 //  1. Create a human user.
 //  2. Create an agent user owned by the human (principal_type=agent, owner_id=human).
-//  3. Create a live API key for the agent with on_behalf_of=human — verify sk_live_ prefix.
+//  3. Create a live API key for the agent with on_behalf_of=human — verify sk_ prefix.
 //  4. Validate the API key — verify principal_id=agent, on_behalf_of=human.
 //  5. Get the key — verify key_hash is redacted (empty).
 //  6. Update the key description — verify.
-//  7. List keys for the team — verify count=1.
+//  7. List keys for the workspace — verify count=1.
 //  8. Revoke the key — verify subsequent validation returns ErrTokenRevoked.
 //  9. List with include_revoked=true — verify the revoked key appears.
 //
@@ -593,10 +598,10 @@ func TestFlow_AgentDelegation(t *testing.T) {
 	}
 	env := setupAllServices(t)
 	ctx := context.Background()
-	teamID := "T-agent"
+	workspaceID := "T-agent"
 
 	human, err := env.userSvc.Create(ctx, domain.CreateUserParams{
-		TeamID: teamID, Name: "human", Email: "human@example.com",
+		WorkspaceID: workspaceID, Name: "human", Email: "human@example.com",
 		PrincipalType: domain.PrincipalTypeHuman,
 	})
 	if err != nil {
@@ -604,7 +609,7 @@ func TestFlow_AgentDelegation(t *testing.T) {
 	}
 
 	agent, err := env.userSvc.Create(ctx, domain.CreateUserParams{
-		TeamID: teamID, Name: "agent", Email: "agent@example.com",
+		WorkspaceID: workspaceID, Name: "agent", Email: "agent@example.com",
 		PrincipalType: domain.PrincipalTypeAgent, OwnerID: human.ID, IsBot: true,
 	})
 	if err != nil {
@@ -616,19 +621,15 @@ func TestFlow_AgentDelegation(t *testing.T) {
 
 	// Create API key with delegation
 	key, rawKey, err := env.apiKeySvc.Create(ctx, domain.CreateAPIKeyParams{
-		Name: "agent-key", TeamID: teamID, PrincipalID: agent.ID,
-		CreatedBy: human.ID, OnBehalfOf: human.ID,
-		Type: domain.APIKeyTypePersistent, Environment: domain.APIKeyEnvLive,
+		Name: "agent-key", WorkspaceID: workspaceID, UserID: agent.ID,
+		CreatedBy:   human.ID,
 		Permissions: []string{"read", "write"},
 	})
 	if err != nil {
 		t.Fatalf("create key: %v", err)
 	}
-	if !strings.HasPrefix(rawKey, "sk_live_") {
+	if !strings.HasPrefix(rawKey, "sk_") {
 		t.Errorf("key prefix wrong, got %q", rawKey[:min(8, len(rawKey))])
-	}
-	if key.OnBehalfOf != human.ID {
-		t.Errorf("on_behalf_of = %q", key.OnBehalfOf)
 	}
 
 	// Validate
@@ -636,11 +637,8 @@ func TestFlow_AgentDelegation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("validate: %v", err)
 	}
-	if v.PrincipalID != agent.ID {
-		t.Errorf("principal = %q", v.PrincipalID)
-	}
-	if v.OnBehalfOf != human.ID {
-		t.Errorf("on_behalf_of = %q", v.OnBehalfOf)
+	if v.UserID != agent.ID {
+		t.Errorf("principal = %q", v.UserID)
 	}
 
 	// Get (hash hidden)
@@ -663,7 +661,7 @@ func TestFlow_AgentDelegation(t *testing.T) {
 	}
 
 	// List
-	keys, err := env.apiKeySvc.List(ctx, domain.ListAPIKeysParams{TeamID: teamID, Limit: 100})
+	keys, err := env.apiKeySvc.List(ctx, domain.ListAPIKeysParams{WorkspaceID: workspaceID, Limit: 100})
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}
@@ -682,7 +680,7 @@ func TestFlow_AgentDelegation(t *testing.T) {
 
 	// List with revoked
 	keys, _ = env.apiKeySvc.List(ctx, domain.ListAPIKeysParams{
-		TeamID: teamID, IncludeRevoked: true, Limit: 100,
+		WorkspaceID: workspaceID, IncludeRevoked: true, Limit: 100,
 	})
 	if len(keys.Items) != 1 || !keys.Items[0].Revoked {
 		t.Error("expected 1 revoked key")
@@ -701,8 +699,7 @@ func TestFlow_AgentDelegation(t *testing.T) {
 	// --- Unhappy paths ---
 	// Nonexistent principal
 	_, _, err = env.apiKeySvc.Create(ctx, domain.CreateAPIKeyParams{
-		Name: "bad", TeamID: teamID, PrincipalID: "nonexistent",
-		Type: domain.APIKeyTypePersistent, Environment: domain.APIKeyEnvLive,
+		Name: "bad", WorkspaceID: workspaceID, UserID: "nonexistent",
 	})
 	if err == nil {
 		t.Error("nonexistent principal: expected error")
@@ -710,21 +707,20 @@ func TestFlow_AgentDelegation(t *testing.T) {
 
 	// Empty name
 	_, _, err = env.apiKeySvc.Create(ctx, domain.CreateAPIKeyParams{
-		TeamID: teamID, PrincipalID: agent.ID,
-		Type: domain.APIKeyTypePersistent, Environment: domain.APIKeyEnvLive,
+		WorkspaceID: workspaceID, UserID: agent.ID,
 	})
 	if !errors.Is(err, domain.ErrInvalidArgument) {
 		t.Errorf("empty name: got %v", err)
 	}
 
 	// Garbage key
-	_, err = env.apiKeySvc.ValidateAPIKey(ctx, "sk_live_garbage")
+	_, err = env.apiKeySvc.ValidateAPIKey(ctx, "sk_garbage")
 	if !errors.Is(err, domain.ErrInvalidAuth) {
 		t.Errorf("garbage key: got %v", err)
 	}
 
 	// Verify api_key events
-	events := queryEventTypes(t, env, teamID)
+	events := queryEventTypes(t, env, workspaceID)
 	akCount := 0
 	for _, e := range events {
 		if strings.HasPrefix(e, "api_key.") {
@@ -760,10 +756,10 @@ func TestFlow_KeyRotation(t *testing.T) {
 	}
 	env := setupAllServices(t)
 	ctx := context.Background()
-	teamID := "T-rotation"
+	workspaceID := "T-rotation"
 
 	user, err := env.userSvc.Create(ctx, domain.CreateUserParams{
-		TeamID: teamID, Name: "rotator", Email: "rotator@example.com",
+		WorkspaceID: workspaceID, Name: "rotator", Email: "rotator@example.com",
 		PrincipalType: domain.PrincipalTypeHuman,
 	})
 	if err != nil {
@@ -771,8 +767,7 @@ func TestFlow_KeyRotation(t *testing.T) {
 	}
 
 	oldKey, oldRaw, err := env.apiKeySvc.Create(ctx, domain.CreateAPIKeyParams{
-		Name: "rotate-me", TeamID: teamID, PrincipalID: user.ID,
-		Type: domain.APIKeyTypePersistent, Environment: domain.APIKeyEnvLive,
+		Name: "rotate-me", WorkspaceID: workspaceID, UserID: user.ID,
 	})
 	if err != nil {
 		t.Fatalf("create key: %v", err)
@@ -814,14 +809,14 @@ func TestFlow_KeyRotation(t *testing.T) {
 
 	// List shows both
 	keys, _ := env.apiKeySvc.List(ctx, domain.ListAPIKeysParams{
-		TeamID: teamID, IncludeRevoked: true, Limit: 100,
+		WorkspaceID: workspaceID, IncludeRevoked: true, Limit: 100,
 	})
 	if len(keys.Items) != 2 {
 		t.Errorf("key count = %d, want 2", len(keys.Items))
 	}
 
 	// Verify events: 2 created + 1 rotated
-	events := queryEventTypes(t, env, teamID)
+	events := queryEventTypes(t, env, workspaceID)
 	created, rotated := 0, 0
 	for _, e := range events {
 		switch e {
@@ -881,24 +876,24 @@ func TestFlow_MessageThreading(t *testing.T) {
 	}
 	env := setupAllServices(t)
 	ctx := context.Background()
-	teamID := "T-threading"
+	workspaceID := "T-threading"
 
 	user, err := env.userSvc.Create(ctx, domain.CreateUserParams{
-		TeamID: teamID, Name: "threader", Email: "threader@example.com",
+		WorkspaceID: workspaceID, Name: "threader", Email: "threader@example.com",
 		PrincipalType: domain.PrincipalTypeHuman,
 	})
 	if err != nil {
 		t.Fatalf("create user: %v", err)
 	}
 	ch, err := env.convSvc.Create(ctx, domain.CreateConversationParams{
-		TeamID: teamID, Name: "dev",
+		WorkspaceID: workspaceID, Name: "dev",
 		Type: domain.ConversationTypePublicChannel, CreatorID: user.ID,
 	})
 	if err != nil {
 		t.Fatalf("create channel: %v", err)
 	}
 	user2, err := env.userSvc.Create(ctx, domain.CreateUserParams{
-		TeamID: teamID, Name: "replier", Email: "replier@example.com",
+		WorkspaceID: workspaceID, Name: "replier", Email: "replier@example.com",
 		PrincipalType: domain.PrincipalTypeHuman,
 	})
 	if err != nil {
@@ -1010,7 +1005,7 @@ func TestFlow_MessageThreading(t *testing.T) {
 		ChannelID: ch.ID, MessageTS: parent.TS, UserID: user.ID, Emoji: "nonexistent",
 	})
 
-	// Verify event types present — message events use empty team_id, so query all events
+	// Verify event types present — message events use empty workspace_id, so query all events
 	var allEventTypes []string
 	rows, err := env.pool.Query(ctx, "SELECT event_type FROM internal_events ORDER BY id ASC")
 	if err != nil {
@@ -1066,24 +1061,24 @@ func TestFlow_Usergroups(t *testing.T) {
 	}
 	env := setupAllServices(t)
 	ctx := context.Background()
-	teamID := "T-ug"
+	workspaceID := "T-ug"
 
 	admin, err := env.userSvc.Create(ctx, domain.CreateUserParams{
-		TeamID: teamID, Name: "ug-admin", Email: "ugadmin@example.com",
+		WorkspaceID: workspaceID, Name: "ug-admin", Email: "ugadmin@example.com",
 		PrincipalType: domain.PrincipalTypeHuman,
 	})
 	if err != nil {
 		t.Fatalf("create admin: %v", err)
 	}
 	u1, err := env.userSvc.Create(ctx, domain.CreateUserParams{
-		TeamID: teamID, Name: "m1", Email: "m1@example.com",
+		WorkspaceID: workspaceID, Name: "m1", Email: "m1@example.com",
 		PrincipalType: domain.PrincipalTypeHuman,
 	})
 	if err != nil {
 		t.Fatalf("create u1: %v", err)
 	}
 	u2, err := env.userSvc.Create(ctx, domain.CreateUserParams{
-		TeamID: teamID, Name: "m2", Email: "m2@example.com",
+		WorkspaceID: workspaceID, Name: "m2", Email: "m2@example.com",
 		PrincipalType: domain.PrincipalTypeHuman,
 	})
 	if err != nil {
@@ -1092,8 +1087,8 @@ func TestFlow_Usergroups(t *testing.T) {
 
 	// Create usergroup
 	ug, err := env.ugSvc.Create(ctx, domain.CreateUsergroupParams{
-		TeamID: teamID, Name: "Engineers", Handle: "engineers",
-		Description: "Eng team", CreatedBy: admin.ID,
+		WorkspaceID: workspaceID, Name: "Engineers", Handle: "engineers",
+		Description: "Eng workspace", CreatedBy: admin.ID,
 	})
 	if err != nil {
 		t.Fatalf("create ug: %v", err)
@@ -1130,13 +1125,13 @@ func TestFlow_Usergroups(t *testing.T) {
 	}
 
 	// List with disabled
-	ugs, _ := env.ugSvc.List(ctx, domain.ListUsergroupsParams{TeamID: teamID, IncludeDisabled: true})
+	ugs, _ := env.ugSvc.List(ctx, domain.ListUsergroupsParams{WorkspaceID: workspaceID, IncludeDisabled: true})
 	if len(ugs) != 1 {
 		t.Errorf("with disabled = %d", len(ugs))
 	}
 
 	// List without disabled
-	ugs, _ = env.ugSvc.List(ctx, domain.ListUsergroupsParams{TeamID: teamID, IncludeDisabled: false})
+	ugs, _ = env.ugSvc.List(ctx, domain.ListUsergroupsParams{WorkspaceID: workspaceID, IncludeDisabled: false})
 	if len(ugs) != 0 {
 		t.Errorf("without disabled = %d", len(ugs))
 	}
@@ -1156,7 +1151,7 @@ func TestFlow_Usergroups(t *testing.T) {
 	}
 
 	// Verify events
-	events := queryEventTypes(t, env, teamID)
+	events := queryEventTypes(t, env, workspaceID)
 	ugEvents := 0
 	for _, e := range events {
 		if strings.HasPrefix(e, "usergroup.") {
@@ -1195,18 +1190,18 @@ func TestFlow_FileLifecycle(t *testing.T) {
 	}
 	env := setupAllServices(t)
 	ctx := context.Background()
-	teamID := "T-files"
+	workspaceID := "T-files"
 
 	user, err := env.userSvc.Create(ctx, domain.CreateUserParams{
-		TeamID: teamID, Name: "uploader", Email: "up@example.com",
+		WorkspaceID: workspaceID, Name: "uploader", Email: "up@example.com",
 		PrincipalType: domain.PrincipalTypeHuman,
 	})
 	if err != nil {
 		t.Fatalf("create user: %v", err)
 	}
-	ctx = ctxutil.WithUser(ctx, user.ID, teamID)
+	ctx = ctxutil.WithUser(ctx, user.ID, workspaceID)
 	ch, err := env.convSvc.Create(ctx, domain.CreateConversationParams{
-		TeamID: teamID, Name: "files",
+		WorkspaceID: workspaceID, Name: "files",
 		Type: domain.ConversationTypePublicChannel, CreatorID: user.ID,
 	})
 	if err != nil {
@@ -1312,10 +1307,10 @@ func TestFlow_EventSubscriptions(t *testing.T) {
 	}
 	env := setupAllServices(t)
 	ctx := context.Background()
-	teamID := "T-events"
+	workspaceID := "T-events"
 
 	sub, err := env.eventSvc.CreateSubscription(ctx, domain.CreateEventSubscriptionParams{
-		TeamID: teamID, URL: "https://hooks.example.com/events",
+		WorkspaceID: workspaceID, URL: "https://hooks.example.com/events",
 		Type:   domain.EventTypeConversationMessageCreated,
 		Secret: "secret-123",
 	})
@@ -1354,7 +1349,7 @@ func TestFlow_EventSubscriptions(t *testing.T) {
 
 	// Create second subscription
 	sub2, err := env.eventSvc.CreateSubscription(ctx, domain.CreateEventSubscriptionParams{
-		TeamID: teamID, URL: "https://hooks2.example.com",
+		WorkspaceID: workspaceID, URL: "https://hooks2.example.com",
 		Type: domain.EventTypeConversationCreated, Secret: "s2",
 	})
 	if err != nil {
@@ -1362,7 +1357,7 @@ func TestFlow_EventSubscriptions(t *testing.T) {
 	}
 
 	// List
-	subs, _ := env.eventSvc.ListSubscriptions(ctx, domain.ListEventSubscriptionsParams{TeamID: teamID})
+	subs, _ := env.eventSvc.ListSubscriptions(ctx, domain.ListEventSubscriptionsParams{WorkspaceID: workspaceID})
 	if len(subs) != 2 {
 		t.Errorf("subs = %d, want 2", len(subs))
 	}
@@ -1371,13 +1366,13 @@ func TestFlow_EventSubscriptions(t *testing.T) {
 	if err := env.eventSvc.DeleteSubscription(ctx, sub2.ID); err != nil {
 		t.Fatalf("delete: %v", err)
 	}
-	subs, _ = env.eventSvc.ListSubscriptions(ctx, domain.ListEventSubscriptionsParams{TeamID: teamID})
+	subs, _ = env.eventSvc.ListSubscriptions(ctx, domain.ListEventSubscriptionsParams{WorkspaceID: workspaceID})
 	if len(subs) != 1 {
 		t.Errorf("subs after delete = %d", len(subs))
 	}
 
 	// Verify events
-	events := queryEventTypes(t, env, teamID)
+	events := queryEventTypes(t, env, workspaceID)
 	subEvents := 0
 	for _, e := range events {
 		if strings.HasPrefix(e, "event_subscription.") {
@@ -1403,7 +1398,7 @@ func TestFlow_EventSubscriptions(t *testing.T) {
 	// --- Unhappy paths ---
 	// No URL
 	_, err = env.eventSvc.CreateSubscription(ctx, domain.CreateEventSubscriptionParams{
-		TeamID: teamID, Type: domain.EventTypeConversationMessageCreated,
+		WorkspaceID: workspaceID, Type: domain.EventTypeConversationMessageCreated,
 	})
 	if !errors.Is(err, domain.ErrInvalidArgument) {
 		t.Errorf("no url: got %v", err)
@@ -1417,20 +1412,20 @@ func TestFlow_WebhookEnvelopeContract(t *testing.T) {
 	}
 	env := setupAllServices(t)
 	baseCtx := context.Background()
-	teamID := "T-webhook-envelope"
+	workspaceID := "T-webhook-envelope"
 
 	user, err := env.userSvc.Create(baseCtx, domain.CreateUserParams{
-		TeamID: teamID, Name: "hook-user", Email: "hook@example.com",
+		WorkspaceID: workspaceID, Name: "hook-user", Email: "hook@example.com",
 		PrincipalType: domain.PrincipalTypeHuman, AccountType: domain.AccountTypeAdmin,
 	})
 	if err != nil {
 		t.Fatalf("create user: %v", err)
 	}
 
-	ctx := ctxutil.WithUser(baseCtx, user.ID, teamID)
+	ctx := ctxutil.WithUser(baseCtx, user.ID, workspaceID)
 
 	ch, err := env.convSvc.Create(ctx, domain.CreateConversationParams{
-		TeamID: teamID, Name: "hooks",
+		WorkspaceID: workspaceID, Name: "hooks",
 		Type: domain.ConversationTypePublicChannel, CreatorID: user.ID,
 	})
 	if err != nil {
@@ -1445,8 +1440,8 @@ func TestFlow_WebhookEnvelopeContract(t *testing.T) {
 	}
 
 	msgEvent := queryServiceEvent(t, env, domain.EventMessagePosted, domain.AggregateMessage, msg.TS)
-	if msgEvent.TeamID != teamID {
-		t.Fatalf("message event team_id = %q, want %q", msgEvent.TeamID, teamID)
+	if msgEvent.WorkspaceID != workspaceID {
+		t.Fatalf("message event workspace_id = %q, want %q", msgEvent.WorkspaceID, workspaceID)
 	}
 	if msgEvent.ActorID != user.ID {
 		t.Fatalf("message event actor_id = %q, want %q", msgEvent.ActorID, user.ID)
@@ -1478,10 +1473,10 @@ func TestFlow_WebhookEnvelopeContract(t *testing.T) {
 	}
 
 	sub, err := env.eventSvc.CreateSubscription(ctx, domain.CreateEventSubscriptionParams{
-		TeamID: teamID,
-		URL:    "https://hooks.example.com/events",
-		Type:   domain.EventTypeConversationMessageCreated,
-		Secret: "super-secret",
+		WorkspaceID: workspaceID,
+		URL:         "https://hooks.example.com/events",
+		Type:        domain.EventTypeConversationMessageCreated,
+		Secret:      "super-secret",
 	})
 	if err != nil {
 		t.Fatalf("create subscription: %v", err)
@@ -1527,7 +1522,7 @@ func TestFlow_WebhookEnvelopeContract(t *testing.T) {
 // Steps:
 //  1. Create a user.
 //  2. Create a token with scopes [read, write] — verify raw token is non-empty.
-//  3. Validate the token — verify user_id and team_id.
+//  3. Validate the token — verify user_id and workspace_id.
 //  4. Validate with "Bearer " prefix — verify same user.
 //  5. Create a second token with scope [read].
 //  6. Revoke the first token — verify validation fails.
@@ -1543,17 +1538,17 @@ func TestFlow_AuthSessionLifecycle(t *testing.T) {
 	}
 	env := setupAllServices(t)
 	ctx := context.Background()
-	teamID := "T-auth"
+	workspaceID := "T-auth"
 
 	user, err := env.userSvc.Create(ctx, domain.CreateUserParams{
-		TeamID: teamID, Name: "auth-user", Email: "auth@example.com",
+		WorkspaceID: workspaceID, Name: "auth-user", Email: "auth@example.com",
 		PrincipalType: domain.PrincipalTypeHuman,
 	})
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
 
-	session := createSession(t, env, teamID, user.ID)
+	session := createSession(t, env, workspaceID, user.ID)
 	if session.Token == "" {
 		t.Fatal("raw session token empty")
 	}
@@ -1566,8 +1561,8 @@ func TestFlow_AuthSessionLifecycle(t *testing.T) {
 	if auth.UserID != user.ID {
 		t.Errorf("user_id = %q", auth.UserID)
 	}
-	if auth.TeamID != teamID {
-		t.Errorf("team_id = %q", auth.TeamID)
+	if auth.WorkspaceID != workspaceID {
+		t.Errorf("workspace_id = %q", auth.WorkspaceID)
 	}
 
 	// Validate with Bearer prefix
@@ -1579,7 +1574,7 @@ func TestFlow_AuthSessionLifecycle(t *testing.T) {
 		t.Errorf("bearer user_id = %q", auth2.UserID)
 	}
 
-	session2 := createSession(t, env, teamID, user.ID)
+	session2 := createSession(t, env, workspaceID, user.ID)
 
 	// Revoke first
 	if err := env.authSvc.RevokeSession(ctx, session.Token); err != nil {
@@ -1640,12 +1635,12 @@ func TestFlow_CrossCuttingConsistency(t *testing.T) {
 	}
 	env := setupAllServices(t)
 	ctx := context.Background()
-	teamID := "T-crosscut"
+	workspaceID := "T-crosscut"
 
 	before := countEvents(t, env)
 
 	user, err := env.userSvc.Create(ctx, domain.CreateUserParams{
-		TeamID: teamID, Name: "cc-user", Email: "cc@example.com",
+		WorkspaceID: workspaceID, Name: "cc-user", Email: "cc@example.com",
 		PrincipalType: domain.PrincipalTypeHuman,
 	})
 	if err != nil {
@@ -1653,7 +1648,7 @@ func TestFlow_CrossCuttingConsistency(t *testing.T) {
 	}
 
 	ch, err := env.convSvc.Create(ctx, domain.CreateConversationParams{
-		TeamID: teamID, Name: "crosscut",
+		WorkspaceID: workspaceID, Name: "crosscut",
 		Type: domain.ConversationTypePublicChannel, CreatorID: user.ID,
 	})
 	if err != nil {
@@ -1688,22 +1683,21 @@ func TestFlow_CrossCuttingConsistency(t *testing.T) {
 	}
 
 	ug, err := env.ugSvc.Create(ctx, domain.CreateUsergroupParams{
-		TeamID: teamID, Name: "Team", Handle: "team", CreatedBy: user.ID,
+		WorkspaceID: workspaceID, Name: "Workspace", Handle: "workspace", CreatedBy: user.ID,
 	})
 	if err != nil {
 		t.Fatalf("usergroup: %v", err)
 	}
 
 	_, _, err = env.apiKeySvc.Create(ctx, domain.CreateAPIKeyParams{
-		Name: "cc-key", TeamID: teamID, PrincipalID: user.ID,
-		Type: domain.APIKeyTypePersistent, Environment: domain.APIKeyEnvLive,
+		Name: "cc-key", WorkspaceID: workspaceID, UserID: user.ID,
 	})
 	if err != nil {
 		t.Fatalf("api key: %v", err)
 	}
 
 	if _, err := env.eventSvc.CreateSubscription(ctx, domain.CreateEventSubscriptionParams{
-		TeamID: teamID, URL: "https://hooks.example.com",
+		WorkspaceID: workspaceID, URL: "https://hooks.example.com",
 		Type: domain.EventTypeConversationMessageCreated, Secret: "s",
 	}); err != nil {
 		t.Fatalf("subscription: %v", err)
@@ -1715,7 +1709,7 @@ func TestFlow_CrossCuttingConsistency(t *testing.T) {
 		t.Errorf("new events = %d, want 9", after-before)
 	}
 
-	// Each aggregate type has events (some services record empty team_id, so don't filter by it)
+	// Each aggregate type has events (some services record empty workspace_id, so don't filter by it)
 	for _, agg := range []string{
 		domain.AggregateUser, domain.AggregateConversation, domain.AggregateMessage,
 		domain.AggregatePin, domain.AggregateBookmark, domain.AggregateUsergroup,
@@ -1746,7 +1740,7 @@ func TestFlow_CrossCuttingConsistency(t *testing.T) {
 		t.Error("bookmark lost after rebuild")
 	}
 	ugGot, _ := env.ugSvc.Get(ctx, ug.ID)
-	if ugGot.Name != "Team" {
+	if ugGot.Name != "Workspace" {
 		t.Errorf("ug after rebuild = %q", ugGot.Name)
 	}
 }
@@ -1761,7 +1755,7 @@ func TestFlow_CrossCuttingConsistency(t *testing.T) {
 //	correct, and empty results return cleanly.
 //
 // Steps:
-//  1. Create 6 users (1 + 5 more) in the same team.
+//  1. Create 6 users (1 + 5 more) in the same workspace.
 //  2. Paginate users with limit=2 — verify page1 has 2 items and HasMore=true.
 //  3. Fetch page2 with the cursor — verify 2 items.
 //  4. Verify no user ID overlap between page1 and page2.
@@ -1769,17 +1763,17 @@ func TestFlow_CrossCuttingConsistency(t *testing.T) {
 //  6. Paginate message history with limit=2 — verify 2 items.
 //  7. Create 3 more channels.
 //  8. Paginate conversations with limit=2 — verify 2 items and HasMore=true.
-//  9. Query a nonexistent team — verify empty result with HasMore=false.
+//  9. Query a nonexistent workspace — verify empty result with HasMore=false.
 func TestFlow_Pagination(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test")
 	}
 	env := setupAllServices(t)
 	ctx := context.Background()
-	teamID := "T-pagination"
+	workspaceID := "T-pagination"
 
 	user, err := env.userSvc.Create(ctx, domain.CreateUserParams{
-		TeamID: teamID, Name: "paginator", Email: "pag@example.com",
+		WorkspaceID: workspaceID, Name: "paginator", Email: "pag@example.com",
 		PrincipalType: domain.PrincipalTypeHuman,
 	})
 	if err != nil {
@@ -1790,7 +1784,7 @@ func TestFlow_Pagination(t *testing.T) {
 	for i := 0; i < 5; i++ {
 		ts := time.Now().Format("150405.000000")
 		if _, err := env.userSvc.Create(ctx, domain.CreateUserParams{
-			TeamID: teamID, Name: "pu-" + ts, Email: "pu" + ts + "@x.com",
+			WorkspaceID: workspaceID, Name: "pu-" + ts, Email: "pu" + ts + "@x.com",
 			PrincipalType: domain.PrincipalTypeHuman,
 		}); err != nil {
 			t.Fatalf("create user %d: %v", i, err)
@@ -1799,7 +1793,7 @@ func TestFlow_Pagination(t *testing.T) {
 	}
 
 	// Paginate users limit=2
-	page1, err := env.userSvc.List(ctx, domain.ListUsersParams{TeamID: teamID, Limit: 2})
+	page1, err := env.userSvc.List(ctx, domain.ListUsersParams{WorkspaceID: workspaceID, Limit: 2})
 	if err != nil {
 		t.Fatalf("page1: %v", err)
 	}
@@ -1812,7 +1806,7 @@ func TestFlow_Pagination(t *testing.T) {
 
 	// Page 2
 	page2, err := env.userSvc.List(ctx, domain.ListUsersParams{
-		TeamID: teamID, Limit: 2, Cursor: page1.NextCursor,
+		WorkspaceID: workspaceID, Limit: 2, Cursor: page1.NextCursor,
 	})
 	if err != nil {
 		t.Fatalf("page2: %v", err)
@@ -1834,7 +1828,7 @@ func TestFlow_Pagination(t *testing.T) {
 
 	// Message pagination
 	ch, err := env.convSvc.Create(ctx, domain.CreateConversationParams{
-		TeamID: teamID, Name: "pag-ch",
+		WorkspaceID: workspaceID, Name: "pag-ch",
 		Type: domain.ConversationTypePublicChannel, CreatorID: user.ID,
 	})
 	if err != nil {
@@ -1857,14 +1851,14 @@ func TestFlow_Pagination(t *testing.T) {
 	for i := 0; i < 3; i++ {
 		ts := time.Now().Format("150405.000000")
 		if _, err := env.convSvc.Create(ctx, domain.CreateConversationParams{
-			TeamID: teamID, Name: "pch-" + ts,
+			WorkspaceID: workspaceID, Name: "pch-" + ts,
 			Type: domain.ConversationTypePublicChannel, CreatorID: user.ID,
 		}); err != nil {
 			t.Fatalf("create conv %d: %v", i, err)
 		}
 		time.Sleep(1 * time.Millisecond)
 	}
-	convPage, _ := env.convSvc.List(ctx, domain.ListConversationsParams{TeamID: teamID, Limit: 2})
+	convPage, _ := env.convSvc.List(ctx, domain.ListConversationsParams{WorkspaceID: workspaceID, Limit: 2})
 	if len(convPage.Items) != 2 {
 		t.Errorf("conv page = %d", len(convPage.Items))
 	}
@@ -1873,7 +1867,7 @@ func TestFlow_Pagination(t *testing.T) {
 	}
 
 	// Empty result
-	empty, _ := env.userSvc.List(ctx, domain.ListUsersParams{TeamID: "nonexistent", Limit: 10})
+	empty, _ := env.userSvc.List(ctx, domain.ListUsersParams{WorkspaceID: "nonexistent", Limit: 10})
 	if len(empty.Items) != 0 {
 		t.Errorf("empty = %d", len(empty.Items))
 	}
@@ -1906,24 +1900,24 @@ func TestFlow_ConversationTypes(t *testing.T) {
 	}
 	env := setupAllServices(t)
 	ctx := context.Background()
-	teamID := "T-convtypes"
+	workspaceID := "T-convtypes"
 
 	alice, err := env.userSvc.Create(ctx, domain.CreateUserParams{
-		TeamID: teamID, Name: "alice", Email: "alice-dm@example.com",
+		WorkspaceID: workspaceID, Name: "alice", Email: "alice-dm@example.com",
 		PrincipalType: domain.PrincipalTypeHuman,
 	})
 	if err != nil {
 		t.Fatalf("create alice: %v", err)
 	}
 	bob, err := env.userSvc.Create(ctx, domain.CreateUserParams{
-		TeamID: teamID, Name: "bob", Email: "bob-dm@example.com",
+		WorkspaceID: workspaceID, Name: "bob", Email: "bob-dm@example.com",
 		PrincipalType: domain.PrincipalTypeHuman,
 	})
 	if err != nil {
 		t.Fatalf("create bob: %v", err)
 	}
 	charlie, err := env.userSvc.Create(ctx, domain.CreateUserParams{
-		TeamID: teamID, Name: "charlie", Email: "charlie-dm@example.com",
+		WorkspaceID: workspaceID, Name: "charlie", Email: "charlie-dm@example.com",
 		PrincipalType: domain.PrincipalTypeHuman,
 	})
 	if err != nil {
@@ -1932,7 +1926,7 @@ func TestFlow_ConversationTypes(t *testing.T) {
 
 	// DM (IM)
 	dm, err := env.convSvc.Create(ctx, domain.CreateConversationParams{
-		TeamID: teamID, Type: domain.ConversationTypeIM, CreatorID: alice.ID,
+		WorkspaceID: workspaceID, Type: domain.ConversationTypeIM, CreatorID: alice.ID,
 	})
 	if err != nil {
 		t.Fatalf("create DM: %v", err)
@@ -1951,7 +1945,7 @@ func TestFlow_ConversationTypes(t *testing.T) {
 
 	// Group DM (MPIM)
 	mpim, err := env.convSvc.Create(ctx, domain.CreateConversationParams{
-		TeamID: teamID, Type: domain.ConversationTypeMPIM, CreatorID: alice.ID,
+		WorkspaceID: workspaceID, Type: domain.ConversationTypeMPIM, CreatorID: alice.ID,
 	})
 	if err != nil {
 		t.Fatalf("create MPIM: %v", err)
@@ -1973,7 +1967,7 @@ func TestFlow_ConversationTypes(t *testing.T) {
 
 	// Private channel
 	priv, err := env.convSvc.Create(ctx, domain.CreateConversationParams{
-		TeamID: teamID, Name: "secret",
+		WorkspaceID: workspaceID, Name: "secret",
 		Type: domain.ConversationTypePrivateChannel, CreatorID: alice.ID,
 	})
 	if err != nil {
@@ -1985,9 +1979,9 @@ func TestFlow_ConversationTypes(t *testing.T) {
 
 	// List by type: public (should be 0 since we only created IM/MPIM/private)
 	pubConvs, _ := env.convSvc.List(ctx, domain.ListConversationsParams{
-		TeamID: teamID,
-		Types:  []domain.ConversationType{domain.ConversationTypePublicChannel},
-		Limit:  100,
+		WorkspaceID: workspaceID,
+		Types:       []domain.ConversationType{domain.ConversationTypePublicChannel},
+		Limit:       100,
 	})
 	for _, c := range pubConvs.Items {
 		if c.Type != domain.ConversationTypePublicChannel {
@@ -1997,9 +1991,9 @@ func TestFlow_ConversationTypes(t *testing.T) {
 
 	// List by type: IM
 	imConvs, _ := env.convSvc.List(ctx, domain.ListConversationsParams{
-		TeamID: teamID,
-		Types:  []domain.ConversationType{domain.ConversationTypeIM},
-		Limit:  100,
+		WorkspaceID: workspaceID,
+		Types:       []domain.ConversationType{domain.ConversationTypeIM},
+		Limit:       100,
 	})
 	if len(imConvs.Items) != 1 {
 		t.Errorf("IM count = %d, want 1", len(imConvs.Items))
@@ -2017,7 +2011,7 @@ func TestFlow_ConversationTypes(t *testing.T) {
 	}
 
 	// Verify events
-	events := queryEventTypes(t, env, teamID)
+	events := queryEventTypes(t, env, workspaceID)
 	convCreated, memberEvts := 0, 0
 	for _, e := range events {
 		switch e {
@@ -2032,6 +2026,290 @@ func TestFlow_ConversationTypes(t *testing.T) {
 	}
 	if memberEvts < 3 {
 		t.Errorf("member events = %d, want >= 3", memberEvts)
+	}
+}
+
+func TestFlow_CanonicalDMCreate_IsIdempotent(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test")
+	}
+
+	env := setupAllServices(t)
+	workspaceID := "T-canonical-dm"
+	ctx := context.Background()
+
+	alice, err := env.userSvc.Create(ctx, domain.CreateUserParams{
+		WorkspaceID: workspaceID, Name: "alice", Email: "alice-canonical@example.com",
+		PrincipalType: domain.PrincipalTypeHuman,
+	})
+	if err != nil {
+		t.Fatalf("create alice: %v", err)
+	}
+	bob, err := env.userSvc.Create(ctx, domain.CreateUserParams{
+		WorkspaceID: workspaceID, Name: "bob", Email: "bob-canonical@example.com",
+		PrincipalType: domain.PrincipalTypeHuman,
+	})
+	if err != nil {
+		t.Fatalf("create bob: %v", err)
+	}
+
+	aliceCtx := ctxutil.WithUser(ctx, alice.ID, workspaceID)
+	bobCtx := ctxutil.WithUser(ctx, bob.ID, workspaceID)
+
+	firstDM, err := env.convSvc.Create(aliceCtx, domain.CreateConversationParams{
+		WorkspaceID: workspaceID,
+		Type:        domain.ConversationTypeIM,
+		UserIDs:     []string{bob.ID},
+	})
+	if err != nil {
+		t.Fatalf("create first dm: %v", err)
+	}
+	secondDM, err := env.convSvc.Create(bobCtx, domain.CreateConversationParams{
+		WorkspaceID: workspaceID,
+		Type:        domain.ConversationTypeIM,
+		UserIDs:     []string{alice.ID},
+	})
+	if err != nil {
+		t.Fatalf("create second dm: %v", err)
+	}
+
+	if firstDM.ID != secondDM.ID {
+		t.Fatalf("dm ids = %q and %q, want same canonical dm", firstDM.ID, secondDM.ID)
+	}
+
+	imConvs, err := env.convSvc.List(aliceCtx, domain.ListConversationsParams{
+		WorkspaceID: workspaceID,
+		Types:       []domain.ConversationType{domain.ConversationTypeIM},
+		Limit:       10,
+	})
+	if err != nil {
+		t.Fatalf("list ims: %v", err)
+	}
+	if len(imConvs.Items) != 1 {
+		t.Fatalf("im list count = %d, want 1", len(imConvs.Items))
+	}
+	if imConvs.Items[0].ID != firstDM.ID {
+		t.Fatalf("listed dm id = %q, want %q", imConvs.Items[0].ID, firstDM.ID)
+	}
+
+	var createdCount int
+	if err := env.pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM internal_events WHERE workspace_id = $1 AND event_type = $2`,
+		workspaceID,
+		domain.EventConversationCreated,
+	).Scan(&createdCount); err != nil {
+		t.Fatalf("count conversation.created: %v", err)
+	}
+	if createdCount != 1 {
+		t.Fatalf("conversation.created count = %d, want 1", createdCount)
+	}
+}
+
+func TestFlow_ConversationListUnreadAndThreadActivity(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test")
+	}
+
+	env := setupAllServices(t)
+	workspaceID := "T-conv-read-activity"
+	ctx := context.Background()
+
+	alice, err := env.userSvc.Create(ctx, domain.CreateUserParams{
+		WorkspaceID: workspaceID, Name: "alice", Email: "alice-read@example.com",
+		PrincipalType: domain.PrincipalTypeHuman,
+	})
+	if err != nil {
+		t.Fatalf("create alice: %v", err)
+	}
+	bob, err := env.userSvc.Create(ctx, domain.CreateUserParams{
+		WorkspaceID: workspaceID, Name: "bob", Email: "bob-read@example.com",
+		PrincipalType: domain.PrincipalTypeHuman,
+	})
+	if err != nil {
+		t.Fatalf("create bob: %v", err)
+	}
+
+	aliceCtx := ctxutil.WithUser(ctx, alice.ID, workspaceID)
+	bobCtx := ctxutil.WithUser(ctx, bob.ID, workspaceID)
+
+	channelA, err := env.convSvc.Create(aliceCtx, domain.CreateConversationParams{
+		WorkspaceID: workspaceID, Name: "activity-a",
+		Type: domain.ConversationTypePublicChannel,
+	})
+	if err != nil {
+		t.Fatalf("create channel a: %v", err)
+	}
+	channelB, err := env.convSvc.Create(aliceCtx, domain.CreateConversationParams{
+		WorkspaceID: workspaceID, Name: "activity-b",
+		Type: domain.ConversationTypePublicChannel,
+	})
+	if err != nil {
+		t.Fatalf("create channel b: %v", err)
+	}
+
+	if err := env.convSvc.Invite(aliceCtx, channelA.ID, bob.ID); err != nil {
+		t.Fatalf("invite bob to channel a: %v", err)
+	}
+	if err := env.convSvc.Invite(aliceCtx, channelB.ID, bob.ID); err != nil {
+		t.Fatalf("invite bob to channel b: %v", err)
+	}
+
+	root, err := env.msgSvc.PostMessage(aliceCtx, domain.PostMessageParams{
+		ChannelID: channelA.ID,
+		Text:      "root",
+	})
+	if err != nil {
+		t.Fatalf("post root: %v", err)
+	}
+	if err := env.convReadSvc.MarkRead(bobCtx, domain.MarkConversationReadParams{
+		ConversationID: channelA.ID,
+		LastReadTS:     root.TS,
+	}); err != nil {
+		t.Fatalf("mark read: %v", err)
+	}
+
+	time.Sleep(2 * time.Millisecond)
+	topLevelB, err := env.msgSvc.PostMessage(aliceCtx, domain.PostMessageParams{
+		ChannelID: channelB.ID,
+		Text:      "top-level-b",
+	})
+	if err != nil {
+		t.Fatalf("post in channel b: %v", err)
+	}
+
+	time.Sleep(2 * time.Millisecond)
+	firstReply, err := env.msgSvc.PostMessage(bobCtx, domain.PostMessageParams{
+		ChannelID: channelA.ID,
+		ThreadTS:  root.TS,
+		Text:      "reply-1",
+	})
+	if err != nil {
+		t.Fatalf("post first reply: %v", err)
+	}
+
+	time.Sleep(2 * time.Millisecond)
+	secondReply, err := env.msgSvc.PostMessage(aliceCtx, domain.PostMessageParams{
+		ChannelID: channelA.ID,
+		ThreadTS:  root.TS,
+		Text:      "reply-2",
+	})
+	if err != nil {
+		t.Fatalf("post second reply: %v", err)
+	}
+
+	time.Sleep(2 * time.Millisecond)
+	thirdReply, err := env.msgSvc.PostMessage(bobCtx, domain.PostMessageParams{
+		ChannelID: channelA.ID,
+		ThreadTS:  root.TS,
+		Text:      "reply-3",
+	})
+	if err != nil {
+		t.Fatalf("post third reply: %v", err)
+	}
+
+	page, err := env.convSvc.List(bobCtx, domain.ListConversationsParams{
+		WorkspaceID: workspaceID,
+		Types:       []domain.ConversationType{domain.ConversationTypePublicChannel},
+		Limit:       10,
+	})
+	if err != nil {
+		t.Fatalf("list conversations: %v", err)
+	}
+	if len(page.Items) < 2 {
+		t.Fatalf("conversation list count = %d, want at least 2", len(page.Items))
+	}
+	if page.Items[0].ID != channelA.ID {
+		t.Fatalf("first conversation = %q, want %q", page.Items[0].ID, channelA.ID)
+	}
+
+	var listedA *domain.Conversation
+	var listedB *domain.Conversation
+	for i := range page.Items {
+		item := &page.Items[i]
+		switch item.ID {
+		case channelA.ID:
+			listedA = item
+		case channelB.ID:
+			listedB = item
+		}
+	}
+	if listedA == nil || listedB == nil {
+		t.Fatalf("missing listed conversations: a=%v b=%v", listedA != nil, listedB != nil)
+	}
+
+	if listedA.LastMessageTS == nil || *listedA.LastMessageTS != root.TS {
+		t.Fatalf("channel a last_message_ts = %v, want %q", listedA.LastMessageTS, root.TS)
+	}
+	if listedA.LastActivityTS == nil || *listedA.LastActivityTS != thirdReply.TS {
+		t.Fatalf("channel a last_activity_ts = %v, want %q", listedA.LastActivityTS, thirdReply.TS)
+	}
+	if listedA.LastReadTS == nil || *listedA.LastReadTS != root.TS {
+		t.Fatalf("channel a last_read_ts = %v, want %q", listedA.LastReadTS, root.TS)
+	}
+	if listedA.HasUnread == nil || *listedA.HasUnread != false {
+		t.Fatalf("channel a has_unread = %v, want false", listedA.HasUnread)
+	}
+
+	if listedB.LastMessageTS == nil || *listedB.LastMessageTS != topLevelB.TS {
+		t.Fatalf("channel b last_message_ts = %v, want %q", listedB.LastMessageTS, topLevelB.TS)
+	}
+	if listedB.LastReadTS != nil {
+		t.Fatalf("channel b last_read_ts = %v, want nil", listedB.LastReadTS)
+	}
+	if listedB.HasUnread == nil || *listedB.HasUnread != true {
+		t.Fatalf("channel b has_unread = %v, want true", listedB.HasUnread)
+	}
+
+	rootMessage, err := env.msgSvc.GetMessage(aliceCtx, channelA.ID, root.TS)
+	if err != nil {
+		t.Fatalf("get root message: %v", err)
+	}
+	if rootMessage.ReplyCount != 3 {
+		t.Fatalf("reply_count = %d, want 3", rootMessage.ReplyCount)
+	}
+	if rootMessage.ReplyUsersCount != 2 {
+		t.Fatalf("reply_users_count = %d, want 2", rootMessage.ReplyUsersCount)
+	}
+	if rootMessage.LatestReply == nil || *rootMessage.LatestReply != thirdReply.TS {
+		t.Fatalf("latest_reply = %v, want %q", rootMessage.LatestReply, thirdReply.TS)
+	}
+
+	time.Sleep(2 * time.Millisecond)
+	followUp, err := env.msgSvc.PostMessage(aliceCtx, domain.PostMessageParams{
+		ChannelID: channelA.ID,
+		Text:      "follow-up",
+	})
+	if err != nil {
+		t.Fatalf("post follow-up: %v", err)
+	}
+
+	page, err = env.convSvc.List(bobCtx, domain.ListConversationsParams{
+		WorkspaceID: workspaceID,
+		Types:       []domain.ConversationType{domain.ConversationTypePublicChannel},
+		Limit:       10,
+	})
+	if err != nil {
+		t.Fatalf("list conversations after follow-up: %v", err)
+	}
+
+	var refreshedA *domain.Conversation
+	for i := range page.Items {
+		if page.Items[i].ID == channelA.ID {
+			refreshedA = &page.Items[i]
+			break
+		}
+	}
+	if refreshedA == nil {
+		t.Fatal("channel a missing after follow-up")
+	}
+	if refreshedA.LastMessageTS == nil || *refreshedA.LastMessageTS != followUp.TS {
+		t.Fatalf("channel a refreshed last_message_ts = %v, want %q", refreshedA.LastMessageTS, followUp.TS)
+	}
+	if refreshedA.HasUnread == nil || *refreshedA.HasUnread != true {
+		t.Fatalf("channel a refreshed has_unread = %v, want true", refreshedA.HasUnread)
+	}
+	if firstReply.TS == secondReply.TS {
+		t.Fatal("expected unique reply timestamps")
 	}
 }
 
@@ -2059,17 +2337,17 @@ func TestFlow_ConcurrentEdgeCases(t *testing.T) {
 	}
 	env := setupAllServices(t)
 	ctx := context.Background()
-	teamID := "T-concurrent"
+	workspaceID := "T-concurrent"
 
 	user, err := env.userSvc.Create(ctx, domain.CreateUserParams{
-		TeamID: teamID, Name: "conc", Email: "conc@example.com",
+		WorkspaceID: workspaceID, Name: "conc", Email: "conc@example.com",
 		PrincipalType: domain.PrincipalTypeHuman,
 	})
 	if err != nil {
 		t.Fatalf("create user: %v", err)
 	}
 	ch, err := env.convSvc.Create(ctx, domain.CreateConversationParams{
-		TeamID: teamID, Name: "conc-ch",
+		WorkspaceID: workspaceID, Name: "conc-ch",
 		Type: domain.ConversationTypePublicChannel, CreatorID: user.ID,
 	})
 	if err != nil {
@@ -2100,7 +2378,7 @@ func TestFlow_ConcurrentEdgeCases(t *testing.T) {
 
 	// Multi-user reactions on same message
 	user2, _ := env.userSvc.Create(ctx, domain.CreateUserParams{
-		TeamID: teamID, Name: "conc2", Email: "conc2@example.com",
+		WorkspaceID: workspaceID, Name: "conc2", Email: "conc2@example.com",
 		PrincipalType: domain.PrincipalTypeHuman,
 	})
 	env.msgSvc.AddReaction(ctx, domain.AddReactionParams{
@@ -2118,8 +2396,7 @@ func TestFlow_ConcurrentEdgeCases(t *testing.T) {
 
 	// Create + immediately revoke API key
 	key, rawKey, err := env.apiKeySvc.Create(ctx, domain.CreateAPIKeyParams{
-		Name: "ephemeral", TeamID: teamID, PrincipalID: user.ID,
-		Type: domain.APIKeyTypePersistent, Environment: domain.APIKeyEnvTest,
+		Name: "ephemeral", WorkspaceID: workspaceID, UserID: user.ID,
 	})
 	if err != nil {
 		t.Fatalf("create key: %v", err)
@@ -2135,7 +2412,7 @@ func TestFlow_ConcurrentEdgeCases(t *testing.T) {
 	// Update user and verify lookup
 	newName := "updated-conc"
 	env.userSvc.Update(ctx, user.ID, domain.UpdateUserParams{RealName: &newName})
-	byEmail, _ := env.userSvc.GetByEmail(ctxutil.WithUser(ctx, user.ID, teamID), "conc@example.com")
+	byEmail, _ := env.userSvc.GetByEmail(ctxutil.WithUser(ctx, user.ID, workspaceID), "conc@example.com")
 	if byEmail.RealName != "updated-conc" {
 		t.Errorf("real_name = %q", byEmail.RealName)
 	}
@@ -2198,7 +2475,7 @@ func TestFlow_ConcurrentEdgeCases(t *testing.T) {
 // 13. Update the profile struct (title, phone, status) — verify.
 // 14. Create a system principal (principal_type=system, is_bot=true).
 // 15. Create an agent principal with owner_id pointing to the human user.
-// 16. List all users for the team — verify count=3.
+// 16. List all users for the workspace — verify count=3.
 // 17. Verify event counts: 3 user.created, >= 8 user.updated.
 func TestFlow_UserProfileManagement(t *testing.T) {
 	if testing.Short() {
@@ -2206,11 +2483,11 @@ func TestFlow_UserProfileManagement(t *testing.T) {
 	}
 	env := setupAllServices(t)
 	ctx := context.Background()
-	teamID := "T-profile"
+	workspaceID := "T-profile"
 
 	// Step 1: Create user with full profile
 	user, err := env.userSvc.Create(ctx, domain.CreateUserParams{
-		TeamID:        teamID,
+		WorkspaceID:   workspaceID,
 		Name:          "fullprofile",
 		RealName:      "Full Profile User",
 		DisplayName:   "FPU",
@@ -2247,7 +2524,7 @@ func TestFlow_UserProfileManagement(t *testing.T) {
 	}
 
 	// Step 3: Get by email
-	emailCtx := ctxutil.WithUser(ctx, user.ID, teamID)
+	emailCtx := ctxutil.WithUser(ctx, user.ID, workspaceID)
 	byEmail, err := env.userSvc.GetByEmail(emailCtx, "full@example.com")
 	if err != nil {
 		t.Fatalf("get by email: %v", err)
@@ -2343,7 +2620,7 @@ func TestFlow_UserProfileManagement(t *testing.T) {
 
 	// Step 13: Create system principal
 	systemUser, err := env.userSvc.Create(ctx, domain.CreateUserParams{
-		TeamID:        teamID,
+		WorkspaceID:   workspaceID,
 		Name:          "system-bot",
 		Email:         "system@example.com",
 		PrincipalType: domain.PrincipalTypeSystem,
@@ -2361,7 +2638,7 @@ func TestFlow_UserProfileManagement(t *testing.T) {
 
 	// Step 14: Create agent with owner
 	agent, err := env.userSvc.Create(ctx, domain.CreateUserParams{
-		TeamID:        teamID,
+		WorkspaceID:   workspaceID,
 		Name:          "devin-agent",
 		Email:         "devin@example.com",
 		PrincipalType: domain.PrincipalTypeAgent,
@@ -2375,8 +2652,8 @@ func TestFlow_UserProfileManagement(t *testing.T) {
 		t.Errorf("owner_id = %q, want %q", agent.OwnerID, user.ID)
 	}
 
-	// Step 15: List all users for team
-	allUsers, err := env.userSvc.List(ctx, domain.ListUsersParams{TeamID: teamID, Limit: 100})
+	// Step 15: List all users for workspace
+	allUsers, err := env.userSvc.List(ctx, domain.ListUsersParams{WorkspaceID: workspaceID, Limit: 100})
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}
@@ -2385,7 +2662,7 @@ func TestFlow_UserProfileManagement(t *testing.T) {
 	}
 
 	// Verify event sequence
-	events := queryEventTypes(t, env, teamID)
+	events := queryEventTypes(t, env, workspaceID)
 	userCreated, userUpdated := 0, 0
 	for _, e := range events {
 		switch e {
@@ -2435,24 +2712,24 @@ func TestFlow_MultiChannelWorkspace(t *testing.T) {
 	}
 	env := setupAllServices(t)
 	ctx := context.Background()
-	teamID := "T-multichan"
+	workspaceID := "T-multichan"
 
 	alice, err := env.userSvc.Create(ctx, domain.CreateUserParams{
-		TeamID: teamID, Name: "alice", Email: "alice-mc@example.com",
+		WorkspaceID: workspaceID, Name: "alice", Email: "alice-mc@example.com",
 		PrincipalType: domain.PrincipalTypeHuman,
 	})
 	if err != nil {
 		t.Fatalf("create alice: %v", err)
 	}
 	bob, err := env.userSvc.Create(ctx, domain.CreateUserParams{
-		TeamID: teamID, Name: "bob", Email: "bob-mc@example.com",
+		WorkspaceID: workspaceID, Name: "bob", Email: "bob-mc@example.com",
 		PrincipalType: domain.PrincipalTypeHuman,
 	})
 	if err != nil {
 		t.Fatalf("create bob: %v", err)
 	}
 	charlie, err := env.userSvc.Create(ctx, domain.CreateUserParams{
-		TeamID: teamID, Name: "charlie", Email: "charlie-mc@example.com",
+		WorkspaceID: workspaceID, Name: "charlie", Email: "charlie-mc@example.com",
 		PrincipalType: domain.PrincipalTypeHuman,
 	})
 	if err != nil {
@@ -2464,7 +2741,7 @@ func TestFlow_MultiChannelWorkspace(t *testing.T) {
 	channels := make([]*domain.Conversation, len(channelNames))
 	for i, name := range channelNames {
 		ch, err := env.convSvc.Create(ctx, domain.CreateConversationParams{
-			TeamID: teamID, Name: name,
+			WorkspaceID: workspaceID, Name: name,
 			Type: domain.ConversationTypePublicChannel, CreatorID: alice.ID,
 		})
 		if err != nil {
@@ -2558,7 +2835,7 @@ func TestFlow_MultiChannelWorkspace(t *testing.T) {
 
 	// List all channels
 	allConvs, err := env.convSvc.List(ctx, domain.ListConversationsParams{
-		TeamID: teamID, Limit: 100,
+		WorkspaceID: workspaceID, Limit: 100,
 	})
 	if err != nil {
 		t.Fatalf("list: %v", err)
@@ -2572,7 +2849,7 @@ func TestFlow_MultiChannelWorkspace(t *testing.T) {
 		t.Fatalf("archive: %v", err)
 	}
 	filtered, _ := env.convSvc.List(ctx, domain.ListConversationsParams{
-		TeamID: teamID, ExcludeArchived: true, Limit: 100,
+		WorkspaceID: workspaceID, ExcludeArchived: true, Limit: 100,
 	})
 	if len(filtered.Items) != 3 {
 		t.Errorf("non-archived = %d, want 3", len(filtered.Items))
@@ -2619,13 +2896,13 @@ func TestFlow_DeepThreading(t *testing.T) {
 	}
 	env := setupAllServices(t)
 	ctx := context.Background()
-	teamID := "T-deepthread"
+	workspaceID := "T-deepthread"
 
 	// Setup 3 users in a channel
 	users := make([]*domain.User, 3)
 	for i, name := range []string{"alice", "bob", "charlie"} {
 		u, err := env.userSvc.Create(ctx, domain.CreateUserParams{
-			TeamID: teamID, Name: name, Email: name + "-dt@example.com",
+			WorkspaceID: workspaceID, Name: name, Email: name + "-dt@example.com",
 			PrincipalType: domain.PrincipalTypeHuman,
 		})
 		if err != nil {
@@ -2635,7 +2912,7 @@ func TestFlow_DeepThreading(t *testing.T) {
 	}
 
 	ch, err := env.convSvc.Create(ctx, domain.CreateConversationParams{
-		TeamID: teamID, Name: "threads",
+		WorkspaceID: workspaceID, Name: "threads",
 		Type: domain.ConversationTypePublicChannel, CreatorID: users[0].ID,
 	})
 	if err != nil {
@@ -2805,17 +3082,17 @@ func TestFlow_BookmarkFullCRUD(t *testing.T) {
 	}
 	env := setupAllServices(t)
 	ctx := context.Background()
-	teamID := "T-bookmarks"
+	workspaceID := "T-bookmarks"
 
 	user, err := env.userSvc.Create(ctx, domain.CreateUserParams{
-		TeamID: teamID, Name: "bookmarker", Email: "bm@example.com",
+		WorkspaceID: workspaceID, Name: "bookmarker", Email: "bm@example.com",
 		PrincipalType: domain.PrincipalTypeHuman,
 	})
 	if err != nil {
 		t.Fatalf("create user: %v", err)
 	}
 	user2, err := env.userSvc.Create(ctx, domain.CreateUserParams{
-		TeamID: teamID, Name: "bookmarker2", Email: "bm2@example.com",
+		WorkspaceID: workspaceID, Name: "bookmarker2", Email: "bm2@example.com",
 		PrincipalType: domain.PrincipalTypeHuman,
 	})
 	if err != nil {
@@ -2823,7 +3100,7 @@ func TestFlow_BookmarkFullCRUD(t *testing.T) {
 	}
 
 	ch, err := env.convSvc.Create(ctx, domain.CreateConversationParams{
-		TeamID: teamID, Name: "bookmarks-ch",
+		WorkspaceID: workspaceID, Name: "bookmarks-ch",
 		Type: domain.ConversationTypePublicChannel, CreatorID: user.ID,
 	})
 	if err != nil {
@@ -2918,7 +3195,7 @@ func TestFlow_BookmarkFullCRUD(t *testing.T) {
 
 	// Create bookmark in second channel
 	ch2, err := env.convSvc.Create(ctx, domain.CreateConversationParams{
-		TeamID: teamID, Name: "other-ch",
+		WorkspaceID: workspaceID, Name: "other-ch",
 		Type: domain.ConversationTypePublicChannel, CreatorID: user.ID,
 	})
 	if err != nil {
@@ -2976,10 +3253,10 @@ func TestFlow_PinLifecycle(t *testing.T) {
 	}
 	env := setupAllServices(t)
 	ctx := context.Background()
-	teamID := "T-pins"
+	workspaceID := "T-pins"
 
 	user, err := env.userSvc.Create(ctx, domain.CreateUserParams{
-		TeamID: teamID, Name: "pinner", Email: "pinner@example.com",
+		WorkspaceID: workspaceID, Name: "pinner", Email: "pinner@example.com",
 		PrincipalType: domain.PrincipalTypeHuman,
 	})
 	if err != nil {
@@ -2987,7 +3264,7 @@ func TestFlow_PinLifecycle(t *testing.T) {
 	}
 
 	ch, err := env.convSvc.Create(ctx, domain.CreateConversationParams{
-		TeamID: teamID, Name: "pinboard",
+		WorkspaceID: workspaceID, Name: "pinboard",
 		Type: domain.ConversationTypePublicChannel, CreatorID: user.ID,
 	})
 	if err != nil {
@@ -3115,28 +3392,28 @@ func TestFlow_FileSharingAcrossChannels(t *testing.T) {
 	}
 	env := setupAllServices(t)
 	ctx := context.Background()
-	teamID := "T-fileshare"
+	workspaceID := "T-fileshare"
 
 	user, err := env.userSvc.Create(ctx, domain.CreateUserParams{
-		TeamID: teamID, Name: "sharer", Email: "sharer@example.com",
+		WorkspaceID: workspaceID, Name: "sharer", Email: "sharer@example.com",
 		PrincipalType: domain.PrincipalTypeHuman,
 	})
 	if err != nil {
 		t.Fatalf("create user: %v", err)
 	}
-	ctx = ctxutil.WithUser(ctx, user.ID, teamID)
+	ctx = ctxutil.WithUser(ctx, user.ID, workspaceID)
 
 	// Create 3 channels
 	ch1, _ := env.convSvc.Create(ctx, domain.CreateConversationParams{
-		TeamID: teamID, Name: "design",
+		WorkspaceID: workspaceID, Name: "design",
 		Type: domain.ConversationTypePublicChannel, CreatorID: user.ID,
 	})
 	ch2, _ := env.convSvc.Create(ctx, domain.CreateConversationParams{
-		TeamID: teamID, Name: "dev",
+		WorkspaceID: workspaceID, Name: "dev",
 		Type: domain.ConversationTypePublicChannel, CreatorID: user.ID,
 	})
 	ch3, _ := env.convSvc.Create(ctx, domain.CreateConversationParams{
-		TeamID: teamID, Name: "product",
+		WorkspaceID: workspaceID, Name: "product",
 		Type: domain.ConversationTypePublicChannel, CreatorID: user.ID,
 	})
 
@@ -3247,8 +3524,8 @@ func TestFlow_FileSharingAcrossChannels(t *testing.T) {
 //
 // Steps:
 //  1. Create a user.
-//  2. Create a live key (sk_live_) with [read, write] — verify prefix.
-//  3. Create a test key (sk_test_) with [read] — verify prefix.
+//  2. Create a live key (sk_) with [read, write] — verify prefix.
+//  3. Create a test key (sk_) with [read] — verify prefix.
 //  4. Create a restricted key with [deploy] permission.
 //  5. Validate each key — verify environment and permissions match.
 //  6. List all keys — verify count=3.
@@ -3268,10 +3545,10 @@ func TestFlow_MultipleAPIKeys(t *testing.T) {
 	}
 	env := setupAllServices(t)
 	ctx := context.Background()
-	teamID := "T-multikey"
+	workspaceID := "T-multikey"
 
 	user, err := env.userSvc.Create(ctx, domain.CreateUserParams{
-		TeamID: teamID, Name: "multikey", Email: "multikey@example.com",
+		WorkspaceID: workspaceID, Name: "multikey", Email: "multikey@example.com",
 		PrincipalType: domain.PrincipalTypeHuman,
 	})
 	if err != nil {
@@ -3280,34 +3557,31 @@ func TestFlow_MultipleAPIKeys(t *testing.T) {
 
 	// Create live key with read/write permissions
 	liveKey, liveRaw, err := env.apiKeySvc.Create(ctx, domain.CreateAPIKeyParams{
-		Name: "production", TeamID: teamID, PrincipalID: user.ID,
-		Type: domain.APIKeyTypePersistent, Environment: domain.APIKeyEnvLive,
+		Name: "production", WorkspaceID: workspaceID, UserID: user.ID,
 		Permissions: []string{"read", "write"},
 	})
 	if err != nil {
 		t.Fatalf("create live key: %v", err)
 	}
-	if !strings.HasPrefix(liveRaw, "sk_live_") {
+	if !strings.HasPrefix(liveRaw, "sk_") {
 		t.Errorf("live prefix: %q", liveRaw[:min(8, len(liveRaw))])
 	}
 
 	// Create test key with read-only permissions
 	testKey, testRaw, err := env.apiKeySvc.Create(ctx, domain.CreateAPIKeyParams{
-		Name: "staging", TeamID: teamID, PrincipalID: user.ID,
-		Type: domain.APIKeyTypePersistent, Environment: domain.APIKeyEnvTest,
+		Name: "staging", WorkspaceID: workspaceID, UserID: user.ID,
 		Permissions: []string{"read"},
 	})
 	if err != nil {
 		t.Fatalf("create test key: %v", err)
 	}
-	if !strings.HasPrefix(testRaw, "sk_test_") {
+	if !strings.HasPrefix(testRaw, "sk_") {
 		t.Errorf("test prefix: %q", testRaw[:min(8, len(testRaw))])
 	}
 
 	// Create restricted key
 	restrictedKey, restrictedRaw, err := env.apiKeySvc.Create(ctx, domain.CreateAPIKeyParams{
-		Name: "ci-deploy", TeamID: teamID, PrincipalID: user.ID,
-		Type: domain.APIKeyTypeRestricted, Environment: domain.APIKeyEnvLive,
+		Name: "ci-deploy", WorkspaceID: workspaceID, UserID: user.ID,
 		Permissions: []string{"deploy"},
 	})
 	if err != nil {
@@ -3319,19 +3593,13 @@ func TestFlow_MultipleAPIKeys(t *testing.T) {
 	if err != nil {
 		t.Fatalf("validate live: %v", err)
 	}
-	if liveVal.Environment != domain.APIKeyEnvLive {
-		t.Errorf("live env = %q", liveVal.Environment)
-	}
 	if len(liveVal.Permissions) != 2 {
 		t.Errorf("live permissions = %v", liveVal.Permissions)
 	}
 
-	testVal, err := env.apiKeySvc.ValidateAPIKey(ctx, testRaw)
+	_, err = env.apiKeySvc.ValidateAPIKey(ctx, testRaw)
 	if err != nil {
 		t.Fatalf("validate test: %v", err)
-	}
-	if testVal.Environment != domain.APIKeyEnvTest {
-		t.Errorf("test env = %q", testVal.Environment)
 	}
 
 	restrictedVal, err := env.apiKeySvc.ValidateAPIKey(ctx, restrictedRaw)
@@ -3344,7 +3612,7 @@ func TestFlow_MultipleAPIKeys(t *testing.T) {
 
 	// List all keys
 	allKeys, err := env.apiKeySvc.List(ctx, domain.ListAPIKeysParams{
-		TeamID: teamID, Limit: 100,
+		WorkspaceID: workspaceID, Limit: 100,
 	})
 	if err != nil {
 		t.Fatalf("list: %v", err)
@@ -3381,14 +3649,14 @@ func TestFlow_MultipleAPIKeys(t *testing.T) {
 	}
 
 	// List without revoked — should be 2
-	active, _ := env.apiKeySvc.List(ctx, domain.ListAPIKeysParams{TeamID: teamID, Limit: 100})
+	active, _ := env.apiKeySvc.List(ctx, domain.ListAPIKeysParams{WorkspaceID: workspaceID, Limit: 100})
 	if len(active.Items) != 2 {
 		t.Errorf("active count = %d, want 2", len(active.Items))
 	}
 
 	// List with revoked — should be 3
 	withRevoked, _ := env.apiKeySvc.List(ctx, domain.ListAPIKeysParams{
-		TeamID: teamID, IncludeRevoked: true, Limit: 100,
+		WorkspaceID: workspaceID, IncludeRevoked: true, Limit: 100,
 	})
 	if len(withRevoked.Items) != 3 {
 		t.Errorf("with revoked = %d, want 3", len(withRevoked.Items))
@@ -3409,7 +3677,7 @@ func TestFlow_MultipleAPIKeys(t *testing.T) {
 	}
 
 	// Verify events
-	events := queryEventTypes(t, env, teamID)
+	events := queryEventTypes(t, env, workspaceID)
 	akCreated, akUpdated, akRevoked := 0, 0, 0
 	for _, e := range events {
 		switch e {
@@ -3459,14 +3727,14 @@ func TestFlow_SubscriptionEventTypeMatching(t *testing.T) {
 	}
 	env := setupAllServices(t)
 	ctx := context.Background()
-	teamID := "T-submatch"
+	workspaceID := "T-submatch"
 
 	// Create subscription for message events only
 	msgSub, err := env.eventSvc.CreateSubscription(ctx, domain.CreateEventSubscriptionParams{
-		TeamID: teamID,
-		URL:    "https://hooks.example.com/messages",
-		Type:   domain.EventTypeConversationMessageCreated,
-		Secret: "msg-secret",
+		WorkspaceID: workspaceID,
+		URL:         "https://hooks.example.com/messages",
+		Type:        domain.EventTypeConversationMessageCreated,
+		Secret:      "msg-secret",
 	})
 	if err != nil {
 		t.Fatalf("create msg sub: %v", err)
@@ -3477,10 +3745,10 @@ func TestFlow_SubscriptionEventTypeMatching(t *testing.T) {
 
 	// Create subscription for channel events only
 	chSub, err := env.eventSvc.CreateSubscription(ctx, domain.CreateEventSubscriptionParams{
-		TeamID: teamID,
-		URL:    "https://hooks.example.com/channels",
-		Type:   domain.EventTypeConversationCreated,
-		Secret: "ch-secret",
+		WorkspaceID: workspaceID,
+		URL:         "https://hooks.example.com/channels",
+		Type:        domain.EventTypeConversationCreated,
+		Secret:      "ch-secret",
 	})
 	if err != nil {
 		t.Fatalf("create ch sub: %v", err)
@@ -3488,17 +3756,17 @@ func TestFlow_SubscriptionEventTypeMatching(t *testing.T) {
 
 	// Create catch-all subscription
 	allSub, err := env.eventSvc.CreateSubscription(ctx, domain.CreateEventSubscriptionParams{
-		TeamID: teamID,
-		URL:    "https://hooks.example.com/all",
-		Type:   domain.EventTypeConversationMessageCreated,
-		Secret: "all-secret",
+		WorkspaceID: workspaceID,
+		URL:         "https://hooks.example.com/all",
+		Type:        domain.EventTypeConversationMessageCreated,
+		Secret:      "all-secret",
 	})
 	if err != nil {
 		t.Fatalf("create all sub: %v", err)
 	}
 
 	// Verify all 3 subscriptions exist
-	subs, _ := env.eventSvc.ListSubscriptions(ctx, domain.ListEventSubscriptionsParams{TeamID: teamID})
+	subs, _ := env.eventSvc.ListSubscriptions(ctx, domain.ListEventSubscriptionsParams{WorkspaceID: workspaceID})
 	if len(subs) != 3 {
 		t.Errorf("sub count = %d, want 3", len(subs))
 	}
@@ -3560,7 +3828,7 @@ func TestFlow_SubscriptionEventTypeMatching(t *testing.T) {
 	}
 
 	// List — should be 2
-	subs, _ = env.eventSvc.ListSubscriptions(ctx, domain.ListEventSubscriptionsParams{TeamID: teamID})
+	subs, _ = env.eventSvc.ListSubscriptions(ctx, domain.ListEventSubscriptionsParams{WorkspaceID: workspaceID})
 	if len(subs) != 2 {
 		t.Errorf("after delete = %d, want 2", len(subs))
 	}
@@ -3619,20 +3887,20 @@ func TestFlow_ComplexProjectionRebuild(t *testing.T) {
 	}
 	env := setupAllServices(t)
 	ctx := context.Background()
-	teamID := "T-rebuild"
+	workspaceID := "T-rebuild"
 
 	// Build a rich workspace state
 	admin, err := env.userSvc.Create(ctx, domain.CreateUserParams{
-		TeamID: teamID, Name: "admin", Email: "admin-rb@example.com",
+		WorkspaceID: workspaceID, Name: "admin", Email: "admin-rb@example.com",
 		PrincipalType: domain.PrincipalTypeHuman, AccountType: domain.AccountTypeAdmin,
 	})
 	if err != nil {
 		t.Fatalf("create admin: %v", err)
 	}
-	ctx = ctxutil.WithUser(ctx, admin.ID, teamID)
+	ctx = ctxutil.WithUser(ctx, admin.ID, workspaceID)
 
 	agent, err := env.userSvc.Create(ctx, domain.CreateUserParams{
-		TeamID: teamID, Name: "agent", Email: "agent-rb@example.com",
+		WorkspaceID: workspaceID, Name: "agent", Email: "agent-rb@example.com",
 		PrincipalType: domain.PrincipalTypeAgent, OwnerID: admin.ID, IsBot: true,
 	})
 	if err != nil {
@@ -3641,7 +3909,7 @@ func TestFlow_ComplexProjectionRebuild(t *testing.T) {
 
 	// Create channel with topic and purpose
 	ch, err := env.convSvc.Create(ctx, domain.CreateConversationParams{
-		TeamID: teamID, Name: "rebuild-test",
+		WorkspaceID: workspaceID, Name: "rebuild-test",
 		Type: domain.ConversationTypePublicChannel, CreatorID: admin.ID,
 	})
 	if err != nil {
@@ -3681,7 +3949,7 @@ func TestFlow_ComplexProjectionRebuild(t *testing.T) {
 
 	// Usergroup
 	ug, _ := env.ugSvc.Create(ctx, domain.CreateUsergroupParams{
-		TeamID: teamID, Name: "Rebuilders", Handle: "rebuilders", CreatedBy: admin.ID,
+		WorkspaceID: workspaceID, Name: "Rebuilders", Handle: "rebuilders", CreatedBy: admin.ID,
 	})
 	env.ugSvc.SetUsers(ctx, ug.ID, []string{admin.ID, agent.ID})
 
@@ -3693,14 +3961,13 @@ func TestFlow_ComplexProjectionRebuild(t *testing.T) {
 
 	// API key
 	apiKey, apiKeyRaw, _ := env.apiKeySvc.Create(ctx, domain.CreateAPIKeyParams{
-		Name: "rebuild-key", TeamID: teamID, PrincipalID: admin.ID,
-		Type: domain.APIKeyTypePersistent, Environment: domain.APIKeyEnvLive,
+		Name: "rebuild-key", WorkspaceID: workspaceID, UserID: admin.ID,
 		Permissions: []string{"read", "write"},
 	})
 
 	// Subscription
 	sub, _ := env.eventSvc.CreateSubscription(ctx, domain.CreateEventSubscriptionParams{
-		TeamID: teamID, URL: "https://hooks.rebuild.com",
+		WorkspaceID: workspaceID, URL: "https://hooks.rebuild.com",
 		Type: domain.EventTypeConversationMessageCreated, Secret: "rebuild-secret",
 	})
 
@@ -3844,17 +4111,17 @@ func TestFlow_MessageMetadataAndBlocks(t *testing.T) {
 	}
 	env := setupAllServices(t)
 	ctx := context.Background()
-	teamID := "T-blocks"
+	workspaceID := "T-blocks"
 
 	user, err := env.userSvc.Create(ctx, domain.CreateUserParams{
-		TeamID: teamID, Name: "richcontent", Email: "rich@example.com",
+		WorkspaceID: workspaceID, Name: "richcontent", Email: "rich@example.com",
 		PrincipalType: domain.PrincipalTypeHuman,
 	})
 	if err != nil {
 		t.Fatalf("create user: %v", err)
 	}
 	ch, err := env.convSvc.Create(ctx, domain.CreateConversationParams{
-		TeamID: teamID, Name: "rich-messages",
+		WorkspaceID: workspaceID, Name: "rich-messages",
 		Type: domain.ConversationTypePublicChannel, CreatorID: user.ID,
 	})
 	if err != nil {
@@ -3989,10 +4256,10 @@ func TestFlow_ConversationCreationWithTopicPurpose(t *testing.T) {
 	}
 	env := setupAllServices(t)
 	ctx := context.Background()
-	teamID := "T-convfull"
+	workspaceID := "T-convfull"
 
 	user, err := env.userSvc.Create(ctx, domain.CreateUserParams{
-		TeamID: teamID, Name: "creator", Email: "creator@example.com",
+		WorkspaceID: workspaceID, Name: "creator", Email: "creator@example.com",
 		PrincipalType: domain.PrincipalTypeHuman,
 	})
 	if err != nil {
@@ -4001,12 +4268,12 @@ func TestFlow_ConversationCreationWithTopicPurpose(t *testing.T) {
 
 	// Create with topic and purpose
 	ch, err := env.convSvc.Create(ctx, domain.CreateConversationParams{
-		TeamID:    teamID,
-		Name:      "full-channel",
-		Type:      domain.ConversationTypePublicChannel,
-		CreatorID: user.ID,
-		Topic:     "Initial Topic",
-		Purpose:   "Initial Purpose",
+		WorkspaceID: workspaceID,
+		Name:        "full-channel",
+		Type:        domain.ConversationTypePublicChannel,
+		CreatorID:   user.ID,
+		Topic:       "Initial Topic",
+		Purpose:     "Initial Purpose",
 	})
 	if err != nil {
 		t.Fatalf("create: %v", err)
@@ -4059,7 +4326,7 @@ func TestFlow_ConversationCreationWithTopicPurpose(t *testing.T) {
 	for i := 0; i < 3; i++ {
 		ts := time.Now().Format("150405.000000")
 		u, err := env.userSvc.Create(ctx, domain.CreateUserParams{
-			TeamID: teamID, Name: "member-" + ts, Email: "m" + ts + "@x.com",
+			WorkspaceID: workspaceID, Name: "member-" + ts, Email: "m" + ts + "@x.com",
 			PrincipalType: domain.PrincipalTypeHuman,
 		})
 		if err != nil {
@@ -4115,7 +4382,7 @@ func TestFlow_ConversationCreationWithTopicPurpose(t *testing.T) {
 	}
 
 	// Verify comprehensive event sequence
-	events := queryEventTypes(t, env, teamID)
+	events := queryEventTypes(t, env, workspaceID)
 	convEvents := 0
 	for _, e := range events {
 		if strings.HasPrefix(e, "conversation.") {
@@ -4151,9 +4418,9 @@ func TestFlow_ConversationCreationWithTopicPurpose(t *testing.T) {
 //
 // Steps:
 //  1. Create 5 users (A, B, C, D, E).
-//  2. Create usergroup "Frontend Team" with handle="frontend".
+//  2. Create usergroup "Frontend Workspace" with handle="frontend".
 //  3. Set initial members to [A, B, C] — verify count=3.
-//  4. Update name to "Frontend & Mobile Team".
+//  4. Update name to "Frontend & Mobile Workspace".
 //  5. Update handle to "frontend-mobile".
 //  6. Update description to "Frontend and Mobile developers".
 //  7. Verify all 3 fields via Get.
@@ -4164,7 +4431,7 @@ func TestFlow_ConversationCreationWithTopicPurpose(t *testing.T) {
 // 11. List with include_disabled=false — verify count=0.
 // 12. List with include_disabled=true — verify count=1.
 // 13. Re-enable the usergroup.
-// 14. Create a second usergroup "Backend Team" with members [B, C].
+// 14. Create a second usergroup "Backend Workspace" with members [B, C].
 // 15. List all groups — verify count=2.
 // 16. Verify user C is in BOTH groups.
 // 17. Perform projection rebuild — verify name and handle survive.
@@ -4174,13 +4441,13 @@ func TestFlow_UsergroupFullLifecycle(t *testing.T) {
 	}
 	env := setupAllServices(t)
 	ctx := context.Background()
-	teamID := "T-ugfull"
+	workspaceID := "T-ugfull"
 
 	// Create 5 users
 	users := make([]*domain.User, 5)
 	for i := 0; i < 5; i++ {
 		u, err := env.userSvc.Create(ctx, domain.CreateUserParams{
-			TeamID: teamID, Name: "ug-user-" + string(rune('A'+i)),
+			WorkspaceID: workspaceID, Name: "ug-user-" + string(rune('A'+i)),
 			Email:         "ug" + string(rune('a'+i)) + "@example.com",
 			PrincipalType: domain.PrincipalTypeHuman,
 		})
@@ -4192,8 +4459,8 @@ func TestFlow_UsergroupFullLifecycle(t *testing.T) {
 
 	// Create usergroup with initial users
 	ug, err := env.ugSvc.Create(ctx, domain.CreateUsergroupParams{
-		TeamID:      teamID,
-		Name:        "Frontend Team",
+		WorkspaceID: workspaceID,
+		Name:        "Frontend Workspace",
 		Handle:      "frontend",
 		Description: "Frontend developers",
 		CreatedBy:   users[0].ID,
@@ -4212,7 +4479,7 @@ func TestFlow_UsergroupFullLifecycle(t *testing.T) {
 	}
 
 	// Update name
-	newName := "Frontend & Mobile Team"
+	newName := "Frontend & Mobile Workspace"
 	if _, err := env.ugSvc.Update(ctx, ug.ID, domain.UpdateUsergroupParams{
 		Name: &newName, UpdatedBy: users[0].ID,
 	}); err != nil {
@@ -4237,7 +4504,7 @@ func TestFlow_UsergroupFullLifecycle(t *testing.T) {
 
 	// Verify updates
 	got, _ := env.ugSvc.Get(ctx, ug.ID)
-	if got.Name != "Frontend & Mobile Team" {
+	if got.Name != "Frontend & Mobile Workspace" {
 		t.Errorf("name = %q", got.Name)
 	}
 	if got.Handle != "frontend-mobile" {
@@ -4274,13 +4541,13 @@ func TestFlow_UsergroupFullLifecycle(t *testing.T) {
 	}
 
 	// List without disabled
-	ugs, _ := env.ugSvc.List(ctx, domain.ListUsergroupsParams{TeamID: teamID, IncludeDisabled: false})
+	ugs, _ := env.ugSvc.List(ctx, domain.ListUsergroupsParams{WorkspaceID: workspaceID, IncludeDisabled: false})
 	if len(ugs) != 0 {
 		t.Errorf("active groups = %d, want 0", len(ugs))
 	}
 
 	// List with disabled
-	ugs, _ = env.ugSvc.List(ctx, domain.ListUsergroupsParams{TeamID: teamID, IncludeDisabled: true})
+	ugs, _ = env.ugSvc.List(ctx, domain.ListUsergroupsParams{WorkspaceID: workspaceID, IncludeDisabled: true})
 	if len(ugs) != 1 {
 		t.Errorf("all groups = %d, want 1", len(ugs))
 	}
@@ -4292,10 +4559,10 @@ func TestFlow_UsergroupFullLifecycle(t *testing.T) {
 
 	// Create second usergroup
 	ug2, err := env.ugSvc.Create(ctx, domain.CreateUsergroupParams{
-		TeamID:    teamID,
-		Name:      "Backend Team",
-		Handle:    "backend",
-		CreatedBy: users[0].ID,
+		WorkspaceID: workspaceID,
+		Name:        "Backend Workspace",
+		Handle:      "backend",
+		CreatedBy:   users[0].ID,
 	})
 	if err != nil {
 		t.Fatalf("create ug2: %v", err)
@@ -4303,7 +4570,7 @@ func TestFlow_UsergroupFullLifecycle(t *testing.T) {
 	env.ugSvc.SetUsers(ctx, ug2.ID, []string{users[1].ID, users[2].ID})
 
 	// List all — should be 2
-	ugs, _ = env.ugSvc.List(ctx, domain.ListUsergroupsParams{TeamID: teamID, IncludeDisabled: true})
+	ugs, _ = env.ugSvc.List(ctx, domain.ListUsergroupsParams{WorkspaceID: workspaceID, IncludeDisabled: true})
 	if len(ugs) != 2 {
 		t.Errorf("total groups = %d, want 2", len(ugs))
 	}
@@ -4332,7 +4599,7 @@ func TestFlow_UsergroupFullLifecycle(t *testing.T) {
 		t.Fatalf("rebuild: %v", err)
 	}
 	got, _ = env.ugSvc.Get(ctx, ug.ID)
-	if got.Name != "Frontend & Mobile Team" || got.Handle != "frontend-mobile" {
+	if got.Name != "Frontend & Mobile Workspace" || got.Handle != "frontend-mobile" {
 		t.Errorf("ug after rebuild: name=%q handle=%q", got.Name, got.Handle)
 	}
 	members, _ = env.ugSvc.ListUsers(ctx, ug.ID)

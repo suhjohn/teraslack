@@ -3,6 +3,8 @@ server/bin/
 *.exe
 *.test
 *.out
+server/teraslack-mcp
+server/teraslack-mcp-server
 vendor/
 tmp/
 .env*

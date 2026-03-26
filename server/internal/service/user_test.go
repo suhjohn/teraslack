@@ -22,12 +22,13 @@ func newMockUserRepoTenant() *mockUserRepoTenant {
 func (m *mockUserRepoTenant) Create(_ context.Context, params domain.CreateUserParams) (*domain.User, error) {
 	u := &domain.User{
 		ID:            "U123",
-		TeamID:        params.TeamID,
+		WorkspaceID:   params.WorkspaceID,
 		Name:          params.Name,
 		RealName:      params.RealName,
 		DisplayName:   params.DisplayName,
 		Email:         params.Email,
 		PrincipalType: params.PrincipalType,
+		OwnerID:       params.OwnerID,
 		AccountType:   domain.NormalizeAccountType(params.PrincipalType, params.AccountType),
 		IsBot:         params.IsBot,
 		Profile:       params.Profile,
@@ -44,9 +45,9 @@ func (m *mockUserRepoTenant) Get(_ context.Context, id string) (*domain.User, er
 	return u, nil
 }
 
-func (m *mockUserRepoTenant) GetByTeamEmail(_ context.Context, teamID, email string) (*domain.User, error) {
+func (m *mockUserRepoTenant) GetByTeamEmail(_ context.Context, workspaceID, email string) (*domain.User, error) {
 	for _, u := range m.users {
-		if u.TeamID == teamID && u.Email == email {
+		if u.WorkspaceID == workspaceID && u.Email == email {
 			return u, nil
 		}
 	}
@@ -90,7 +91,7 @@ func (m *mockUserRepoTenant) Update(_ context.Context, id string, params domain.
 }
 
 func (m *mockUserRepoTenant) List(_ context.Context, params domain.ListUsersParams) (*domain.CursorPage[domain.User], error) {
-	if params.TeamID != "" && params.TeamID != "T123" {
+	if params.WorkspaceID != "" && params.WorkspaceID != "T123" {
 		return &domain.CursorPage[domain.User]{Items: []domain.User{}}, nil
 	}
 	return &domain.CursorPage[domain.User]{Items: []domain.User{}}, nil
@@ -98,26 +99,26 @@ func (m *mockUserRepoTenant) List(_ context.Context, params domain.ListUsersPara
 
 func (m *mockUserRepoTenant) WithTx(_ pgx.Tx) repository.UserRepository { return m }
 
-func TestUserService_CreateUsesContextTeam(t *testing.T) {
+func TestUserService_CreateUsesContextWorkspace(t *testing.T) {
 	repo := newMockUserRepoTenant()
 	svc := NewUserService(repo, nil, mockTxBeginner{}, nil)
 
-	ctx := context.WithValue(context.Background(), ctxutil.ContextKeyTeamID, "T123")
+	ctx := context.WithValue(context.Background(), ctxutil.ContextKeyWorkspaceID, "T123")
 	_, err := svc.Create(ctx, domain.CreateUserParams{
-		TeamID: "T999",
-		Name:   "Alice",
+		WorkspaceID: "T999",
+		Name:        "Alice",
 	})
 	if err == nil {
-		t.Fatal("expected error for mismatched team id")
+		t.Fatal("expected error for mismatched workspace id")
 	}
 }
 
 func TestUserService_TenantAccessDenied(t *testing.T) {
 	repo := newMockUserRepoTenant()
-	repo.users["U123"] = &domain.User{ID: "U123", TeamID: "T999", Email: "alice@example.com"}
+	repo.users["U123"] = &domain.User{ID: "U123", WorkspaceID: "T999", Email: "alice@example.com"}
 	svc := NewUserService(repo, nil, mockTxBeginner{}, nil)
 
-	ctx := context.WithValue(context.Background(), ctxutil.ContextKeyTeamID, "T123")
+	ctx := context.WithValue(context.Background(), ctxutil.ContextKeyWorkspaceID, "T123")
 
 	if _, err := svc.Get(ctx, "U123"); err == nil || !errors.Is(err, domain.ErrForbidden) {
 		t.Fatalf("expected forbidden from Get, got %v", err)
@@ -128,7 +129,7 @@ func TestUserService_TenantAccessDenied(t *testing.T) {
 	if _, err := svc.Update(ctx, "U123", domain.UpdateUserParams{}); err == nil || !errors.Is(err, domain.ErrForbidden) {
 		t.Fatalf("expected forbidden from Update, got %v", err)
 	}
-	if _, err := svc.List(ctx, domain.ListUsersParams{TeamID: "T999"}); err == nil || !errors.Is(err, domain.ErrForbidden) {
+	if _, err := svc.List(ctx, domain.ListUsersParams{WorkspaceID: "T999"}); err == nil || !errors.Is(err, domain.ErrForbidden) {
 		t.Fatalf("expected forbidden from List, got %v", err)
 	}
 }
@@ -139,7 +140,7 @@ func TestUserService_CreateRejectsAccountTypeForAgents(t *testing.T) {
 
 	ctx := ctxutil.WithUser(context.Background(), "U123", "T123")
 	_, err := svc.Create(ctx, domain.CreateUserParams{
-		TeamID:        "T123",
+		WorkspaceID:   "T123",
 		Name:          "agent-a",
 		PrincipalType: domain.PrincipalTypeAgent,
 		AccountType:   domain.AccountTypeAdmin,
@@ -151,14 +152,14 @@ func TestUserService_CreateRejectsAccountTypeForAgents(t *testing.T) {
 
 func TestUserService_CreateRequiresAdminForAuthenticatedCaller(t *testing.T) {
 	repo := newMockUserRepoTenant()
-	repo.users["U_MEMBER"] = &domain.User{ID: "U_MEMBER", TeamID: "T123", PrincipalType: domain.PrincipalTypeHuman, AccountType: domain.AccountTypeMember}
-	repo.users["U_ADMIN"] = &domain.User{ID: "U_ADMIN", TeamID: "T123", PrincipalType: domain.PrincipalTypeHuman, AccountType: domain.AccountTypeAdmin}
-	repo.users["U_PRIMARY"] = &domain.User{ID: "U_PRIMARY", TeamID: "T123", PrincipalType: domain.PrincipalTypeHuman, AccountType: domain.AccountTypePrimaryAdmin}
+	repo.users["U_MEMBER"] = &domain.User{ID: "U_MEMBER", WorkspaceID: "T123", PrincipalType: domain.PrincipalTypeHuman, AccountType: domain.AccountTypeMember}
+	repo.users["U_ADMIN"] = &domain.User{ID: "U_ADMIN", WorkspaceID: "T123", PrincipalType: domain.PrincipalTypeHuman, AccountType: domain.AccountTypeAdmin}
+	repo.users["U_PRIMARY"] = &domain.User{ID: "U_PRIMARY", WorkspaceID: "T123", PrincipalType: domain.PrincipalTypeHuman, AccountType: domain.AccountTypePrimaryAdmin}
 	svc := NewUserService(repo, nil, mockTxBeginner{}, nil)
 
 	memberCtx := ctxutil.WithUser(context.Background(), "U_MEMBER", "T123")
 	if _, err := svc.Create(memberCtx, domain.CreateUserParams{
-		TeamID:        "T123",
+		WorkspaceID:   "T123",
 		Name:          "bob",
 		PrincipalType: domain.PrincipalTypeHuman,
 		AccountType:   domain.AccountTypeMember,
@@ -168,7 +169,7 @@ func TestUserService_CreateRequiresAdminForAuthenticatedCaller(t *testing.T) {
 
 	adminCtx := ctxutil.WithUser(context.Background(), "U_ADMIN", "T123")
 	if _, err := svc.Create(adminCtx, domain.CreateUserParams{
-		TeamID:        "T123",
+		WorkspaceID:   "T123",
 		Name:          "carol",
 		PrincipalType: domain.PrincipalTypeHuman,
 		AccountType:   domain.AccountTypeMember,
@@ -176,7 +177,7 @@ func TestUserService_CreateRequiresAdminForAuthenticatedCaller(t *testing.T) {
 		t.Fatalf("admin should create member: %v", err)
 	}
 	if _, err := svc.Create(adminCtx, domain.CreateUserParams{
-		TeamID:        "T123",
+		WorkspaceID:   "T123",
 		Name:          "dave",
 		PrincipalType: domain.PrincipalTypeHuman,
 		AccountType:   domain.AccountTypeAdmin,
@@ -186,7 +187,7 @@ func TestUserService_CreateRequiresAdminForAuthenticatedCaller(t *testing.T) {
 
 	primaryCtx := ctxutil.WithUser(context.Background(), "U_PRIMARY", "T123")
 	if _, err := svc.Create(primaryCtx, domain.CreateUserParams{
-		TeamID:        "T123",
+		WorkspaceID:   "T123",
 		Name:          "erin",
 		PrincipalType: domain.PrincipalTypeHuman,
 		AccountType:   domain.AccountTypeAdmin,
@@ -195,12 +196,45 @@ func TestUserService_CreateRequiresAdminForAuthenticatedCaller(t *testing.T) {
 	}
 }
 
+func TestUserService_CreateAllowsMemberToCreateOwnedAgent(t *testing.T) {
+	repo := newMockUserRepoTenant()
+	repo.users["U_MEMBER"] = &domain.User{ID: "U_MEMBER", WorkspaceID: "T123", PrincipalType: domain.PrincipalTypeHuman, AccountType: domain.AccountTypeMember}
+	repo.users["U_OTHER"] = &domain.User{ID: "U_OTHER", WorkspaceID: "T123", PrincipalType: domain.PrincipalTypeHuman, AccountType: domain.AccountTypeMember}
+	svc := NewUserService(repo, nil, mockTxBeginner{}, nil)
+
+	ctx := ctxutil.WithUser(context.Background(), "U_MEMBER", "T123")
+	ctx = ctxutil.WithPrincipal(ctx, domain.PrincipalTypeHuman, domain.AccountTypeMember, false)
+
+	user, err := svc.Create(ctx, domain.CreateUserParams{
+		WorkspaceID:   "T123",
+		Name:          "session-agent",
+		PrincipalType: domain.PrincipalTypeAgent,
+		IsBot:         true,
+	})
+	if err != nil {
+		t.Fatalf("member owned agent create should succeed: %v", err)
+	}
+	if user.OwnerID != "U_MEMBER" {
+		t.Fatalf("owner_id = %q, want U_MEMBER", user.OwnerID)
+	}
+
+	if _, err := svc.Create(ctx, domain.CreateUserParams{
+		WorkspaceID:   "T123",
+		Name:          "foreign-agent",
+		PrincipalType: domain.PrincipalTypeAgent,
+		OwnerID:       "U_OTHER",
+		IsBot:         true,
+	}); err == nil || !errors.Is(err, domain.ErrForbidden) {
+		t.Fatalf("expected forbidden for foreign-owned agent create, got %v", err)
+	}
+}
+
 func TestUserService_UpdateEnforcesAccountTypeRank(t *testing.T) {
 	repo := newMockUserRepoTenant()
-	repo.users["U_MEMBER"] = &domain.User{ID: "U_MEMBER", TeamID: "T123", PrincipalType: domain.PrincipalTypeHuman, AccountType: domain.AccountTypeMember}
-	repo.users["U_ADMIN"] = &domain.User{ID: "U_ADMIN", TeamID: "T123", PrincipalType: domain.PrincipalTypeHuman, AccountType: domain.AccountTypeAdmin}
-	repo.users["U_PRIMARY"] = &domain.User{ID: "U_PRIMARY", TeamID: "T123", PrincipalType: domain.PrincipalTypeHuman, AccountType: domain.AccountTypePrimaryAdmin}
-	repo.users["U_TARGET"] = &domain.User{ID: "U_TARGET", TeamID: "T123", PrincipalType: domain.PrincipalTypeHuman, AccountType: domain.AccountTypeMember}
+	repo.users["U_MEMBER"] = &domain.User{ID: "U_MEMBER", WorkspaceID: "T123", PrincipalType: domain.PrincipalTypeHuman, AccountType: domain.AccountTypeMember}
+	repo.users["U_ADMIN"] = &domain.User{ID: "U_ADMIN", WorkspaceID: "T123", PrincipalType: domain.PrincipalTypeHuman, AccountType: domain.AccountTypeAdmin}
+	repo.users["U_PRIMARY"] = &domain.User{ID: "U_PRIMARY", WorkspaceID: "T123", PrincipalType: domain.PrincipalTypeHuman, AccountType: domain.AccountTypePrimaryAdmin}
+	repo.users["U_TARGET"] = &domain.User{ID: "U_TARGET", WorkspaceID: "T123", PrincipalType: domain.PrincipalTypeHuman, AccountType: domain.AccountTypeMember}
 	svc := NewUserService(repo, nil, mockTxBeginner{}, nil)
 
 	adminCtx := ctxutil.WithUser(context.Background(), "U_ADMIN", "T123")

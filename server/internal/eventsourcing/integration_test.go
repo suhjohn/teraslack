@@ -107,7 +107,7 @@ func TestServiceEventRecording_UserCreate(t *testing.T) {
 	userSvc := service.NewUserService(userRepo, recorder, pool, logger)
 
 	user, err := userSvc.Create(ctx, domain.CreateUserParams{
-		TeamID:        "T001",
+		WorkspaceID:        "T001",
 		Name:          "alice",
 		Email:         "alice@example.com",
 		PrincipalType: domain.PrincipalTypeHuman,
@@ -150,8 +150,8 @@ func TestServiceEventRecording_UserCreate(t *testing.T) {
 	if snapshot.Name != "alice" {
 		t.Errorf("snapshot.Name = %q, want %q", snapshot.Name, "alice")
 	}
-	if snapshot.TeamID != "T001" {
-		t.Errorf("snapshot.TeamID = %q, want %q", snapshot.TeamID, "T001")
+	if snapshot.WorkspaceID != "T001" {
+		t.Errorf("snapshot.WorkspaceID = %q, want %q", snapshot.WorkspaceID, "T001")
 	}
 }
 
@@ -170,7 +170,7 @@ func TestServiceEventRecording_UserUpdate(t *testing.T) {
 	userSvc := service.NewUserService(userRepo, recorder, pool, logger)
 
 	user, err := userSvc.Create(ctx, domain.CreateUserParams{
-		TeamID:        "T001",
+		WorkspaceID:        "T001",
 		Name:          "bob",
 		Email:         "bob@example.com",
 		PrincipalType: domain.PrincipalTypeHuman,
@@ -237,7 +237,7 @@ func TestReplayCorrectness_Users(t *testing.T) {
 	var userIDs []string
 	for i := 0; i < 5; i++ {
 		u, err := userSvc.Create(ctx, domain.CreateUserParams{
-			TeamID:        "T001",
+			WorkspaceID:        "T001",
 			Name:          fmt.Sprintf("user%d", i),
 			Email:         fmt.Sprintf("user%d@example.com", i),
 			PrincipalType: domain.PrincipalTypeHuman,
@@ -321,7 +321,7 @@ func TestReplayCorrectness_ConversationWithMembers(t *testing.T) {
 	convSvc := service.NewConversationService(convRepo, userRepo, recorder, pool, logger)
 
 	creator, err := userSvc.Create(ctx, domain.CreateUserParams{
-		TeamID:        "T001",
+		WorkspaceID:        "T001",
 		Name:          "creator",
 		Email:         "creator@example.com",
 		PrincipalType: domain.PrincipalTypeHuman,
@@ -331,7 +331,7 @@ func TestReplayCorrectness_ConversationWithMembers(t *testing.T) {
 	}
 
 	member, err := userSvc.Create(ctx, domain.CreateUserParams{
-		TeamID:        "T001",
+		WorkspaceID:        "T001",
 		Name:          "member",
 		Email:         "member@example.com",
 		PrincipalType: domain.PrincipalTypeHuman,
@@ -341,7 +341,7 @@ func TestReplayCorrectness_ConversationWithMembers(t *testing.T) {
 	}
 
 	conv, err := convSvc.Create(ctx, domain.CreateConversationParams{
-		TeamID:    "T001",
+		WorkspaceID:    "T001",
 		Name:      "general",
 		Type:      domain.ConversationTypePublicChannel,
 		CreatorID: creator.ID,
@@ -404,7 +404,7 @@ func TestReplayCorrectness_BookmarkCRUD(t *testing.T) {
 	bookmarkSvc := service.NewBookmarkService(bookmarkRepo, convRepo, recorder, pool, logger)
 
 	user, err := userSvc.Create(ctx, domain.CreateUserParams{
-		TeamID:        "T001",
+		WorkspaceID:        "T001",
 		Name:          "alice",
 		Email:         "alice@example.com",
 		PrincipalType: domain.PrincipalTypeHuman,
@@ -414,7 +414,7 @@ func TestReplayCorrectness_BookmarkCRUD(t *testing.T) {
 	}
 
 	conv, err := convSvc.Create(ctx, domain.CreateConversationParams{
-		TeamID:    "T001",
+		WorkspaceID:    "T001",
 		Name:      "bookmarks-test",
 		Type:      domain.ConversationTypePublicChannel,
 		CreatorID: user.ID,
@@ -495,7 +495,7 @@ func TestPayloadIsFullSnapshot(t *testing.T) {
 	userSvc := service.NewUserService(userRepo, recorder, pool, logger)
 
 	user, err := userSvc.Create(ctx, domain.CreateUserParams{
-		TeamID:        "T001",
+		WorkspaceID:        "T001",
 		Name:          "snapshot-test",
 		Email:         "snap@example.com",
 		PrincipalType: domain.PrincipalTypeHuman,
@@ -524,8 +524,8 @@ func TestPayloadIsFullSnapshot(t *testing.T) {
 	if snapshot.ID != user.ID {
 		t.Errorf("ID = %q, want %q", snapshot.ID, user.ID)
 	}
-	if snapshot.TeamID != "T001" {
-		t.Errorf("TeamID = %q, want %q", snapshot.TeamID, "T001")
+	if snapshot.WorkspaceID != "T001" {
+		t.Errorf("WorkspaceID = %q, want %q", snapshot.WorkspaceID, "T001")
 	}
 	if snapshot.Name != "snapshot-test" {
 		t.Errorf("Name = %q, want %q", snapshot.Name, "snapshot-test")
@@ -568,7 +568,7 @@ func TestDeleteEventIsRecorded(t *testing.T) {
 	bookmarkSvc := service.NewBookmarkService(bookmarkRepo, convRepo, recorder, pool, logger)
 
 	user, err := userSvc.Create(ctx, domain.CreateUserParams{
-		TeamID:        "T001",
+		WorkspaceID:        "T001",
 		Name:          "deleter",
 		Email:         "deleter@example.com",
 		PrincipalType: domain.PrincipalTypeHuman,
@@ -578,7 +578,7 @@ func TestDeleteEventIsRecorded(t *testing.T) {
 	}
 
 	conv, err := convSvc.Create(ctx, domain.CreateConversationParams{
-		TeamID:    "T001",
+		WorkspaceID:    "T001",
 		Name:      "delete-test",
 		Type:      domain.ConversationTypePublicChannel,
 		CreatorID: user.ID,
@@ -640,7 +640,7 @@ func TestEventCountConsistency(t *testing.T) {
 	userSvc := service.NewUserService(userRepo, recorder, pool, logger)
 
 	u, err := userSvc.Create(ctx, domain.CreateUserParams{
-		TeamID:        "T001",
+		WorkspaceID:        "T001",
 		Name:          "counter",
 		Email:         "counter@example.com",
 		PrincipalType: domain.PrincipalTypeHuman,

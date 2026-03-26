@@ -41,27 +41,14 @@ func (r *APIKeyRepo) Create(ctx context.Context, params domain.CreateAPIKeyParam
 		return nil, "", fmt.Errorf("generate api key: %w", err)
 	}
 
-	prefix := "sk_live_"
-	if params.Environment == domain.APIKeyEnvTest {
-		prefix = "sk_test_"
-	}
+	prefix := "sk_"
 	rawKey := prefix + hex.EncodeToString(keyBytes)
 	keyHash := crypto.HashToken(rawKey)
 	keyHint := rawKey[len(rawKey)-4:]
 
 	createdBy := params.CreatedBy
 	if createdBy == "" {
-		createdBy = params.PrincipalID
-	}
-
-	env := params.Environment
-	if env == "" {
-		env = domain.APIKeyEnvLive
-	}
-
-	keyType := params.Type
-	if keyType == "" {
-		keyType = domain.APIKeyTypePersistent
+		createdBy = params.UserID
 	}
 
 	permissions := params.Permissions
@@ -86,12 +73,12 @@ func (r *APIKeyRepo) Create(ctx context.Context, params domain.CreateAPIKeyParam
 		KeyHash:     keyHash,
 		KeyPrefix:   prefix,
 		KeyHint:     keyHint,
-		TeamID:      params.TeamID,
-		PrincipalID: params.PrincipalID,
+		WorkspaceID:      params.WorkspaceID,
+		Column8:     params.UserID,
 		CreatedBy:   createdBy,
-		OnBehalfOf:  params.OnBehalfOf,
-		Type:        string(keyType),
-		Environment: string(env),
+		OnBehalfOf:  "",
+		Type:        "persistent",
+		Environment: "live",
 		Permissions: permissions,
 		ExpiresAt:   expiresAt,
 	})
@@ -134,42 +121,62 @@ func (r *APIKeyRepo) List(ctx context.Context, params domain.ListAPIKeysParams) 
 		limit = 100
 	}
 
-	var rows []sqlcgen.ApiKey
-	var err error
+	rows := make([]any, 0, limit+1)
 
-	if params.PrincipalID != "" {
+	if params.UserID != "" {
 		if params.IncludeRevoked {
-			rows, err = r.q.ListAPIKeysByPrincipalIncludeRevoked(ctx, sqlcgen.ListAPIKeysByPrincipalIncludeRevokedParams{
-				TeamID:      params.TeamID,
-				PrincipalID: params.PrincipalID,
+			queryRows, err := r.q.ListAPIKeysByPrincipalIncludeRevoked(ctx, sqlcgen.ListAPIKeysByPrincipalIncludeRevokedParams{
+				WorkspaceID:      params.WorkspaceID,
+				PrincipalID: stringToText(params.UserID),
 				ID:          params.Cursor,
 				Limit:       int32(limit + 1),
 			})
+			if err != nil {
+				return nil, fmt.Errorf("list api keys: %w", err)
+			}
+			for _, row := range queryRows {
+				rows = append(rows, row)
+			}
 		} else {
-			rows, err = r.q.ListAPIKeysByPrincipal(ctx, sqlcgen.ListAPIKeysByPrincipalParams{
-				TeamID:      params.TeamID,
-				PrincipalID: params.PrincipalID,
+			queryRows, err := r.q.ListAPIKeysByPrincipal(ctx, sqlcgen.ListAPIKeysByPrincipalParams{
+				WorkspaceID:      params.WorkspaceID,
+				PrincipalID: stringToText(params.UserID),
 				ID:          params.Cursor,
 				Limit:       int32(limit + 1),
 			})
+			if err != nil {
+				return nil, fmt.Errorf("list api keys: %w", err)
+			}
+			for _, row := range queryRows {
+				rows = append(rows, row)
+			}
 		}
 	} else {
 		if params.IncludeRevoked {
-			rows, err = r.q.ListAPIKeysIncludeRevoked(ctx, sqlcgen.ListAPIKeysIncludeRevokedParams{
-				TeamID: params.TeamID,
+			queryRows, err := r.q.ListAPIKeysIncludeRevoked(ctx, sqlcgen.ListAPIKeysIncludeRevokedParams{
+				WorkspaceID: params.WorkspaceID,
 				ID:     params.Cursor,
 				Limit:  int32(limit + 1),
 			})
+			if err != nil {
+				return nil, fmt.Errorf("list api keys: %w", err)
+			}
+			for _, row := range queryRows {
+				rows = append(rows, row)
+			}
 		} else {
-			rows, err = r.q.ListAPIKeys(ctx, sqlcgen.ListAPIKeysParams{
-				TeamID: params.TeamID,
+			queryRows, err := r.q.ListAPIKeys(ctx, sqlcgen.ListAPIKeysParams{
+				WorkspaceID: params.WorkspaceID,
 				ID:     params.Cursor,
 				Limit:  int32(limit + 1),
 			})
+			if err != nil {
+				return nil, fmt.Errorf("list api keys: %w", err)
+			}
+			for _, row := range queryRows {
+				rows = append(rows, row)
+			}
 		}
-	}
-	if err != nil {
-		return nil, fmt.Errorf("list api keys: %w", err)
 	}
 
 	keys := make([]domain.APIKey, 0, len(rows))

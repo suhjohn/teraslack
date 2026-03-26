@@ -4,7 +4,7 @@ import "time"
 
 type WorkspaceInvite struct {
 	ID               string     `json:"id"`
-	TeamID           string     `json:"team_id"`
+	WorkspaceID           string     `json:"workspace_id"`
 	Email            string     `json:"email"`
 	InvitedBy        string     `json:"invited_by"`
 	AcceptedByUserID string     `json:"accepted_by_user_id,omitempty"`
@@ -15,7 +15,7 @@ type WorkspaceInvite struct {
 }
 
 type CreateWorkspaceInviteParams struct {
-	TeamID    string    `json:"team_id"`
+	WorkspaceID    string    `json:"workspace_id"`
 	Email     string    `json:"email"`
 	InvitedBy string    `json:"invited_by"`
 	ExpiresAt time.Time `json:"expires_at"`

@@ -80,10 +80,10 @@ type WorkspaceIntegrationLog struct {
 	Date     time.Time `json:"date"`
 }
 
-// ExternalTeam models a Slack Connect style external workspace link.
-type ExternalTeam struct {
+// ExternalWorkspace models a Slack Connect style external workspace link.
+type ExternalWorkspace struct {
 	ID             string     `json:"id"`
-	ExternalTeamID string     `json:"external_team_id"`
+	ExternalWorkspaceID string     `json:"external_workspace_id"`
 	Name           string     `json:"name"`
 	ConnectionType string     `json:"connection_type"`
 	Connected      bool       `json:"connected"`

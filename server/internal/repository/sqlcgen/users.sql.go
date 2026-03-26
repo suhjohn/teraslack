@@ -11,15 +11,15 @@ import (
 )
 
 const createUser = `-- name: CreateUser :one
-INSERT INTO users (id, team_id, name, real_name, display_name, email, principal_type, owner_id, is_bot, account_type, profile)
+INSERT INTO users (id, workspace_id, name, real_name, display_name, email, principal_type, owner_id, is_bot, account_type, profile)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-RETURNING id, team_id, name, real_name, display_name, email, principal_type, owner_id, is_bot, account_type,
+RETURNING id, workspace_id, name, real_name, display_name, email, principal_type, owner_id, is_bot, account_type,
           deleted, profile, created_at, updated_at
 `
 
 type CreateUserParams struct {
 	ID            string `json:"id"`
-	TeamID        string `json:"team_id"`
+	WorkspaceID   string `json:"workspace_id"`
 	Name          string `json:"name"`
 	RealName      string `json:"real_name"`
 	DisplayName   string `json:"display_name"`
@@ -33,7 +33,7 @@ type CreateUserParams struct {
 
 type CreateUserRow struct {
 	ID            string    `json:"id"`
-	TeamID        string    `json:"team_id"`
+	WorkspaceID   string    `json:"workspace_id"`
 	Name          string    `json:"name"`
 	RealName      string    `json:"real_name"`
 	DisplayName   string    `json:"display_name"`
@@ -51,7 +51,7 @@ type CreateUserRow struct {
 func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (CreateUserRow, error) {
 	row := q.db.QueryRow(ctx, createUser,
 		arg.ID,
-		arg.TeamID,
+		arg.WorkspaceID,
 		arg.Name,
 		arg.RealName,
 		arg.DisplayName,
@@ -65,7 +65,7 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (CreateU
 	var i CreateUserRow
 	err := row.Scan(
 		&i.ID,
-		&i.TeamID,
+		&i.WorkspaceID,
 		&i.Name,
 		&i.RealName,
 		&i.DisplayName,
@@ -83,14 +83,14 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (CreateU
 }
 
 const getUser = `-- name: GetUser :one
-SELECT id, team_id, name, real_name, display_name, email, principal_type, owner_id, is_bot,
+SELECT id, workspace_id, name, real_name, display_name, email, principal_type, owner_id, is_bot,
        account_type, deleted, profile, created_at, updated_at
 FROM users WHERE id = $1
 `
 
 type GetUserRow struct {
 	ID            string    `json:"id"`
-	TeamID        string    `json:"team_id"`
+	WorkspaceID   string    `json:"workspace_id"`
 	Name          string    `json:"name"`
 	RealName      string    `json:"real_name"`
 	DisplayName   string    `json:"display_name"`
@@ -110,7 +110,7 @@ func (q *Queries) GetUser(ctx context.Context, id string) (GetUserRow, error) {
 	var i GetUserRow
 	err := row.Scan(
 		&i.ID,
-		&i.TeamID,
+		&i.WorkspaceID,
 		&i.Name,
 		&i.RealName,
 		&i.DisplayName,
@@ -127,20 +127,20 @@ func (q *Queries) GetUser(ctx context.Context, id string) (GetUserRow, error) {
 	return i, err
 }
 
-const getUserByTeamEmail = `-- name: GetUserByTeamEmail :one
-SELECT id, team_id, name, real_name, display_name, email, principal_type, owner_id, is_bot,
+const getUserByWorkspaceEmail = `-- name: GetUserByWorkspaceEmail :one
+SELECT id, workspace_id, name, real_name, display_name, email, principal_type, owner_id, is_bot,
        account_type, deleted, profile, created_at, updated_at
-FROM users WHERE team_id = $1 AND email = $2
+FROM users WHERE workspace_id = $1 AND email = $2
 `
 
-type GetUserByTeamEmailParams struct {
-	TeamID string `json:"team_id"`
-	Email  string `json:"email"`
+type GetUserByWorkspaceEmailParams struct {
+	WorkspaceID string `json:"workspace_id"`
+	Email       string `json:"email"`
 }
 
-type GetUserByTeamEmailRow struct {
+type GetUserByWorkspaceEmailRow struct {
 	ID            string    `json:"id"`
-	TeamID        string    `json:"team_id"`
+	WorkspaceID   string    `json:"workspace_id"`
 	Name          string    `json:"name"`
 	RealName      string    `json:"real_name"`
 	DisplayName   string    `json:"display_name"`
@@ -155,12 +155,12 @@ type GetUserByTeamEmailRow struct {
 	UpdatedAt     time.Time `json:"updated_at"`
 }
 
-func (q *Queries) GetUserByTeamEmail(ctx context.Context, arg GetUserByTeamEmailParams) (GetUserByTeamEmailRow, error) {
-	row := q.db.QueryRow(ctx, getUserByTeamEmail, arg.TeamID, arg.Email)
-	var i GetUserByTeamEmailRow
+func (q *Queries) GetUserByWorkspaceEmail(ctx context.Context, arg GetUserByWorkspaceEmailParams) (GetUserByWorkspaceEmailRow, error) {
+	row := q.db.QueryRow(ctx, getUserByWorkspaceEmail, arg.WorkspaceID, arg.Email)
+	var i GetUserByWorkspaceEmailRow
 	err := row.Scan(
 		&i.ID,
-		&i.TeamID,
+		&i.WorkspaceID,
 		&i.Name,
 		&i.RealName,
 		&i.DisplayName,
@@ -178,23 +178,23 @@ func (q *Queries) GetUserByTeamEmail(ctx context.Context, arg GetUserByTeamEmail
 }
 
 const listUsers = `-- name: ListUsers :many
-SELECT id, team_id, name, real_name, display_name, email, principal_type, owner_id, is_bot,
+SELECT id, workspace_id, name, real_name, display_name, email, principal_type, owner_id, is_bot,
        account_type, deleted, profile, created_at, updated_at
 FROM users
-WHERE team_id = $1 AND id >= $2
+WHERE workspace_id = $1 AND id >= $2
 ORDER BY id ASC
 LIMIT $3
 `
 
 type ListUsersParams struct {
-	TeamID string `json:"team_id"`
-	ID     string `json:"id"`
-	Limit  int32  `json:"limit"`
+	WorkspaceID string `json:"workspace_id"`
+	ID          string `json:"id"`
+	Limit       int32  `json:"limit"`
 }
 
 type ListUsersRow struct {
 	ID            string    `json:"id"`
-	TeamID        string    `json:"team_id"`
+	WorkspaceID   string    `json:"workspace_id"`
 	Name          string    `json:"name"`
 	RealName      string    `json:"real_name"`
 	DisplayName   string    `json:"display_name"`
@@ -210,7 +210,7 @@ type ListUsersRow struct {
 }
 
 func (q *Queries) ListUsers(ctx context.Context, arg ListUsersParams) ([]ListUsersRow, error) {
-	rows, err := q.db.Query(ctx, listUsers, arg.TeamID, arg.ID, arg.Limit)
+	rows, err := q.db.Query(ctx, listUsers, arg.WorkspaceID, arg.ID, arg.Limit)
 	if err != nil {
 		return nil, err
 	}
@@ -220,7 +220,67 @@ func (q *Queries) ListUsers(ctx context.Context, arg ListUsersParams) ([]ListUse
 		var i ListUsersRow
 		if err := rows.Scan(
 			&i.ID,
-			&i.TeamID,
+			&i.WorkspaceID,
+			&i.Name,
+			&i.RealName,
+			&i.DisplayName,
+			&i.Email,
+			&i.PrincipalType,
+			&i.OwnerID,
+			&i.IsBot,
+			&i.AccountType,
+			&i.Deleted,
+			&i.Profile,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listUsersByEmail = `-- name: ListUsersByEmail :many
+SELECT id, workspace_id, name, real_name, display_name, email, principal_type, owner_id, is_bot,
+       account_type, deleted, profile, created_at, updated_at
+FROM users
+WHERE LOWER(email) = LOWER($1)
+ORDER BY created_at ASC, id ASC
+`
+
+type ListUsersByEmailRow struct {
+	ID            string    `json:"id"`
+	WorkspaceID   string    `json:"workspace_id"`
+	Name          string    `json:"name"`
+	RealName      string    `json:"real_name"`
+	DisplayName   string    `json:"display_name"`
+	Email         string    `json:"email"`
+	PrincipalType string    `json:"principal_type"`
+	OwnerID       string    `json:"owner_id"`
+	IsBot         bool      `json:"is_bot"`
+	AccountType   string    `json:"account_type"`
+	Deleted       bool      `json:"deleted"`
+	Profile       []byte    `json:"profile"`
+	CreatedAt     time.Time `json:"created_at"`
+	UpdatedAt     time.Time `json:"updated_at"`
+}
+
+func (q *Queries) ListUsersByEmail(ctx context.Context, lower string) ([]ListUsersByEmailRow, error) {
+	rows, err := q.db.Query(ctx, listUsersByEmail, lower)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListUsersByEmailRow{}
+	for rows.Next() {
+		var i ListUsersByEmailRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.WorkspaceID,
 			&i.Name,
 			&i.RealName,
 			&i.DisplayName,
@@ -248,7 +308,7 @@ const updateUser = `-- name: UpdateUser :one
 UPDATE users
 SET real_name = $2, display_name = $3, email = $4, account_type = $5, deleted = $6, profile = $7
 WHERE id = $1
-RETURNING id, team_id, name, real_name, display_name, email, principal_type, owner_id, is_bot, account_type,
+RETURNING id, workspace_id, name, real_name, display_name, email, principal_type, owner_id, is_bot, account_type,
           deleted, profile, created_at, updated_at
 `
 
@@ -264,7 +324,7 @@ type UpdateUserParams struct {
 
 type UpdateUserRow struct {
 	ID            string    `json:"id"`
-	TeamID        string    `json:"team_id"`
+	WorkspaceID   string    `json:"workspace_id"`
 	Name          string    `json:"name"`
 	RealName      string    `json:"real_name"`
 	DisplayName   string    `json:"display_name"`
@@ -292,7 +352,7 @@ func (q *Queries) UpdateUser(ctx context.Context, arg UpdateUserParams) (UpdateU
 	var i UpdateUserRow
 	err := row.Scan(
 		&i.ID,
-		&i.TeamID,
+		&i.WorkspaceID,
 		&i.Name,
 		&i.RealName,
 		&i.DisplayName,

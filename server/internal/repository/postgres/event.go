@@ -39,7 +39,7 @@ func (r *EventRepo) CreateSubscription(ctx context.Context, params domain.Create
 
 	row, err := r.q.CreateEventSubscription(ctx, sqlcgen.CreateEventSubscriptionParams{
 		ID:              id,
-		TeamID:          params.TeamID,
+		WorkspaceID:          params.WorkspaceID,
 		Url:             params.URL,
 		EventType:       params.Type,
 		ResourceType:    params.ResourceType,
@@ -114,7 +114,7 @@ func (r *EventRepo) DeleteSubscription(ctx context.Context, id string) error {
 }
 
 func (r *EventRepo) ListSubscriptions(ctx context.Context, params domain.ListEventSubscriptionsParams) ([]domain.EventSubscription, error) {
-	rows, err := r.q.ListEventSubscriptions(ctx, params.TeamID)
+	rows, err := r.q.ListEventSubscriptions(ctx, params.WorkspaceID)
 	if err != nil {
 		return nil, fmt.Errorf("list subscriptions: %w", err)
 	}
@@ -126,9 +126,9 @@ func (r *EventRepo) ListSubscriptions(ctx context.Context, params domain.ListEve
 	return subs, nil
 }
 
-func (r *EventRepo) ListSubscriptionsByEvent(ctx context.Context, teamID, eventType, resourceType, resourceID string) ([]domain.EventSubscription, error) {
-	rows, err := r.q.ListEventSubscriptionsByTeamAndEvent(ctx, sqlcgen.ListEventSubscriptionsByTeamAndEventParams{
-		TeamID:       teamID,
+func (r *EventRepo) ListSubscriptionsByEvent(ctx context.Context, workspaceID, eventType, resourceType, resourceID string) ([]domain.EventSubscription, error) {
+	rows, err := r.q.ListEventSubscriptionsByWorkspaceAndEvent(ctx, sqlcgen.ListEventSubscriptionsByWorkspaceAndEventParams{
+		WorkspaceID:       workspaceID,
 		EventType:    eventType,
 		ResourceType: textValue(resourceType),
 		ResourceID:   textValue(resourceID),

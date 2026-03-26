@@ -7,7 +7,6 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/suhjohn/teraslack/internal/domain"
@@ -40,6 +39,13 @@ func timePtrToTs(t *time.Time) *time.Time {
 
 func timeToPgTimestamptz(t time.Time) pgtype.Timestamptz {
 	return pgtype.Timestamptz{Time: t, Valid: true}
+}
+
+func timePtrToPgTimestamptz(t *time.Time) pgtype.Timestamptz {
+	if t == nil {
+		return pgtype.Timestamptz{}
+	}
+	return pgtype.Timestamptz{Time: *t, Valid: true}
 }
 
 // projStringPtrToText converts a *string to pgtype.Text.
@@ -85,15 +91,16 @@ func (p *Projector) RebuildAggregate(ctx context.Context, aggregateType string) 
 	}
 	defer tx.Rollback(ctx)
 
-	// TRUNCATE is DDL -- not supported by sqlc, so keep as raw exec.
-	if err := p.truncateProjection(ctx, tx, aggregateType); err != nil {
+	// Projection resets are routed through explicit sqlc exec queries so the
+	// projector no longer carries ad hoc SQL.
+	if err := p.truncateProjection(ctx, q.WithTx(tx), aggregateType); err != nil {
 		return fmt.Errorf("truncate projection: %w", err)
 	}
 
 	qtx := q.WithTx(tx)
 	for _, entry := range entries {
 		domainEvt := sqlcEventToDomain(entry)
-		if err := p.applyEvent(ctx, tx, qtx, domainEvt); err != nil {
+		if err := p.applyEvent(ctx, qtx, domainEvt); err != nil {
 			return fmt.Errorf("apply event id=%d type=%s: %w", entry.ID, entry.EventType, err)
 		}
 	}
@@ -123,7 +130,7 @@ func (p *Projector) RebuildSince(ctx context.Context, sinceID int64) error {
 	qtx := q.WithTx(tx)
 	for _, entry := range entries {
 		domainEvt := sqlcEventToDomain(entry)
-		if err := p.applyEvent(ctx, tx, qtx, domainEvt); err != nil {
+		if err := p.applyEvent(ctx, qtx, domainEvt); err != nil {
 			return fmt.Errorf("apply event id=%d type=%s: %w", entry.ID, entry.EventType, err)
 		}
 	}
@@ -136,56 +143,68 @@ func (p *Projector) RebuildSince(ctx context.Context, sinceID int64) error {
 	return nil
 }
 
-// sqlcEventToDomain converts the sqlcgen.InternalEvent model to domain.InternalEvent.
-func sqlcEventToDomain(e sqlcgen.InternalEvent) domain.InternalEvent {
-	return domain.InternalEvent{
-		ID:            e.ID,
-		EventType:     e.EventType,
-		AggregateType: e.AggregateType,
-		AggregateID:   e.AggregateID,
-		TeamID:        e.TeamID,
-		ActorID:       e.ActorID,
-		Payload:       e.Payload,
-		Metadata:      e.Metadata,
-		CreatedAt:     e.CreatedAt,
+// sqlcEventToDomain converts generated internal event rows to domain.InternalEvent.
+func sqlcEventToDomain(row any) domain.InternalEvent {
+	switch e := row.(type) {
+	case sqlcgen.InternalEvent:
+		return sqlcEventFieldsToDomain(e.ID, e.EventType, e.AggregateType, e.AggregateID, e.WorkspaceID, e.ActorID, e.ShardKey, e.ShardID, e.Payload, e.Metadata, e.CreatedAt)
+	case sqlcgen.ProjectorGetInternalEventsByAggregateTypeRow:
+		return sqlcEventFieldsToDomain(e.ID, e.EventType, e.AggregateType, e.AggregateID, e.WorkspaceID, e.ActorID, "", 0, e.Payload, e.Metadata, e.CreatedAt)
+	case sqlcgen.ProjectorGetInternalEventsSinceRow:
+		return sqlcEventFieldsToDomain(e.ID, e.EventType, e.AggregateType, e.AggregateID, e.WorkspaceID, e.ActorID, "", 0, e.Payload, e.Metadata, e.CreatedAt)
+	default:
+		panic("unsupported projector internal event row type")
 	}
 }
 
-func (p *Projector) truncateProjection(ctx context.Context, tx pgx.Tx, aggregateType string) error {
+func sqlcEventFieldsToDomain(
+	id int64,
+	eventType, aggregateType, aggregateID, workspaceID, actorID, shardKey string,
+	shardID int32,
+	payload, metadata json.RawMessage,
+	createdAt time.Time,
+) domain.InternalEvent {
+	return domain.InternalEvent{
+		ID:            id,
+		EventType:     eventType,
+		AggregateType: aggregateType,
+		AggregateID:   aggregateID,
+		WorkspaceID:        workspaceID,
+		ActorID:       actorID,
+		ShardKey:      shardKey,
+		ShardID:       int(shardID),
+		Payload:       payload,
+		Metadata:      metadata,
+		CreatedAt:     createdAt,
+	}
+}
+
+func (p *Projector) truncateProjection(ctx context.Context, q *sqlcgen.Queries, aggregateType string) error {
 	switch aggregateType {
 	case domain.AggregateUser:
-		_, err := tx.Exec(ctx, "TRUNCATE external_principal_conversation_assignments, external_principal_access, user_role_assignments, users CASCADE")
-		return err
+		return q.ProjectorTruncateUserProjection(ctx)
 	case domain.AggregateConversation:
-		_, err := tx.Exec(ctx, "TRUNCATE conversation_posting_policies, conversation_manager_assignments, conversation_members, conversations CASCADE")
-		return err
+		return q.ProjectorTruncateConversationProjection(ctx)
 	case domain.AggregateMessage:
-		_, err := tx.Exec(ctx, "TRUNCATE reactions, messages CASCADE")
-		return err
+		return q.ProjectorTruncateMessageProjection(ctx)
 	case domain.AggregateUsergroup:
-		_, err := tx.Exec(ctx, "TRUNCATE usergroup_members, usergroups CASCADE")
-		return err
+		return q.ProjectorTruncateUsergroupProjection(ctx)
 	case domain.AggregatePin:
-		_, err := tx.Exec(ctx, "TRUNCATE pins CASCADE")
-		return err
+		return q.ProjectorTruncatePinProjection(ctx)
 	case domain.AggregateBookmark:
-		_, err := tx.Exec(ctx, "TRUNCATE bookmarks CASCADE")
-		return err
+		return q.ProjectorTruncateBookmarkProjection(ctx)
 	case domain.AggregateFile:
-		_, err := tx.Exec(ctx, "TRUNCATE file_channels, files CASCADE")
-		return err
+		return q.ProjectorTruncateFileProjection(ctx)
 	case domain.AggregateSubscription:
-		_, err := tx.Exec(ctx, "TRUNCATE event_subscriptions CASCADE")
-		return err
+		return q.ProjectorTruncateSubscriptionProjection(ctx)
 	case domain.AggregateAPIKey:
-		_, err := tx.Exec(ctx, "TRUNCATE api_keys CASCADE")
-		return err
+		return q.ProjectorTruncateAPIKeyProjection(ctx)
 	default:
 		return fmt.Errorf("unknown aggregate type: %s", aggregateType)
 	}
 }
 
-func (p *Projector) applyEvent(ctx context.Context, tx pgx.Tx, q *sqlcgen.Queries, entry domain.InternalEvent) error {
+func (p *Projector) applyEvent(ctx context.Context, q *sqlcgen.Queries, entry domain.InternalEvent) error {
 	switch entry.EventType {
 	// User events
 	case domain.EventUserCreated, domain.EventUserUpdated:
@@ -193,7 +212,7 @@ func (p *Projector) applyEvent(ctx context.Context, tx pgx.Tx, q *sqlcgen.Querie
 	case domain.EventUserDeleted:
 		return p.applyUserDeleted(ctx, q, entry)
 	case domain.EventUserRolesUpdated:
-		return p.applyUserRolesUpdated(ctx, tx, entry)
+		return p.applyUserRolesUpdated(ctx, q, entry)
 
 	// Conversation events
 	case domain.EventConversationCreated, domain.EventConversationUpdated,
@@ -254,7 +273,7 @@ func (p *Projector) applyEvent(ctx context.Context, tx pgx.Tx, q *sqlcgen.Querie
 	case domain.EventSubscriptionDeleted:
 		return p.applySubscriptionDeleted(ctx, q, entry)
 	case domain.EventExternalPrincipalAccessGranted, domain.EventExternalPrincipalAccessUpdated, domain.EventExternalPrincipalAccessRevoked:
-		return p.applyExternalPrincipalAccessUpsert(ctx, tx, entry)
+		return p.applyExternalPrincipalAccessUpsert(ctx, q, entry)
 
 	// API Key events
 	case domain.EventAPIKeyCreated, domain.EventAPIKeyUpdated:
@@ -283,7 +302,7 @@ func (p *Projector) applyUserUpsert(ctx context.Context, q *sqlcgen.Queries, ent
 
 	return q.ProjectorUpsertUser(ctx, sqlcgen.ProjectorUpsertUserParams{
 		ID:            u.ID,
-		TeamID:        u.TeamID,
+		WorkspaceID:        u.WorkspaceID,
 		Name:          u.Name,
 		RealName:      u.RealName,
 		DisplayName:   u.DisplayName,
@@ -310,7 +329,7 @@ func (p *Projector) applyUserDeleted(ctx context.Context, q *sqlcgen.Queries, en
 	})
 }
 
-func (p *Projector) applyUserRolesUpdated(ctx context.Context, tx pgx.Tx, entry domain.InternalEvent) error {
+func (p *Projector) applyUserRolesUpdated(ctx context.Context, q *sqlcgen.Queries, entry domain.InternalEvent) error {
 	var payload struct {
 		UserID         string                 `json:"user_id"`
 		DelegatedRoles []domain.DelegatedRole `json:"delegated_roles"`
@@ -321,14 +340,21 @@ func (p *Projector) applyUserRolesUpdated(ctx context.Context, tx pgx.Tx, entry 
 	if payload.UserID == "" {
 		payload.UserID = entry.AggregateID
 	}
-	if _, err := tx.Exec(ctx, `DELETE FROM user_role_assignments WHERE team_id = $1 AND user_id = $2`, entry.TeamID, payload.UserID); err != nil {
+	if err := q.ProjectorDeleteUserRoleAssignments(ctx, sqlcgen.ProjectorDeleteUserRoleAssignmentsParams{
+		WorkspaceID: entry.WorkspaceID,
+		UserID: payload.UserID,
+	}); err != nil {
 		return fmt.Errorf("delete user roles: %w", err)
 	}
 	for _, role := range payload.DelegatedRoles {
-		if _, err := tx.Exec(ctx, `
-			INSERT INTO user_role_assignments (id, team_id, user_id, role_key, assigned_by, created_at)
-			VALUES ($1, $2, $3, $4, $5, $6)
-		`, generateProjectionID("URA", entry.ID, string(role)), entry.TeamID, payload.UserID, string(role), entry.ActorID, entry.CreatedAt); err != nil {
+		if err := q.ProjectorInsertUserRoleAssignment(ctx, sqlcgen.ProjectorInsertUserRoleAssignmentParams{
+			ID:         generateProjectionID("URA", entry.ID, string(role)),
+			WorkspaceID:     entry.WorkspaceID,
+			UserID:     payload.UserID,
+			RoleKey:    string(role),
+			AssignedBy: entry.ActorID,
+			CreatedAt:  timeToPgTimestamptz(entry.CreatedAt),
+		}); err != nil {
 			return fmt.Errorf("insert user role: %w", err)
 		}
 	}
@@ -345,7 +371,7 @@ func (p *Projector) applyConversationUpsert(ctx context.Context, q *sqlcgen.Quer
 
 	return q.ProjectorUpsertConversation(ctx, sqlcgen.ProjectorUpsertConversationParams{
 		ID:             c.ID,
-		TeamID:         c.TeamID,
+		WorkspaceID:         c.WorkspaceID,
 		Name:           c.Name,
 		Type:           string(c.Type),
 		CreatorID:      c.CreatorID,
@@ -554,7 +580,7 @@ func (p *Projector) applyUsergroupUpsert(ctx context.Context, q *sqlcgen.Queries
 
 	return q.ProjectorUpsertUsergroup(ctx, sqlcgen.ProjectorUpsertUsergroupParams{
 		ID:          ug.ID,
-		TeamID:      ug.TeamID,
+		WorkspaceID:      ug.WorkspaceID,
 		Name:        ug.Name,
 		Handle:      ug.Handle,
 		Description: ug.Description,
@@ -679,20 +705,20 @@ func (p *Projector) applyFileUpsert(ctx context.Context, q *sqlcgen.Queries, ent
 	if err := json.Unmarshal(entry.Payload, &f); err != nil {
 		return fmt.Errorf("unmarshal file: %w", err)
 	}
-	if f.TeamID == "" {
-		if entry.TeamID != "" {
-			f.TeamID = entry.TeamID
+	if f.WorkspaceID == "" {
+		if entry.WorkspaceID != "" {
+			f.WorkspaceID = entry.WorkspaceID
 		} else if user, err := q.GetUser(ctx, f.UserID); err == nil {
-			f.TeamID = user.TeamID
+			f.WorkspaceID = user.WorkspaceID
 		}
 	}
-	if f.TeamID == "" {
-		return fmt.Errorf("file team_id missing for file %s", f.ID)
+	if f.WorkspaceID == "" {
+		return fmt.Errorf("file workspace_id missing for file %s", f.ID)
 	}
 
 	return q.ProjectorUpsertFile(ctx, sqlcgen.ProjectorUpsertFileParams{
 		ID:                 f.ID,
-		TeamID:             f.TeamID,
+		WorkspaceID:             f.WorkspaceID,
 		Name:               f.Name,
 		Title:              f.Title,
 		Mimetype:           f.Mimetype,
@@ -743,7 +769,7 @@ func (p *Projector) applySubscriptionUpsert(ctx context.Context, q *sqlcgen.Quer
 
 	return q.ProjectorUpsertSubscription(ctx, sqlcgen.ProjectorUpsertSubscriptionParams{
 		ID:              s.ID,
-		TeamID:          s.TeamID,
+		WorkspaceID:          s.WorkspaceID,
 		Url:             s.URL,
 		EventType:       s.Type,
 		ResourceType:    s.ResourceType,
@@ -773,7 +799,7 @@ func (p *Projector) applySubscriptionDeleted(ctx context.Context, q *sqlcgen.Que
 	return q.ProjectorDeleteSubscription(ctx, id)
 }
 
-func (p *Projector) applyExternalPrincipalAccessUpsert(ctx context.Context, tx pgx.Tx, entry domain.InternalEvent) error {
+func (p *Projector) applyExternalPrincipalAccessUpsert(ctx context.Context, q *sqlcgen.Queries, entry domain.InternalEvent) error {
 	var access domain.ExternalPrincipalAccess
 	if err := json.Unmarshal(entry.Payload, &access); err != nil {
 		return fmt.Errorf("unmarshal external principal access: %w", err)
@@ -782,33 +808,31 @@ func (p *Projector) applyExternalPrincipalAccessUpsert(ctx context.Context, tx p
 	if err != nil {
 		return fmt.Errorf("marshal external principal capabilities: %w", err)
 	}
-	if _, err := tx.Exec(ctx, `
-		INSERT INTO external_principal_access (
-			id, host_team_id, principal_id, principal_type, home_team_id, access_mode,
-			allowed_capabilities, granted_by, created_at, expires_at, revoked_at
-		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-		ON CONFLICT (id) DO UPDATE SET
-			host_team_id = EXCLUDED.host_team_id,
-			principal_id = EXCLUDED.principal_id,
-			principal_type = EXCLUDED.principal_type,
-			home_team_id = EXCLUDED.home_team_id,
-			access_mode = EXCLUDED.access_mode,
-			allowed_capabilities = EXCLUDED.allowed_capabilities,
-			granted_by = EXCLUDED.granted_by,
-			expires_at = EXCLUDED.expires_at,
-			revoked_at = EXCLUDED.revoked_at
-	`, access.ID, access.HostTeamID, access.PrincipalID, string(access.PrincipalType), access.HomeTeamID, string(access.AccessMode), capsJSON, access.GrantedBy, access.CreatedAt, access.ExpiresAt, access.RevokedAt); err != nil {
+	if err := q.ProjectorUpsertExternalPrincipalAccess(ctx, sqlcgen.ProjectorUpsertExternalPrincipalAccessParams{
+		ID:                  access.ID,
+		HostWorkspaceID:          access.HostWorkspaceID,
+		PrincipalID:         access.PrincipalID,
+		PrincipalType:       string(access.PrincipalType),
+		HomeWorkspaceID:          access.HomeWorkspaceID,
+		AccessMode:          string(access.AccessMode),
+		AllowedCapabilities: capsJSON,
+		GrantedBy:           access.GrantedBy,
+		CreatedAt:           timeToPgTimestamptz(access.CreatedAt),
+		ExpiresAt:           timePtrToPgTimestamptz(access.ExpiresAt),
+		RevokedAt:           timePtrToPgTimestamptz(access.RevokedAt),
+	}); err != nil {
 		return fmt.Errorf("upsert external principal access: %w", err)
 	}
-	if _, err := tx.Exec(ctx, `DELETE FROM external_principal_conversation_assignments WHERE access_id = $1`, access.ID); err != nil {
+	if err := q.ProjectorDeleteExternalPrincipalConversationAssignments(ctx, access.ID); err != nil {
 		return fmt.Errorf("delete external principal conversation assignments: %w", err)
 	}
 	for _, conversationID := range access.ConversationIDs {
-		if _, err := tx.Exec(ctx, `
-			INSERT INTO external_principal_conversation_assignments (access_id, conversation_id, granted_by, created_at)
-			VALUES ($1, $2, $3, $4)
-		`, access.ID, conversationID, access.GrantedBy, entry.CreatedAt); err != nil {
+		if err := q.ProjectorInsertExternalPrincipalConversationAssignment(ctx, sqlcgen.ProjectorInsertExternalPrincipalConversationAssignmentParams{
+			AccessID:       access.ID,
+			ConversationID: conversationID,
+			GrantedBy:      access.GrantedBy,
+			CreatedAt:      timeToPgTimestamptz(entry.CreatedAt),
+		}); err != nil {
 			return fmt.Errorf("insert external principal conversation assignment: %w", err)
 		}
 	}
@@ -837,12 +861,12 @@ func (p *Projector) applyAPIKeyUpsert(ctx context.Context, q *sqlcgen.Queries, e
 		KeyHash:           k.KeyHash,
 		KeyPrefix:         k.KeyPrefix,
 		KeyHint:           k.KeyHint,
-		TeamID:            k.TeamID,
-		PrincipalID:       k.PrincipalID,
+		WorkspaceID:            k.WorkspaceID,
+		Column8:           k.UserID,
 		CreatedBy:         k.CreatedBy,
-		OnBehalfOf:        k.OnBehalfOf,
-		Type:              string(k.Type),
-		Environment:       string(k.Environment),
+		OnBehalfOf:        "",
+		Type:              "persistent",
+		Environment:       "live",
 		Permissions:       k.Permissions,
 		ExpiresAt:         timePtrToTs(k.ExpiresAt),
 		LastUsedAt:        timePtrToTs(k.LastUsedAt),

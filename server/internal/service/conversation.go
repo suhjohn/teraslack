@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 
@@ -42,11 +43,11 @@ func (s *ConversationService) Create(ctx context.Context, params domain.CreateCo
 	if err := requirePermission(ctx, domain.PermissionConversationsCreate); err != nil {
 		return nil, err
 	}
-	teamID, err := resolveTeamID(ctx, params.TeamID)
+	workspaceID, err := resolveWorkspaceID(ctx, params.WorkspaceID)
 	if err != nil {
 		return nil, err
 	}
-	params.TeamID = teamID
+	params.WorkspaceID = workspaceID
 	if params.Name == "" && (params.Type == domain.ConversationTypePublicChannel || params.Type == domain.ConversationTypePrivateChannel) {
 		return nil, fmt.Errorf("name: %w", domain.ErrInvalidArgument)
 	}
@@ -62,6 +63,26 @@ func (s *ConversationService) Create(ctx context.Context, params domain.CreateCo
 	// Verify creator exists
 	if _, err := s.userRepo.Get(ctx, params.CreatorID); err != nil {
 		return nil, fmt.Errorf("creator: %w", err)
+	}
+	for _, userID := range params.UserIDs {
+		if userID == "" {
+			return nil, fmt.Errorf("user_ids: %w", domain.ErrInvalidArgument)
+		}
+		if userID == params.CreatorID {
+			return nil, fmt.Errorf("user_ids: %w", domain.ErrInvalidArgument)
+		}
+		if _, err := s.userRepo.Get(ctx, userID); err != nil {
+			return nil, fmt.Errorf("user_id %s: %w", userID, err)
+		}
+	}
+	if params.Type == domain.ConversationTypeIM && len(params.UserIDs) == 1 {
+		conv, err := s.repo.GetCanonicalDM(ctx, params.WorkspaceID, params.CreatorID, params.UserIDs[0])
+		if err == nil {
+			return conv, nil
+		}
+		if !errors.Is(err, domain.ErrNotFound) {
+			return nil, err
+		}
 	}
 
 	tx, err := s.db.Begin(ctx)
@@ -79,7 +100,7 @@ func (s *ConversationService) Create(ctx context.Context, params domain.CreateCo
 		EventType:     domain.EventConversationCreated,
 		AggregateType: domain.AggregateConversation,
 		AggregateID:   conv.ID,
-		TeamID:        conv.TeamID,
+		WorkspaceID:        conv.WorkspaceID,
 		ActorID:       actorID,
 		Payload:       payload,
 	}); err != nil {
@@ -100,7 +121,7 @@ func (s *ConversationService) Get(ctx context.Context, id string) (*domain.Conve
 	if err != nil {
 		return nil, err
 	}
-	if err := ensureTeamAccess(ctx, conv.TeamID); err != nil {
+	if err := ensureWorkspaceAccess(ctx, conv.WorkspaceID); err != nil {
 		return nil, err
 	}
 	if err := ensureExternalSharedConversationAccess(ctx, s.externalAccess, conv, "conversations.read", false); err != nil {
@@ -123,7 +144,7 @@ func (s *ConversationService) Update(ctx context.Context, id string, params doma
 	if err != nil {
 		return nil, err
 	}
-	if err := ensureTeamAccess(ctx, conv.TeamID); err != nil {
+	if err := ensureWorkspaceAccess(ctx, conv.WorkspaceID); err != nil {
 		return nil, err
 	}
 	if err := ensureExternalSharedConversationAccess(ctx, s.externalAccess, conv, "conversations.update", true); err != nil {
@@ -151,7 +172,7 @@ func (s *ConversationService) Update(ctx context.Context, id string, params doma
 		EventType:     domain.EventConversationUpdated,
 		AggregateType: domain.AggregateConversation,
 		AggregateID:   conv.ID,
-		TeamID:        conv.TeamID,
+		WorkspaceID:        conv.WorkspaceID,
 		ActorID:       ctxutil.GetActingUserID(ctx),
 		Payload:       payload,
 	}); err != nil {
@@ -172,7 +193,7 @@ func (s *ConversationService) Archive(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
-	if err := ensureTeamAccess(ctx, conv.TeamID); err != nil {
+	if err := ensureWorkspaceAccess(ctx, conv.WorkspaceID); err != nil {
 		return err
 	}
 	if err := ensureExternalSharedConversationAccess(ctx, s.externalAccess, conv, "conversations.archive", true); err != nil {
@@ -200,7 +221,7 @@ func (s *ConversationService) Archive(ctx context.Context, id string) error {
 		EventType:     domain.EventConversationArchived,
 		AggregateType: domain.AggregateConversation,
 		AggregateID:   id,
-		TeamID:        conv.TeamID,
+		WorkspaceID:        conv.WorkspaceID,
 		ActorID:       ctxutil.GetActingUserID(ctx),
 		Payload:       payload,
 	}); err != nil {
@@ -221,7 +242,7 @@ func (s *ConversationService) Unarchive(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
-	if err := ensureTeamAccess(ctx, conv.TeamID); err != nil {
+	if err := ensureWorkspaceAccess(ctx, conv.WorkspaceID); err != nil {
 		return err
 	}
 	if err := ensureExternalSharedConversationAccess(ctx, s.externalAccess, conv, "conversations.archive", true); err != nil {
@@ -249,7 +270,7 @@ func (s *ConversationService) Unarchive(ctx context.Context, id string) error {
 		EventType:     domain.EventConversationUnarchived,
 		AggregateType: domain.AggregateConversation,
 		AggregateID:   id,
-		TeamID:        conv.TeamID,
+		WorkspaceID:        conv.WorkspaceID,
 		ActorID:       ctxutil.GetActingUserID(ctx),
 		Payload:       payload,
 	}); err != nil {
@@ -270,7 +291,7 @@ func (s *ConversationService) SetTopic(ctx context.Context, id string, params do
 	if err != nil {
 		return nil, err
 	}
-	if err := ensureTeamAccess(ctx, conv.TeamID); err != nil {
+	if err := ensureWorkspaceAccess(ctx, conv.WorkspaceID); err != nil {
 		return nil, err
 	}
 	if err := ensureExternalSharedConversationAccess(ctx, s.externalAccess, conv, "conversations.update", true); err != nil {
@@ -305,7 +326,7 @@ func (s *ConversationService) SetTopic(ctx context.Context, id string, params do
 		EventType:     domain.EventConversationTopicSet,
 		AggregateType: domain.AggregateConversation,
 		AggregateID:   id,
-		TeamID:        result.TeamID,
+		WorkspaceID:        result.WorkspaceID,
 		ActorID:       actorID,
 		Payload:       payload,
 	}); err != nil {
@@ -326,7 +347,7 @@ func (s *ConversationService) SetPurpose(ctx context.Context, id string, params 
 	if err != nil {
 		return nil, err
 	}
-	if err := ensureTeamAccess(ctx, conv.TeamID); err != nil {
+	if err := ensureWorkspaceAccess(ctx, conv.WorkspaceID); err != nil {
 		return nil, err
 	}
 	if err := ensureExternalSharedConversationAccess(ctx, s.externalAccess, conv, "conversations.update", true); err != nil {
@@ -361,7 +382,7 @@ func (s *ConversationService) SetPurpose(ctx context.Context, id string, params 
 		EventType:     domain.EventConversationPurposeSet,
 		AggregateType: domain.AggregateConversation,
 		AggregateID:   id,
-		TeamID:        result.TeamID,
+		WorkspaceID:        result.WorkspaceID,
 		ActorID:       actorID,
 		Payload:       payload,
 	}); err != nil {
@@ -375,11 +396,12 @@ func (s *ConversationService) SetPurpose(ctx context.Context, id string, params 
 }
 
 func (s *ConversationService) List(ctx context.Context, params domain.ListConversationsParams) (*domain.CursorPage[domain.Conversation], error) {
-	teamID, err := resolveTeamID(ctx, params.TeamID)
+	workspaceID, err := resolveWorkspaceID(ctx, params.WorkspaceID)
 	if err != nil {
 		return nil, err
 	}
-	params.TeamID = teamID
+	params.WorkspaceID = workspaceID
+	params.UserID = ctxutil.GetActingUserID(ctx)
 	page, err := s.repo.List(ctx, params)
 	if err != nil {
 		return nil, err
@@ -415,7 +437,7 @@ func (s *ConversationService) Invite(ctx context.Context, conversationID, userID
 	if conv.IsArchived {
 		return domain.ErrChannelArchived
 	}
-	if err := ensureTeamAccess(ctx, conv.TeamID); err != nil {
+	if err := ensureWorkspaceAccess(ctx, conv.WorkspaceID); err != nil {
 		return err
 	}
 	if err := ensureExternalSharedConversationAccess(ctx, s.externalAccess, conv, domain.PermissionConversationsMembersWrite, true); err != nil {
@@ -454,7 +476,7 @@ func (s *ConversationService) Invite(ctx context.Context, conversationID, userID
 		EventType:     domain.EventMemberJoined,
 		AggregateType: domain.AggregateConversation,
 		AggregateID:   conversationID,
-		TeamID:        conv.TeamID,
+		WorkspaceID:        conv.WorkspaceID,
 		ActorID:       ctxutil.GetActingUserID(ctx),
 		Payload:       payload,
 	}); err != nil {
@@ -478,7 +500,7 @@ func (s *ConversationService) Kick(ctx context.Context, conversationID, userID s
 	if err != nil {
 		return err
 	}
-	if err := ensureTeamAccess(ctx, conv.TeamID); err != nil {
+	if err := ensureWorkspaceAccess(ctx, conv.WorkspaceID); err != nil {
 		return err
 	}
 	if err := ensureExternalSharedConversationAccess(ctx, s.externalAccess, conv, domain.PermissionConversationsMembersWrite, true); err != nil {
@@ -509,7 +531,7 @@ func (s *ConversationService) Kick(ctx context.Context, conversationID, userID s
 		EventType:     domain.EventMemberLeft,
 		AggregateType: domain.AggregateConversation,
 		AggregateID:   conversationID,
-		TeamID:        conv.TeamID,
+		WorkspaceID:        conv.WorkspaceID,
 		ActorID:       ctxutil.GetActingUserID(ctx),
 		Payload:       payload,
 	}); err != nil {
@@ -530,7 +552,7 @@ func (s *ConversationService) ListMembers(ctx context.Context, conversationID st
 	if err != nil {
 		return nil, err
 	}
-	if err := ensureTeamAccess(ctx, conv.TeamID); err != nil {
+	if err := ensureWorkspaceAccess(ctx, conv.WorkspaceID); err != nil {
 		return nil, err
 	}
 	if err := ensureExternalSharedConversationAccess(ctx, s.externalAccess, conv, "conversations.members.read", false); err != nil {

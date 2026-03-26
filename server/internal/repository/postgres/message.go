@@ -32,50 +32,16 @@ func (r *MessageRepo) Create(ctx context.Context, params domain.PostMessageParam
 	now := timeNow()
 	ts := fmt.Sprintf("%d.%06d", now.Unix(), now.Nanosecond()/1000)
 
-	if params.ThreadTS != "" {
-		// Thread reply requires updating parent stats in same tx
-		tx, ownTx, err := beginOwnedTx(ctx, r.db)
-		if err != nil {
-			return nil, fmt.Errorf("begin tx: %w", err)
-		}
-		if ownTx {
-			defer tx.Rollback(ctx)
-		}
-		qtx := r.q.WithTx(tx)
-
-		row, err := qtx.CreateMessage(ctx, sqlcgen.CreateMessageParams{
-			Ts:        ts,
-			ChannelID: params.ChannelID,
-			UserID:    params.UserID,
-			Text:      params.Text,
-			ThreadTs:  stringToText(params.ThreadTS),
-			Type:      "message",
-			Blocks:    params.Blocks,
-			Metadata:  params.Metadata,
-		})
-		if err != nil {
-			return nil, fmt.Errorf("insert message: %w", err)
-		}
-
-		if err := qtx.UpdateParentReplyStats(ctx, sqlcgen.UpdateParentReplyStatsParams{
-			ChannelID:   params.ChannelID,
-			ThreadTs:    stringToText(params.ThreadTS),
-			LatestReply: stringToText(ts),
-		}); err != nil {
-			return nil, fmt.Errorf("update parent reply stats: %w", err)
-		}
-
-		if ownTx {
-			if err := tx.Commit(ctx); err != nil {
-				return nil, fmt.Errorf("commit tx: %w", err)
-			}
-		}
-
-		return msgToDomain(row), nil
+	tx, ownTx, err := beginOwnedTx(ctx, r.db)
+	if err != nil {
+		return nil, fmt.Errorf("begin tx: %w", err)
 	}
+	if ownTx {
+		defer tx.Rollback(ctx)
+	}
+	qtx := r.q.WithTx(tx)
 
-	// Non-threaded message: single statement, no tx needed
-	row, err := r.q.CreateMessage(ctx, sqlcgen.CreateMessageParams{
+	row, err := qtx.CreateMessage(ctx, sqlcgen.CreateMessageParams{
 		Ts:        ts,
 		ChannelID: params.ChannelID,
 		UserID:    params.UserID,
@@ -89,11 +55,57 @@ func (r *MessageRepo) Create(ctx context.Context, params domain.PostMessageParam
 		return nil, fmt.Errorf("insert message: %w", err)
 	}
 
+	if params.ThreadTS != "" {
+		if err := qtx.IncrementParentReplyCountAndLatestReply(ctx, sqlcgen.IncrementParentReplyCountAndLatestReplyParams{
+			ChannelID:   params.ChannelID,
+			Ts:          params.ThreadTS,
+			LatestReply: stringToText(ts),
+		}); err != nil {
+			return nil, fmt.Errorf("increment parent reply count: %w", err)
+		}
+
+		rowsAffected, err := qtx.AddThreadParticipant(ctx, sqlcgen.AddThreadParticipantParams{
+			ChannelID: params.ChannelID,
+			ThreadTs:  params.ThreadTS,
+			UserID:    params.UserID,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("add thread participant: %w", err)
+		}
+		if rowsAffected == 1 {
+			if err := qtx.IncrementParentReplyUsersCount(ctx, sqlcgen.IncrementParentReplyUsersCountParams{
+				ChannelID: params.ChannelID,
+				Ts:        params.ThreadTS,
+			}); err != nil {
+				return nil, fmt.Errorf("increment parent reply users count: %w", err)
+			}
+		}
+		if err := qtx.UpdateConversationLastActivity(ctx, sqlcgen.UpdateConversationLastActivityParams{
+			ID: params.ChannelID,
+			Ts: stringToText(ts),
+		}); err != nil {
+			return nil, fmt.Errorf("update conversation last activity: %w", err)
+		}
+	} else {
+		if err := qtx.UpdateConversationLastMessageAndActivity(ctx, sqlcgen.UpdateConversationLastMessageAndActivityParams{
+			ID: params.ChannelID,
+			Ts: stringToText(ts),
+		}); err != nil {
+			return nil, fmt.Errorf("update conversation last message and activity: %w", err)
+		}
+	}
+
+	if ownTx {
+		if err := tx.Commit(ctx); err != nil {
+			return nil, fmt.Errorf("commit tx: %w", err)
+		}
+	}
+
 	return msgToDomain(row), nil
 }
 
-func (r *MessageRepo) Get(ctx context.Context, channelID, ts string) (*domain.Message, error) {
-	row, err := r.q.GetMessage(ctx, sqlcgen.GetMessageParams{
+func (r *MessageRepo) GetRow(ctx context.Context, channelID, ts string) (*domain.Message, error) {
+	row, err := r.q.GetMessageRow(ctx, sqlcgen.GetMessageRowParams{
 		ChannelID: channelID,
 		Ts:        ts,
 	})
@@ -104,7 +116,14 @@ func (r *MessageRepo) Get(ctx context.Context, channelID, ts string) (*domain.Me
 		return nil, fmt.Errorf("get message: %w", err)
 	}
 
-	msg := msgToDomain(row)
+	return msgToDomain(row), nil
+}
+
+func (r *MessageRepo) Get(ctx context.Context, channelID, ts string) (*domain.Message, error) {
+	msg, err := r.GetRow(ctx, channelID, ts)
+	if err != nil {
+		return nil, err
+	}
 
 	reactions, err := r.GetReactions(ctx, channelID, ts)
 	if err != nil {
@@ -116,7 +135,7 @@ func (r *MessageRepo) Get(ctx context.Context, channelID, ts string) (*domain.Me
 }
 
 func (r *MessageRepo) Update(ctx context.Context, channelID, ts string, params domain.UpdateMessageParams) (*domain.Message, error) {
-	existing, err := r.Get(ctx, channelID, ts)
+	existing, err := r.GetRow(ctx, channelID, ts)
 	if err != nil {
 		return nil, err
 	}
@@ -253,31 +272,32 @@ func (r *MessageRepo) ListReplies(ctx context.Context, params domain.ListReplies
 }
 
 func (r *MessageRepo) AddReaction(ctx context.Context, params domain.AddReactionParams) error {
-	tag, err := r.db.Exec(ctx,
-		`INSERT INTO reactions (channel_id, message_ts, user_id, emoji)
-		 VALUES ($1, $2, $3, $4)
-		 ON CONFLICT (channel_id, message_ts, user_id, emoji) DO NOTHING`,
-		params.ChannelID, params.MessageTS, params.UserID, params.Emoji,
-	)
+	rowsAffected, err := r.q.AddReaction(ctx, sqlcgen.AddReactionParams{
+		ChannelID: params.ChannelID,
+		MessageTs: params.MessageTS,
+		UserID:    params.UserID,
+		Emoji:     params.Emoji,
+	})
 	if err != nil {
 		return err
 	}
-	if tag.RowsAffected() == 0 {
+	if rowsAffected == 0 {
 		return domain.ErrAlreadyReacted
 	}
 	return nil
 }
 
 func (r *MessageRepo) RemoveReaction(ctx context.Context, params domain.RemoveReactionParams) error {
-	tag, err := r.db.Exec(ctx,
-		`DELETE FROM reactions
-		 WHERE channel_id = $1 AND message_ts = $2 AND user_id = $3 AND emoji = $4`,
-		params.ChannelID, params.MessageTS, params.UserID, params.Emoji,
-	)
+	rowsAffected, err := r.q.RemoveReaction(ctx, sqlcgen.RemoveReactionParams{
+		ChannelID: params.ChannelID,
+		MessageTs: params.MessageTS,
+		UserID:    params.UserID,
+		Emoji:     params.Emoji,
+	})
 	if err != nil {
 		return err
 	}
-	if tag.RowsAffected() == 0 {
+	if rowsAffected == 0 {
 		return domain.ErrNoReaction
 	}
 	return nil

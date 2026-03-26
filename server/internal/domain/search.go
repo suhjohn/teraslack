@@ -4,7 +4,7 @@ import "encoding/json"
 
 // SearchParams holds the parameters for unified search across all resource types.
 type SearchParams struct {
-	TeamID string   `json:"team_id"`
+	WorkspaceID string   `json:"workspace_id"`
 	Query  string   `json:"query"`
 	Types  []string `json:"types,omitempty"` // optional filter: "user", "message", "conversation", "file", etc.
 	Limit  int      `json:"limit,omitempty"`

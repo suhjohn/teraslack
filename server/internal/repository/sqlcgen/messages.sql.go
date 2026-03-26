@@ -11,7 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-const addReaction = `-- name: AddReaction :exec
+const addReaction = `-- name: AddReaction :execrows
 INSERT INTO reactions (channel_id, message_ts, user_id, emoji)
 VALUES ($1, $2, $3, $4)
 ON CONFLICT (channel_id, message_ts, user_id, emoji) DO NOTHING
@@ -24,14 +24,37 @@ type AddReactionParams struct {
 	Emoji     string `json:"emoji"`
 }
 
-func (q *Queries) AddReaction(ctx context.Context, arg AddReactionParams) error {
-	_, err := q.db.Exec(ctx, addReaction,
+func (q *Queries) AddReaction(ctx context.Context, arg AddReactionParams) (int64, error) {
+	result, err := q.db.Exec(ctx, addReaction,
 		arg.ChannelID,
 		arg.MessageTs,
 		arg.UserID,
 		arg.Emoji,
 	)
-	return err
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const addThreadParticipant = `-- name: AddThreadParticipant :execrows
+INSERT INTO thread_participants (channel_id, thread_ts, user_id)
+VALUES ($1, $2, $3)
+ON CONFLICT DO NOTHING
+`
+
+type AddThreadParticipantParams struct {
+	ChannelID string `json:"channel_id"`
+	ThreadTs  string `json:"thread_ts"`
+	UserID    string `json:"user_id"`
+}
+
+func (q *Queries) AddThreadParticipant(ctx context.Context, arg AddThreadParticipantParams) (int64, error) {
+	result, err := q.db.Exec(ctx, addThreadParticipant, arg.ChannelID, arg.ThreadTs, arg.UserID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const createMessage = `-- name: CreateMessage :one
@@ -88,7 +111,7 @@ func (q *Queries) CreateMessage(ctx context.Context, arg CreateMessageParams) (M
 	return i, err
 }
 
-const getMessage = `-- name: GetMessage :one
+const getMessageRow = `-- name: GetMessageRow :one
 SELECT ts, channel_id, user_id, text, thread_ts, type, subtype,
        blocks, metadata, edited_by, edited_at,
        reply_count, reply_users_count, latest_reply,
@@ -96,13 +119,13 @@ SELECT ts, channel_id, user_id, text, thread_ts, type, subtype,
 FROM messages WHERE channel_id = $1 AND ts = $2
 `
 
-type GetMessageParams struct {
+type GetMessageRowParams struct {
 	ChannelID string `json:"channel_id"`
 	Ts        string `json:"ts"`
 }
 
-func (q *Queries) GetMessage(ctx context.Context, arg GetMessageParams) (Message, error) {
-	row := q.db.QueryRow(ctx, getMessage, arg.ChannelID, arg.Ts)
+func (q *Queries) GetMessageRow(ctx context.Context, arg GetMessageRowParams) (Message, error) {
+	row := q.db.QueryRow(ctx, getMessageRow, arg.ChannelID, arg.Ts)
 	var i Message
 	err := row.Scan(
 		&i.Ts,
@@ -163,6 +186,40 @@ func (q *Queries) GetReactions(ctx context.Context, arg GetReactionsParams) ([]G
 		return nil, err
 	}
 	return items, nil
+}
+
+const incrementParentReplyCountAndLatestReply = `-- name: IncrementParentReplyCountAndLatestReply :exec
+UPDATE messages
+SET reply_count = reply_count + 1,
+    latest_reply = $3
+WHERE channel_id = $1 AND ts = $2
+`
+
+type IncrementParentReplyCountAndLatestReplyParams struct {
+	ChannelID   string      `json:"channel_id"`
+	Ts          string      `json:"ts"`
+	LatestReply pgtype.Text `json:"latest_reply"`
+}
+
+func (q *Queries) IncrementParentReplyCountAndLatestReply(ctx context.Context, arg IncrementParentReplyCountAndLatestReplyParams) error {
+	_, err := q.db.Exec(ctx, incrementParentReplyCountAndLatestReply, arg.ChannelID, arg.Ts, arg.LatestReply)
+	return err
+}
+
+const incrementParentReplyUsersCount = `-- name: IncrementParentReplyUsersCount :exec
+UPDATE messages
+SET reply_users_count = reply_users_count + 1
+WHERE channel_id = $1 AND ts = $2
+`
+
+type IncrementParentReplyUsersCountParams struct {
+	ChannelID string `json:"channel_id"`
+	Ts        string `json:"ts"`
+}
+
+func (q *Queries) IncrementParentReplyUsersCount(ctx context.Context, arg IncrementParentReplyUsersCountParams) error {
+	_, err := q.db.Exec(ctx, incrementParentReplyUsersCount, arg.ChannelID, arg.Ts)
+	return err
 }
 
 const listMessagesHistory = `-- name: ListMessagesHistory :many
@@ -390,7 +447,7 @@ func (q *Queries) ListRepliesNoCursor(ctx context.Context, arg ListRepliesNoCurs
 	return items, nil
 }
 
-const removeReaction = `-- name: RemoveReaction :exec
+const removeReaction = `-- name: RemoveReaction :execrows
 DELETE FROM reactions WHERE channel_id = $1 AND message_ts = $2 AND user_id = $3 AND emoji = $4
 `
 
@@ -401,14 +458,17 @@ type RemoveReactionParams struct {
 	Emoji     string `json:"emoji"`
 }
 
-func (q *Queries) RemoveReaction(ctx context.Context, arg RemoveReactionParams) error {
-	_, err := q.db.Exec(ctx, removeReaction,
+func (q *Queries) RemoveReaction(ctx context.Context, arg RemoveReactionParams) (int64, error) {
+	result, err := q.db.Exec(ctx, removeReaction,
 		arg.ChannelID,
 		arg.MessageTs,
 		arg.UserID,
 		arg.Emoji,
 	)
-	return err
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const softDeleteMessage = `-- name: SoftDeleteMessage :exec
@@ -476,27 +536,4 @@ func (q *Queries) UpdateMessage(ctx context.Context, arg UpdateMessageParams) (M
 		&i.UpdatedAt,
 	)
 	return i, err
-}
-
-const updateParentReplyStats = `-- name: UpdateParentReplyStats :exec
-UPDATE messages
-SET reply_count = (
-    SELECT COUNT(*) FROM messages m2 WHERE m2.channel_id = $1 AND m2.thread_ts = $2 AND m2.ts != $2
-),
-reply_users_count = (
-    SELECT COUNT(DISTINCT m3.user_id) FROM messages m3 WHERE m3.channel_id = $1 AND m3.thread_ts = $2 AND m3.ts != $2
-),
-latest_reply = $3
-WHERE channel_id = $1 AND ts = $2
-`
-
-type UpdateParentReplyStatsParams struct {
-	ChannelID   string      `json:"channel_id"`
-	ThreadTs    pgtype.Text `json:"thread_ts"`
-	LatestReply pgtype.Text `json:"latest_reply"`
-}
-
-func (q *Queries) UpdateParentReplyStats(ctx context.Context, arg UpdateParentReplyStatsParams) error {
-	_, err := q.db.Exec(ctx, updateParentReplyStats, arg.ChannelID, arg.ThreadTs, arg.LatestReply)
-	return err
 }

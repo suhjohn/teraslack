@@ -7,10 +7,11 @@ package sqlcgen
 
 import (
 	"context"
+	"time"
 )
 
 const getInternalEventsByAggregate = `-- name: GetInternalEventsByAggregate :many
-SELECT id, event_type, aggregate_type, aggregate_id, team_id, actor_id, payload, metadata, created_at
+SELECT id, event_type, aggregate_type, aggregate_id, workspace_id, actor_id, shard_key, shard_id, payload, metadata, created_at
 FROM internal_events
 WHERE aggregate_type = $1 AND aggregate_id = $2
 ORDER BY id ASC
@@ -21,22 +22,38 @@ type GetInternalEventsByAggregateParams struct {
 	AggregateID   string `json:"aggregate_id"`
 }
 
-func (q *Queries) GetInternalEventsByAggregate(ctx context.Context, arg GetInternalEventsByAggregateParams) ([]InternalEvent, error) {
+type GetInternalEventsByAggregateRow struct {
+	ID            int64     `json:"id"`
+	EventType     string    `json:"event_type"`
+	AggregateType string    `json:"aggregate_type"`
+	AggregateID   string    `json:"aggregate_id"`
+	WorkspaceID   string    `json:"workspace_id"`
+	ActorID       string    `json:"actor_id"`
+	ShardKey      string    `json:"shard_key"`
+	ShardID       int32     `json:"shard_id"`
+	Payload       []byte    `json:"payload"`
+	Metadata      []byte    `json:"metadata"`
+	CreatedAt     time.Time `json:"created_at"`
+}
+
+func (q *Queries) GetInternalEventsByAggregate(ctx context.Context, arg GetInternalEventsByAggregateParams) ([]GetInternalEventsByAggregateRow, error) {
 	rows, err := q.db.Query(ctx, getInternalEventsByAggregate, arg.AggregateType, arg.AggregateID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []InternalEvent{}
+	items := []GetInternalEventsByAggregateRow{}
 	for rows.Next() {
-		var i InternalEvent
+		var i GetInternalEventsByAggregateRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.EventType,
 			&i.AggregateType,
 			&i.AggregateID,
-			&i.TeamID,
+			&i.WorkspaceID,
 			&i.ActorID,
+			&i.ShardKey,
+			&i.ShardID,
 			&i.Payload,
 			&i.Metadata,
 			&i.CreatedAt,
@@ -52,28 +69,44 @@ func (q *Queries) GetInternalEventsByAggregate(ctx context.Context, arg GetInter
 }
 
 const getInternalEventsByAggregateType = `-- name: GetInternalEventsByAggregateType :many
-SELECT id, event_type, aggregate_type, aggregate_id, team_id, actor_id, payload, metadata, created_at
+SELECT id, event_type, aggregate_type, aggregate_id, workspace_id, actor_id, shard_key, shard_id, payload, metadata, created_at
 FROM internal_events
 WHERE aggregate_type = $1
 ORDER BY id ASC
 `
 
-func (q *Queries) GetInternalEventsByAggregateType(ctx context.Context, aggregateType string) ([]InternalEvent, error) {
+type GetInternalEventsByAggregateTypeRow struct {
+	ID            int64     `json:"id"`
+	EventType     string    `json:"event_type"`
+	AggregateType string    `json:"aggregate_type"`
+	AggregateID   string    `json:"aggregate_id"`
+	WorkspaceID   string    `json:"workspace_id"`
+	ActorID       string    `json:"actor_id"`
+	ShardKey      string    `json:"shard_key"`
+	ShardID       int32     `json:"shard_id"`
+	Payload       []byte    `json:"payload"`
+	Metadata      []byte    `json:"metadata"`
+	CreatedAt     time.Time `json:"created_at"`
+}
+
+func (q *Queries) GetInternalEventsByAggregateType(ctx context.Context, aggregateType string) ([]GetInternalEventsByAggregateTypeRow, error) {
 	rows, err := q.db.Query(ctx, getInternalEventsByAggregateType, aggregateType)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []InternalEvent{}
+	items := []GetInternalEventsByAggregateTypeRow{}
 	for rows.Next() {
-		var i InternalEvent
+		var i GetInternalEventsByAggregateTypeRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.EventType,
 			&i.AggregateType,
 			&i.AggregateID,
-			&i.TeamID,
+			&i.WorkspaceID,
 			&i.ActorID,
+			&i.ShardKey,
+			&i.ShardID,
 			&i.Payload,
 			&i.Metadata,
 			&i.CreatedAt,
@@ -89,7 +122,7 @@ func (q *Queries) GetInternalEventsByAggregateType(ctx context.Context, aggregat
 }
 
 const getInternalEventsSince = `-- name: GetInternalEventsSince :many
-SELECT id, event_type, aggregate_type, aggregate_id, team_id, actor_id, payload, metadata, created_at
+SELECT id, event_type, aggregate_type, aggregate_id, workspace_id, actor_id, shard_key, shard_id, payload, metadata, created_at
 FROM internal_events
 WHERE id > $1
 ORDER BY id ASC
@@ -101,22 +134,98 @@ type GetInternalEventsSinceParams struct {
 	Limit int32 `json:"limit"`
 }
 
-func (q *Queries) GetInternalEventsSince(ctx context.Context, arg GetInternalEventsSinceParams) ([]InternalEvent, error) {
+type GetInternalEventsSinceRow struct {
+	ID            int64     `json:"id"`
+	EventType     string    `json:"event_type"`
+	AggregateType string    `json:"aggregate_type"`
+	AggregateID   string    `json:"aggregate_id"`
+	WorkspaceID   string    `json:"workspace_id"`
+	ActorID       string    `json:"actor_id"`
+	ShardKey      string    `json:"shard_key"`
+	ShardID       int32     `json:"shard_id"`
+	Payload       []byte    `json:"payload"`
+	Metadata      []byte    `json:"metadata"`
+	CreatedAt     time.Time `json:"created_at"`
+}
+
+func (q *Queries) GetInternalEventsSince(ctx context.Context, arg GetInternalEventsSinceParams) ([]GetInternalEventsSinceRow, error) {
 	rows, err := q.db.Query(ctx, getInternalEventsSince, arg.ID, arg.Limit)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []InternalEvent{}
+	items := []GetInternalEventsSinceRow{}
 	for rows.Next() {
-		var i InternalEvent
+		var i GetInternalEventsSinceRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.EventType,
 			&i.AggregateType,
 			&i.AggregateID,
-			&i.TeamID,
+			&i.WorkspaceID,
 			&i.ActorID,
+			&i.ShardKey,
+			&i.ShardID,
+			&i.Payload,
+			&i.Metadata,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getInternalEventsSinceByShard = `-- name: GetInternalEventsSinceByShard :many
+SELECT id, event_type, aggregate_type, aggregate_id, workspace_id, actor_id, shard_key, shard_id, payload, metadata, created_at
+FROM internal_events
+WHERE shard_id = $1 AND id > $2
+ORDER BY id ASC
+LIMIT $3
+`
+
+type GetInternalEventsSinceByShardParams struct {
+	ShardID int32 `json:"shard_id"`
+	ID      int64 `json:"id"`
+	Limit   int32 `json:"limit"`
+}
+
+type GetInternalEventsSinceByShardRow struct {
+	ID            int64     `json:"id"`
+	EventType     string    `json:"event_type"`
+	AggregateType string    `json:"aggregate_type"`
+	AggregateID   string    `json:"aggregate_id"`
+	WorkspaceID   string    `json:"workspace_id"`
+	ActorID       string    `json:"actor_id"`
+	ShardKey      string    `json:"shard_key"`
+	ShardID       int32     `json:"shard_id"`
+	Payload       []byte    `json:"payload"`
+	Metadata      []byte    `json:"metadata"`
+	CreatedAt     time.Time `json:"created_at"`
+}
+
+func (q *Queries) GetInternalEventsSinceByShard(ctx context.Context, arg GetInternalEventsSinceByShardParams) ([]GetInternalEventsSinceByShardRow, error) {
+	rows, err := q.db.Query(ctx, getInternalEventsSinceByShard, arg.ShardID, arg.ID, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []GetInternalEventsSinceByShardRow{}
+	for rows.Next() {
+		var i GetInternalEventsSinceByShardRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.EventType,
+			&i.AggregateType,
+			&i.AggregateID,
+			&i.WorkspaceID,
+			&i.ActorID,
+			&i.ShardKey,
+			&i.ShardID,
 			&i.Payload,
 			&i.Metadata,
 			&i.CreatedAt,
@@ -132,39 +241,59 @@ func (q *Queries) GetInternalEventsSince(ctx context.Context, arg GetInternalEve
 }
 
 const insertInternalEvent = `-- name: InsertInternalEvent :one
-INSERT INTO internal_events (event_type, aggregate_type, aggregate_id, team_id, actor_id, payload, metadata)
-VALUES ($1, $2, $3, $4, $5, $6, $7)
-RETURNING id, event_type, aggregate_type, aggregate_id, team_id, actor_id, payload, metadata, created_at
+INSERT INTO internal_events (event_type, aggregate_type, aggregate_id, workspace_id, actor_id, shard_key, shard_id, payload, metadata)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+RETURNING id, event_type, aggregate_type, aggregate_id, workspace_id, actor_id, shard_key, shard_id, payload, metadata, created_at
 `
 
 type InsertInternalEventParams struct {
 	EventType     string `json:"event_type"`
 	AggregateType string `json:"aggregate_type"`
 	AggregateID   string `json:"aggregate_id"`
-	TeamID        string `json:"team_id"`
+	WorkspaceID   string `json:"workspace_id"`
 	ActorID       string `json:"actor_id"`
+	ShardKey      string `json:"shard_key"`
+	ShardID       int32  `json:"shard_id"`
 	Payload       []byte `json:"payload"`
 	Metadata      []byte `json:"metadata"`
 }
 
-func (q *Queries) InsertInternalEvent(ctx context.Context, arg InsertInternalEventParams) (InternalEvent, error) {
+type InsertInternalEventRow struct {
+	ID            int64     `json:"id"`
+	EventType     string    `json:"event_type"`
+	AggregateType string    `json:"aggregate_type"`
+	AggregateID   string    `json:"aggregate_id"`
+	WorkspaceID   string    `json:"workspace_id"`
+	ActorID       string    `json:"actor_id"`
+	ShardKey      string    `json:"shard_key"`
+	ShardID       int32     `json:"shard_id"`
+	Payload       []byte    `json:"payload"`
+	Metadata      []byte    `json:"metadata"`
+	CreatedAt     time.Time `json:"created_at"`
+}
+
+func (q *Queries) InsertInternalEvent(ctx context.Context, arg InsertInternalEventParams) (InsertInternalEventRow, error) {
 	row := q.db.QueryRow(ctx, insertInternalEvent,
 		arg.EventType,
 		arg.AggregateType,
 		arg.AggregateID,
-		arg.TeamID,
+		arg.WorkspaceID,
 		arg.ActorID,
+		arg.ShardKey,
+		arg.ShardID,
 		arg.Payload,
 		arg.Metadata,
 	)
-	var i InternalEvent
+	var i InsertInternalEventRow
 	err := row.Scan(
 		&i.ID,
 		&i.EventType,
 		&i.AggregateType,
 		&i.AggregateID,
-		&i.TeamID,
+		&i.WorkspaceID,
 		&i.ActorID,
+		&i.ShardKey,
+		&i.ShardID,
 		&i.Payload,
 		&i.Metadata,
 		&i.CreatedAt,

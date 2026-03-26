@@ -34,11 +34,11 @@ func (s *UsergroupService) Create(ctx context.Context, params domain.CreateUserg
 			return nil, err
 		}
 	}
-	teamID, err := resolveTeamID(ctx, params.TeamID)
+	workspaceID, err := resolveWorkspaceID(ctx, params.WorkspaceID)
 	if err != nil {
 		return nil, err
 	}
-	params.TeamID = teamID
+	params.WorkspaceID = workspaceID
 	if params.Name == "" {
 		return nil, fmt.Errorf("name: %w", domain.ErrInvalidArgument)
 	}
@@ -65,7 +65,7 @@ func (s *UsergroupService) Create(ctx context.Context, params domain.CreateUserg
 		EventType:     domain.EventUsergroupCreated,
 		AggregateType: domain.AggregateUsergroup,
 		AggregateID:   ug.ID,
-		TeamID:        ug.TeamID,
+		WorkspaceID:        ug.WorkspaceID,
 		ActorID:       actorID,
 		Payload:       payload,
 	}); err != nil {
@@ -86,7 +86,7 @@ func (s *UsergroupService) Get(ctx context.Context, id string) (*domain.Usergrou
 	if err != nil {
 		return nil, err
 	}
-	if err := ensureTeamAccess(ctx, ug.TeamID); err != nil {
+	if err := ensureWorkspaceAccess(ctx, ug.WorkspaceID); err != nil {
 		return nil, err
 	}
 	return ug, nil
@@ -111,7 +111,7 @@ func (s *UsergroupService) Update(ctx context.Context, id string, params domain.
 	if err != nil {
 		return nil, err
 	}
-	if err := ensureTeamAccess(ctx, ug.TeamID); err != nil {
+	if err := ensureWorkspaceAccess(ctx, ug.WorkspaceID); err != nil {
 		return nil, err
 	}
 
@@ -130,7 +130,7 @@ func (s *UsergroupService) Update(ctx context.Context, id string, params domain.
 		EventType:     domain.EventUsergroupUpdated,
 		AggregateType: domain.AggregateUsergroup,
 		AggregateID:   ug.ID,
-		TeamID:        ug.TeamID,
+		WorkspaceID:        ug.WorkspaceID,
 		ActorID:       actorID,
 		Payload:       payload,
 	}); err != nil {
@@ -144,11 +144,11 @@ func (s *UsergroupService) Update(ctx context.Context, id string, params domain.
 }
 
 func (s *UsergroupService) List(ctx context.Context, params domain.ListUsergroupsParams) ([]domain.Usergroup, error) {
-	teamID, err := resolveTeamID(ctx, params.TeamID)
+	workspaceID, err := resolveWorkspaceID(ctx, params.WorkspaceID)
 	if err != nil {
 		return nil, err
 	}
-	params.TeamID = teamID
+	params.WorkspaceID = workspaceID
 	return s.repo.List(ctx, params)
 }
 
@@ -166,7 +166,7 @@ func (s *UsergroupService) Enable(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
-	if err := ensureTeamAccess(ctx, ug.TeamID); err != nil {
+	if err := ensureWorkspaceAccess(ctx, ug.WorkspaceID); err != nil {
 		return err
 	}
 
@@ -187,7 +187,7 @@ func (s *UsergroupService) Enable(ctx context.Context, id string) error {
 			EventType:     domain.EventUsergroupEnabled,
 			AggregateType: domain.AggregateUsergroup,
 			AggregateID:   id,
-			TeamID:        updatedUg.TeamID,
+			WorkspaceID:        updatedUg.WorkspaceID,
 			ActorID:       ctxutil.GetActingUserID(ctx),
 			Payload:       payload,
 		}); err != nil {
@@ -215,7 +215,7 @@ func (s *UsergroupService) Disable(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
-	if err := ensureTeamAccess(ctx, ug.TeamID); err != nil {
+	if err := ensureWorkspaceAccess(ctx, ug.WorkspaceID); err != nil {
 		return err
 	}
 
@@ -236,7 +236,7 @@ func (s *UsergroupService) Disable(ctx context.Context, id string) error {
 			EventType:     domain.EventUsergroupDisabled,
 			AggregateType: domain.AggregateUsergroup,
 			AggregateID:   id,
-			TeamID:        updatedUg.TeamID,
+			WorkspaceID:        updatedUg.WorkspaceID,
 			ActorID:       ctxutil.GetActingUserID(ctx),
 			Payload:       payload,
 		}); err != nil {
@@ -258,7 +258,7 @@ func (s *UsergroupService) ListUsers(ctx context.Context, usergroupID string) ([
 	if err != nil {
 		return nil, err
 	}
-	if err := ensureTeamAccess(ctx, ug.TeamID); err != nil {
+	if err := ensureWorkspaceAccess(ctx, ug.WorkspaceID); err != nil {
 		return nil, err
 	}
 	return s.repo.ListUsers(ctx, usergroupID)
@@ -278,7 +278,7 @@ func (s *UsergroupService) SetUsers(ctx context.Context, usergroupID string, use
 	if err != nil {
 		return err
 	}
-	if err := ensureTeamAccess(ctx, ug.TeamID); err != nil {
+	if err := ensureWorkspaceAccess(ctx, ug.WorkspaceID); err != nil {
 		return err
 	}
 
@@ -302,7 +302,7 @@ func (s *UsergroupService) SetUsers(ctx context.Context, usergroupID string, use
 			EventType:     domain.EventUsergroupUserSet,
 			AggregateType: domain.AggregateUsergroup,
 			AggregateID:   usergroupID,
-			TeamID:        updatedUg.TeamID,
+			WorkspaceID:        updatedUg.WorkspaceID,
 			ActorID:       ctxutil.GetActingUserID(ctx),
 			Payload:       payload,
 		}); err != nil {

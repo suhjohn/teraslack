@@ -34,5 +34,5 @@ func (h *WorkspaceInviteHandler) Create(w http.ResponseWriter, r *http.Request) 
 		httputil.WriteError(w, r, err)
 		return
 	}
-	httputil.WriteCreated(w, "/teams/"+r.PathValue("id")+"/invites/"+result.Invite.ID, result)
+	httputil.WriteCreated(w, "/workspaces/"+r.PathValue("id")+"/invites/"+result.Invite.ID, result)
 }

@@ -60,7 +60,7 @@ func TestComposeE2E_CodexPeerChat(t *testing.T) {
 	owner := bootstrapOwnerUser(t, ctx, pool)
 
 	httpClient := &http.Client{Timeout: 10 * time.Second}
-	ownerToken := createSessionToken(t, ctx, pool, owner.TeamID, owner.ID)
+	ownerToken := createSessionToken(t, ctx, pool, owner.WorkspaceID, owner.ID)
 
 	agentAEmail := uniqueEmail("codex-a")
 	agentBEmail := uniqueEmail("codex-b")
@@ -80,10 +80,10 @@ func TestComposeE2E_CodexPeerChat(t *testing.T) {
 	})
 
 	_, agentAKey := createAPIKeyViaHTTP(t, httpClient, baseURL, ownerToken, domain.CreateAPIKeyParams{
-		Name:        "Codex A Key",
-		TeamID:      owner.TeamID,
-		PrincipalID: agentA.ID,
-		CreatedBy:   owner.ID,
+		Name:      "Codex A Key",
+		WorkspaceID: owner.WorkspaceID,
+		UserID:    agentA.ID,
+		CreatedBy: owner.ID,
 		Permissions: []string{
 			domain.PermissionMessagesRead,
 			domain.PermissionMessagesWrite,
@@ -92,10 +92,10 @@ func TestComposeE2E_CodexPeerChat(t *testing.T) {
 		},
 	})
 	_, agentBKey := createAPIKeyViaHTTP(t, httpClient, baseURL, ownerToken, domain.CreateAPIKeyParams{
-		Name:        "Codex B Key",
-		TeamID:      owner.TeamID,
-		PrincipalID: agentB.ID,
-		CreatedBy:   owner.ID,
+		Name:      "Codex B Key",
+		WorkspaceID: owner.WorkspaceID,
+		UserID:    agentB.ID,
+		CreatedBy: owner.ID,
 		Permissions: []string{
 			domain.PermissionMessagesRead,
 			domain.PermissionMessagesWrite,
@@ -116,7 +116,7 @@ func TestComposeE2E_CodexPeerChat(t *testing.T) {
 	senderMCP := startTeraslackMCPHTTPServer(t, teraslackmcp.Config{
 		BaseURL:       baseURL,
 		APIKey:        agentAKey,
-		TeamID:        owner.TeamID,
+		WorkspaceID:        owner.WorkspaceID,
 		UserID:        agentA.ID,
 		UserName:      agentA.Name,
 		UserEmail:     agentA.Email,
@@ -129,7 +129,7 @@ func TestComposeE2E_CodexPeerChat(t *testing.T) {
 	receiverMCP := startTeraslackMCPHTTPServer(t, teraslackmcp.Config{
 		BaseURL:       baseURL,
 		APIKey:        agentBKey,
-		TeamID:        owner.TeamID,
+		WorkspaceID:        owner.WorkspaceID,
 		UserID:        agentB.ID,
 		UserName:      agentB.Name,
 		UserEmail:     agentB.Email,

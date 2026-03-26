@@ -67,13 +67,16 @@ func (c *Client) GetUser(ctx context.Context, userID string) (*domain.User, erro
 	return &resp, nil
 }
 
-func (c *Client) ListUsers(ctx context.Context, teamID, cursor string, limit int) (*userPage, error) {
+func (c *Client) ListUsers(ctx context.Context, workspaceID, cursor, email string, limit int) (*userPage, error) {
 	query := url.Values{}
-	if teamID != "" {
-		query.Set("team_id", teamID)
+	if workspaceID != "" {
+		query.Set("workspace_id", workspaceID)
 	}
 	if cursor != "" {
 		query.Set("cursor", cursor)
+	}
+	if email != "" {
+		query.Set("email", email)
 	}
 	if limit > 0 {
 		query.Set("limit", strconv.Itoa(limit))

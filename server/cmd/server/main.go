@@ -123,6 +123,7 @@ func run(logger *slog.Logger) error {
 	eventRepo := pgRepo.NewEventRepo(pool, encryptor)
 	roleRepo := pgRepo.NewRoleAssignmentRepo(pool)
 	authRepo := pgRepo.NewAuthRepo(pool)
+	mcpOAuthRepo := pgRepo.NewMCPOAuthRepo(pool)
 	eventStoreRepo := pgRepo.NewEventStoreRepo(pool)
 	externalEventRepo := pgRepo.NewExternalEventRepo(pool)
 	apiKeyRepo := pgRepo.NewAPIKeyRepo(pool)
@@ -167,6 +168,11 @@ func run(logger *slog.Logger) error {
 		GoogleOAuthClientSecret: cfg.GoogleOAuthClientSecret,
 	})
 	authSvc.SetAuthorizationAuditRepository(auditRepo)
+	mcpOAuthSvc := service.NewMCPOAuthService(mcpOAuthRepo, userRepo, pool, logger, service.MCPOAuthConfig{
+		Issuer:     cfg.BaseURL,
+		MCPBaseURL: cfg.MCPBaseURL,
+		SigningKey: cfg.MCPOAuthSigningKey,
+	})
 	apiKeySvc := service.NewAPIKeyService(apiKeyRepo, userRepo, recorder, pool, logger)
 	apiKeySvc.SetExternalAccessRepository(externalAccessRepo)
 	apiKeySvc.SetAuthorizationAuditRepository(auditRepo)
@@ -203,6 +209,7 @@ func run(logger *slog.Logger) error {
 	externalAccessHandler := handler.NewExternalPrincipalAccessHandler(externalAccessSvc)
 	eventHandler := handler.NewEventHandler(eventSvc)
 	authHandler := handler.NewAuthHandler(authSvc)
+	mcpOAuthHandler := handler.NewMCPOAuthHandler(authSvc, mcpOAuthSvc, logger)
 	apiKeyHandler := handler.NewAPIKeyHandler(apiKeySvc)
 	searchHandler := handler.NewSearchHandler(searchSvc)
 	conversationReadHandler := handler.NewConversationReadHandler(conversationReadSvc)
@@ -211,8 +218,10 @@ func run(logger *slog.Logger) error {
 	router := handler.Router(
 		logger,
 		cfg.FrontendURL,
+		cfg.CORSAllowedOrigins,
 		authSvc,
 		apiKeySvc,
+		mcpOAuthSvc,
 		workspaceHandler,
 		workspaceInviteHandler,
 		userHandler,
@@ -226,6 +235,7 @@ func run(logger *slog.Logger) error {
 		externalAccessHandler,
 		eventHandler,
 		authHandler,
+		mcpOAuthHandler,
 		searchHandler,
 		apiKeyHandler,
 		conversationReadHandler,

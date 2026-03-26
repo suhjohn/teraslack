@@ -22,7 +22,7 @@ func TestMarshalWebhookEnvelope_UsesFullExternalEvent(t *testing.T) {
 	internalID := int64(77)
 	evt := domain.ExternalEvent{
 		ID:                     123,
-		TeamID:                 "T123",
+		WorkspaceID:                 "T123",
 		Type:                   domain.EventTypeConversationMessageCreated,
 		ResourceType:           domain.ResourceTypeConversation,
 		ResourceID:             "C123",
@@ -45,7 +45,7 @@ func TestMarshalWebhookEnvelope_UsesFullExternalEvent(t *testing.T) {
 	}
 
 	if got.ID != evt.ID || got.Type != evt.Type || got.ResourceType != evt.ResourceType ||
-		got.ResourceID != evt.ResourceID || got.TeamID != evt.TeamID {
+		got.ResourceID != evt.ResourceID || got.WorkspaceID != evt.WorkspaceID {
 		t.Fatalf("unexpected envelope: %+v", got)
 	}
 	if !got.OccurredAt.Equal(createdAt) {
@@ -58,7 +58,7 @@ func TestWebhookWorkerDeliverWebhook_SendsEnvelopeAndHeaders(t *testing.T) {
 	timestampNow := time.Date(2026, 3, 21, 19, 20, 30, 0, time.UTC)
 	evt := domain.ExternalEvent{
 		ID:           456,
-		TeamID:       "T999",
+		WorkspaceID:       "T999",
 		Type:         domain.EventTypeConversationMessageUpdated,
 		ResourceType: domain.ResourceTypeConversation,
 		ResourceID:   "C999",
@@ -98,7 +98,7 @@ func TestWebhookWorkerDeliverWebhook_SendsEnvelopeAndHeaders(t *testing.T) {
 	job := Job{
 		ID:             "wh-456-ES123",
 		EventID:        evt.ID,
-		TeamID:         evt.TeamID,
+		WorkspaceID:         evt.WorkspaceID,
 		EventType:      evt.Type,
 		SubscriptionID: "ES123",
 		URL:            srv.URL,
@@ -123,8 +123,8 @@ func TestWebhookWorkerDeliverWebhook_SendsEnvelopeAndHeaders(t *testing.T) {
 	if gotHeaders.Get("X-Teraslack-Event-Type") != job.EventType {
 		t.Fatalf("X-Teraslack-Event-Type = %q, want %q", gotHeaders.Get("X-Teraslack-Event-Type"), job.EventType)
 	}
-	if gotHeaders.Get("X-Teraslack-Team-Id") != job.TeamID {
-		t.Fatalf("X-Teraslack-Team-Id = %q, want %q", gotHeaders.Get("X-Teraslack-Team-Id"), job.TeamID)
+	if gotHeaders.Get("X-Teraslack-Workspace-Id") != job.WorkspaceID {
+		t.Fatalf("X-Teraslack-Workspace-Id = %q, want %q", gotHeaders.Get("X-Teraslack-Workspace-Id"), job.WorkspaceID)
 	}
 
 	ts := gotHeaders.Get("X-Teraslack-Request-Timestamp")

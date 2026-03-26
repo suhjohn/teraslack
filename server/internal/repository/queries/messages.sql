@@ -6,7 +6,7 @@ RETURNING ts, channel_id, user_id, text, thread_ts, type, subtype,
           reply_count, reply_users_count, latest_reply,
           is_deleted, created_at, updated_at;
 
--- name: GetMessage :one
+-- name: GetMessageRow :one
 SELECT ts, channel_id, user_id, text, thread_ts, type, subtype,
        blocks, metadata, edited_by, edited_at,
        reply_count, reply_users_count, latest_reply,
@@ -65,23 +65,28 @@ WHERE channel_id = $1 AND (thread_ts = $2 OR ts = $2) AND is_deleted = FALSE
 ORDER BY ts ASC
 LIMIT $3;
 
--- name: UpdateParentReplyStats :exec
+-- name: IncrementParentReplyCountAndLatestReply :exec
 UPDATE messages
-SET reply_count = (
-    SELECT COUNT(*) FROM messages m2 WHERE m2.channel_id = $1 AND m2.thread_ts = $2 AND m2.ts != $2
-),
-reply_users_count = (
-    SELECT COUNT(DISTINCT m3.user_id) FROM messages m3 WHERE m3.channel_id = $1 AND m3.thread_ts = $2 AND m3.ts != $2
-),
-latest_reply = $3
+SET reply_count = reply_count + 1,
+    latest_reply = $3
 WHERE channel_id = $1 AND ts = $2;
 
--- name: AddReaction :exec
+-- name: IncrementParentReplyUsersCount :exec
+UPDATE messages
+SET reply_users_count = reply_users_count + 1
+WHERE channel_id = $1 AND ts = $2;
+
+-- name: AddThreadParticipant :execrows
+INSERT INTO thread_participants (channel_id, thread_ts, user_id)
+VALUES ($1, $2, $3)
+ON CONFLICT DO NOTHING;
+
+-- name: AddReaction :execrows
 INSERT INTO reactions (channel_id, message_ts, user_id, emoji)
 VALUES ($1, $2, $3, $4)
 ON CONFLICT (channel_id, message_ts, user_id, emoji) DO NOTHING;
 
--- name: RemoveReaction :exec
+-- name: RemoveReaction :execrows
 DELETE FROM reactions WHERE channel_id = $1 AND message_ts = $2 AND user_id = $3 AND emoji = $4;
 
 -- name: GetReactions :many

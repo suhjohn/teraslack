@@ -20,9 +20,9 @@ func NewExternalEventService(repo repository.ExternalEventRepository) *ExternalE
 }
 
 func (s *ExternalEventService) List(ctx context.Context, params domain.ListExternalEventsParams) (*domain.CursorPage[domain.ExternalEvent], error) {
-	teamID := ctxutil.GetTeamID(ctx)
-	if teamID == "" {
-		return nil, fmt.Errorf("team_id: %w", domain.ErrInvalidAuth)
+	workspaceID := ctxutil.GetWorkspaceID(ctx)
+	if workspaceID == "" {
+		return nil, fmt.Errorf("workspace_id: %w", domain.ErrInvalidAuth)
 	}
 	if params.ResourceID != "" && params.ResourceType == "" {
 		return nil, fmt.Errorf("resource_type: %w", domain.ErrInvalidArgument)
@@ -32,13 +32,13 @@ func (s *ExternalEventService) List(ctx context.Context, params domain.ListExter
 	}
 
 	principal := repository.ExternalEventPrincipal{
-		TeamID:      teamID,
+		WorkspaceID:      workspaceID,
 		UserID:      ctxutil.GetActingUserID(ctx),
 		APIKeyID:    ctxutil.GetAPIKeyID(ctx),
 		Permissions: ctxutil.GetPermissions(ctx),
 	}
 	cursorState := externalEventCursor{
-		TeamID:       principal.TeamID,
+		WorkspaceID:       principal.WorkspaceID,
 		UserID:       principal.UserID,
 		APIKeyID:     principal.APIKeyID,
 		Type:         params.Type,
@@ -51,7 +51,7 @@ func (s *ExternalEventService) List(ctx context.Context, params domain.ListExter
 		if err != nil {
 			return nil, fmt.Errorf("after: %w", domain.ErrInvalidArgument)
 		}
-		if decoded.TeamID != cursorState.TeamID ||
+		if decoded.WorkspaceID != cursorState.WorkspaceID ||
 			decoded.UserID != cursorState.UserID ||
 			decoded.APIKeyID != cursorState.APIKeyID ||
 			decoded.Type != cursorState.Type ||
@@ -82,7 +82,7 @@ func (s *ExternalEventService) List(ctx context.Context, params domain.ListExter
 
 type externalEventCursor struct {
 	AfterID      int64  `json:"after_id"`
-	TeamID       string `json:"team_id"`
+	WorkspaceID       string `json:"workspace_id"`
 	UserID       string `json:"user_id,omitempty"`
 	APIKeyID     string `json:"api_key_id,omitempty"`
 	Type         string `json:"type,omitempty"`
@@ -112,7 +112,7 @@ func decodeExternalEventCursor(raw string) (externalEventCursor, error) {
 
 func validateExternalResourceType(resourceType string) error {
 	switch resourceType {
-	case "", domain.ResourceTypeTeam, domain.ResourceTypeConversation, domain.ResourceTypeFile, domain.ResourceTypeUser, domain.ResourceTypeUsergroup:
+	case "", domain.ResourceTypeWorkspace, domain.ResourceTypeConversation, domain.ResourceTypeFile, domain.ResourceTypeUser, domain.ResourceTypeUsergroup:
 		return nil
 	default:
 		return fmt.Errorf("resource_type: %w", domain.ErrInvalidArgument)

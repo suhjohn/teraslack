@@ -7,27 +7,24 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/suhjohn/teraslack/internal/repository"
+	"github.com/suhjohn/teraslack/internal/repository/sqlcgen"
 )
 
 type ProjectorCheckpointRepo struct {
+	q  *sqlcgen.Queries
 	db DBTX
 }
 
 func NewProjectorCheckpointRepo(db DBTX) *ProjectorCheckpointRepo {
-	return &ProjectorCheckpointRepo{db: db}
+	return &ProjectorCheckpointRepo{q: sqlcgen.New(db), db: db}
 }
 
 func (r *ProjectorCheckpointRepo) WithTx(tx pgx.Tx) repository.ProjectorCheckpointRepository {
-	return &ProjectorCheckpointRepo{db: tx}
+	return &ProjectorCheckpointRepo{q: sqlcgen.New(tx), db: tx}
 }
 
 func (r *ProjectorCheckpointRepo) Get(ctx context.Context, name string) (int64, error) {
-	var lastEventID int64
-	err := r.db.QueryRow(ctx, `
-		SELECT last_event_id
-		FROM projector_checkpoints
-		WHERE name = $1
-	`, name).Scan(&lastEventID)
+	lastEventID, err := r.q.GetProjectorCheckpoint(ctx, name)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return 0, nil
@@ -38,14 +35,7 @@ func (r *ProjectorCheckpointRepo) Get(ctx context.Context, name string) (int64, 
 }
 
 func (r *ProjectorCheckpointRepo) Set(ctx context.Context, name string, lastEventID int64) error {
-	_, err := r.db.Exec(ctx, `
-		INSERT INTO projector_checkpoints (name, last_event_id)
-		VALUES ($1, $2)
-		ON CONFLICT (name) DO UPDATE SET
-			last_event_id = EXCLUDED.last_event_id,
-			updated_at = NOW()
-	`, name, lastEventID)
-	if err != nil {
+	if err := r.q.SetProjectorCheckpoint(ctx, sqlcgen.SetProjectorCheckpointParams{Name: name, LastEventID: lastEventID}); err != nil {
 		return fmt.Errorf("set projector checkpoint: %w", err)
 	}
 	return nil

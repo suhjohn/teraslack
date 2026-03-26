@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/suhjohn/teraslack/internal/domain"
 )
 
@@ -136,12 +137,364 @@ func TestServer_WaitForEventAndAPIRequest(t *testing.T) {
 	}
 }
 
+func TestServer_SubscribeConversationAndReadNextEvent(t *testing.T) {
+	backend := newMockMCPBackend()
+	serverURL := httptest.NewServer(backend).URL
+	t.Cleanup(func() { backend.close() })
+
+	srv, err := NewServer(Config{
+		BaseURL:        serverURL,
+		BootstrapToken: backend.bootstrapToken,
+		PeerUserID:     backend.testAgentID,
+		PeerUserName:   "test-agent",
+		PeerUserEmail:  "test-agent@example.com",
+	}, nil)
+	if err != nil {
+		t.Fatalf("NewServer() error = %v", err)
+	}
+
+	callToolJSON(t, srv, "register", map[string]any{
+		"name": "deploy-agent",
+	})
+	dmResp := callToolJSON(t, srv, "create_dm", map[string]any{
+		"user_id": backend.testAgentID,
+	})
+	channelID, _ := dmResp["conversation_id"].(string)
+	if channelID == "" {
+		t.Fatalf("create_dm conversation_id missing: %+v", dmResp)
+	}
+
+	backend.appendMessageEvent(channelID, backend.testAgentID, "old status")
+
+	subscribeResp := callToolJSON(t, srv, "subscribe_conversation", map[string]any{
+		"channel_id": channelID,
+	})
+	subscriptionID, _ := subscribeResp["subscription_id"].(string)
+	if subscriptionID == "" {
+		t.Fatalf("subscribe_conversation subscription_id missing: %+v", subscribeResp)
+	}
+
+	go func() {
+		time.Sleep(50 * time.Millisecond)
+		backend.appendMessageEvent(channelID, backend.testAgentID, "new status")
+	}()
+
+	nextResp := callToolJSON(t, srv, "next_event", map[string]any{
+		"subscription_id":  subscriptionID,
+		"event_type":       domain.EventTypeConversationMessageCreated,
+		"from_user_id":     backend.testAgentID,
+		"contains_text":    "new",
+		"timeout_seconds":  2,
+		"poll_interval_ms": 10,
+	})
+	event := nestedMap(t, nextResp, "event")
+	if got := event["type"]; got != domain.EventTypeConversationMessageCreated {
+		t.Fatalf("next_event type = %v, want %s", got, domain.EventTypeConversationMessageCreated)
+	}
+	message := nestedMap(t, nextResp, "message")
+	if got := message["text"]; got != "new status" {
+		t.Fatalf("next_event message text = %v, want new status", got)
+	}
+	if got := message["sender_email"]; got != "test-agent@example.com" {
+		t.Fatalf("next_event sender_email = %v, want test-agent@example.com", got)
+	}
+}
+
+func TestServer_WaitForMessageIgnoresExistingHistoryByDefault(t *testing.T) {
+	backend := newMockMCPBackend()
+	serverURL := httptest.NewServer(backend).URL
+	t.Cleanup(func() { backend.close() })
+
+	srv, err := NewServer(Config{
+		BaseURL:        serverURL,
+		BootstrapToken: backend.bootstrapToken,
+		PeerUserID:     backend.testAgentID,
+		PeerUserName:   "test-agent",
+		PeerUserEmail:  "test-agent@example.com",
+	}, nil)
+	if err != nil {
+		t.Fatalf("NewServer() error = %v", err)
+	}
+
+	callToolJSON(t, srv, "register", map[string]any{
+		"name": "deploy-agent",
+	})
+	dmResp := callToolJSON(t, srv, "create_dm", map[string]any{
+		"user_id": backend.testAgentID,
+	})
+	channelID, _ := dmResp["conversation_id"].(string)
+	if channelID == "" {
+		t.Fatalf("create_dm conversation_id missing: %+v", dmResp)
+	}
+
+	backend.appendMessage(channelID, backend.testAgentID, "status: old")
+
+	go func() {
+		time.Sleep(50 * time.Millisecond)
+		backend.appendMessage(channelID, backend.testAgentID, "status: new")
+	}()
+
+	waitResp := callToolJSON(t, srv, "wait_for_message", map[string]any{
+		"channel_id":       channelID,
+		"contains_text":    "status:",
+		"from_user_id":     backend.testAgentID,
+		"timeout_seconds":  2,
+		"poll_interval_ms": 10,
+	})
+	message := nestedMap(t, waitResp, "message")
+	if got := message["text"]; got != "status: new" {
+		t.Fatalf("wait_for_message text = %v, want status: new", got)
+	}
+}
+
+func TestServer_StreamableHTTPToolsAndSessionState(t *testing.T) {
+	backend := newMockMCPBackend()
+	serverURL := httptest.NewServer(backend).URL
+	t.Cleanup(func() { backend.close() })
+
+	srv, err := NewServer(Config{
+		BaseURL:        serverURL,
+		BootstrapToken: backend.bootstrapToken,
+	}, nil)
+	if err != nil {
+		t.Fatalf("NewServer() error = %v", err)
+	}
+
+	httpServer := httptest.NewServer(srv.HTTPHandler())
+	defer httpServer.Close()
+
+	client := mcp.NewClient(&mcp.Implementation{
+		Name:    "teraslack-mcp-test-client",
+		Version: "v0.0.1",
+	}, nil)
+	session, err := client.Connect(context.Background(), &mcp.StreamableClientTransport{
+		Endpoint: httpServer.URL,
+	}, nil)
+	if err != nil {
+		t.Fatalf("client connect: %v", err)
+	}
+	defer session.Close()
+
+	tools, err := session.ListTools(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("ListTools() error = %v", err)
+	}
+	if len(tools.Tools) == 0 {
+		t.Fatal("ListTools() returned no tools")
+	}
+
+	foundRegister := false
+	for _, tool := range tools.Tools {
+		if tool.Name == "register" {
+			foundRegister = true
+			break
+		}
+	}
+	if !foundRegister {
+		t.Fatalf("register tool not found in %#v", tools.Tools)
+	}
+
+	registerResult, err := session.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: "register",
+		Arguments: map[string]any{
+			"name": "deploy-agent",
+		},
+	})
+	if err != nil {
+		t.Fatalf("CallTool(register) error = %v", err)
+	}
+	if registerResult.IsError {
+		t.Fatalf("CallTool(register) returned tool error: %+v", registerResult)
+	}
+
+	whoamiResult, err := session.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      "whoami",
+		Arguments: map[string]any{},
+	})
+	if err != nil {
+		t.Fatalf("CallTool(whoami) error = %v", err)
+	}
+	if whoamiResult.IsError {
+		t.Fatalf("CallTool(whoami) returned tool error: %+v", whoamiResult)
+	}
+
+	var structured map[string]any
+	switch value := whoamiResult.StructuredContent.(type) {
+	case map[string]any:
+		structured = value
+	default:
+		t.Fatalf("unexpected structured content type %T", whoamiResult.StructuredContent)
+	}
+
+	user := nestedMap(t, structured, "user")
+	if got := user["name"]; got != "deploy-agent" {
+		t.Fatalf("whoami user name = %v, want deploy-agent", got)
+	}
+}
+
+func TestServer_StreamableHTTPAutoProvisionsDistinctSessionAgents(t *testing.T) {
+	backend := newMockMCPBackend()
+	serverURL := httptest.NewServer(backend).URL
+	t.Cleanup(func() { backend.close() })
+
+	srv, err := NewServer(Config{
+		BaseURL:     serverURL,
+		APIKey:      backend.oauthHumanToken,
+		WorkspaceID: backend.workspaceID,
+		UserID:      backend.humanUserID,
+		OAuthScopes: []string{domain.MCPOAuthScopeTools},
+		Permissions: []string{domain.PermissionMessagesWrite},
+	}, nil)
+	if err != nil {
+		t.Fatalf("NewServer() error = %v", err)
+	}
+
+	httpServer := httptest.NewServer(srv.HTTPHandler())
+	defer httpServer.Close()
+
+	clientA := mcp.NewClient(&mcp.Implementation{Name: "client-a", Version: "v0.0.1"}, nil)
+	sessionA, err := clientA.Connect(context.Background(), &mcp.StreamableClientTransport{Endpoint: httpServer.URL}, nil)
+	if err != nil {
+		t.Fatalf("clientA connect: %v", err)
+	}
+	defer sessionA.Close()
+
+	clientB := mcp.NewClient(&mcp.Implementation{Name: "client-b", Version: "v0.0.1"}, nil)
+	sessionB, err := clientB.Connect(context.Background(), &mcp.StreamableClientTransport{Endpoint: httpServer.URL}, nil)
+	if err != nil {
+		t.Fatalf("clientB connect: %v", err)
+	}
+	defer sessionB.Close()
+
+	whoamiA := callSessionToolJSON(t, sessionA, "whoami", map[string]any{})
+	whoamiB := callSessionToolJSON(t, sessionB, "whoami", map[string]any{})
+
+	userA := nestedMap(t, whoamiA, "user")
+	userB := nestedMap(t, whoamiB, "user")
+	if userA["id"] == userB["id"] {
+		t.Fatalf("session agents should differ: A=%v B=%v", userA, userB)
+	}
+	if got := whoamiA["identity_mode"]; got != "session" {
+		t.Fatalf("whoamiA identity_mode = %v, want session", got)
+	}
+	if got := whoamiB["identity_mode"]; got != "session" {
+		t.Fatalf("whoamiB identity_mode = %v, want session", got)
+	}
+	if got := whoamiA["bootstrap_available"]; got != false {
+		t.Fatalf("whoamiA bootstrap_available = %v, want false", got)
+	}
+	ownerA := nestedMap(t, whoamiA, "owner")
+	if got := ownerA["id"]; got != backend.humanUserID {
+		t.Fatalf("ownerA id = %v, want %s", got, backend.humanUserID)
+	}
+}
+
+func TestServer_StreamableHTTPSwitchIdentityAndReset(t *testing.T) {
+	backend := newMockMCPBackend()
+	serverURL := httptest.NewServer(backend).URL
+	t.Cleanup(func() { backend.close() })
+
+	srv, err := NewServer(Config{
+		BaseURL:     serverURL,
+		APIKey:      backend.oauthHumanToken,
+		WorkspaceID: backend.workspaceID,
+		UserID:      backend.humanUserID,
+		OAuthScopes: []string{domain.MCPOAuthScopeTools},
+		Permissions: []string{domain.PermissionMessagesWrite},
+	}, nil)
+	if err != nil {
+		t.Fatalf("NewServer() error = %v", err)
+	}
+
+	httpServer := httptest.NewServer(srv.HTTPHandler())
+	defer httpServer.Close()
+
+	clientA := mcp.NewClient(&mcp.Implementation{Name: "client-a", Version: "v0.0.1"}, nil)
+	sessionA, err := clientA.Connect(context.Background(), &mcp.StreamableClientTransport{Endpoint: httpServer.URL}, nil)
+	if err != nil {
+		t.Fatalf("clientA connect: %v", err)
+	}
+	defer sessionA.Close()
+
+	clientB := mcp.NewClient(&mcp.Implementation{Name: "client-b", Version: "v0.0.1"}, nil)
+	sessionB, err := clientB.Connect(context.Background(), &mcp.StreamableClientTransport{Endpoint: httpServer.URL}, nil)
+	if err != nil {
+		t.Fatalf("clientB connect: %v", err)
+	}
+	defer sessionB.Close()
+
+	whoamiA := callSessionToolJSON(t, sessionA, "whoami", map[string]any{})
+	whoamiB := callSessionToolJSON(t, sessionB, "whoami", map[string]any{})
+	userA := nestedMap(t, whoamiA, "user")
+	userB := nestedMap(t, whoamiB, "user")
+	if userA["id"] == userB["id"] {
+		t.Fatalf("expected distinct initial session users: A=%v B=%v", userA, userB)
+	}
+
+	switchResp := callSessionToolJSON(t, sessionB, "switch_identity", map[string]any{
+		"user_id": userA["id"],
+	})
+	if got := switchResp["status"]; got != "switched" {
+		t.Fatalf("switch_identity status = %v, want switched", got)
+	}
+	whoamiAfterSwitch := callSessionToolJSON(t, sessionB, "whoami", map[string]any{})
+	switchedUser := nestedMap(t, whoamiAfterSwitch, "user")
+	if switchedUser["id"] != userA["id"] {
+		t.Fatalf("switched user id = %v, want %v", switchedUser["id"], userA["id"])
+	}
+	if got := whoamiAfterSwitch["identity_mode"]; got != "switched" {
+		t.Fatalf("identity_mode after switch = %v, want switched", got)
+	}
+
+	listResp := callSessionToolJSON(t, sessionB, "list_owned_identities", map[string]any{})
+	identities := nestedSlice(t, listResp, "identities")
+	if len(identities) < 2 {
+		t.Fatalf("owned identities count = %d, want at least 2", len(identities))
+	}
+
+	resetResp := callSessionToolJSON(t, sessionB, "reset_identity", map[string]any{})
+	if got := resetResp["status"]; got != "reset" {
+		t.Fatalf("reset_identity status = %v, want reset", got)
+	}
+	whoamiAfterReset := callSessionToolJSON(t, sessionB, "whoami", map[string]any{})
+	resetUser := nestedMap(t, whoamiAfterReset, "user")
+	if resetUser["id"] != userB["id"] {
+		t.Fatalf("reset user id = %v, want %v", resetUser["id"], userB["id"])
+	}
+	if got := whoamiAfterReset["identity_mode"]; got != "session" {
+		t.Fatalf("identity_mode after reset = %v, want session", got)
+	}
+}
+
+func TestServer_AllowsCredentiallessStartup(t *testing.T) {
+	backend := newMockMCPBackend()
+	serverURL := httptest.NewServer(backend).URL
+	t.Cleanup(func() { backend.close() })
+
+	srv, err := NewServer(Config{
+		BaseURL: serverURL,
+	}, nil)
+	if err != nil {
+		t.Fatalf("NewServer() error = %v", err)
+	}
+
+	whoamiResp := callToolJSON(t, srv, "whoami", map[string]any{})
+	if got := whoamiResp["registered"]; got != false {
+		t.Fatalf("whoami registered = %v, want false", got)
+	}
+	if got := whoamiResp["bootstrap_available"]; got != false {
+		t.Fatalf("whoami bootstrap_available = %v, want false", got)
+	}
+}
+
 type mockMCPBackend struct {
 	mu sync.Mutex
 
-	bootstrapToken string
-	teamID         string
-	testAgentID    string
+	bootstrapToken  string
+	oauthHumanToken string
+	workspaceID     string
+	testAgentID     string
+	humanUserID     string
 
 	userSeq  int
 	keySeq   int
@@ -161,22 +514,23 @@ type mockMCPBackend struct {
 func newMockMCPBackend() *mockMCPBackend {
 	now := time.Now().UTC()
 	backend := &mockMCPBackend{
-		bootstrapToken: "bootstrap-token",
-		teamID:         "T_TEST",
-		userSeq:        3,
-		keySeq:         1,
-		convSeq:        1,
-		msgSeq:         1,
-		eventSeq:       1,
-		usersByID:      map[string]domain.User{},
-		tokenUsers:     map[string]string{},
-		conversations:  map[string]domain.Conversation{},
-		messages:       map[string][]domain.Message{},
+		bootstrapToken:  "bootstrap-token",
+		oauthHumanToken: "oauth-human-token",
+		workspaceID:     "T_TEST",
+		userSeq:         3,
+		keySeq:          1,
+		convSeq:         1,
+		msgSeq:          1,
+		eventSeq:        1,
+		usersByID:       map[string]domain.User{},
+		tokenUsers:      map[string]string{},
+		conversations:   map[string]domain.Conversation{},
+		messages:        map[string][]domain.Message{},
 	}
 
 	bootstrap := domain.User{
 		ID:            "U_BOOT",
-		TeamID:        backend.teamID,
+		WorkspaceID:   backend.workspaceID,
 		Name:          "bootstrap",
 		Email:         "bootstrap@example.com",
 		PrincipalType: domain.PrincipalTypeSystem,
@@ -184,9 +538,20 @@ func newMockMCPBackend() *mockMCPBackend {
 		CreatedAt:     now,
 		UpdatedAt:     now,
 	}
+	human := domain.User{
+		ID:            "U_HUMAN",
+		WorkspaceID:   backend.workspaceID,
+		Name:          "johnsuh94",
+		Email:         "johnsuh94@gmail.com",
+		PrincipalType: domain.PrincipalTypeHuman,
+		AccountType:   domain.AccountTypeMember,
+		IsBot:         false,
+		CreatedAt:     now,
+		UpdatedAt:     now,
+	}
 	testAgent := domain.User{
 		ID:            "U_TEST",
-		TeamID:        backend.teamID,
+		WorkspaceID:   backend.workspaceID,
 		Name:          "test-agent",
 		Email:         "test-agent@example.com",
 		PrincipalType: domain.PrincipalTypeAgent,
@@ -195,10 +560,13 @@ func newMockMCPBackend() *mockMCPBackend {
 		UpdatedAt:     now,
 	}
 	backend.testAgentID = testAgent.ID
+	backend.humanUserID = human.ID
 	backend.usersByID[bootstrap.ID] = bootstrap
+	backend.usersByID[human.ID] = human
 	backend.usersByID[testAgent.ID] = testAgent
-	backend.userOrder = []string{bootstrap.ID, testAgent.ID}
+	backend.userOrder = []string{bootstrap.ID, human.ID, testAgent.ID}
 	backend.tokenUsers[backend.bootstrapToken] = bootstrap.ID
+	backend.tokenUsers[backend.oauthHumanToken] = human.ID
 	return backend
 }
 
@@ -237,7 +605,7 @@ func (b *mockMCPBackend) handleAuthMe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, domain.AuthContext{
-		TeamID:        user.TeamID,
+		WorkspaceID:   user.WorkspaceID,
 		UserID:        user.ID,
 		PrincipalType: user.PrincipalType,
 		IsBot:         user.IsBot,
@@ -302,7 +670,7 @@ func (b *mockMCPBackend) handleCreateUser(w http.ResponseWriter, r *http.Request
 	now := time.Now().UTC()
 	user := domain.User{
 		ID:            fmt.Sprintf("U_%03d", b.userSeq),
-		TeamID:        b.teamID,
+		WorkspaceID:   b.workspaceID,
 		Name:          params.Name,
 		Email:         params.Email,
 		OwnerID:       params.OwnerID,
@@ -348,14 +716,14 @@ func (b *mockMCPBackend) handleCreateAPIKey(w http.ResponseWriter, r *http.Reque
 	defer b.mu.Unlock()
 
 	id := fmt.Sprintf("AK_%03d", b.keySeq)
-	secret := fmt.Sprintf("sk_live_test_%03d", b.keySeq)
+	secret := fmt.Sprintf("sk_%03d", b.keySeq)
 	b.keySeq++
-	b.tokenUsers[secret] = params.PrincipalID
+	b.tokenUsers[secret] = params.UserID
 
 	key := domain.APIKey{
 		ID:          id,
-		TeamID:      b.teamID,
-		PrincipalID: params.PrincipalID,
+		WorkspaceID: b.workspaceID,
+		UserID:      params.UserID,
 		Permissions: params.Permissions,
 		CreatedAt:   time.Now().UTC(),
 		UpdatedAt:   time.Now().UTC(),
@@ -386,13 +754,13 @@ func (b *mockMCPBackend) handleCreateConversation(w http.ResponseWriter, r *http
 	b.convSeq++
 	now := time.Now().UTC()
 	conv := domain.Conversation{
-		ID:         id,
-		TeamID:     b.teamID,
-		Type:       params.Type,
-		CreatorID:  user.ID,
-		NumMembers: 1,
-		CreatedAt:  now,
-		UpdatedAt:  now,
+		ID:          id,
+		WorkspaceID: b.workspaceID,
+		Type:        params.Type,
+		CreatorID:   user.ID,
+		NumMembers:  1,
+		CreatedAt:   now,
+		UpdatedAt:   now,
 	}
 	b.conversations[id] = conv
 	writeJSON(w, http.StatusCreated, conv)
@@ -436,16 +804,23 @@ func (b *mockMCPBackend) handlePostMessage(w http.ResponseWriter, r *http.Reques
 
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	msg := domain.Message{
-		TS:        fmt.Sprintf("1000.%03d", b.msgSeq),
-		ChannelID: params.ChannelID,
-		UserID:    params.UserID,
-		Text:      params.Text,
-		CreatedAt: time.Now().UTC(),
-		UpdatedAt: time.Now().UTC(),
-	}
-	b.msgSeq++
-	b.messages[params.ChannelID] = append([]domain.Message{msg}, b.messages[params.ChannelID]...)
+	msg := b.appendMessageLocked(params.ChannelID, params.UserID, params.Text)
+	b.events = append(b.events, domain.ExternalEvent{
+		ID:           b.eventSeq,
+		WorkspaceID:  b.workspaceID,
+		Type:         domain.EventTypeConversationMessageCreated,
+		ResourceType: domain.ResourceTypeConversation,
+		ResourceID:   params.ChannelID,
+		OccurredAt:   msg.CreatedAt,
+		CreatedAt:    msg.CreatedAt,
+		Payload: mustMarshalJSON(map[string]any{
+			"ts":         msg.TS,
+			"channel_id": msg.ChannelID,
+			"user_id":    msg.UserID,
+			"text":       msg.Text,
+		}),
+	})
+	b.eventSeq++
 	writeJSON(w, http.StatusCreated, msg)
 }
 
@@ -535,11 +910,40 @@ func (b *mockMCPBackend) appendEvent(event domain.ExternalEvent) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	event.ID = b.eventSeq
-	event.TeamID = b.teamID
+	event.WorkspaceID = b.workspaceID
 	event.OccurredAt = time.Now().UTC()
 	event.CreatedAt = event.OccurredAt
 	b.eventSeq++
 	b.events = append(b.events, event)
+}
+
+func (b *mockMCPBackend) appendMessage(channelID, userID, text string) domain.Message {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.appendMessageLocked(channelID, userID, text)
+}
+
+func (b *mockMCPBackend) appendMessageEvent(channelID, userID, text string) domain.Message {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	msg := b.appendMessageLocked(channelID, userID, text)
+	b.events = append(b.events, domain.ExternalEvent{
+		ID:           b.eventSeq,
+		WorkspaceID:  b.workspaceID,
+		Type:         domain.EventTypeConversationMessageCreated,
+		ResourceType: domain.ResourceTypeConversation,
+		ResourceID:   channelID,
+		OccurredAt:   msg.CreatedAt,
+		CreatedAt:    msg.CreatedAt,
+		Payload: mustMarshalJSON(map[string]any{
+			"ts":         msg.TS,
+			"channel_id": msg.ChannelID,
+			"user_id":    msg.UserID,
+			"text":       msg.Text,
+		}),
+	})
+	b.eventSeq++
+	return msg
 }
 
 func (b *mockMCPBackend) createConversationForTest(actorID, targetID string) string {
@@ -548,15 +952,29 @@ func (b *mockMCPBackend) createConversationForTest(actorID, targetID string) str
 	id := fmt.Sprintf("D_%03d", b.convSeq)
 	b.convSeq++
 	b.conversations[id] = domain.Conversation{
-		ID:         id,
-		TeamID:     b.teamID,
-		Type:       domain.ConversationTypeIM,
-		CreatorID:  actorID,
-		NumMembers: 2,
-		CreatedAt:  time.Now().UTC(),
-		UpdatedAt:  time.Now().UTC(),
+		ID:          id,
+		WorkspaceID: b.workspaceID,
+		Type:        domain.ConversationTypeIM,
+		CreatorID:   actorID,
+		NumMembers:  2,
+		CreatedAt:   time.Now().UTC(),
+		UpdatedAt:   time.Now().UTC(),
 	}
 	return id
+}
+
+func (b *mockMCPBackend) appendMessageLocked(channelID, userID, text string) domain.Message {
+	msg := domain.Message{
+		TS:        fmt.Sprintf("1000.%03d", b.msgSeq),
+		ChannelID: channelID,
+		UserID:    userID,
+		Text:      text,
+		CreatedAt: time.Now().UTC(),
+		UpdatedAt: time.Now().UTC(),
+	}
+	b.msgSeq++
+	b.messages[channelID] = append([]domain.Message{msg}, b.messages[channelID]...)
+	return msg
 }
 
 func callToolJSON(t *testing.T, srv *Server, name string, args map[string]any) map[string]any {
@@ -578,6 +996,27 @@ func callToolJSON(t *testing.T, srv *Server, name string, args map[string]any) m
 		t.Fatalf("decode tool response: %v", err)
 	}
 	return decoded
+}
+
+func callSessionToolJSON(t *testing.T, session *mcp.ClientSession, name string, args map[string]any) map[string]any {
+	t.Helper()
+
+	result, err := session.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      name,
+		Arguments: args,
+	})
+	if err != nil {
+		t.Fatalf("CallTool(%s) error = %v", name, err)
+	}
+	if result.IsError {
+		t.Fatalf("CallTool(%s) returned tool error: %+v", name, result)
+	}
+
+	value, ok := result.StructuredContent.(map[string]any)
+	if !ok {
+		t.Fatalf("CallTool(%s) structured content = %T, want map[string]any", name, result.StructuredContent)
+	}
+	return value
 }
 
 func nestedMap(t *testing.T, parent map[string]any, key string) map[string]any {
@@ -609,6 +1048,14 @@ func mustJSON(t *testing.T, value any) json.RawMessage {
 	data, err := json.Marshal(value)
 	if err != nil {
 		t.Fatalf("marshal JSON: %v", err)
+	}
+	return data
+}
+
+func mustMarshalJSON(value any) json.RawMessage {
+	data, err := json.Marshal(value)
+	if err != nil {
+		panic(err)
 	}
 	return data
 }

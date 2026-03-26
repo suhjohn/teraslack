@@ -20,10 +20,10 @@ func IsValidExternalPrincipalAccessMode(mode ExternalPrincipalAccessMode) bool {
 
 type ExternalPrincipalAccess struct {
 	ID                  string                      `json:"id"`
-	HostTeamID          string                      `json:"host_team_id"`
+	HostWorkspaceID          string                      `json:"host_workspace_id"`
 	PrincipalID         string                      `json:"principal_id"`
 	PrincipalType       PrincipalType               `json:"principal_type"`
-	HomeTeamID          string                      `json:"home_team_id"`
+	HomeWorkspaceID          string                      `json:"home_workspace_id"`
 	AccessMode          ExternalPrincipalAccessMode `json:"access_mode"`
 	AllowedCapabilities []string                    `json:"allowed_capabilities,omitempty"`
 	ConversationIDs     []string                    `json:"conversation_ids,omitempty"`
@@ -34,10 +34,10 @@ type ExternalPrincipalAccess struct {
 }
 
 type CreateExternalPrincipalAccessParams struct {
-	HostTeamID          string                      `json:"host_team_id"`
+	HostWorkspaceID          string                      `json:"host_workspace_id"`
 	PrincipalID         string                      `json:"principal_id"`
 	PrincipalType       PrincipalType               `json:"principal_type"`
-	HomeTeamID          string                      `json:"home_team_id"`
+	HomeWorkspaceID          string                      `json:"home_workspace_id"`
 	AccessMode          ExternalPrincipalAccessMode `json:"access_mode"`
 	AllowedCapabilities []string                    `json:"allowed_capabilities,omitempty"`
 	ConversationIDs     []string                    `json:"conversation_ids,omitempty"`
@@ -53,5 +53,5 @@ type UpdateExternalPrincipalAccessParams struct {
 }
 
 type ListExternalPrincipalAccessParams struct {
-	HostTeamID string `json:"host_team_id"`
+	HostWorkspaceID string `json:"host_workspace_id"`
 }

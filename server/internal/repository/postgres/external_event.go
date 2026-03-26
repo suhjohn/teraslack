@@ -2,27 +2,28 @@ package postgres
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/suhjohn/teraslack/internal/domain"
 	"github.com/suhjohn/teraslack/internal/repository"
+	"github.com/suhjohn/teraslack/internal/repository/sqlcgen"
 )
 
 type ExternalEventRepo struct {
+	q  *sqlcgen.Queries
 	db DBTX
 }
 
 func NewExternalEventRepo(db DBTX) *ExternalEventRepo {
-	return &ExternalEventRepo{db: db}
+	return &ExternalEventRepo{q: sqlcgen.New(db), db: db}
 }
 
 func (r *ExternalEventRepo) WithTx(tx pgx.Tx) repository.ExternalEventRepository {
-	return &ExternalEventRepo{db: tx}
+	return &ExternalEventRepo{q: sqlcgen.New(tx), db: tx}
 }
 
 func (r *ExternalEventRepo) Insert(ctx context.Context, event domain.ExternalEvent) (*domain.ExternalEvent, error) {
@@ -31,76 +32,36 @@ func (r *ExternalEventRepo) Insert(ctx context.Context, event domain.ExternalEve
 		return nil, fmt.Errorf("marshal source ids: %w", err)
 	}
 
-	var inserted domain.ExternalEvent
-	query := `
-		INSERT INTO external_events (
-			team_id, type, resource_type, resource_id, occurred_at, payload,
-			source_internal_event_id, source_internal_event_ids, dedupe_key
-		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-		ON CONFLICT (team_id, dedupe_key) DO UPDATE SET
-			team_id = external_events.team_id
-		RETURNING
-			id, team_id, type, resource_type, resource_id, occurred_at, payload,
-			source_internal_event_id, source_internal_event_ids, dedupe_key, created_at
-	`
-	var sourceID sql.NullInt64
-	var sourceIDsRaw []byte
-	if err := r.db.QueryRow(
-		ctx,
-		query,
-		event.TeamID,
-		event.Type,
-		event.ResourceType,
-		event.ResourceID,
-		event.OccurredAt,
-		event.Payload,
-		event.SourceInternalEventID,
-		sourceIDs,
-		event.DedupeKey,
-	).Scan(
-		&inserted.ID,
-		&inserted.TeamID,
-		&inserted.Type,
-		&inserted.ResourceType,
-		&inserted.ResourceID,
-		&inserted.OccurredAt,
-		&inserted.Payload,
-		&sourceID,
-		&sourceIDsRaw,
-		&inserted.DedupeKey,
-		&inserted.CreatedAt,
-	); err != nil {
+	row, err := r.q.CreateExternalEvent(ctx, sqlcgen.CreateExternalEventParams{
+		WorkspaceID:                 event.WorkspaceID,
+		Type:                   event.Type,
+		ResourceType:           event.ResourceType,
+		ResourceID:             event.ResourceID,
+		OccurredAt:             event.OccurredAt,
+		Payload:                event.Payload,
+		SourceInternalEventID:  int64ToPgtypeInt8(event.SourceInternalEventID),
+		SourceInternalEventIds: sourceIDs,
+		DedupeKey:              event.DedupeKey,
+	})
+	if err != nil {
 		return nil, fmt.Errorf("insert external event: %w", err)
 	}
-	if sourceID.Valid {
-		value := sourceID.Int64
-		inserted.SourceInternalEventID = &value
-	}
-	if len(sourceIDsRaw) > 0 {
-		if err := json.Unmarshal(sourceIDsRaw, &inserted.SourceInternalEventIDs); err != nil {
-			return nil, fmt.Errorf("decode source ids: %w", err)
-		}
-	}
-	if inserted.SourceInternalEventIDs == nil {
-		inserted.SourceInternalEventIDs = []int64{}
+	inserted, err := externalEventFromSQLC(row)
+	if err != nil {
+		return nil, fmt.Errorf("decode source ids: %w", err)
 	}
 
-	if err := r.insertFeedRow(ctx, inserted); err != nil {
+	if err := r.insertFeedRow(ctx, *inserted); err != nil {
 		return nil, err
 	}
-	return &inserted, nil
+	return inserted, nil
 }
 
 func (r *ExternalEventRepo) RecordProjectionFailure(ctx context.Context, internalEventID int64, message string) error {
-	_, err := r.db.Exec(ctx, `
-		INSERT INTO external_event_projection_failures (internal_event_id, error)
-		VALUES ($1, $2)
-		ON CONFLICT (internal_event_id) DO UPDATE SET
-			error = EXCLUDED.error,
-			created_at = NOW()
-	`, internalEventID, message)
-	if err != nil {
+	if err := r.q.RecordExternalEventProjectionFailure(ctx, sqlcgen.RecordExternalEventProjectionFailureParams{
+		InternalEventID: internalEventID,
+		Error:           message,
+	}); err != nil {
 		return fmt.Errorf("record projection failure: %w", err)
 	}
 	return nil
@@ -110,33 +71,28 @@ func (r *ExternalEventRepo) GetSince(ctx context.Context, afterID int64, limit i
 	if limit <= 0 {
 		limit = 100
 	}
-	rows, err := r.db.Query(ctx, `
-		SELECT id, team_id, type, resource_type, resource_id, occurred_at, payload,
-		       source_internal_event_id, source_internal_event_ids, dedupe_key, created_at
-		FROM external_events
-		WHERE id > $1
-		ORDER BY id ASC
-		LIMIT $2
-	`, afterID, limit)
+	rows, err := r.q.GetExternalEventsSince(ctx, sqlcgen.GetExternalEventsSinceParams{
+		ID:    afterID,
+		Limit: int32(limit),
+	})
 	if err != nil {
 		return nil, fmt.Errorf("get external events since: %w", err)
 	}
-	defer rows.Close()
 
 	var out []domain.ExternalEvent
-	for rows.Next() {
-		event, scanErr := scanExternalEvent(rows)
+	for _, row := range rows {
+		event, scanErr := externalEventFromSQLC(row)
 		if scanErr != nil {
 			return nil, scanErr
 		}
-		out = append(out, event)
+		out = append(out, *event)
 	}
-	return out, rows.Err()
+	return out, nil
 }
 
 func (r *ExternalEventRepo) ListVisible(ctx context.Context, principal repository.ExternalEventPrincipal, params domain.ListExternalEventsParams) (*domain.CursorPage[domain.ExternalEvent], error) {
-	if principal.TeamID == "" {
-		return nil, fmt.Errorf("team_id: %w", domain.ErrInvalidArgument)
+	if principal.WorkspaceID == "" {
+		return nil, fmt.Errorf("workspace_id: %w", domain.ErrInvalidArgument)
 	}
 
 	limit := params.Limit
@@ -144,57 +100,22 @@ func (r *ExternalEventRepo) ListVisible(ctx context.Context, principal repositor
 		limit = 100
 	}
 
-	afterID := params.AfterID
-	args := []any{principal.TeamID, afterID}
-	externalAccess, err := r.activeExternalAccessForPrincipal(ctx, principal.TeamID, principal.UserID)
+	externalAccess, err := r.activeExternalAccessForPrincipal(ctx, principal.WorkspaceID, principal.UserID)
 	if err != nil {
 		return nil, err
 	}
-	var query strings.Builder
-	query.WriteString(`
-		WITH visible_ids AS (
-	`)
-	query.WriteString(r.visibleIDsSubquery(principal, externalAccess, params, &args))
-	query.WriteString(`
-		)
-		SELECT ee.id, ee.team_id, ee.type, ee.resource_type, ee.resource_id, ee.occurred_at, ee.payload,
-		       ee.source_internal_event_id, ee.source_internal_event_ids, ee.dedupe_key, ee.created_at
-		FROM visible_ids vid
-		JOIN external_events ee ON ee.id = vid.external_event_id
-		WHERE ee.team_id = $1 AND ee.id > $2
-	`)
-	if params.Type != "" {
-		args = append(args, params.Type)
-		fmt.Fprintf(&query, " AND ee.type = $%d", len(args))
-	}
-	if params.ResourceType != "" {
-		args = append(args, params.ResourceType)
-		fmt.Fprintf(&query, " AND ee.resource_type = $%d", len(args))
-	}
-	if params.ResourceID != "" {
-		args = append(args, params.ResourceID)
-		fmt.Fprintf(&query, " AND ee.resource_id = $%d", len(args))
-	}
-	query.WriteString(" ORDER BY ee.id ASC")
-	args = append(args, limit+1)
-	fmt.Fprintf(&query, " LIMIT $%d", len(args))
-
-	rows, err := r.db.Query(ctx, query.String(), args...)
+	events, err := r.listVisibleEvents(ctx, principal, externalAccess, params, limit+1)
 	if err != nil {
-		return nil, fmt.Errorf("list visible external events: %w", err)
+		return nil, err
 	}
-	defer rows.Close()
 
-	items := make([]domain.ExternalEvent, 0, limit+1)
-	for rows.Next() {
-		event, scanErr := scanExternalEvent(rows)
+	items := make([]domain.ExternalEvent, 0, len(events))
+	for _, row := range events {
+		event, scanErr := externalEventFromSQLC(row)
 		if scanErr != nil {
 			return nil, scanErr
 		}
-		items = append(items, event)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
+		items = append(items, *event)
 	}
 
 	page := &domain.CursorPage[domain.ExternalEvent]{}
@@ -220,11 +141,7 @@ func (r *ExternalEventRepo) Rebuild(ctx context.Context, events []domain.Externa
 	}
 
 	repo := r.WithTx(tx)
-	if _, err := tx.Exec(ctx, `
-		TRUNCATE usergroup_event_feed, user_event_feed, file_event_feed,
-		         conversation_event_feed, team_event_feed, external_events
-		         RESTART IDENTITY CASCADE
-	`); err != nil {
+	if err := sqlcgen.New(tx).TruncateExternalEventsAndFeeds(ctx); err != nil {
 		return fmt.Errorf("truncate external event tables: %w", err)
 	}
 
@@ -249,35 +166,23 @@ func (r *ExternalEventRepo) RebuildFeeds(ctx context.Context) error {
 		defer tx.Rollback(ctx)
 	}
 
-	if _, err := tx.Exec(ctx, `
-		TRUNCATE usergroup_event_feed, user_event_feed, file_event_feed,
-		         conversation_event_feed, team_event_feed RESTART IDENTITY
-	`); err != nil {
+	q := sqlcgen.New(tx)
+	if err := q.TruncateExternalEventFeeds(ctx); err != nil {
 		return fmt.Errorf("truncate feed tables: %w", err)
 	}
 
-	rows, err := tx.Query(ctx, `
-		SELECT id, team_id, type, resource_type, resource_id, occurred_at, payload,
-		       source_internal_event_id, source_internal_event_ids, dedupe_key, created_at
-		FROM external_events
-		ORDER BY id ASC
-	`)
+	rows, err := q.ListAllExternalEvents(ctx)
 	if err != nil {
 		return fmt.Errorf("query external events: %w", err)
 	}
-	defer rows.Close()
-
-	for rows.Next() {
-		event, scanErr := scanExternalEvent(rows)
+	for _, row := range rows {
+		event, scanErr := externalEventFromSQLC(row)
 		if scanErr != nil {
 			return scanErr
 		}
-		if err := (&ExternalEventRepo{db: tx}).insertFeedRow(ctx, event); err != nil {
+		if err := (&ExternalEventRepo{q: q, db: tx}).insertFeedRow(ctx, *event); err != nil {
 			return err
 		}
-	}
-	if err := rows.Err(); err != nil {
-		return err
 	}
 
 	if ownTx {
@@ -287,30 +192,29 @@ func (r *ExternalEventRepo) RebuildFeeds(ctx context.Context) error {
 }
 
 func (r *ExternalEventRepo) insertFeedRow(ctx context.Context, event domain.ExternalEvent) error {
-	var query string
-	var args []any
 	switch event.ResourceType {
-	case domain.ResourceTypeTeam:
-		query = `INSERT INTO team_event_feed (team_id, external_event_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`
-		args = []any{event.ResourceID, event.ID}
+	case domain.ResourceTypeWorkspace:
+		if err := r.q.InsertWorkspaceEventFeed(ctx, sqlcgen.InsertWorkspaceEventFeedParams{WorkspaceID: event.ResourceID, ExternalEventID: event.ID}); err != nil {
+			return fmt.Errorf("insert %s feed row: %w", event.ResourceType, err)
+		}
 	case domain.ResourceTypeConversation:
-		query = `INSERT INTO conversation_event_feed (conversation_id, external_event_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`
-		args = []any{event.ResourceID, event.ID}
+		if err := r.q.InsertConversationEventFeed(ctx, sqlcgen.InsertConversationEventFeedParams{ConversationID: event.ResourceID, ExternalEventID: event.ID}); err != nil {
+			return fmt.Errorf("insert %s feed row: %w", event.ResourceType, err)
+		}
 	case domain.ResourceTypeFile:
-		query = `INSERT INTO file_event_feed (file_id, external_event_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`
-		args = []any{event.ResourceID, event.ID}
+		if err := r.q.InsertFileEventFeed(ctx, sqlcgen.InsertFileEventFeedParams{FileID: event.ResourceID, ExternalEventID: event.ID}); err != nil {
+			return fmt.Errorf("insert %s feed row: %w", event.ResourceType, err)
+		}
 	case domain.ResourceTypeUser:
-		query = `INSERT INTO user_event_feed (user_id, external_event_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`
-		args = []any{event.ResourceID, event.ID}
+		if err := r.q.InsertUserEventFeed(ctx, sqlcgen.InsertUserEventFeedParams{UserID: event.ResourceID, ExternalEventID: event.ID}); err != nil {
+			return fmt.Errorf("insert %s feed row: %w", event.ResourceType, err)
+		}
 	case domain.ResourceTypeUsergroup:
-		query = `INSERT INTO usergroup_event_feed (usergroup_id, external_event_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`
-		args = []any{event.ResourceID, event.ID}
+		if err := r.q.InsertUsergroupEventFeed(ctx, sqlcgen.InsertUsergroupEventFeedParams{UsergroupID: event.ResourceID, ExternalEventID: event.ID}); err != nil {
+			return fmt.Errorf("insert %s feed row: %w", event.ResourceType, err)
+		}
 	default:
 		return fmt.Errorf("unknown resource_type %q: %w", event.ResourceType, domain.ErrInvalidArgument)
-	}
-
-	if _, err := r.db.Exec(ctx, query, args...); err != nil {
-		return fmt.Errorf("insert %s feed row: %w", event.ResourceType, err)
 	}
 	return nil
 }
@@ -318,135 +222,6 @@ func (r *ExternalEventRepo) insertFeedRow(ctx context.Context, event domain.Exte
 type externalAccessState struct {
 	ID                  string
 	AllowedCapabilities []string
-}
-
-func (r *ExternalEventRepo) visibleIDsSubquery(principal repository.ExternalEventPrincipal, externalAccess *externalAccessState, params domain.ListExternalEventsParams, args *[]any) string {
-	if externalAccess != nil {
-		return r.externalAccessVisibleIDsSubquery(externalAccess, params, args)
-	}
-	if !principalCanReadExternalResourceType(principal, params.ResourceType) {
-		return `SELECT NULL::BIGINT AS external_event_id WHERE FALSE`
-	}
-
-	switch params.ResourceType {
-	case domain.ResourceTypeTeam:
-		if params.ResourceID != "" {
-			*args = append(*args, params.ResourceID)
-			return fmt.Sprintf(`
-				SELECT external_event_id
-				FROM team_event_feed
-				WHERE team_id = $%d AND external_event_id > $2
-			`, len(*args))
-		}
-		return `
-			SELECT external_event_id
-			FROM team_event_feed
-			WHERE team_id = $1 AND external_event_id > $2
-		`
-	case domain.ResourceTypeConversation:
-		return r.feedSubquery(args, "conversation_event_feed", "conversations", "conversation_id", "id", "team_id", params.ResourceID)
-	case domain.ResourceTypeFile:
-		return r.feedSubquery(args, "file_event_feed", "files", "file_id", "id", "team_id", params.ResourceID)
-	case domain.ResourceTypeUser:
-		return r.feedSubquery(args, "user_event_feed", "users", "user_id", "id", "team_id", params.ResourceID)
-	case domain.ResourceTypeUsergroup:
-		return r.feedSubquery(args, "usergroup_event_feed", "usergroups", "usergroup_id", "id", "team_id", params.ResourceID)
-	default:
-		subqueries := make([]string, 0, 5)
-		if principalCanReadExternalResourceType(principal, domain.ResourceTypeTeam) {
-			subqueries = append(subqueries, `SELECT external_event_id FROM team_event_feed WHERE team_id = $1 AND external_event_id > $2`)
-		}
-		if principalCanReadExternalResourceType(principal, domain.ResourceTypeConversation) {
-			subqueries = append(subqueries, r.feedSubquery(args, "conversation_event_feed", "conversations", "conversation_id", "id", "team_id", ""))
-		}
-		if principalCanReadExternalResourceType(principal, domain.ResourceTypeFile) {
-			subqueries = append(subqueries, r.feedSubquery(args, "file_event_feed", "files", "file_id", "id", "team_id", ""))
-		}
-		if principalCanReadExternalResourceType(principal, domain.ResourceTypeUser) {
-			subqueries = append(subqueries, r.feedSubquery(args, "user_event_feed", "users", "user_id", "id", "team_id", ""))
-		}
-		if principalCanReadExternalResourceType(principal, domain.ResourceTypeUsergroup) {
-			subqueries = append(subqueries, r.feedSubquery(args, "usergroup_event_feed", "usergroups", "usergroup_id", "id", "team_id", ""))
-		}
-		if len(subqueries) == 0 {
-			return `SELECT NULL::BIGINT AS external_event_id WHERE FALSE`
-		}
-		return strings.Join(subqueries, "\nUNION\n")
-	}
-}
-
-func (r *ExternalEventRepo) externalAccessVisibleIDsSubquery(access *externalAccessState, params domain.ListExternalEventsParams, args *[]any) string {
-	resourceAllowed := func(resourceType string) bool {
-		switch resourceType {
-		case domain.ResourceTypeConversation:
-			return hasPermission(access.AllowedCapabilities, domain.PermissionMessagesRead)
-		case domain.ResourceTypeFile:
-			return hasPermission(access.AllowedCapabilities, domain.PermissionFilesRead) ||
-				hasPermission(access.AllowedCapabilities, domain.PermissionFilesWrite)
-		default:
-			return false
-		}
-	}
-
-	switch params.ResourceType {
-	case domain.ResourceTypeConversation:
-		if !resourceAllowed(domain.ResourceTypeConversation) {
-			return `SELECT NULL::BIGINT AS external_event_id WHERE FALSE`
-		}
-		*args = append(*args, access.ID)
-		accessIDArg := len(*args)
-		query := fmt.Sprintf(`
-			SELECT f.external_event_id
-			FROM conversation_event_feed f
-			JOIN external_principal_conversation_assignments eca
-			  ON eca.conversation_id = f.conversation_id
-			WHERE eca.access_id = $%d AND f.external_event_id > $2
-		`, accessIDArg)
-		if params.ResourceID != "" {
-			*args = append(*args, params.ResourceID)
-			query += fmt.Sprintf(" AND f.conversation_id = $%d", len(*args))
-		}
-		return query
-	case domain.ResourceTypeFile:
-		if !resourceAllowed(domain.ResourceTypeFile) {
-			return `SELECT NULL::BIGINT AS external_event_id WHERE FALSE`
-		}
-		*args = append(*args, access.ID)
-		accessIDArg := len(*args)
-		query := fmt.Sprintf(`
-			SELECT DISTINCT f.external_event_id
-			FROM file_event_feed f
-			JOIN file_channels fc ON fc.file_id = f.file_id
-			JOIN external_principal_conversation_assignments eca
-			  ON eca.conversation_id = fc.channel_id
-			WHERE eca.access_id = $%d AND f.external_event_id > $2
-		`, accessIDArg)
-		if params.ResourceID != "" {
-			*args = append(*args, params.ResourceID)
-			query += fmt.Sprintf(" AND f.file_id = $%d", len(*args))
-		}
-		return query
-	case "", domain.ResourceTypeTeam, domain.ResourceTypeUser, domain.ResourceTypeUsergroup:
-		subqueries := make([]string, 0, 2)
-		if resourceAllowed(domain.ResourceTypeConversation) {
-			subqueries = append(subqueries, r.externalAccessVisibleIDsSubquery(access, domain.ListExternalEventsParams{
-				ResourceType: domain.ResourceTypeConversation,
-				ResourceID:   "",
-			}, args))
-		}
-		if resourceAllowed(domain.ResourceTypeFile) {
-			subqueries = append(subqueries, r.externalAccessVisibleIDsSubquery(access, domain.ListExternalEventsParams{
-				ResourceType: domain.ResourceTypeFile,
-				ResourceID:   "",
-			}, args))
-		}
-		if len(subqueries) == 0 {
-			return `SELECT NULL::BIGINT AS external_event_id WHERE FALSE`
-		}
-		return strings.Join(subqueries, "\nUNION\n")
-	default:
-		return `SELECT NULL::BIGINT AS external_event_id WHERE FALSE`
-	}
 }
 
 func principalCanReadExternalResourceType(principal repository.ExternalEventPrincipal, resourceType string) bool {
@@ -465,7 +240,7 @@ func principalCanReadExternalResourceType(principal repository.ExternalEventPrin
 	case domain.ResourceTypeFile:
 		return hasPermission(principal.Permissions, domain.PermissionFilesRead) ||
 			hasPermission(principal.Permissions, domain.PermissionFilesWrite)
-	case domain.ResourceTypeTeam, domain.ResourceTypeUser, domain.ResourceTypeUsergroup:
+	case domain.ResourceTypeWorkspace, domain.ResourceTypeUser, domain.ResourceTypeUsergroup:
 		return true
 	default:
 		return false
@@ -490,39 +265,132 @@ func hasPermission(perms []string, required string) bool {
 	return false
 }
 
-func (r *ExternalEventRepo) feedSubquery(args *[]any, feedTable, resourceTable, feedColumn, resourceColumn, teamColumn, resourceID string) string {
-	var b strings.Builder
-	fmt.Fprintf(&b, `
-		SELECT f.external_event_id
-		FROM %s f
-		JOIN %s r ON r.%s = f.%s
-		WHERE r.%s = $1 AND f.external_event_id > $2
-	`, feedTable, resourceTable, resourceColumn, feedColumn, teamColumn)
-	if resourceID != "" {
-		*args = append(*args, resourceID)
-		fmt.Fprintf(&b, " AND r.%s = $%d", resourceColumn, len(*args))
+func (r *ExternalEventRepo) listVisibleEvents(ctx context.Context, principal repository.ExternalEventPrincipal, externalAccess *externalAccessState, params domain.ListExternalEventsParams, limit int) ([]sqlcgen.ExternalEvent, error) {
+	if externalAccess != nil {
+		return r.listVisibleExternalAccessEvents(ctx, principal.WorkspaceID, externalAccess, params, limit)
 	}
-	return b.String()
+	resourceTypes := allowedResourceTypes(principal)
+	if params.ResourceType != "" {
+		if !principalCanReadExternalResourceType(principal, params.ResourceType) {
+			return []sqlcgen.ExternalEvent{}, nil
+		}
+		resourceTypes = []string{params.ResourceType}
+	}
+	if len(resourceTypes) == 0 {
+		return []sqlcgen.ExternalEvent{}, nil
+	}
+	rows, err := r.q.ListVisibleExternalEventsByWorkspaceAndResourceTypes(ctx, sqlcgen.ListVisibleExternalEventsByWorkspaceAndResourceTypesParams{
+		WorkspaceID:     principal.WorkspaceID,
+		ID:         params.AfterID,
+		Column3:    resourceTypes,
+		Limit:      int32(limit),
+		EventType:  stringToText(params.Type),
+		ResourceID: stringToText(params.ResourceID),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list visible external events: %w", err)
+	}
+	return rows, nil
 }
 
-func (r *ExternalEventRepo) activeExternalAccessForPrincipal(ctx context.Context, hostTeamID, principalID string) (*externalAccessState, error) {
-	if hostTeamID == "" || principalID == "" {
+func (r *ExternalEventRepo) listVisibleExternalAccessEvents(ctx context.Context, workspaceID string, access *externalAccessState, params domain.ListExternalEventsParams, limit int) ([]sqlcgen.ExternalEvent, error) {
+	switch params.ResourceType {
+	case domain.ResourceTypeConversation:
+		if !externalAccessAllowsResource(access, domain.ResourceTypeConversation) {
+			return []sqlcgen.ExternalEvent{}, nil
+		}
+		rows, err := r.q.ListVisibleConversationExternalEventsByAccess(ctx, sqlcgen.ListVisibleConversationExternalEventsByAccessParams{
+			AccessID:       access.ID,
+			WorkspaceID:         workspaceID,
+			ID:             params.AfterID,
+			Limit:          int32(limit),
+			EventType:      stringToText(params.Type),
+			ConversationID: stringToText(params.ResourceID),
+		})
+		if err != nil {
+			return nil, fmt.Errorf("list visible conversation external events: %w", err)
+		}
+		return rows, nil
+	case domain.ResourceTypeFile:
+		if !externalAccessAllowsResource(access, domain.ResourceTypeFile) {
+			return []sqlcgen.ExternalEvent{}, nil
+		}
+		rows, err := r.q.ListVisibleFileExternalEventsByAccess(ctx, sqlcgen.ListVisibleFileExternalEventsByAccessParams{
+			AccessID:  access.ID,
+			WorkspaceID:    workspaceID,
+			ID:        params.AfterID,
+			Limit:     int32(limit),
+			EventType: stringToText(params.Type),
+			FileID:    stringToText(params.ResourceID),
+		})
+		if err != nil {
+			return nil, fmt.Errorf("list visible file external events: %w", err)
+		}
+		return rows, nil
+	case "", domain.ResourceTypeWorkspace, domain.ResourceTypeUser, domain.ResourceTypeUsergroup:
+		resourceTypes := externalAccessResourceTypes(access)
+		if len(resourceTypes) == 0 {
+			return []sqlcgen.ExternalEvent{}, nil
+		}
+		rows, err := r.q.ListVisibleExternalEventsByAccessAndResourceTypes(ctx, sqlcgen.ListVisibleExternalEventsByAccessAndResourceTypesParams{
+			AccessID:  access.ID,
+			WorkspaceID:    workspaceID,
+			ID:        params.AfterID,
+			Column4:   resourceTypes,
+			Limit:     int32(limit),
+			EventType: stringToText(params.Type),
+		})
+		if err != nil {
+			return nil, fmt.Errorf("list visible external access events: %w", err)
+		}
+		return rows, nil
+	default:
+		return []sqlcgen.ExternalEvent{}, nil
+	}
+}
+
+func allowedResourceTypes(principal repository.ExternalEventPrincipal) []string {
+	resourceTypes := []string{domain.ResourceTypeWorkspace, domain.ResourceTypeUser, domain.ResourceTypeUsergroup}
+	if principalCanReadExternalResourceType(principal, domain.ResourceTypeConversation) {
+		resourceTypes = append(resourceTypes, domain.ResourceTypeConversation)
+	}
+	if principalCanReadExternalResourceType(principal, domain.ResourceTypeFile) {
+		resourceTypes = append(resourceTypes, domain.ResourceTypeFile)
+	}
+	return resourceTypes
+}
+
+func externalAccessAllowsResource(access *externalAccessState, resourceType string) bool {
+	switch resourceType {
+	case domain.ResourceTypeConversation:
+		return hasPermission(access.AllowedCapabilities, domain.PermissionMessagesRead)
+	case domain.ResourceTypeFile:
+		return hasPermission(access.AllowedCapabilities, domain.PermissionFilesRead) ||
+			hasPermission(access.AllowedCapabilities, domain.PermissionFilesWrite)
+	default:
+		return false
+	}
+}
+
+func externalAccessResourceTypes(access *externalAccessState) []string {
+	resourceTypes := make([]string, 0, 2)
+	if externalAccessAllowsResource(access, domain.ResourceTypeConversation) {
+		resourceTypes = append(resourceTypes, domain.ResourceTypeConversation)
+	}
+	if externalAccessAllowsResource(access, domain.ResourceTypeFile) {
+		resourceTypes = append(resourceTypes, domain.ResourceTypeFile)
+	}
+	return resourceTypes
+}
+
+func (r *ExternalEventRepo) activeExternalAccessForPrincipal(ctx context.Context, hostWorkspaceID, principalID string) (*externalAccessState, error) {
+	if hostWorkspaceID == "" || principalID == "" {
 		return nil, nil
 	}
-	var (
-		id       string
-		capsJSON []byte
-	)
-	err := r.db.QueryRow(ctx, `
-		SELECT id, allowed_capabilities
-		FROM external_principal_access
-		WHERE host_team_id = $1
-		  AND principal_id = $2
-		  AND revoked_at IS NULL
-		  AND (expires_at IS NULL OR expires_at > $3)
-		ORDER BY created_at DESC
-		LIMIT 1
-	`, hostTeamID, principalID, time.Now().UTC()).Scan(&id, &capsJSON)
+	row, err := sqlcgen.New(r.db).GetExternalAccessStateByPrincipal(ctx, sqlcgen.GetExternalAccessStateByPrincipalParams{
+		HostWorkspaceID:  hostWorkspaceID,
+		PrincipalID: principalID,
+	})
 	if err != nil {
 		if err == pgx.ErrNoRows {
 			return nil, nil
@@ -530,44 +398,40 @@ func (r *ExternalEventRepo) activeExternalAccessForPrincipal(ctx context.Context
 		return nil, fmt.Errorf("lookup external access for events: %w", err)
 	}
 	var caps []string
-	if len(capsJSON) > 0 {
-		if err := json.Unmarshal(capsJSON, &caps); err != nil {
+	if len(row.AllowedCapabilities) > 0 {
+		if err := json.Unmarshal(row.AllowedCapabilities, &caps); err != nil {
 			return nil, fmt.Errorf("decode external access capabilities: %w", err)
 		}
 	}
-	return &externalAccessState{ID: id, AllowedCapabilities: caps}, nil
+	return &externalAccessState{ID: row.ID, AllowedCapabilities: caps}, nil
 }
 
-type externalEventScanner interface {
-	Scan(dest ...any) error
+func int64ToPgtypeInt8(v *int64) pgtype.Int8 {
+	if v == nil {
+		return pgtype.Int8{}
+	}
+	return pgtype.Int8{Int64: *v, Valid: true}
 }
 
-func scanExternalEvent(row externalEventScanner) (domain.ExternalEvent, error) {
-	var event domain.ExternalEvent
-	var sourceID sql.NullInt64
-	var sourceIDsRaw []byte
-	if err := row.Scan(
-		&event.ID,
-		&event.TeamID,
-		&event.Type,
-		&event.ResourceType,
-		&event.ResourceID,
-		&event.OccurredAt,
-		&event.Payload,
-		&sourceID,
-		&sourceIDsRaw,
-		&event.DedupeKey,
-		&event.CreatedAt,
-	); err != nil {
-		return domain.ExternalEvent{}, fmt.Errorf("scan external event: %w", err)
+func externalEventFromSQLC(row sqlcgen.ExternalEvent) (*domain.ExternalEvent, error) {
+	event := &domain.ExternalEvent{
+		ID:           row.ID,
+		WorkspaceID:  row.WorkspaceID,
+		Type:         row.Type,
+		ResourceType: row.ResourceType,
+		ResourceID:   row.ResourceID,
+		OccurredAt:   row.OccurredAt,
+		Payload:      row.Payload,
+		DedupeKey:    row.DedupeKey,
+		CreatedAt:    row.CreatedAt,
 	}
-	if sourceID.Valid {
-		v := sourceID.Int64
-		event.SourceInternalEventID = &v
+	if row.SourceInternalEventID.Valid {
+		value := row.SourceInternalEventID.Int64
+		event.SourceInternalEventID = &value
 	}
-	if len(sourceIDsRaw) > 0 {
-		if err := json.Unmarshal(sourceIDsRaw, &event.SourceInternalEventIDs); err != nil {
-			return domain.ExternalEvent{}, fmt.Errorf("decode source internal event ids: %w", err)
+	if len(row.SourceInternalEventIds) > 0 {
+		if err := json.Unmarshal(row.SourceInternalEventIds, &event.SourceInternalEventIDs); err != nil {
+			return nil, err
 		}
 	}
 	if event.SourceInternalEventIDs == nil {

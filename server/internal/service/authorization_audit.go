@@ -10,8 +10,8 @@ import (
 	"github.com/suhjohn/teraslack/internal/repository"
 )
 
-func recordAuthorizationAudit(ctx context.Context, repo repository.AuthorizationAuditRepository, tx pgx.Tx, teamID, action, resource, resourceID string, metadata any) error {
-	if repo == nil || teamID == "" || action == "" || resource == "" || resourceID == "" {
+func recordAuthorizationAudit(ctx context.Context, repo repository.AuthorizationAuditRepository, tx pgx.Tx, workspaceID, action, resource, resourceID string, metadata any) error {
+	if repo == nil || workspaceID == "" || action == "" || resource == "" || resourceID == "" {
 		return nil
 	}
 	var metadataJSON json.RawMessage
@@ -27,7 +27,7 @@ func recordAuthorizationAudit(ctx context.Context, repo repository.Authorization
 		auditRepo = repo.WithTx(tx)
 	}
 	_, err := auditRepo.Create(ctx, domain.CreateAuthorizationAuditLogParams{
-		TeamID:     teamID,
+		WorkspaceID:     workspaceID,
 		ActorID:    ctxutil.GetUserID(ctx),
 		APIKeyID:   ctxutil.GetAPIKeyID(ctx),
 		OnBehalfOf: ctxutil.GetOnBehalfOf(ctx),

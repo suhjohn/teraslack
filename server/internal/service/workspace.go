@@ -5,13 +5,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"strings"
 
 	"github.com/suhjohn/teraslack/internal/ctxutil"
 	"github.com/suhjohn/teraslack/internal/domain"
 	"github.com/suhjohn/teraslack/internal/repository"
 )
 
-// WorkspaceService contains business logic for Slack-style team APIs.
+// WorkspaceService contains business logic for Slack-style workspace APIs.
 type WorkspaceService struct {
 	repo      repository.WorkspaceRepository
 	userRepo  repository.UserRepository
@@ -33,32 +34,32 @@ func (s *WorkspaceService) SetAuthorizationAuditRepository(repo repository.Autho
 	s.auditRepo = repo
 }
 
-func (s *WorkspaceService) TeamInfo(ctx context.Context, teamID string) (*domain.Workspace, error) {
-	resolved, err := resolveTeamID(ctx, teamID)
+func (s *WorkspaceService) WorkspaceInfo(ctx context.Context, workspaceID string) (*domain.Workspace, error) {
+	resolved, err := resolveWorkspaceID(ctx, workspaceID)
 	if err != nil {
 		return nil, err
 	}
 	return s.repo.Get(ctx, resolved)
 }
 
-func (s *WorkspaceService) TeamPreferences(ctx context.Context, teamID string) (map[string]any, error) {
-	ws, err := s.TeamInfo(ctx, teamID)
+func (s *WorkspaceService) WorkspacePreferences(ctx context.Context, workspaceID string) (map[string]any, error) {
+	ws, err := s.WorkspaceInfo(ctx, workspaceID)
 	if err != nil {
 		return nil, err
 	}
 	return decodeWorkspacePreferences(ws.Preferences)
 }
 
-func (s *WorkspaceService) TeamProfile(ctx context.Context, teamID string) ([]domain.WorkspaceProfileField, error) {
-	ws, err := s.TeamInfo(ctx, teamID)
+func (s *WorkspaceService) WorkspaceProfile(ctx context.Context, workspaceID string) ([]domain.WorkspaceProfileField, error) {
+	ws, err := s.WorkspaceInfo(ctx, workspaceID)
 	if err != nil {
 		return nil, err
 	}
 	return ws.ProfileFields, nil
 }
 
-func (s *WorkspaceService) TeamBillingInfo(ctx context.Context, teamID string) (*domain.WorkspaceBilling, error) {
-	resolved, err := s.resolveAdminTargetTeamID(ctx, teamID)
+func (s *WorkspaceService) WorkspaceBillingInfo(ctx context.Context, workspaceID string) (*domain.WorkspaceBilling, error) {
+	resolved, err := s.resolveAdminTargetWorkspaceID(ctx, workspaceID)
 	if err != nil {
 		return nil, err
 	}
@@ -69,8 +70,8 @@ func (s *WorkspaceService) TeamBillingInfo(ctx context.Context, teamID string) (
 	return &ws.Billing, nil
 }
 
-func (s *WorkspaceService) TeamBillableInfo(ctx context.Context, teamID string) (map[string]domain.WorkspaceBillableInfo, error) {
-	resolved, err := s.resolveAdminTargetTeamID(ctx, teamID)
+func (s *WorkspaceService) WorkspaceBillableInfo(ctx context.Context, workspaceID string) (map[string]domain.WorkspaceBillableInfo, error) {
+	resolved, err := s.resolveAdminTargetWorkspaceID(ctx, workspaceID)
 	if err != nil {
 		return nil, err
 	}
@@ -85,56 +86,56 @@ func (s *WorkspaceService) TeamBillableInfo(ctx context.Context, teamID string) 
 	return resp, nil
 }
 
-func (s *WorkspaceService) TeamAccessLogs(ctx context.Context, teamID string, limit int) ([]domain.WorkspaceAccessLog, error) {
-	resolved, err := s.resolveAdminTargetTeamID(ctx, teamID)
+func (s *WorkspaceService) WorkspaceAccessLogs(ctx context.Context, workspaceID string, limit int) ([]domain.WorkspaceAccessLog, error) {
+	resolved, err := s.resolveAdminTargetWorkspaceID(ctx, workspaceID)
 	if err != nil {
 		return nil, err
 	}
 	return s.repo.ListAccessLogs(ctx, resolved, limit)
 }
 
-func (s *WorkspaceService) TeamIntegrationLogs(ctx context.Context, teamID string, limit int) ([]domain.WorkspaceIntegrationLog, error) {
-	resolved, err := s.resolveAdminTargetTeamID(ctx, teamID)
+func (s *WorkspaceService) WorkspaceIntegrationLogs(ctx context.Context, workspaceID string, limit int) ([]domain.WorkspaceIntegrationLog, error) {
+	resolved, err := s.resolveAdminTargetWorkspaceID(ctx, workspaceID)
 	if err != nil {
 		return nil, err
 	}
 	return s.repo.ListIntegrationLogs(ctx, resolved, limit)
 }
 
-func (s *WorkspaceService) TeamAuthorizationAuditLogs(ctx context.Context, teamID string, limit int) ([]domain.AuthorizationAuditLog, error) {
+func (s *WorkspaceService) WorkspaceAuthorizationAuditLogs(ctx context.Context, workspaceID string, limit int) ([]domain.AuthorizationAuditLog, error) {
 	if s.auditRepo == nil {
 		return []domain.AuthorizationAuditLog{}, nil
 	}
-	resolved, err := s.resolveAdminTargetTeamID(ctx, teamID)
+	resolved, err := s.resolveAdminTargetWorkspaceID(ctx, workspaceID)
 	if err != nil {
 		return nil, err
 	}
 	return s.auditRepo.List(ctx, domain.ListAuthorizationAuditLogsParams{
-		TeamID: resolved,
-		Limit:  limit,
+		WorkspaceID: resolved,
+		Limit:       limit,
 	})
 }
 
-func (s *WorkspaceService) TeamExternalTeams(ctx context.Context, teamID string) ([]domain.ExternalTeam, error) {
-	resolved, err := s.resolveAdminTargetTeamID(ctx, teamID)
+func (s *WorkspaceService) TeamExternalWorkspaces(ctx context.Context, workspaceID string) ([]domain.ExternalWorkspace, error) {
+	resolved, err := s.resolveAdminTargetWorkspaceID(ctx, workspaceID)
 	if err != nil {
 		return nil, err
 	}
-	return s.repo.ListExternalTeams(ctx, resolved)
+	return s.repo.ListExternalWorkspaces(ctx, resolved)
 }
 
-func (s *WorkspaceService) DisconnectExternalTeam(ctx context.Context, teamID, externalTeamID string) error {
-	if externalTeamID == "" {
-		return fmt.Errorf("external_team_id: %w", domain.ErrInvalidArgument)
+func (s *WorkspaceService) DisconnectExternalWorkspace(ctx context.Context, workspaceID, externalWorkspaceID string) error {
+	if externalWorkspaceID == "" {
+		return fmt.Errorf("external_workspace_id: %w", domain.ErrInvalidArgument)
 	}
-	resolved, err := s.resolveAdminTargetTeamID(ctx, teamID)
+	resolved, err := s.resolveAdminTargetWorkspaceID(ctx, workspaceID)
 	if err != nil {
 		return err
 	}
-	return s.repo.DisconnectExternalTeam(ctx, resolved, externalTeamID)
+	return s.repo.DisconnectExternalWorkspace(ctx, resolved, externalWorkspaceID)
 }
 
-func (s *WorkspaceService) TransferPrimaryAdmin(ctx context.Context, teamID, newPrimaryAdminID string) (*domain.User, error) {
+func (s *WorkspaceService) TransferPrimaryAdmin(ctx context.Context, workspaceID, newPrimaryAdminID string) (*domain.User, error) {
 	if newPrimaryAdminID == "" {
 		return nil, fmt.Errorf("user_id: %w", domain.ErrInvalidArgument)
 	}
@@ -142,7 +143,7 @@ func (s *WorkspaceService) TransferPrimaryAdmin(ctx context.Context, teamID, new
 	if err != nil {
 		return nil, err
 	}
-	resolved, err := resolveTeamID(ctx, teamID)
+	resolved, err := resolveWorkspaceID(ctx, workspaceID)
 	if err != nil {
 		return nil, err
 	}
@@ -150,10 +151,10 @@ func (s *WorkspaceService) TransferPrimaryAdmin(ctx context.Context, teamID, new
 	if err != nil {
 		return nil, err
 	}
-	if target.TeamID != resolved || target.PrincipalType != domain.PrincipalTypeHuman {
+	if target.WorkspaceID != resolved || target.PrincipalType != domain.PrincipalTypeHuman {
 		return nil, domain.ErrForbidden
 	}
-	if actor.ID == target.ID && actor.TeamID == resolved {
+	if actor.ID == target.ID && actor.WorkspaceID == resolved {
 		return target, nil
 	}
 
@@ -182,14 +183,14 @@ func (s *WorkspaceService) TransferPrimaryAdmin(ctx context.Context, teamID, new
 			EventType:     domain.EventUserUpdated,
 			AggregateType: domain.AggregateUser,
 			AggregateID:   user.ID,
-			TeamID:        user.TeamID,
+			WorkspaceID:   user.WorkspaceID,
 			ActorID:       actor.ID,
 			Payload:       payload,
 		}); err != nil {
 			return nil, fmt.Errorf("record user.updated event: %w", err)
 		}
 	}
-	if err := recordAuthorizationAudit(ctx, s.auditRepo, tx, resolved, domain.AuditActionPrimaryAdminTransferred, "team", resolved, map[string]any{
+	if err := recordAuthorizationAudit(ctx, s.auditRepo, tx, resolved, domain.AuditActionPrimaryAdminTransferred, "workspace", resolved, map[string]any{
 		"from_user_id": actor.ID,
 		"to_user_id":   target.ID,
 	}); err != nil {
@@ -202,7 +203,8 @@ func (s *WorkspaceService) TransferPrimaryAdmin(ctx context.Context, teamID, new
 }
 
 func (s *WorkspaceService) AdminCreate(ctx context.Context, params domain.CreateWorkspaceParams) (*domain.Workspace, error) {
-	if _, err := s.requireWorkspaceAdmin(ctx); err != nil {
+	actor, err := s.requireWorkspaceAdmin(ctx)
+	if err != nil {
 		return nil, err
 	}
 	if params.Name == "" {
@@ -224,14 +226,40 @@ func (s *WorkspaceService) AdminCreate(ctx context.Context, params domain.Create
 	}
 	payload, _ := json.Marshal(ws)
 	if err := s.recorder.WithTx(tx).Record(ctx, domain.InternalEvent{
-		EventType:     domain.EventTeamCreated,
-		AggregateType: domain.AggregateTeam,
+		EventType:     domain.EventWorkspaceCreated,
+		AggregateType: domain.AggregateWorkspace,
 		AggregateID:   ws.ID,
-		TeamID:        ws.ID,
+		WorkspaceID:   ws.ID,
 		ActorID:       ctxutil.GetActingUserID(ctx),
 		Payload:       payload,
 	}); err != nil {
-		return nil, fmt.Errorf("record team.created event: %w", err)
+		return nil, fmt.Errorf("record workspace.created event: %w", err)
+	}
+	createdUser, err := s.userRepo.WithTx(tx).Create(ctx, domain.CreateUserParams{
+		WorkspaceID:   ws.ID,
+		Name:          actor.Name,
+		RealName:      actor.RealName,
+		DisplayName:   actor.DisplayName,
+		Email:         actor.Email,
+		PrincipalType: actor.PrincipalType,
+		OwnerID:       actor.OwnerID,
+		AccountType:   domain.AccountTypePrimaryAdmin,
+		IsBot:         actor.IsBot,
+		Profile:       actor.Profile,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("create creator user: %w", err)
+	}
+	userPayload, _ := json.Marshal(createdUser)
+	if err := s.recorder.WithTx(tx).Record(ctx, domain.InternalEvent{
+		EventType:     domain.EventUserCreated,
+		AggregateType: domain.AggregateUser,
+		AggregateID:   createdUser.ID,
+		WorkspaceID:   createdUser.WorkspaceID,
+		ActorID:       ctxutil.GetActingUserID(ctx),
+		Payload:       userPayload,
+	}); err != nil {
+		return nil, fmt.Errorf("record user.created event: %w", err)
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return nil, fmt.Errorf("commit tx: %w", err)
@@ -240,68 +268,99 @@ func (s *WorkspaceService) AdminCreate(ctx context.Context, params domain.Create
 }
 
 func (s *WorkspaceService) AdminList(ctx context.Context) ([]domain.Workspace, error) {
-	if _, err := s.requireWorkspaceAdmin(ctx); err != nil {
-		return nil, err
+	actor, err := loadActingUser(ctx, s.userRepo)
+	if err != nil || actor.PrincipalType != domain.PrincipalTypeHuman || strings.TrimSpace(actor.Email) == "" {
+		resolved, resolveErr := s.resolveAdminTargetWorkspaceID(ctx, "")
+		if resolveErr != nil {
+			return nil, resolveErr
+		}
+		workspace, getErr := s.repo.Get(ctx, resolved)
+		if getErr != nil {
+			return nil, getErr
+		}
+		return []domain.Workspace{*workspace}, nil
 	}
-	return s.repo.List(ctx)
+
+	users, err := s.userRepo.ListByEmail(ctx, actor.Email)
+	if err != nil {
+		return nil, fmt.Errorf("list workspace memberships: %w", err)
+	}
+
+	workspaces := make([]domain.Workspace, 0, len(users))
+	seen := make(map[string]struct{}, len(users))
+	for _, user := range users {
+		if user.WorkspaceID == "" || user.Deleted {
+			continue
+		}
+		if _, ok := seen[user.WorkspaceID]; ok {
+			continue
+		}
+		workspace, getErr := s.repo.Get(ctx, user.WorkspaceID)
+		if getErr != nil {
+			return nil, getErr
+		}
+		workspaces = append(workspaces, *workspace)
+		seen[user.WorkspaceID] = struct{}{}
+	}
+	return workspaces, nil
 }
 
-func (s *WorkspaceService) AdminListAdmins(ctx context.Context, teamID string) ([]domain.User, error) {
-	resolved, err := s.resolveAdminTargetTeamID(ctx, teamID)
+func (s *WorkspaceService) AdminListAdmins(ctx context.Context, workspaceID string) ([]domain.User, error) {
+	resolved, err := s.resolveAdminTargetWorkspaceID(ctx, workspaceID)
 	if err != nil {
 		return nil, err
 	}
 	return s.repo.ListAdmins(ctx, resolved)
 }
 
-func (s *WorkspaceService) AdminListOwners(ctx context.Context, teamID string) ([]domain.User, error) {
-	resolved, err := s.resolveAdminTargetTeamID(ctx, teamID)
+func (s *WorkspaceService) AdminListOwners(ctx context.Context, workspaceID string) ([]domain.User, error) {
+	resolved, err := s.resolveAdminTargetWorkspaceID(ctx, workspaceID)
 	if err != nil {
 		return nil, err
 	}
 	return s.repo.ListOwners(ctx, resolved)
 }
 
-func (s *WorkspaceService) AdminSettingsInfo(ctx context.Context, teamID string) (*domain.Workspace, error) {
-	resolved, err := s.resolveAdminTargetTeamID(ctx, teamID)
+func (s *WorkspaceService) AdminSettingsInfo(ctx context.Context, workspaceID string) (*domain.Workspace, error) {
+	resolved, err := s.resolveAdminTargetWorkspaceID(ctx, workspaceID)
 	if err != nil {
 		return nil, err
 	}
 	return s.repo.Get(ctx, resolved)
 }
 
-func (s *WorkspaceService) AdminSetName(ctx context.Context, teamID, name string) (*domain.Workspace, error) {
+func (s *WorkspaceService) AdminSetName(ctx context.Context, workspaceID, name string) (*domain.Workspace, error) {
 	if name == "" {
 		return nil, fmt.Errorf("name: %w", domain.ErrInvalidArgument)
 	}
-	return s.updateWorkspace(ctx, teamID, domain.UpdateWorkspaceParams{Name: &name})
+	return s.updateWorkspace(ctx, workspaceID, domain.UpdateWorkspaceParams{Name: &name})
 }
 
-func (s *WorkspaceService) AdminSetDescription(ctx context.Context, teamID, description string) (*domain.Workspace, error) {
-	return s.updateWorkspace(ctx, teamID, domain.UpdateWorkspaceParams{Description: &description})
+func (s *WorkspaceService) AdminSetDescription(ctx context.Context, workspaceID, description string) (*domain.Workspace, error) {
+	return s.updateWorkspace(ctx, workspaceID, domain.UpdateWorkspaceParams{Description: &description})
 }
 
-func (s *WorkspaceService) AdminSetDiscoverability(ctx context.Context, teamID string, discoverability domain.WorkspaceDiscoverability) (*domain.Workspace, error) {
+func (s *WorkspaceService) AdminSetDiscoverability(ctx context.Context, workspaceID string, discoverability domain.WorkspaceDiscoverability) (*domain.Workspace, error) {
 	if discoverability != domain.WorkspaceDiscoverabilityOpen && discoverability != domain.WorkspaceDiscoverabilityInviteOnly {
 		return nil, fmt.Errorf("discoverability: %w", domain.ErrInvalidArgument)
 	}
-	return s.updateWorkspace(ctx, teamID, domain.UpdateWorkspaceParams{Discoverability: &discoverability})
+	return s.updateWorkspace(ctx, workspaceID, domain.UpdateWorkspaceParams{Discoverability: &discoverability})
 }
 
-func (s *WorkspaceService) AdminSetIcon(ctx context.Context, teamID string, icon domain.WorkspaceIcon) (*domain.Workspace, error) {
-	return s.updateWorkspace(ctx, teamID, domain.UpdateWorkspaceParams{Icon: &icon})
+func (s *WorkspaceService) AdminSetIcon(ctx context.Context, workspaceID string, icon domain.WorkspaceIcon) (*domain.Workspace, error) {
+	return s.updateWorkspace(ctx, workspaceID, domain.UpdateWorkspaceParams{Icon: &icon})
 }
 
-func (s *WorkspaceService) AdminSetDefaultChannels(ctx context.Context, teamID string, channels []string) (*domain.Workspace, error) {
-	return s.updateWorkspace(ctx, teamID, domain.UpdateWorkspaceParams{DefaultChannels: &channels})
+func (s *WorkspaceService) AdminSetDefaultChannels(ctx context.Context, workspaceID string, channels []string) (*domain.Workspace, error) {
+	return s.updateWorkspace(ctx, workspaceID, domain.UpdateWorkspaceParams{DefaultChannels: &channels})
 }
 
-func (s *WorkspaceService) Update(ctx context.Context, teamID string, params domain.UpdateWorkspaceParams) (*domain.Workspace, error) {
-	return s.updateWorkspace(ctx, teamID, params)
+func (s *WorkspaceService) Update(ctx context.Context, workspaceID string, params domain.UpdateWorkspaceParams) (*domain.Workspace, error) {
+	return s.updateWorkspace(ctx, workspaceID, params)
 }
 
-func (s *WorkspaceService) updateWorkspace(ctx context.Context, teamID string, params domain.UpdateWorkspaceParams) (*domain.Workspace, error) {
-	resolved, err := s.resolveAdminTargetTeamID(ctx, teamID)
+func (s *WorkspaceService) updateWorkspace(ctx context.Context, workspaceID string, params domain.UpdateWorkspaceParams) (*domain.Workspace, error) {
+	resolved, err := s.resolveAdminTargetWorkspaceID(ctx, workspaceID)
 	if err != nil {
 		return nil, err
 	}
@@ -318,14 +377,14 @@ func (s *WorkspaceService) updateWorkspace(ctx context.Context, teamID string, p
 	}
 	payload, _ := json.Marshal(ws)
 	if err := s.recorder.WithTx(tx).Record(ctx, domain.InternalEvent{
-		EventType:     domain.EventTeamUpdated,
-		AggregateType: domain.AggregateTeam,
+		EventType:     domain.EventWorkspaceUpdated,
+		AggregateType: domain.AggregateWorkspace,
 		AggregateID:   ws.ID,
-		TeamID:        ws.ID,
+		WorkspaceID:   ws.ID,
 		ActorID:       ctxutil.GetActingUserID(ctx),
 		Payload:       payload,
 	}); err != nil {
-		return nil, fmt.Errorf("record team.updated event: %w", err)
+		return nil, fmt.Errorf("record workspace.updated event: %w", err)
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return nil, fmt.Errorf("commit tx: %w", err)
@@ -337,17 +396,11 @@ func (s *WorkspaceService) requireWorkspaceAdmin(ctx context.Context) (*domain.U
 	return requireWorkspaceAdminActor(ctx, s.userRepo)
 }
 
-func (s *WorkspaceService) resolveAdminTargetTeamID(ctx context.Context, requested string) (string, error) {
+func (s *WorkspaceService) resolveAdminTargetWorkspaceID(ctx context.Context, requested string) (string, error) {
 	if _, err := s.requireWorkspaceAdmin(ctx); err != nil {
 		return "", err
 	}
-	if requested != "" {
-		return requested, nil
-	}
-	if teamID := ctxutil.GetTeamID(ctx); teamID != "" {
-		return teamID, nil
-	}
-	return "", fmt.Errorf("team_id: %w", domain.ErrInvalidArgument)
+	return resolveWorkspaceID(ctx, requested)
 }
 
 func decodeWorkspacePreferences(raw []byte) (map[string]any, error) {

@@ -7,9 +7,12 @@ package sqlcgen
 
 import (
 	"context"
+	"time"
+
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
-const addConversationMember = `-- name: AddConversationMember :exec
+const addConversationMember = `-- name: AddConversationMember :execrows
 INSERT INTO conversation_members (conversation_id, user_id)
 VALUES ($1, $2)
 ON CONFLICT DO NOTHING
@@ -20,9 +23,12 @@ type AddConversationMemberParams struct {
 	UserID         string `json:"user_id"`
 }
 
-func (q *Queries) AddConversationMember(ctx context.Context, arg AddConversationMemberParams) error {
-	_, err := q.db.Exec(ctx, addConversationMember, arg.ConversationID, arg.UserID)
-	return err
+func (q *Queries) AddConversationMember(ctx context.Context, arg AddConversationMemberParams) (int64, error) {
+	result, err := q.db.Exec(ctx, addConversationMember, arg.ConversationID, arg.UserID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const archiveConversation = `-- name: ArchiveConversation :exec
@@ -45,31 +51,83 @@ func (q *Queries) CountConversationMembers(ctx context.Context, conversationID s
 	return count, err
 }
 
+const createCanonicalDM = `-- name: CreateCanonicalDM :execrows
+INSERT INTO canonical_dms (workspace_id, user_low_id, user_high_id, conversation_id)
+VALUES ($1, $2, $3, $4)
+ON CONFLICT DO NOTHING
+`
+
+type CreateCanonicalDMParams struct {
+	WorkspaceID    string `json:"workspace_id"`
+	UserLowID      string `json:"user_low_id"`
+	UserHighID     string `json:"user_high_id"`
+	ConversationID string `json:"conversation_id"`
+}
+
+func (q *Queries) CreateCanonicalDM(ctx context.Context, arg CreateCanonicalDMParams) (int64, error) {
+	result, err := q.db.Exec(ctx, createCanonicalDM,
+		arg.WorkspaceID,
+		arg.UserLowID,
+		arg.UserHighID,
+		arg.ConversationID,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const createConversation = `-- name: CreateConversation :one
-INSERT INTO conversations (id, team_id, name, type, creator_id, topic_value, topic_creator, purpose_value, purpose_creator)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-RETURNING id, team_id, name, type, creator_id, is_archived,
-          topic_value, topic_creator, topic_last_set,
-          purpose_value, purpose_creator, purpose_last_set,
-          num_members, created_at, updated_at
+INSERT INTO conversations (
+    id, workspace_id, name, type, creator_id,
+    topic_value, topic_creator, purpose_value, purpose_creator,
+    last_message_ts, last_activity_ts
+)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+RETURNING id, workspace_id, name, type, creator_id, is_archived,
+       topic_value, topic_creator, topic_last_set,
+       purpose_value, purpose_creator, purpose_last_set,
+       num_members, last_message_ts, last_activity_ts, created_at, updated_at
 `
 
 type CreateConversationParams struct {
-	ID             string `json:"id"`
-	TeamID         string `json:"team_id"`
-	Name           string `json:"name"`
-	Type           string `json:"type"`
-	CreatorID      string `json:"creator_id"`
-	TopicValue     string `json:"topic_value"`
-	TopicCreator   string `json:"topic_creator"`
-	PurposeValue   string `json:"purpose_value"`
-	PurposeCreator string `json:"purpose_creator"`
+	ID             string      `json:"id"`
+	WorkspaceID    string      `json:"workspace_id"`
+	Name           string      `json:"name"`
+	Type           string      `json:"type"`
+	CreatorID      string      `json:"creator_id"`
+	TopicValue     string      `json:"topic_value"`
+	TopicCreator   string      `json:"topic_creator"`
+	PurposeValue   string      `json:"purpose_value"`
+	PurposeCreator string      `json:"purpose_creator"`
+	LastMessageTs  pgtype.Text `json:"last_message_ts"`
+	LastActivityTs pgtype.Text `json:"last_activity_ts"`
 }
 
-func (q *Queries) CreateConversation(ctx context.Context, arg CreateConversationParams) (Conversation, error) {
+type CreateConversationRow struct {
+	ID             string      `json:"id"`
+	WorkspaceID    string      `json:"workspace_id"`
+	Name           string      `json:"name"`
+	Type           string      `json:"type"`
+	CreatorID      string      `json:"creator_id"`
+	IsArchived     bool        `json:"is_archived"`
+	TopicValue     string      `json:"topic_value"`
+	TopicCreator   string      `json:"topic_creator"`
+	TopicLastSet   *time.Time  `json:"topic_last_set"`
+	PurposeValue   string      `json:"purpose_value"`
+	PurposeCreator string      `json:"purpose_creator"`
+	PurposeLastSet *time.Time  `json:"purpose_last_set"`
+	NumMembers     int32       `json:"num_members"`
+	LastMessageTs  pgtype.Text `json:"last_message_ts"`
+	LastActivityTs pgtype.Text `json:"last_activity_ts"`
+	CreatedAt      time.Time   `json:"created_at"`
+	UpdatedAt      time.Time   `json:"updated_at"`
+}
+
+func (q *Queries) CreateConversation(ctx context.Context, arg CreateConversationParams) (CreateConversationRow, error) {
 	row := q.db.QueryRow(ctx, createConversation,
 		arg.ID,
-		arg.TeamID,
+		arg.WorkspaceID,
 		arg.Name,
 		arg.Type,
 		arg.CreatorID,
@@ -77,11 +135,13 @@ func (q *Queries) CreateConversation(ctx context.Context, arg CreateConversation
 		arg.TopicCreator,
 		arg.PurposeValue,
 		arg.PurposeCreator,
+		arg.LastMessageTs,
+		arg.LastActivityTs,
 	)
-	var i Conversation
+	var i CreateConversationRow
 	err := row.Scan(
 		&i.ID,
-		&i.TeamID,
+		&i.WorkspaceID,
 		&i.Name,
 		&i.Type,
 		&i.CreatorID,
@@ -93,6 +153,95 @@ func (q *Queries) CreateConversation(ctx context.Context, arg CreateConversation
 		&i.PurposeCreator,
 		&i.PurposeLastSet,
 		&i.NumMembers,
+		&i.LastMessageTs,
+		&i.LastActivityTs,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const decrementConversationMemberCount = `-- name: DecrementConversationMemberCount :exec
+UPDATE conversations
+SET num_members = num_members - 1
+WHERE id = $1
+`
+
+func (q *Queries) DecrementConversationMemberCount(ctx context.Context, id string) error {
+	_, err := q.db.Exec(ctx, decrementConversationMemberCount, id)
+	return err
+}
+
+const deleteCanonicalDMByConversation = `-- name: DeleteCanonicalDMByConversation :execrows
+DELETE FROM canonical_dms
+WHERE conversation_id = $1
+`
+
+func (q *Queries) DeleteCanonicalDMByConversation(ctx context.Context, conversationID string) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteCanonicalDMByConversation, conversationID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const getCanonicalDMConversation = `-- name: GetCanonicalDMConversation :one
+SELECT c.id, c.workspace_id, c.name, c.type, c.creator_id, c.is_archived,
+       c.topic_value, c.topic_creator, c.topic_last_set,
+       c.purpose_value, c.purpose_creator, c.purpose_last_set,
+       c.num_members, c.last_message_ts, c.last_activity_ts, c.created_at, c.updated_at
+FROM canonical_dms d
+JOIN conversations c ON c.id = d.conversation_id
+WHERE d.workspace_id = $1
+  AND d.user_low_id = $2
+  AND d.user_high_id = $3
+`
+
+type GetCanonicalDMConversationParams struct {
+	WorkspaceID string `json:"workspace_id"`
+	UserLowID   string `json:"user_low_id"`
+	UserHighID  string `json:"user_high_id"`
+}
+
+type GetCanonicalDMConversationRow struct {
+	ID             string      `json:"id"`
+	WorkspaceID    string      `json:"workspace_id"`
+	Name           string      `json:"name"`
+	Type           string      `json:"type"`
+	CreatorID      string      `json:"creator_id"`
+	IsArchived     bool        `json:"is_archived"`
+	TopicValue     string      `json:"topic_value"`
+	TopicCreator   string      `json:"topic_creator"`
+	TopicLastSet   *time.Time  `json:"topic_last_set"`
+	PurposeValue   string      `json:"purpose_value"`
+	PurposeCreator string      `json:"purpose_creator"`
+	PurposeLastSet *time.Time  `json:"purpose_last_set"`
+	NumMembers     int32       `json:"num_members"`
+	LastMessageTs  pgtype.Text `json:"last_message_ts"`
+	LastActivityTs pgtype.Text `json:"last_activity_ts"`
+	CreatedAt      time.Time   `json:"created_at"`
+	UpdatedAt      time.Time   `json:"updated_at"`
+}
+
+func (q *Queries) GetCanonicalDMConversation(ctx context.Context, arg GetCanonicalDMConversationParams) (GetCanonicalDMConversationRow, error) {
+	row := q.db.QueryRow(ctx, getCanonicalDMConversation, arg.WorkspaceID, arg.UserLowID, arg.UserHighID)
+	var i GetCanonicalDMConversationRow
+	err := row.Scan(
+		&i.ID,
+		&i.WorkspaceID,
+		&i.Name,
+		&i.Type,
+		&i.CreatorID,
+		&i.IsArchived,
+		&i.TopicValue,
+		&i.TopicCreator,
+		&i.TopicLastSet,
+		&i.PurposeValue,
+		&i.PurposeCreator,
+		&i.PurposeLastSet,
+		&i.NumMembers,
+		&i.LastMessageTs,
+		&i.LastActivityTs,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -100,19 +249,39 @@ func (q *Queries) CreateConversation(ctx context.Context, arg CreateConversation
 }
 
 const getConversation = `-- name: GetConversation :one
-SELECT id, team_id, name, type, creator_id, is_archived,
+SELECT id, workspace_id, name, type, creator_id, is_archived,
        topic_value, topic_creator, topic_last_set,
        purpose_value, purpose_creator, purpose_last_set,
-       num_members, created_at, updated_at
+       num_members, last_message_ts, last_activity_ts, created_at, updated_at
 FROM conversations WHERE id = $1
 `
 
-func (q *Queries) GetConversation(ctx context.Context, id string) (Conversation, error) {
+type GetConversationRow struct {
+	ID             string      `json:"id"`
+	WorkspaceID    string      `json:"workspace_id"`
+	Name           string      `json:"name"`
+	Type           string      `json:"type"`
+	CreatorID      string      `json:"creator_id"`
+	IsArchived     bool        `json:"is_archived"`
+	TopicValue     string      `json:"topic_value"`
+	TopicCreator   string      `json:"topic_creator"`
+	TopicLastSet   *time.Time  `json:"topic_last_set"`
+	PurposeValue   string      `json:"purpose_value"`
+	PurposeCreator string      `json:"purpose_creator"`
+	PurposeLastSet *time.Time  `json:"purpose_last_set"`
+	NumMembers     int32       `json:"num_members"`
+	LastMessageTs  pgtype.Text `json:"last_message_ts"`
+	LastActivityTs pgtype.Text `json:"last_activity_ts"`
+	CreatedAt      time.Time   `json:"created_at"`
+	UpdatedAt      time.Time   `json:"updated_at"`
+}
+
+func (q *Queries) GetConversation(ctx context.Context, id string) (GetConversationRow, error) {
 	row := q.db.QueryRow(ctx, getConversation, id)
-	var i Conversation
+	var i GetConversationRow
 	err := row.Scan(
 		&i.ID,
-		&i.TeamID,
+		&i.WorkspaceID,
 		&i.Name,
 		&i.Type,
 		&i.CreatorID,
@@ -124,10 +293,23 @@ func (q *Queries) GetConversation(ctx context.Context, id string) (Conversation,
 		&i.PurposeCreator,
 		&i.PurposeLastSet,
 		&i.NumMembers,
+		&i.LastMessageTs,
+		&i.LastActivityTs,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
 	return i, err
+}
+
+const incrementConversationMemberCount = `-- name: IncrementConversationMemberCount :exec
+UPDATE conversations
+SET num_members = num_members + 1
+WHERE id = $1
+`
+
+func (q *Queries) IncrementConversationMemberCount(ctx context.Context, id string) error {
+	_, err := q.db.Exec(ctx, incrementConversationMemberCount, id)
+	return err
 }
 
 const isConversationMember = `-- name: IsConversationMember :one
@@ -180,35 +362,93 @@ func (q *Queries) ListConversationMembers(ctx context.Context, arg ListConversat
 	return items, nil
 }
 
-const listConversationsByTeam = `-- name: ListConversationsByTeam :many
-SELECT id, team_id, name, type, creator_id, is_archived,
-       topic_value, topic_creator, topic_last_set,
-       purpose_value, purpose_creator, purpose_last_set,
-       num_members, created_at, updated_at
-FROM conversations
-WHERE team_id = $1 AND id >= $2
-ORDER BY id ASC
-LIMIT $3
+const listVisibleConversations = `-- name: ListVisibleConversations :many
+SELECT c.id, c.workspace_id, c.name, c.type, c.creator_id, c.is_archived,
+       c.topic_value, c.topic_creator, c.topic_last_set,
+       c.purpose_value, c.purpose_creator, c.purpose_last_set,
+       c.num_members, c.last_message_ts, c.last_activity_ts,
+       cr.last_read_ts,
+       CASE
+           WHEN $1 = '' THEN NULL::boolean
+           WHEN c.last_message_ts IS NULL THEN FALSE
+           WHEN cr.last_read_ts IS NULL THEN TRUE
+           ELSE cr.last_read_ts < c.last_message_ts
+       END AS has_unread,
+       c.created_at, c.updated_at
+FROM conversations c
+LEFT JOIN conversation_members cm
+  ON cm.conversation_id = c.id AND cm.user_id = $1
+LEFT JOIN conversation_reads cr
+  ON cr.conversation_id = c.id AND cr.user_id = $1
+WHERE c.workspace_id = $2
+  AND ($3::bool = FALSE OR c.is_archived = FALSE)
+  AND (cardinality($4::text[]) = 0 OR c.type = ANY($4::text[]))
+  AND (
+    $5 = ''
+    OR (COALESCE(c.last_activity_ts, ''), c.id) < ($5, $6)
+  )
+  AND (
+    $1 = ''
+    OR
+    c.type = 'public_channel'
+    OR cm.user_id IS NOT NULL
+  )
+ORDER BY COALESCE(c.last_activity_ts, '') DESC, c.id DESC
+LIMIT $7
 `
 
-type ListConversationsByTeamParams struct {
-	TeamID string `json:"team_id"`
-	ID     string `json:"id"`
-	Limit  int32  `json:"limit"`
+type ListVisibleConversationsParams struct {
+	UserID          interface{} `json:"user_id"`
+	WorkspaceID     string      `json:"workspace_id"`
+	ExcludeArchived bool        `json:"exclude_archived"`
+	Types           []string    `json:"types"`
+	CursorActivity  interface{} `json:"cursor_activity"`
+	CursorID        pgtype.Text `json:"cursor_id"`
+	LimitCount      int32       `json:"limit_count"`
 }
 
-func (q *Queries) ListConversationsByTeam(ctx context.Context, arg ListConversationsByTeamParams) ([]Conversation, error) {
-	rows, err := q.db.Query(ctx, listConversationsByTeam, arg.TeamID, arg.ID, arg.Limit)
+type ListVisibleConversationsRow struct {
+	ID             string      `json:"id"`
+	WorkspaceID    string      `json:"workspace_id"`
+	Name           string      `json:"name"`
+	Type           string      `json:"type"`
+	CreatorID      string      `json:"creator_id"`
+	IsArchived     bool        `json:"is_archived"`
+	TopicValue     string      `json:"topic_value"`
+	TopicCreator   string      `json:"topic_creator"`
+	TopicLastSet   *time.Time  `json:"topic_last_set"`
+	PurposeValue   string      `json:"purpose_value"`
+	PurposeCreator string      `json:"purpose_creator"`
+	PurposeLastSet *time.Time  `json:"purpose_last_set"`
+	NumMembers     int32       `json:"num_members"`
+	LastMessageTs  pgtype.Text `json:"last_message_ts"`
+	LastActivityTs pgtype.Text `json:"last_activity_ts"`
+	LastReadTs     pgtype.Text `json:"last_read_ts"`
+	HasUnread      interface{} `json:"has_unread"`
+	CreatedAt      time.Time   `json:"created_at"`
+	UpdatedAt      time.Time   `json:"updated_at"`
+}
+
+func (q *Queries) ListVisibleConversations(ctx context.Context, arg ListVisibleConversationsParams) ([]ListVisibleConversationsRow, error) {
+	rows, err := q.db.Query(ctx, listVisibleConversations,
+		arg.UserID,
+		arg.WorkspaceID,
+		arg.ExcludeArchived,
+		arg.Types,
+		arg.CursorActivity,
+		arg.CursorID,
+		arg.LimitCount,
+	)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []Conversation{}
+	items := []ListVisibleConversationsRow{}
 	for rows.Next() {
-		var i Conversation
+		var i ListVisibleConversationsRow
 		if err := rows.Scan(
 			&i.ID,
-			&i.TeamID,
+			&i.WorkspaceID,
 			&i.Name,
 			&i.Type,
 			&i.CreatorID,
@@ -220,59 +460,10 @@ func (q *Queries) ListConversationsByTeam(ctx context.Context, arg ListConversat
 			&i.PurposeCreator,
 			&i.PurposeLastSet,
 			&i.NumMembers,
-			&i.CreatedAt,
-			&i.UpdatedAt,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const listConversationsByTeamExcludeArchived = `-- name: ListConversationsByTeamExcludeArchived :many
-SELECT id, team_id, name, type, creator_id, is_archived,
-       topic_value, topic_creator, topic_last_set,
-       purpose_value, purpose_creator, purpose_last_set,
-       num_members, created_at, updated_at
-FROM conversations
-WHERE team_id = $1 AND is_archived = FALSE AND id >= $2
-ORDER BY id ASC
-LIMIT $3
-`
-
-type ListConversationsByTeamExcludeArchivedParams struct {
-	TeamID string `json:"team_id"`
-	ID     string `json:"id"`
-	Limit  int32  `json:"limit"`
-}
-
-func (q *Queries) ListConversationsByTeamExcludeArchived(ctx context.Context, arg ListConversationsByTeamExcludeArchivedParams) ([]Conversation, error) {
-	rows, err := q.db.Query(ctx, listConversationsByTeamExcludeArchived, arg.TeamID, arg.ID, arg.Limit)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []Conversation{}
-	for rows.Next() {
-		var i Conversation
-		if err := rows.Scan(
-			&i.ID,
-			&i.TeamID,
-			&i.Name,
-			&i.Type,
-			&i.CreatorID,
-			&i.IsArchived,
-			&i.TopicValue,
-			&i.TopicCreator,
-			&i.TopicLastSet,
-			&i.PurposeValue,
-			&i.PurposeCreator,
-			&i.PurposeLastSet,
-			&i.NumMembers,
+			&i.LastMessageTs,
+			&i.LastActivityTs,
+			&i.LastReadTs,
+			&i.HasUnread,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 		); err != nil {
@@ -296,7 +487,7 @@ func (q *Queries) LockConversationForUpdate(ctx context.Context, id string) (str
 	return id, err
 }
 
-const removeConversationMember = `-- name: RemoveConversationMember :exec
+const removeConversationMember = `-- name: RemoveConversationMember :execrows
 DELETE FROM conversation_members WHERE conversation_id = $1 AND user_id = $2
 `
 
@@ -305,18 +496,21 @@ type RemoveConversationMemberParams struct {
 	UserID         string `json:"user_id"`
 }
 
-func (q *Queries) RemoveConversationMember(ctx context.Context, arg RemoveConversationMemberParams) error {
-	_, err := q.db.Exec(ctx, removeConversationMember, arg.ConversationID, arg.UserID)
-	return err
+func (q *Queries) RemoveConversationMember(ctx context.Context, arg RemoveConversationMemberParams) (int64, error) {
+	result, err := q.db.Exec(ctx, removeConversationMember, arg.ConversationID, arg.UserID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const setConversationPurpose = `-- name: SetConversationPurpose :one
 UPDATE conversations SET purpose_value = $2, purpose_creator = $3, purpose_last_set = NOW()
 WHERE id = $1
-RETURNING id, team_id, name, type, creator_id, is_archived,
+RETURNING id, workspace_id, name, type, creator_id, is_archived,
           topic_value, topic_creator, topic_last_set,
           purpose_value, purpose_creator, purpose_last_set,
-          num_members, created_at, updated_at
+          num_members, last_message_ts, last_activity_ts, created_at, updated_at
 `
 
 type SetConversationPurposeParams struct {
@@ -325,12 +519,32 @@ type SetConversationPurposeParams struct {
 	PurposeCreator string `json:"purpose_creator"`
 }
 
-func (q *Queries) SetConversationPurpose(ctx context.Context, arg SetConversationPurposeParams) (Conversation, error) {
+type SetConversationPurposeRow struct {
+	ID             string      `json:"id"`
+	WorkspaceID    string      `json:"workspace_id"`
+	Name           string      `json:"name"`
+	Type           string      `json:"type"`
+	CreatorID      string      `json:"creator_id"`
+	IsArchived     bool        `json:"is_archived"`
+	TopicValue     string      `json:"topic_value"`
+	TopicCreator   string      `json:"topic_creator"`
+	TopicLastSet   *time.Time  `json:"topic_last_set"`
+	PurposeValue   string      `json:"purpose_value"`
+	PurposeCreator string      `json:"purpose_creator"`
+	PurposeLastSet *time.Time  `json:"purpose_last_set"`
+	NumMembers     int32       `json:"num_members"`
+	LastMessageTs  pgtype.Text `json:"last_message_ts"`
+	LastActivityTs pgtype.Text `json:"last_activity_ts"`
+	CreatedAt      time.Time   `json:"created_at"`
+	UpdatedAt      time.Time   `json:"updated_at"`
+}
+
+func (q *Queries) SetConversationPurpose(ctx context.Context, arg SetConversationPurposeParams) (SetConversationPurposeRow, error) {
 	row := q.db.QueryRow(ctx, setConversationPurpose, arg.ID, arg.PurposeValue, arg.PurposeCreator)
-	var i Conversation
+	var i SetConversationPurposeRow
 	err := row.Scan(
 		&i.ID,
-		&i.TeamID,
+		&i.WorkspaceID,
 		&i.Name,
 		&i.Type,
 		&i.CreatorID,
@@ -342,6 +556,8 @@ func (q *Queries) SetConversationPurpose(ctx context.Context, arg SetConversatio
 		&i.PurposeCreator,
 		&i.PurposeLastSet,
 		&i.NumMembers,
+		&i.LastMessageTs,
+		&i.LastActivityTs,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -351,10 +567,10 @@ func (q *Queries) SetConversationPurpose(ctx context.Context, arg SetConversatio
 const setConversationTopic = `-- name: SetConversationTopic :one
 UPDATE conversations SET topic_value = $2, topic_creator = $3, topic_last_set = NOW()
 WHERE id = $1
-RETURNING id, team_id, name, type, creator_id, is_archived,
+RETURNING id, workspace_id, name, type, creator_id, is_archived,
           topic_value, topic_creator, topic_last_set,
           purpose_value, purpose_creator, purpose_last_set,
-          num_members, created_at, updated_at
+          num_members, last_message_ts, last_activity_ts, created_at, updated_at
 `
 
 type SetConversationTopicParams struct {
@@ -363,12 +579,32 @@ type SetConversationTopicParams struct {
 	TopicCreator string `json:"topic_creator"`
 }
 
-func (q *Queries) SetConversationTopic(ctx context.Context, arg SetConversationTopicParams) (Conversation, error) {
+type SetConversationTopicRow struct {
+	ID             string      `json:"id"`
+	WorkspaceID    string      `json:"workspace_id"`
+	Name           string      `json:"name"`
+	Type           string      `json:"type"`
+	CreatorID      string      `json:"creator_id"`
+	IsArchived     bool        `json:"is_archived"`
+	TopicValue     string      `json:"topic_value"`
+	TopicCreator   string      `json:"topic_creator"`
+	TopicLastSet   *time.Time  `json:"topic_last_set"`
+	PurposeValue   string      `json:"purpose_value"`
+	PurposeCreator string      `json:"purpose_creator"`
+	PurposeLastSet *time.Time  `json:"purpose_last_set"`
+	NumMembers     int32       `json:"num_members"`
+	LastMessageTs  pgtype.Text `json:"last_message_ts"`
+	LastActivityTs pgtype.Text `json:"last_activity_ts"`
+	CreatedAt      time.Time   `json:"created_at"`
+	UpdatedAt      time.Time   `json:"updated_at"`
+}
+
+func (q *Queries) SetConversationTopic(ctx context.Context, arg SetConversationTopicParams) (SetConversationTopicRow, error) {
 	row := q.db.QueryRow(ctx, setConversationTopic, arg.ID, arg.TopicValue, arg.TopicCreator)
-	var i Conversation
+	var i SetConversationTopicRow
 	err := row.Scan(
 		&i.ID,
-		&i.TeamID,
+		&i.WorkspaceID,
 		&i.Name,
 		&i.Type,
 		&i.CreatorID,
@@ -380,6 +616,8 @@ func (q *Queries) SetConversationTopic(ctx context.Context, arg SetConversationT
 		&i.PurposeCreator,
 		&i.PurposeLastSet,
 		&i.NumMembers,
+		&i.LastMessageTs,
+		&i.LastActivityTs,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -398,10 +636,10 @@ func (q *Queries) UnarchiveConversation(ctx context.Context, id string) error {
 const updateConversation = `-- name: UpdateConversation :one
 UPDATE conversations SET name = $2, is_archived = $3
 WHERE id = $1
-RETURNING id, team_id, name, type, creator_id, is_archived,
+RETURNING id, workspace_id, name, type, creator_id, is_archived,
           topic_value, topic_creator, topic_last_set,
           purpose_value, purpose_creator, purpose_last_set,
-          num_members, created_at, updated_at
+          num_members, last_message_ts, last_activity_ts, created_at, updated_at
 `
 
 type UpdateConversationParams struct {
@@ -410,12 +648,32 @@ type UpdateConversationParams struct {
 	IsArchived bool   `json:"is_archived"`
 }
 
-func (q *Queries) UpdateConversation(ctx context.Context, arg UpdateConversationParams) (Conversation, error) {
+type UpdateConversationRow struct {
+	ID             string      `json:"id"`
+	WorkspaceID    string      `json:"workspace_id"`
+	Name           string      `json:"name"`
+	Type           string      `json:"type"`
+	CreatorID      string      `json:"creator_id"`
+	IsArchived     bool        `json:"is_archived"`
+	TopicValue     string      `json:"topic_value"`
+	TopicCreator   string      `json:"topic_creator"`
+	TopicLastSet   *time.Time  `json:"topic_last_set"`
+	PurposeValue   string      `json:"purpose_value"`
+	PurposeCreator string      `json:"purpose_creator"`
+	PurposeLastSet *time.Time  `json:"purpose_last_set"`
+	NumMembers     int32       `json:"num_members"`
+	LastMessageTs  pgtype.Text `json:"last_message_ts"`
+	LastActivityTs pgtype.Text `json:"last_activity_ts"`
+	CreatedAt      time.Time   `json:"created_at"`
+	UpdatedAt      time.Time   `json:"updated_at"`
+}
+
+func (q *Queries) UpdateConversation(ctx context.Context, arg UpdateConversationParams) (UpdateConversationRow, error) {
 	row := q.db.QueryRow(ctx, updateConversation, arg.ID, arg.Name, arg.IsArchived)
-	var i Conversation
+	var i UpdateConversationRow
 	err := row.Scan(
 		&i.ID,
-		&i.TeamID,
+		&i.WorkspaceID,
 		&i.Name,
 		&i.Type,
 		&i.CreatorID,
@@ -427,19 +685,52 @@ func (q *Queries) UpdateConversation(ctx context.Context, arg UpdateConversation
 		&i.PurposeCreator,
 		&i.PurposeLastSet,
 		&i.NumMembers,
+		&i.LastMessageTs,
+		&i.LastActivityTs,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
 	return i, err
 }
 
-const updateConversationMemberCount = `-- name: UpdateConversationMemberCount :exec
-UPDATE conversations SET num_members = (
-    SELECT COUNT(*) FROM conversation_members WHERE conversation_id = $1
-) WHERE id = $1
+const updateConversationLastActivity = `-- name: UpdateConversationLastActivity :exec
+UPDATE conversations
+SET last_activity_ts = CASE
+        WHEN last_activity_ts IS NULL OR last_activity_ts < $1 THEN $1
+        ELSE last_activity_ts
+    END
+WHERE id = $2
 `
 
-func (q *Queries) UpdateConversationMemberCount(ctx context.Context, conversationID string) error {
-	_, err := q.db.Exec(ctx, updateConversationMemberCount, conversationID)
+type UpdateConversationLastActivityParams struct {
+	Ts pgtype.Text `json:"ts"`
+	ID string      `json:"id"`
+}
+
+func (q *Queries) UpdateConversationLastActivity(ctx context.Context, arg UpdateConversationLastActivityParams) error {
+	_, err := q.db.Exec(ctx, updateConversationLastActivity, arg.Ts, arg.ID)
+	return err
+}
+
+const updateConversationLastMessageAndActivity = `-- name: UpdateConversationLastMessageAndActivity :exec
+UPDATE conversations
+SET last_message_ts = CASE
+        WHEN last_message_ts IS NULL OR last_message_ts < $1 THEN $1
+        ELSE last_message_ts
+    END,
+    last_activity_ts = CASE
+        WHEN last_activity_ts IS NULL OR last_activity_ts < $1 THEN $1
+        ELSE last_activity_ts
+    END
+WHERE id = $2
+`
+
+type UpdateConversationLastMessageAndActivityParams struct {
+	Ts pgtype.Text `json:"ts"`
+	ID string      `json:"id"`
+}
+
+func (q *Queries) UpdateConversationLastMessageAndActivity(ctx context.Context, arg UpdateConversationLastMessageAndActivityParams) error {
+	_, err := q.db.Exec(ctx, updateConversationLastMessageAndActivity, arg.Ts, arg.ID)
 	return err
 }

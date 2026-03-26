@@ -6,6 +6,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"runtime/debug"
 	"strings"
 
 	"github.com/suhjohn/teraslack/internal/domain"
@@ -86,6 +87,7 @@ func WriteErrorResponse(w http.ResponseWriter, r *http.Request, status int, code
 	if message == "" {
 		message = "An unexpected error occurred."
 	}
+	Log5xxResponse(r, status, code, message)
 
 	resp := APIError{
 		Code:      code,
@@ -168,10 +170,29 @@ func WriteError(w http.ResponseWriter, r *http.Request, err error) {
 		message = "The token has been revoked."
 	}
 
-	if status == http.StatusInternalServerError {
-		slog.Error("internal error", "error", err.Error(), "request_id", GetRequestID(r.Context()))
-	}
 	WriteErrorResponse(w, r, status, code, message)
+}
+
+// Log5xxResponse logs app-generated 5xx responses with a stacktrace.
+func Log5xxResponse(r *http.Request, status int, code, message string, attrs ...any) {
+	if r == nil || status < 500 {
+		return
+	}
+
+	baseAttrs := []any{
+		"status", status,
+		"code", code,
+		"message", message,
+		"request_id", GetRequestID(r.Context()),
+		"method", r.Method,
+		"path", r.URL.Path,
+		"stack", Stacktrace(),
+	}
+	slog.Error("http 5xx response", append(baseAttrs, attrs...)...)
+}
+
+func Stacktrace() string {
+	return string(debug.Stack())
 }
 
 // DecodeJSON decodes a JSON request body into the given value.

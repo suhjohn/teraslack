@@ -90,22 +90,23 @@ Validation failures may include field-level details:
 
 ## Canonical Routes
 
-### Teams
+### Workspaces
 
-- `GET /teams`
-- `POST /teams`
-- `GET /teams/{id}`
-- `PATCH /teams/{id}`
-- `GET /teams/{id}/admins`
-- `GET /teams/{id}/owners`
-- `GET /teams/{id}/access-logs`
-- `GET /teams/{id}/billable-info`
-- `GET /teams/{id}/billing`
-- `GET /teams/{id}/external-teams`
-- `DELETE /teams/{id}/external-teams/{external_team_id}`
-- `GET /teams/{id}/integration-logs`
-- `GET /teams/{id}/preferences`
-- `GET /teams/{id}/profile-fields`
+- `GET /workspaces`
+- `GET /workspaces` is session-scoped and returns only the authenticated workspace for human sessions.
+- `POST /workspaces`
+- `GET /workspaces/{id}`
+- `PATCH /workspaces/{id}`
+- `GET /workspaces/{id}/admins`
+- `GET /workspaces/{id}/owners`
+- `GET /workspaces/{id}/access-logs`
+- `GET /workspaces/{id}/billable-info`
+- `GET /workspaces/{id}/billing`
+- `GET /workspaces/{id}/external-workspaces`
+- `DELETE /workspaces/{id}/external-workspaces/{external_workspace_id}`
+- `GET /workspaces/{id}/integration-logs`
+- `GET /workspaces/{id}/preferences`
+- `GET /workspaces/{id}/profile-fields`
 
 ### Users
 

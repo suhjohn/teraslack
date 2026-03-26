@@ -29,8 +29,8 @@ func (h *ConversationHandler) Create(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteError(w, r, domain.ErrInvalidArgument)
 		return
 	}
-	if teamID := ctxutil.GetTeamID(r.Context()); teamID != "" {
-		params.TeamID = teamID
+	if workspaceID := ctxutil.GetWorkspaceID(r.Context()); workspaceID != "" {
+		params.WorkspaceID = workspaceID
 	}
 
 	conv, err := h.svc.Create(r.Context(), params)
@@ -136,14 +136,14 @@ func (h *ConversationHandler) List(w http.ResponseWriter, r *http.Request) {
 	excludeArchived, _ := strconv.ParseBool(q.Get("exclude_archived"))
 
 	params := domain.ListConversationsParams{
-		TeamID:          q.Get("team_id"),
+		WorkspaceID:          q.Get("workspace_id"),
 		Types:           types,
 		ExcludeArchived: excludeArchived,
 		Cursor:          q.Get("cursor"),
 		Limit:           limit,
 	}
-	if teamID := ctxutil.GetTeamID(r.Context()); teamID != "" {
-		params.TeamID = teamID
+	if workspaceID := ctxutil.GetWorkspaceID(r.Context()); workspaceID != "" {
+		params.WorkspaceID = workspaceID
 	}
 
 	page, err := h.svc.List(r.Context(), params)

@@ -7,7 +7,7 @@ import (
 
 type AuthorizationAuditLog struct {
 	ID         string          `json:"id"`
-	TeamID     string          `json:"team_id"`
+	WorkspaceID     string          `json:"workspace_id"`
 	ActorID    string          `json:"actor_id,omitempty"`
 	APIKeyID   string          `json:"api_key_id,omitempty"`
 	OnBehalfOf string          `json:"on_behalf_of,omitempty"`
@@ -19,7 +19,7 @@ type AuthorizationAuditLog struct {
 }
 
 type CreateAuthorizationAuditLogParams struct {
-	TeamID     string
+	WorkspaceID     string
 	ActorID    string
 	APIKeyID   string
 	OnBehalfOf string
@@ -30,7 +30,7 @@ type CreateAuthorizationAuditLogParams struct {
 }
 
 type ListAuthorizationAuditLogsParams struct {
-	TeamID string
+	WorkspaceID string
 	Limit  int
 }
 

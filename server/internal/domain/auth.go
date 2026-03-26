@@ -10,14 +10,14 @@ const (
 )
 
 type AuthSession struct {
-	ID        string       `json:"id"`
-	TeamID    string       `json:"team_id"`
-	UserID    string       `json:"user_id"`
-	Provider  AuthProvider `json:"provider"`
-	Token     string       `json:"token,omitempty"`
-	ExpiresAt time.Time    `json:"expires_at"`
-	RevokedAt *time.Time   `json:"revoked_at,omitempty"`
-	CreatedAt time.Time    `json:"created_at"`
+	ID          string       `json:"id"`
+	WorkspaceID string       `json:"workspace_id"`
+	UserID      string       `json:"user_id"`
+	Provider    AuthProvider `json:"provider"`
+	Token       string       `json:"token,omitempty"`
+	ExpiresAt   time.Time    `json:"expires_at"`
+	RevokedAt   *time.Time   `json:"revoked_at,omitempty"`
+	CreatedAt   time.Time    `json:"created_at"`
 }
 
 func (s *AuthSession) Redacted() *AuthSession {
@@ -27,16 +27,18 @@ func (s *AuthSession) Redacted() *AuthSession {
 }
 
 type AuthContext struct {
-	TeamID        string        `json:"team_id"`
+	WorkspaceID   string        `json:"workspace_id"`
 	UserID        string        `json:"user_id"`
 	PrincipalType PrincipalType `json:"principal_type"`
 	AccountType   AccountType   `json:"account_type,omitempty"`
 	IsBot         bool          `json:"is_bot"`
+	Permissions   []string      `json:"permissions,omitempty"`
+	Scopes        []string      `json:"scopes,omitempty"`
 }
 
 type StartOAuthParams struct {
 	Provider    AuthProvider `json:"provider"`
-	TeamID      string       `json:"team_id"`
+	WorkspaceID string       `json:"workspace_id"`
 	InviteToken string       `json:"invite_token"`
 	RedirectTo  string       `json:"redirect_to"`
 }
@@ -60,7 +62,7 @@ type CompleteOAuthResult struct {
 
 type OAuthAccount struct {
 	ID              string       `json:"id"`
-	TeamID          string       `json:"team_id"`
+	WorkspaceID     string       `json:"workspace_id"`
 	UserID          string       `json:"user_id"`
 	Provider        AuthProvider `json:"provider"`
 	ProviderSubject string       `json:"provider_subject"`
@@ -70,14 +72,14 @@ type OAuthAccount struct {
 }
 
 type CreateAuthSessionParams struct {
-	TeamID    string
-	UserID    string
-	Provider  AuthProvider
-	ExpiresAt time.Time
+	WorkspaceID string
+	UserID      string
+	Provider    AuthProvider
+	ExpiresAt   time.Time
 }
 
 type UpsertOAuthAccountParams struct {
-	TeamID          string
+	WorkspaceID     string
 	UserID          string
 	Provider        AuthProvider
 	ProviderSubject string

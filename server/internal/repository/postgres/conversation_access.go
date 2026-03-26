@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/suhjohn/teraslack/internal/domain"
 	"github.com/suhjohn/teraslack/internal/repository"
+	"github.com/suhjohn/teraslack/internal/repository/sqlcgen"
 )
 
 type conversationPostingPolicyDocument struct {
@@ -19,39 +20,32 @@ type conversationPostingPolicyDocument struct {
 }
 
 type ConversationAccessRepo struct {
+	q  *sqlcgen.Queries
 	db DBTX
 }
 
 func NewConversationAccessRepo(db DBTX) *ConversationAccessRepo {
-	return &ConversationAccessRepo{db: db}
+	return &ConversationAccessRepo{q: sqlcgen.New(db), db: db}
 }
 
 func (r *ConversationAccessRepo) WithTx(tx pgx.Tx) repository.ConversationAccessRepository {
-	return &ConversationAccessRepo{db: tx}
+	return &ConversationAccessRepo{q: sqlcgen.New(tx), db: tx}
 }
 
 func (r *ConversationAccessRepo) ListManagers(ctx context.Context, conversationID string) ([]domain.ConversationManagerAssignment, error) {
-	rows, err := r.db.Query(ctx, `
-		SELECT conversation_id, user_id, assigned_by, created_at
-		FROM conversation_manager_assignments
-		WHERE conversation_id = $1
-		ORDER BY user_id ASC
-	`, conversationID)
+	rows, err := r.q.ListConversationManagers(ctx, conversationID)
 	if err != nil {
 		return nil, fmt.Errorf("list conversation managers: %w", err)
 	}
-	defer rows.Close()
 
 	assignments := []domain.ConversationManagerAssignment{}
-	for rows.Next() {
-		var assignment domain.ConversationManagerAssignment
-		if err := rows.Scan(&assignment.ConversationID, &assignment.UserID, &assignment.AssignedBy, &assignment.CreatedAt); err != nil {
-			return nil, fmt.Errorf("scan conversation manager: %w", err)
-		}
-		assignments = append(assignments, assignment)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate conversation managers: %w", err)
+	for _, row := range rows {
+		assignments = append(assignments, domain.ConversationManagerAssignment{
+			ConversationID: row.ConversationID,
+			UserID:         row.UserID,
+			AssignedBy:     row.AssignedBy,
+			CreatedAt:      tsToTime(row.CreatedAt),
+		})
 	}
 	return assignments, nil
 }
@@ -65,14 +59,17 @@ func (r *ConversationAccessRepo) ReplaceManagers(ctx context.Context, conversati
 		defer tx.Rollback(ctx)
 	}
 
-	if _, err := tx.Exec(ctx, `DELETE FROM conversation_manager_assignments WHERE conversation_id = $1`, conversationID); err != nil {
+	qtx := r.q.WithTx(tx)
+
+	if err := qtx.DeleteConversationManagers(ctx, conversationID); err != nil {
 		return fmt.Errorf("delete existing conversation managers: %w", err)
 	}
 	for _, userID := range userIDs {
-		if _, err := tx.Exec(ctx, `
-			INSERT INTO conversation_manager_assignments (conversation_id, user_id, assigned_by)
-			VALUES ($1, $2, $3)
-		`, conversationID, userID, assignedBy); err != nil {
+		if err := qtx.InsertConversationManager(ctx, sqlcgen.InsertConversationManagerParams{
+			ConversationID: conversationID,
+			UserID:         userID,
+			AssignedBy:     assignedBy,
+		}); err != nil {
 			return fmt.Errorf("insert conversation manager: %w", err)
 		}
 	}
@@ -86,14 +83,11 @@ func (r *ConversationAccessRepo) ReplaceManagers(ctx context.Context, conversati
 }
 
 func (r *ConversationAccessRepo) IsManager(ctx context.Context, conversationID, userID string) (bool, error) {
-	var exists bool
-	if err := r.db.QueryRow(ctx, `
-		SELECT EXISTS(
-			SELECT 1
-			FROM conversation_manager_assignments
-			WHERE conversation_id = $1 AND user_id = $2
-		)
-	`, conversationID, userID).Scan(&exists); err != nil {
+	exists, err := r.q.IsConversationManager(ctx, sqlcgen.IsConversationManagerParams{
+		ConversationID: conversationID,
+		UserID:         userID,
+	})
+	if err != nil {
 		return false, fmt.Errorf("check conversation manager: %w", err)
 	}
 	return exists, nil
@@ -106,17 +100,18 @@ func (r *ConversationAccessRepo) GetPostingPolicy(ctx context.Context, conversat
 		updatedBy  string
 		updatedAt  time.Time
 	)
-	err := r.db.QueryRow(ctx, `
-		SELECT conversation_id, policy_type, policy_json, updated_by, updated_at
-		FROM conversation_posting_policies
-		WHERE conversation_id = $1
-	`, conversationID).Scan(&conversationID, &policyType, &policyJSON, &updatedBy, &updatedAt)
+	row, err := r.q.GetConversationPostingPolicy(ctx, conversationID)
 	if err != nil {
 		if err == pgx.ErrNoRows {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("get conversation posting policy: %w", err)
 	}
+	conversationID = row.ConversationID
+	policyType = row.PolicyType
+	policyJSON = row.PolicyJson
+	updatedBy = row.UpdatedBy
+	updatedAt = tsToTime(row.UpdatedAt)
 
 	var doc conversationPostingPolicyDocument
 	if len(policyJSON) > 0 {
@@ -148,21 +143,16 @@ func (r *ConversationAccessRepo) UpsertPostingPolicy(ctx context.Context, policy
 		return nil, fmt.Errorf("encode conversation posting policy: %w", err)
 	}
 
-	var updatedAt time.Time
-	if err := r.db.QueryRow(ctx, `
-		INSERT INTO conversation_posting_policies (conversation_id, policy_type, policy_json, updated_by)
-		VALUES ($1, $2, $3, $4)
-		ON CONFLICT (conversation_id)
-		DO UPDATE SET
-			policy_type = EXCLUDED.policy_type,
-			policy_json = EXCLUDED.policy_json,
-			updated_by = EXCLUDED.updated_by,
-			updated_at = now()
-		RETURNING updated_at
-	`, policy.ConversationID, string(policy.PolicyType), policyJSON, policy.UpdatedBy).Scan(&updatedAt); err != nil {
+	updatedAt, err := r.q.UpsertConversationPostingPolicy(ctx, sqlcgen.UpsertConversationPostingPolicyParams{
+		ConversationID: policy.ConversationID,
+		PolicyType:     string(policy.PolicyType),
+		PolicyJson:     policyJSON,
+		UpdatedBy:      policy.UpdatedBy,
+	})
+	if err != nil {
 		return nil, fmt.Errorf("upsert conversation posting policy: %w", err)
 	}
 
-	policy.UpdatedAt = updatedAt
+	policy.UpdatedAt = tsToTime(updatedAt)
 	return &policy, nil
 }

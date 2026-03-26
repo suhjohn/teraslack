@@ -27,8 +27,8 @@ func (h *EventHandler) CreateSubscription(w http.ResponseWriter, r *http.Request
 		httputil.WriteError(w, r, domain.ErrInvalidArgument)
 		return
 	}
-	if teamID := ctxutil.GetTeamID(r.Context()); teamID != "" {
-		params.TeamID = teamID
+	if workspaceID := ctxutil.GetWorkspaceID(r.Context()); workspaceID != "" {
+		params.WorkspaceID = workspaceID
 	}
 
 	sub, err := h.svc.CreateSubscription(r.Context(), params)
@@ -100,13 +100,13 @@ func (h *EventHandler) DeleteSubscription(w http.ResponseWriter, r *http.Request
 
 // ListSubscriptions handles GET /event-subscriptions.
 func (h *EventHandler) ListSubscriptions(w http.ResponseWriter, r *http.Request) {
-	teamID := r.URL.Query().Get("team_id")
-	if ctxTeam := ctxutil.GetTeamID(r.Context()); ctxTeam != "" {
-		teamID = ctxTeam
+	workspaceID := r.URL.Query().Get("workspace_id")
+	if ctxWorkspace := ctxutil.GetWorkspaceID(r.Context()); ctxWorkspace != "" {
+		workspaceID = ctxWorkspace
 	}
 
 	subs, err := h.svc.ListSubscriptions(r.Context(), domain.ListEventSubscriptionsParams{
-		TeamID: teamID,
+		WorkspaceID: workspaceID,
 	})
 	if err != nil {
 		httputil.WriteError(w, r, err)
@@ -128,7 +128,7 @@ func eventSubscriptionResponseFromDomain(sub *domain.EventSubscription) EventSub
 	}
 	return EventSubscriptionResponse{
 		ID:           sub.ID,
-		TeamID:       sub.TeamID,
+		WorkspaceID:       sub.WorkspaceID,
 		URL:          sub.URL,
 		Type:         sub.Type,
 		ResourceType: sub.ResourceType,

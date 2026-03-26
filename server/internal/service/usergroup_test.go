@@ -27,7 +27,7 @@ func newMockUsergroupRepo() *mockUsergroupRepo {
 func (m *mockUsergroupRepo) Create(_ context.Context, params domain.CreateUsergroupParams) (*domain.Usergroup, error) {
 	ug := &domain.Usergroup{
 		ID:          "S123",
-		TeamID:      params.TeamID,
+		WorkspaceID: params.WorkspaceID,
 		Name:        params.Name,
 		Handle:      params.Handle,
 		Description: params.Description,
@@ -67,7 +67,7 @@ func (m *mockUsergroupRepo) Update(_ context.Context, id string, params domain.U
 func (m *mockUsergroupRepo) List(_ context.Context, params domain.ListUsergroupsParams) ([]domain.Usergroup, error) {
 	var result []domain.Usergroup
 	for _, ug := range m.groups {
-		if ug.TeamID == params.TeamID {
+		if ug.WorkspaceID == params.WorkspaceID {
 			if !params.IncludeDisabled && !ug.Enabled {
 				continue
 			}
@@ -185,15 +185,15 @@ func TestUsergroupService_Create(t *testing.T) {
 		{
 			name: "valid create",
 			params: domain.CreateUsergroupParams{
-				TeamID:    "T123",
-				Name:      "Engineering",
-				Handle:    "engineering",
-				CreatedBy: "U123",
+				WorkspaceID: "T123",
+				Name:        "Engineering",
+				Handle:      "engineering",
+				CreatedBy:   "U123",
 			},
 			wantErr: false,
 		},
 		{
-			name: "missing team_id",
+			name: "missing workspace_id",
 			params: domain.CreateUsergroupParams{
 				Name:      "Engineering",
 				Handle:    "engineering",
@@ -204,27 +204,27 @@ func TestUsergroupService_Create(t *testing.T) {
 		{
 			name: "missing name",
 			params: domain.CreateUsergroupParams{
-				TeamID:    "T123",
-				Handle:    "engineering",
-				CreatedBy: "U123",
+				WorkspaceID: "T123",
+				Handle:      "engineering",
+				CreatedBy:   "U123",
 			},
 			wantErr: true,
 		},
 		{
 			name: "missing handle",
 			params: domain.CreateUsergroupParams{
-				TeamID:    "T123",
-				Name:      "Engineering",
-				CreatedBy: "U123",
+				WorkspaceID: "T123",
+				Name:        "Engineering",
+				CreatedBy:   "U123",
 			},
 			wantErr: true,
 		},
 		{
 			name: "missing created_by",
 			params: domain.CreateUsergroupParams{
-				TeamID: "T123",
-				Name:   "Engineering",
-				Handle: "engineering",
+				WorkspaceID: "T123",
+				Name:        "Engineering",
+				Handle:      "engineering",
 			},
 			wantErr: true,
 		},
@@ -258,10 +258,10 @@ func TestUsergroupService_SetUsers(t *testing.T) {
 
 	// Create a group first
 	ug, err := svc.Create(context.Background(), domain.CreateUsergroupParams{
-		TeamID:    "T123",
-		Name:      "Team",
-		Handle:    "team",
-		CreatedBy: "U123",
+		WorkspaceID: "T123",
+		Name:        "Workspace",
+		Handle:      "workspace",
+		CreatedBy:   "U123",
 	})
 	if err != nil {
 		t.Fatalf("create: %v", err)
@@ -294,10 +294,10 @@ func TestUsergroupService_EnableDisable(t *testing.T) {
 	svc := NewUsergroupService(repo, &mockUserRepoForUG{}, nil, mockTxBeginner{}, nil)
 
 	ug, err := svc.Create(context.Background(), domain.CreateUsergroupParams{
-		TeamID:    "T123",
-		Name:      "Team",
-		Handle:    "team",
-		CreatedBy: "U123",
+		WorkspaceID: "T123",
+		Name:        "Workspace",
+		Handle:      "workspace",
+		CreatedBy:   "U123",
 	})
 	if err != nil {
 		t.Fatalf("create: %v", err)
@@ -322,10 +322,10 @@ func TestUsergroupService_EnableDisable(t *testing.T) {
 
 func TestUsergroupService_TenantAccessDenied(t *testing.T) {
 	repo := newMockUsergroupRepo()
-	repo.groups["S123"] = &domain.Usergroup{ID: "S123", TeamID: "T999", Name: "Secret", Handle: "secret", Enabled: true}
+	repo.groups["S123"] = &domain.Usergroup{ID: "S123", WorkspaceID: "T999", Name: "Secret", Handle: "secret", Enabled: true}
 	svc := NewUsergroupService(repo, &mockUserRepoForUG{}, nil, mockTxBeginner{}, nil)
 
-	ctx := context.WithValue(context.Background(), ctxutil.ContextKeyTeamID, "T123")
+	ctx := context.WithValue(context.Background(), ctxutil.ContextKeyWorkspaceID, "T123")
 	ctx = context.WithValue(ctx, ctxutil.ContextKeyUserID, "U123")
 
 	if _, err := svc.Get(ctx, "S123"); err == nil || !errors.Is(err, domain.ErrForbidden) {
@@ -350,17 +350,17 @@ func TestUsergroupService_TenantAccessDenied(t *testing.T) {
 
 func TestUsergroupService_MutationsRequireWorkspaceAdmin(t *testing.T) {
 	repo := newMockUsergroupRepo()
-	repo.groups["S123"] = &domain.Usergroup{ID: "S123", TeamID: "T123", Name: "Team", Handle: "team", Enabled: true}
+	repo.groups["S123"] = &domain.Usergroup{ID: "S123", WorkspaceID: "T123", Name: "Workspace", Handle: "workspace", Enabled: true}
 	userRepo := &mockUserRepoForUGRoles{
 		users: map[string]*domain.User{
-			"U_MEMBER": {ID: "U_MEMBER", TeamID: "T123", PrincipalType: domain.PrincipalTypeHuman, AccountType: domain.AccountTypeMember},
-			"U_ADMIN":  {ID: "U_ADMIN", TeamID: "T123", PrincipalType: domain.PrincipalTypeHuman, AccountType: domain.AccountTypeAdmin},
+			"U_MEMBER": {ID: "U_MEMBER", WorkspaceID: "T123", PrincipalType: domain.PrincipalTypeHuman, AccountType: domain.AccountTypeMember},
+			"U_ADMIN":  {ID: "U_ADMIN", WorkspaceID: "T123", PrincipalType: domain.PrincipalTypeHuman, AccountType: domain.AccountTypeAdmin},
 		},
 	}
 	svc := NewUsergroupService(repo, userRepo, nil, mockTxBeginner{}, nil)
 
 	memberCtx := ctxutil.WithUser(context.Background(), "U_MEMBER", "T123")
-	if _, err := svc.Create(memberCtx, domain.CreateUsergroupParams{TeamID: "T123", Name: "Eng", Handle: "eng"}); err == nil || !errors.Is(err, domain.ErrForbidden) {
+	if _, err := svc.Create(memberCtx, domain.CreateUsergroupParams{WorkspaceID: "T123", Name: "Eng", Handle: "eng"}); err == nil || !errors.Is(err, domain.ErrForbidden) {
 		t.Fatalf("expected forbidden for member create, got %v", err)
 	}
 

@@ -52,7 +52,7 @@ func (s *BookmarkService) Create(ctx context.Context, params domain.CreateBookma
 	if err != nil {
 		return nil, fmt.Errorf("channel: %w", err)
 	}
-	if err := ensureTeamAccess(ctx, conv.TeamID); err != nil {
+	if err := ensureWorkspaceAccess(ctx, conv.WorkspaceID); err != nil {
 		return nil, err
 	}
 
@@ -71,7 +71,7 @@ func (s *BookmarkService) Create(ctx context.Context, params domain.CreateBookma
 		EventType:     domain.EventBookmarkCreated,
 		AggregateType: domain.AggregateBookmark,
 		AggregateID:   bm.ID,
-		TeamID:        conv.TeamID,
+		WorkspaceID:        conv.WorkspaceID,
 		ActorID:       actorID,
 		Payload:       payload,
 	}); err != nil {
@@ -103,7 +103,7 @@ func (s *BookmarkService) Update(ctx context.Context, id string, params domain.U
 	if err != nil {
 		return nil, fmt.Errorf("channel: %w", err)
 	}
-	if err := ensureTeamAccess(ctx, conv.TeamID); err != nil {
+	if err := ensureWorkspaceAccess(ctx, conv.WorkspaceID); err != nil {
 		return nil, err
 	}
 
@@ -122,7 +122,7 @@ func (s *BookmarkService) Update(ctx context.Context, id string, params domain.U
 		EventType:     domain.EventBookmarkUpdated,
 		AggregateType: domain.AggregateBookmark,
 		AggregateID:   bm.ID,
-		TeamID:        conv.TeamID,
+		WorkspaceID:        conv.WorkspaceID,
 		ActorID:       actorID,
 		Payload:       payload,
 	}); err != nil {
@@ -148,7 +148,7 @@ func (s *BookmarkService) Delete(ctx context.Context, id string) error {
 	if err != nil {
 		return fmt.Errorf("channel: %w", err)
 	}
-	if err := ensureTeamAccess(ctx, conv.TeamID); err != nil {
+	if err := ensureWorkspaceAccess(ctx, conv.WorkspaceID); err != nil {
 		return err
 	}
 
@@ -169,7 +169,7 @@ func (s *BookmarkService) Delete(ctx context.Context, id string) error {
 		EventType:     domain.EventBookmarkDeleted,
 		AggregateType: domain.AggregateBookmark,
 		AggregateID:   id,
-		TeamID:        conv.TeamID,
+		WorkspaceID:        conv.WorkspaceID,
 		ActorID:       ctxutil.GetActingUserID(ctx),
 		Payload:       payload,
 	}); err != nil {
@@ -190,7 +190,7 @@ func (s *BookmarkService) List(ctx context.Context, channelID string) ([]domain.
 	if err != nil {
 		return nil, fmt.Errorf("channel: %w", err)
 	}
-	if err := ensureTeamAccess(ctx, conv.TeamID); err != nil {
+	if err := ensureWorkspaceAccess(ctx, conv.WorkspaceID); err != nil {
 		return nil, err
 	}
 	return s.repo.List(ctx, domain.ListBookmarksParams{ChannelID: channelID})

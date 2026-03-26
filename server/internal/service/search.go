@@ -90,11 +90,11 @@ func (s *SearchService) Search(ctx context.Context, params domain.SearchParams) 
 	if params.Query == "" {
 		return nil, fmt.Errorf("query: %w", domain.ErrInvalidArgument)
 	}
-	teamID, err := resolveTeamID(ctx, params.TeamID)
+	workspaceID, err := resolveWorkspaceID(ctx, params.WorkspaceID)
 	if err != nil {
 		return nil, err
 	}
-	params.TeamID = teamID
+	params.WorkspaceID = workspaceID
 	if external, err := isExternalSharedActor(ctx, s.externalAccess); err != nil {
 		return nil, err
 	} else if external {
@@ -118,7 +118,7 @@ func (s *SearchService) Search(ctx context.Context, params domain.SearchParams) 
 
 	// Build filters
 	filters := map[string]any{
-		"team_id": params.TeamID,
+		"workspace_id": params.WorkspaceID,
 	}
 	if len(params.Types) > 0 {
 		filters["type"] = params.Types
@@ -219,7 +219,7 @@ func normalizeSearchData(data any) (json.RawMessage, error) {
 
 // Index indexes any resource into the Turbopuffer search index.
 // The namespace is derived from the entity ID's first 2 hex chars of the UUID portion.
-func (s *SearchService) Index(ctx context.Context, resourceType, id, teamID, content string, data any) error {
+func (s *SearchService) Index(ctx context.Context, resourceType, id, workspaceID, content string, data any) error {
 	if s.turbopuffer == nil {
 		return nil
 	}
@@ -237,7 +237,7 @@ func (s *SearchService) Index(ctx context.Context, resourceType, id, teamID, con
 
 	metadata := map[string]any{
 		"type":    resourceType,
-		"team_id": teamID,
+		"workspace_id": workspaceID,
 		"data":    data,
 	}
 

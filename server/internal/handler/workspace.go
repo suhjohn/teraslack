@@ -9,7 +9,7 @@ import (
 	"github.com/suhjohn/teraslack/pkg/httputil"
 )
 
-// WorkspaceHandler handles workspace and team HTTP routes.
+// WorkspaceHandler handles workspace and workspace HTTP routes.
 type WorkspaceHandler struct {
 	svc *service.WorkspaceService
 }
@@ -19,57 +19,57 @@ func NewWorkspaceHandler(svc *service.WorkspaceService) *WorkspaceHandler {
 	return &WorkspaceHandler{svc: svc}
 }
 
-// Get handles GET /teams/{id}.
+// Get handles GET /workspaces/{id}.
 func (h *WorkspaceHandler) Get(w http.ResponseWriter, r *http.Request) {
-	team, err := h.svc.TeamInfo(r.Context(), r.PathValue("id"))
+	workspace, err := h.svc.WorkspaceInfo(r.Context(), r.PathValue("id"))
 	if err != nil {
 		httputil.WriteError(w, r, err)
 		return
 	}
-	httputil.WriteResource(w, http.StatusOK, team)
+	httputil.WriteResource(w, http.StatusOK, workspace)
 }
 
-// List handles GET /teams.
+// List handles GET /workspaces.
 func (h *WorkspaceHandler) List(w http.ResponseWriter, r *http.Request) {
-	teams, err := h.svc.AdminList(r.Context())
+	workspaces, err := h.svc.AdminList(r.Context())
 	if err != nil {
 		httputil.WriteError(w, r, err)
 		return
 	}
-	httputil.WriteCollection(w, http.StatusOK, teams, "")
+	httputil.WriteCollection(w, http.StatusOK, workspaces, "")
 }
 
-// Create handles POST /teams.
+// Create handles POST /workspaces.
 func (h *WorkspaceHandler) Create(w http.ResponseWriter, r *http.Request) {
 	var params domain.CreateWorkspaceParams
 	if err := httputil.DecodeJSON(r, &params); err != nil {
 		httputil.WriteError(w, r, domain.ErrInvalidArgument)
 		return
 	}
-	team, err := h.svc.AdminCreate(r.Context(), params)
+	workspace, err := h.svc.AdminCreate(r.Context(), params)
 	if err != nil {
 		httputil.WriteError(w, r, err)
 		return
 	}
-	httputil.WriteCreated(w, "/teams/"+team.ID, team)
+	httputil.WriteCreated(w, "/workspaces/"+workspace.ID, workspace)
 }
 
-// Update handles PATCH /teams/{id}.
+// Update handles PATCH /workspaces/{id}.
 func (h *WorkspaceHandler) Update(w http.ResponseWriter, r *http.Request) {
 	var params domain.UpdateWorkspaceParams
 	if err := httputil.DecodeJSON(r, &params); err != nil {
 		httputil.WriteError(w, r, domain.ErrInvalidArgument)
 		return
 	}
-	team, err := h.svc.Update(r.Context(), r.PathValue("id"), params)
+	workspace, err := h.svc.Update(r.Context(), r.PathValue("id"), params)
 	if err != nil {
 		httputil.WriteError(w, r, err)
 		return
 	}
-	httputil.WriteResource(w, http.StatusOK, team)
+	httputil.WriteResource(w, http.StatusOK, workspace)
 }
 
-// ListAdmins handles GET /teams/{id}/admins.
+// ListAdmins handles GET /workspaces/{id}/admins.
 func (h *WorkspaceHandler) ListAdmins(w http.ResponseWriter, r *http.Request) {
 	admins, err := h.svc.AdminListAdmins(r.Context(), r.PathValue("id"))
 	if err != nil {
@@ -79,7 +79,7 @@ func (h *WorkspaceHandler) ListAdmins(w http.ResponseWriter, r *http.Request) {
 	httputil.WriteCollection(w, http.StatusOK, admins, "")
 }
 
-// ListOwners handles GET /teams/{id}/owners.
+// ListOwners handles GET /workspaces/{id}/owners.
 func (h *WorkspaceHandler) ListOwners(w http.ResponseWriter, r *http.Request) {
 	owners, err := h.svc.AdminListOwners(r.Context(), r.PathValue("id"))
 	if err != nil {
@@ -89,10 +89,10 @@ func (h *WorkspaceHandler) ListOwners(w http.ResponseWriter, r *http.Request) {
 	httputil.WriteCollection(w, http.StatusOK, owners, "")
 }
 
-// AccessLogs handles GET /teams/{id}/access-logs.
+// AccessLogs handles GET /workspaces/{id}/access-logs.
 func (h *WorkspaceHandler) AccessLogs(w http.ResponseWriter, r *http.Request) {
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
-	logs, err := h.svc.TeamAccessLogs(r.Context(), r.PathValue("id"), limit)
+	logs, err := h.svc.WorkspaceAccessLogs(r.Context(), r.PathValue("id"), limit)
 	if err != nil {
 		httputil.WriteError(w, r, err)
 		return
@@ -100,9 +100,9 @@ func (h *WorkspaceHandler) AccessLogs(w http.ResponseWriter, r *http.Request) {
 	httputil.WriteCollection(w, http.StatusOK, logs, "")
 }
 
-// BillableInfo handles GET /teams/{id}/billable-info.
+// BillableInfo handles GET /workspaces/{id}/billable-info.
 func (h *WorkspaceHandler) BillableInfo(w http.ResponseWriter, r *http.Request) {
-	info, err := h.svc.TeamBillableInfo(r.Context(), r.PathValue("id"))
+	info, err := h.svc.WorkspaceBillableInfo(r.Context(), r.PathValue("id"))
 	if err != nil {
 		httputil.WriteError(w, r, err)
 		return
@@ -110,9 +110,9 @@ func (h *WorkspaceHandler) BillableInfo(w http.ResponseWriter, r *http.Request) 
 	httputil.WriteResource(w, http.StatusOK, info)
 }
 
-// Billing handles GET /teams/{id}/billing.
+// Billing handles GET /workspaces/{id}/billing.
 func (h *WorkspaceHandler) Billing(w http.ResponseWriter, r *http.Request) {
-	billing, err := h.svc.TeamBillingInfo(r.Context(), r.PathValue("id"))
+	billing, err := h.svc.WorkspaceBillingInfo(r.Context(), r.PathValue("id"))
 	if err != nil {
 		httputil.WriteError(w, r, err)
 		return
@@ -120,29 +120,29 @@ func (h *WorkspaceHandler) Billing(w http.ResponseWriter, r *http.Request) {
 	httputil.WriteResource(w, http.StatusOK, billing)
 }
 
-// ListExternalTeams handles GET /teams/{id}/external-teams.
-func (h *WorkspaceHandler) ListExternalTeams(w http.ResponseWriter, r *http.Request) {
-	teams, err := h.svc.TeamExternalTeams(r.Context(), r.PathValue("id"))
+// ListExternalWorkspaces handles GET /workspaces/{id}/external-workspaces.
+func (h *WorkspaceHandler) ListExternalWorkspaces(w http.ResponseWriter, r *http.Request) {
+	workspaces, err := h.svc.TeamExternalWorkspaces(r.Context(), r.PathValue("id"))
 	if err != nil {
 		httputil.WriteError(w, r, err)
 		return
 	}
-	httputil.WriteCollection(w, http.StatusOK, teams, "")
+	httputil.WriteCollection(w, http.StatusOK, workspaces, "")
 }
 
-// DisconnectExternalTeam handles DELETE /teams/{id}/external-teams/{external_team_id}.
-func (h *WorkspaceHandler) DisconnectExternalTeam(w http.ResponseWriter, r *http.Request) {
-	if err := h.svc.DisconnectExternalTeam(r.Context(), r.PathValue("id"), r.PathValue("external_team_id")); err != nil {
+// DisconnectExternalWorkspace handles DELETE /workspaces/{id}/external-workspaces/{external_workspace_id}.
+func (h *WorkspaceHandler) DisconnectExternalWorkspace(w http.ResponseWriter, r *http.Request) {
+	if err := h.svc.DisconnectExternalWorkspace(r.Context(), r.PathValue("id"), r.PathValue("external_workspace_id")); err != nil {
 		httputil.WriteError(w, r, err)
 		return
 	}
 	httputil.WriteNoContent(w)
 }
 
-// IntegrationLogs handles GET /teams/{id}/integration-logs.
+// IntegrationLogs handles GET /workspaces/{id}/integration-logs.
 func (h *WorkspaceHandler) IntegrationLogs(w http.ResponseWriter, r *http.Request) {
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
-	logs, err := h.svc.TeamIntegrationLogs(r.Context(), r.PathValue("id"), limit)
+	logs, err := h.svc.WorkspaceIntegrationLogs(r.Context(), r.PathValue("id"), limit)
 	if err != nil {
 		httputil.WriteError(w, r, err)
 		return
@@ -152,7 +152,7 @@ func (h *WorkspaceHandler) IntegrationLogs(w http.ResponseWriter, r *http.Reques
 
 func (h *WorkspaceHandler) AuthorizationAuditLogs(w http.ResponseWriter, r *http.Request) {
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
-	logs, err := h.svc.TeamAuthorizationAuditLogs(r.Context(), r.PathValue("id"), limit)
+	logs, err := h.svc.WorkspaceAuthorizationAuditLogs(r.Context(), r.PathValue("id"), limit)
 	if err != nil {
 		httputil.WriteError(w, r, err)
 		return
@@ -176,9 +176,9 @@ func (h *WorkspaceHandler) TransferPrimaryAdmin(w http.ResponseWriter, r *http.R
 	httputil.WriteResource(w, http.StatusOK, user)
 }
 
-// Preferences handles GET /teams/{id}/preferences.
+// Preferences handles GET /workspaces/{id}/preferences.
 func (h *WorkspaceHandler) Preferences(w http.ResponseWriter, r *http.Request) {
-	prefs, err := h.svc.TeamPreferences(r.Context(), r.PathValue("id"))
+	prefs, err := h.svc.WorkspacePreferences(r.Context(), r.PathValue("id"))
 	if err != nil {
 		httputil.WriteError(w, r, err)
 		return
@@ -186,9 +186,9 @@ func (h *WorkspaceHandler) Preferences(w http.ResponseWriter, r *http.Request) {
 	httputil.WriteResource(w, http.StatusOK, prefs)
 }
 
-// ProfileFields handles GET /teams/{id}/profile-fields.
+// ProfileFields handles GET /workspaces/{id}/profile-fields.
 func (h *WorkspaceHandler) ProfileFields(w http.ResponseWriter, r *http.Request) {
-	fields, err := h.svc.TeamProfile(r.Context(), r.PathValue("id"))
+	fields, err := h.svc.WorkspaceProfile(r.Context(), r.PathValue("id"))
 	if err != nil {
 		httputil.WriteError(w, r, err)
 		return

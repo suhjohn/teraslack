@@ -43,7 +43,7 @@ func TestExternalEventService_ListRejectsCursorPrincipalMismatch(t *testing.T) {
 
 	cursor, err := encodeExternalEventCursor(externalEventCursor{
 		AfterID:      41,
-		TeamID:       "T123",
+		WorkspaceID:       "T123",
 		UserID:       "U123",
 		Type:         domain.EventTypeConversationMessageCreated,
 		ResourceType: domain.ResourceTypeConversation,
@@ -67,7 +67,7 @@ func TestExternalEventService_ListRejectsCursorPrincipalMismatch(t *testing.T) {
 func TestProjectExternalEvents_SubscriptionPayloadRedactsSecrets(t *testing.T) {
 	raw, err := json.Marshal(domain.EventSubscription{
 		ID:              "ES123",
-		TeamID:          "T123",
+		WorkspaceID:          "T123",
 		URL:             "https://example.com/webhook",
 		Type:            domain.EventTypeConversationMessageCreated,
 		ResourceType:    domain.ResourceTypeConversation,
@@ -85,7 +85,7 @@ func TestProjectExternalEvents_SubscriptionPayloadRedactsSecrets(t *testing.T) {
 		EventType:     domain.EventSubscriptionCreated,
 		AggregateType: domain.AggregateSubscription,
 		AggregateID:   "ES123",
-		TeamID:        "T123",
+		WorkspaceID:        "T123",
 		Payload:       raw,
 		CreatedAt:     time.Now().UTC(),
 	})
@@ -98,7 +98,7 @@ func TestProjectExternalEvents_SubscriptionPayloadRedactsSecrets(t *testing.T) {
 	if events[0].Type != domain.EventTypeEventSubscriptionCreated {
 		t.Fatalf("unexpected external event type %q", events[0].Type)
 	}
-	if events[0].ResourceType != domain.ResourceTypeTeam || events[0].ResourceID != "T123" {
+	if events[0].ResourceType != domain.ResourceTypeWorkspace || events[0].ResourceID != "T123" {
 		t.Fatalf("unexpected canonical resource %s/%s", events[0].ResourceType, events[0].ResourceID)
 	}
 
@@ -133,7 +133,7 @@ func TestProjectExternalEvents_MessageDeleteUsesTombstonePayload(t *testing.T) {
 		EventType:     domain.EventMessageDeleted,
 		AggregateType: domain.AggregateMessage,
 		AggregateID:   "1712345678.000001",
-		TeamID:        "T123",
+		WorkspaceID:        "T123",
 		Payload:       raw,
 		CreatedAt:     time.Now().UTC(),
 	})
@@ -171,7 +171,7 @@ func TestExternalEventService_ListReturnsResumeCursorOnTerminalPage(t *testing.T
 		page: &domain.CursorPage[domain.ExternalEvent]{
 			Items: []domain.ExternalEvent{{
 				ID:           41,
-				TeamID:       "T123",
+				WorkspaceID:       "T123",
 				Type:         domain.EventTypeConversationMessageCreated,
 				ResourceType: domain.ResourceTypeConversation,
 				ResourceID:   "C123",
@@ -196,7 +196,7 @@ func TestExternalEventService_ListReturnsResumeCursorOnTerminalPage(t *testing.T
 	if err != nil {
 		t.Fatalf("decode next cursor: %v", err)
 	}
-	if decoded.AfterID != 41 || decoded.TeamID != "T123" || decoded.UserID != "U123" {
+	if decoded.AfterID != 41 || decoded.WorkspaceID != "T123" || decoded.UserID != "U123" {
 		t.Fatalf("unexpected cursor state: %+v", decoded)
 	}
 }

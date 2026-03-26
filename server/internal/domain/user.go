@@ -40,7 +40,7 @@ func IsValidDelegatedRole(role DelegatedRole) bool {
 // User represents a workspace principal (human, agent, or system).
 type User struct {
 	ID            string        `json:"id"`
-	TeamID        string        `json:"team_id"`
+	WorkspaceID        string        `json:"workspace_id"`
 	Name          string        `json:"name"`
 	RealName      string        `json:"real_name"`
 	DisplayName   string        `json:"display_name"`
@@ -78,7 +78,7 @@ type CustomField struct {
 
 // CreateUserParams holds the parameters for creating a new user.
 type CreateUserParams struct {
-	TeamID        string        `json:"team_id"`
+	WorkspaceID        string        `json:"workspace_id"`
 	Name          string        `json:"name"`
 	RealName      string        `json:"real_name"`
 	DisplayName   string        `json:"display_name"`
@@ -102,7 +102,7 @@ type UpdateUserParams struct {
 
 // ListUsersParams holds pagination and filter options.
 type ListUsersParams struct {
-	TeamID string `json:"team_id"`
+	WorkspaceID string `json:"workspace_id"`
 	Cursor string `json:"cursor"`
 	Limit  int    `json:"limit"`
 }

@@ -54,20 +54,20 @@ func (s *ExternalPrincipalAccessService) Create(ctx context.Context, params doma
 	if err != nil {
 		return nil, err
 	}
-	teamID, err := resolveTeamID(ctx, params.HostTeamID)
+	workspaceID, err := resolveWorkspaceID(ctx, params.HostWorkspaceID)
 	if err != nil {
 		return nil, err
 	}
-	params.HostTeamID = teamID
+	params.HostWorkspaceID = workspaceID
 	params.GrantedBy = actor.ID
-	if params.HomeTeamID == "" {
+	if params.HomeWorkspaceID == "" {
 		principal, err := s.userRepo.Get(ctx, params.PrincipalID)
 		if err != nil {
 			return nil, fmt.Errorf("principal: %w", err)
 		}
-		params.HomeTeamID = principal.TeamID
+		params.HomeWorkspaceID = principal.WorkspaceID
 	}
-	if err := s.validateCreateOrUpdate(ctx, params.HostTeamID, params.HomeTeamID, params.PrincipalID, params.PrincipalType, params.AccessMode, params.AllowedCapabilities, params.ConversationIDs); err != nil {
+	if err := s.validateCreateOrUpdate(ctx, params.HostWorkspaceID, params.HomeWorkspaceID, params.PrincipalID, params.PrincipalType, params.AccessMode, params.AllowedCapabilities, params.ConversationIDs); err != nil {
 		return nil, err
 	}
 
@@ -86,7 +86,7 @@ func (s *ExternalPrincipalAccessService) Create(ctx context.Context, params doma
 		EventType:     domain.EventExternalPrincipalAccessGranted,
 		AggregateType: domain.AggregateUser,
 		AggregateID:   access.PrincipalID,
-		TeamID:        access.HostTeamID,
+		WorkspaceID:        access.HostWorkspaceID,
 		ActorID:       actor.ID,
 		Payload:       payload,
 	}); err != nil {
@@ -95,7 +95,7 @@ func (s *ExternalPrincipalAccessService) Create(ctx context.Context, params doma
 	if err := tx.Commit(ctx); err != nil {
 		return nil, fmt.Errorf("commit tx: %w", err)
 	}
-	if err := recordAuthorizationAudit(ctx, s.auditRepo, nil, access.HostTeamID, domain.AuditActionExternalPrincipalAccessGranted, "external_principal_access", access.ID, access); err != nil {
+	if err := recordAuthorizationAudit(ctx, s.auditRepo, nil, access.HostWorkspaceID, domain.AuditActionExternalPrincipalAccessGranted, "external_principal_access", access.ID, access); err != nil {
 		return nil, fmt.Errorf("record authorization audit log: %w", err)
 	}
 	return access, nil
@@ -111,7 +111,7 @@ func (s *ExternalPrincipalAccessService) Get(ctx context.Context, id string) (*d
 	if err != nil {
 		return nil, err
 	}
-	if err := ensureTeamAccess(ctx, access.HostTeamID); err != nil {
+	if err := ensureWorkspaceAccess(ctx, access.HostWorkspaceID); err != nil {
 		return nil, err
 	}
 	return access, nil
@@ -123,11 +123,11 @@ func (s *ExternalPrincipalAccessService) List(ctx context.Context, params domain
 		return nil, err
 	}
 	_ = actor
-	teamID, err := resolveTeamID(ctx, params.HostTeamID)
+	workspaceID, err := resolveWorkspaceID(ctx, params.HostWorkspaceID)
 	if err != nil {
 		return nil, err
 	}
-	params.HostTeamID = teamID
+	params.HostWorkspaceID = workspaceID
 	return s.repo.List(ctx, params)
 }
 
@@ -140,7 +140,7 @@ func (s *ExternalPrincipalAccessService) Update(ctx context.Context, id string, 
 	if err != nil {
 		return nil, err
 	}
-	if err := ensureTeamAccess(ctx, existing.HostTeamID); err != nil {
+	if err := ensureWorkspaceAccess(ctx, existing.HostWorkspaceID); err != nil {
 		return nil, err
 	}
 
@@ -156,7 +156,7 @@ func (s *ExternalPrincipalAccessService) Update(ctx context.Context, id string, 
 	if params.ConversationIDs != nil {
 		conversationIDs = append([]string(nil), (*params.ConversationIDs)...)
 	}
-	if err := s.validateCreateOrUpdate(ctx, existing.HostTeamID, existing.HomeTeamID, existing.PrincipalID, existing.PrincipalType, mode, caps, conversationIDs); err != nil {
+	if err := s.validateCreateOrUpdate(ctx, existing.HostWorkspaceID, existing.HomeWorkspaceID, existing.PrincipalID, existing.PrincipalType, mode, caps, conversationIDs); err != nil {
 		return nil, err
 	}
 
@@ -175,7 +175,7 @@ func (s *ExternalPrincipalAccessService) Update(ctx context.Context, id string, 
 		EventType:     domain.EventExternalPrincipalAccessUpdated,
 		AggregateType: domain.AggregateUser,
 		AggregateID:   updated.PrincipalID,
-		TeamID:        updated.HostTeamID,
+		WorkspaceID:        updated.HostWorkspaceID,
 		ActorID:       actor.ID,
 		Payload:       payload,
 	}); err != nil {
@@ -184,7 +184,7 @@ func (s *ExternalPrincipalAccessService) Update(ctx context.Context, id string, 
 	if err := tx.Commit(ctx); err != nil {
 		return nil, fmt.Errorf("commit tx: %w", err)
 	}
-	if err := recordAuthorizationAudit(ctx, s.auditRepo, nil, updated.HostTeamID, domain.AuditActionExternalPrincipalAccessUpdated, "external_principal_access", updated.ID, updated); err != nil {
+	if err := recordAuthorizationAudit(ctx, s.auditRepo, nil, updated.HostWorkspaceID, domain.AuditActionExternalPrincipalAccessUpdated, "external_principal_access", updated.ID, updated); err != nil {
 		return nil, fmt.Errorf("record authorization audit log: %w", err)
 	}
 	return updated, nil
@@ -199,7 +199,7 @@ func (s *ExternalPrincipalAccessService) Revoke(ctx context.Context, id string) 
 	if err != nil {
 		return err
 	}
-	if err := ensureTeamAccess(ctx, existing.HostTeamID); err != nil {
+	if err := ensureWorkspaceAccess(ctx, existing.HostWorkspaceID); err != nil {
 		return err
 	}
 	now := time.Now().UTC()
@@ -219,7 +219,7 @@ func (s *ExternalPrincipalAccessService) Revoke(ctx context.Context, id string) 
 		EventType:     domain.EventExternalPrincipalAccessRevoked,
 		AggregateType: domain.AggregateUser,
 		AggregateID:   existing.PrincipalID,
-		TeamID:        existing.HostTeamID,
+		WorkspaceID:        existing.HostWorkspaceID,
 		ActorID:       actor.ID,
 		Payload:       payload,
 	}); err != nil {
@@ -228,13 +228,13 @@ func (s *ExternalPrincipalAccessService) Revoke(ctx context.Context, id string) 
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("commit tx: %w", err)
 	}
-	if err := recordAuthorizationAudit(ctx, s.auditRepo, nil, existing.HostTeamID, domain.AuditActionExternalPrincipalAccessRevoked, "external_principal_access", existing.ID, existing); err != nil {
+	if err := recordAuthorizationAudit(ctx, s.auditRepo, nil, existing.HostWorkspaceID, domain.AuditActionExternalPrincipalAccessRevoked, "external_principal_access", existing.ID, existing); err != nil {
 		return fmt.Errorf("record authorization audit log: %w", err)
 	}
 	return nil
 }
 
-func (s *ExternalPrincipalAccessService) validateCreateOrUpdate(ctx context.Context, hostTeamID, homeTeamID, principalID string, principalType domain.PrincipalType, accessMode domain.ExternalPrincipalAccessMode, allowedCapabilities, conversationIDs []string) error {
+func (s *ExternalPrincipalAccessService) validateCreateOrUpdate(ctx context.Context, hostWorkspaceID, homeWorkspaceID, principalID string, principalType domain.PrincipalType, accessMode domain.ExternalPrincipalAccessMode, allowedCapabilities, conversationIDs []string) error {
 	if principalID == "" {
 		return fmt.Errorf("principal_id: %w", domain.ErrInvalidArgument)
 	}
@@ -251,8 +251,8 @@ func (s *ExternalPrincipalAccessService) validateCreateOrUpdate(ctx context.Cont
 	if principal.PrincipalType != domain.PrincipalTypeAgent {
 		return fmt.Errorf("principal_id: %w", domain.ErrInvalidArgument)
 	}
-	if homeTeamID != "" && principal.TeamID != homeTeamID {
-		return fmt.Errorf("home_team_id: %w", domain.ErrInvalidArgument)
+	if homeWorkspaceID != "" && principal.WorkspaceID != homeWorkspaceID {
+		return fmt.Errorf("home_workspace_id: %w", domain.ErrInvalidArgument)
 	}
 	caps := dedupeStrings(allowedCapabilities)
 	for _, capability := range caps {
@@ -265,7 +265,7 @@ func (s *ExternalPrincipalAccessService) validateCreateOrUpdate(ctx context.Cont
 		if err != nil {
 			return fmt.Errorf("conversation_ids: %w", err)
 		}
-		if conv.TeamID != hostTeamID {
+		if conv.WorkspaceID != hostWorkspaceID {
 			return fmt.Errorf("conversation_ids: %w", domain.ErrInvalidArgument)
 		}
 		if conv.Type == domain.ConversationTypeIM || conv.Type == domain.ConversationTypeMPIM {
@@ -279,12 +279,12 @@ func activeExternalSharedAccess(ctx context.Context, repo repository.ExternalPri
 	if repo == nil {
 		return nil, nil
 	}
-	teamID := ctxutil.GetTeamID(ctx)
+	workspaceID := ctxutil.GetWorkspaceID(ctx)
 	principalID := ctxutil.GetUserID(ctx)
-	if teamID == "" || principalID == "" {
+	if workspaceID == "" || principalID == "" {
 		return nil, nil
 	}
-	return repo.GetActiveByPrincipal(ctx, teamID, principalID)
+	return repo.GetActiveByPrincipal(ctx, workspaceID, principalID)
 }
 
 func ensureExternalSharedConversationAccess(ctx context.Context, repo repository.ExternalPrincipalAccessRepository, conv *domain.Conversation, capability string, requireWrite bool) error {

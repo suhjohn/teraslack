@@ -11,14 +11,14 @@ import (
 )
 
 const createFile = `-- name: CreateFile :exec
-INSERT INTO files (id, team_id, name, title, mimetype, filetype, size, user_id, s3_key,
+INSERT INTO files (id, workspace_id, name, title, mimetype, filetype, size, user_id, s3_key,
                    url_private, url_private_download, permalink, is_external, external_url, upload_complete)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
 `
 
 type CreateFileParams struct {
 	ID                 string `json:"id"`
-	TeamID             string `json:"team_id"`
+	WorkspaceID        string `json:"workspace_id"`
 	Name               string `json:"name"`
 	Title              string `json:"title"`
 	Mimetype           string `json:"mimetype"`
@@ -37,7 +37,7 @@ type CreateFileParams struct {
 func (q *Queries) CreateFile(ctx context.Context, arg CreateFileParams) error {
 	_, err := q.db.Exec(ctx, createFile,
 		arg.ID,
-		arg.TeamID,
+		arg.WorkspaceID,
 		arg.Name,
 		arg.Title,
 		arg.Mimetype,
@@ -56,34 +56,34 @@ func (q *Queries) CreateFile(ctx context.Context, arg CreateFileParams) error {
 }
 
 const deleteFile = `-- name: DeleteFile :exec
-DELETE FROM files WHERE team_id = $1 AND id = $2
+DELETE FROM files WHERE workspace_id = $1 AND id = $2
 `
 
 type DeleteFileParams struct {
-	TeamID string `json:"team_id"`
-	ID     string `json:"id"`
+	WorkspaceID string `json:"workspace_id"`
+	ID          string `json:"id"`
 }
 
 func (q *Queries) DeleteFile(ctx context.Context, arg DeleteFileParams) error {
-	_, err := q.db.Exec(ctx, deleteFile, arg.TeamID, arg.ID)
+	_, err := q.db.Exec(ctx, deleteFile, arg.WorkspaceID, arg.ID)
 	return err
 }
 
 const getFile = `-- name: GetFile :one
-SELECT id, team_id, name, title, mimetype, filetype, size, user_id,
+SELECT id, workspace_id, name, title, mimetype, filetype, size, user_id,
        url_private, url_private_download, permalink, is_external, external_url,
        created_at, updated_at
-FROM files WHERE team_id = $1 AND id = $2
+FROM files WHERE workspace_id = $1 AND id = $2
 `
 
 type GetFileParams struct {
-	TeamID string `json:"team_id"`
-	ID     string `json:"id"`
+	WorkspaceID string `json:"workspace_id"`
+	ID          string `json:"id"`
 }
 
 type GetFileRow struct {
 	ID                 string    `json:"id"`
-	TeamID             string    `json:"team_id"`
+	WorkspaceID        string    `json:"workspace_id"`
 	Name               string    `json:"name"`
 	Title              string    `json:"title"`
 	Mimetype           string    `json:"mimetype"`
@@ -100,11 +100,11 @@ type GetFileRow struct {
 }
 
 func (q *Queries) GetFile(ctx context.Context, arg GetFileParams) (GetFileRow, error) {
-	row := q.db.QueryRow(ctx, getFile, arg.TeamID, arg.ID)
+	row := q.db.QueryRow(ctx, getFile, arg.WorkspaceID, arg.ID)
 	var i GetFileRow
 	err := row.Scan(
 		&i.ID,
-		&i.TeamID,
+		&i.WorkspaceID,
 		&i.Name,
 		&i.Title,
 		&i.Mimetype,
@@ -147,24 +147,24 @@ func (q *Queries) GetFileChannels(ctx context.Context, fileID string) ([]string,
 }
 
 const listFiles = `-- name: ListFiles :many
-SELECT id, team_id, name, title, mimetype, filetype, size, user_id,
+SELECT id, workspace_id, name, title, mimetype, filetype, size, user_id,
        url_private, url_private_download, permalink, is_external, external_url,
        created_at, updated_at
 FROM files
-WHERE team_id = $1 AND id > $2
+WHERE workspace_id = $1 AND id > $2
 ORDER BY id ASC
 LIMIT $3
 `
 
 type ListFilesParams struct {
-	TeamID string `json:"team_id"`
-	ID     string `json:"id"`
-	Limit  int32  `json:"limit"`
+	WorkspaceID string `json:"workspace_id"`
+	ID          string `json:"id"`
+	Limit       int32  `json:"limit"`
 }
 
 type ListFilesRow struct {
 	ID                 string    `json:"id"`
-	TeamID             string    `json:"team_id"`
+	WorkspaceID        string    `json:"workspace_id"`
 	Name               string    `json:"name"`
 	Title              string    `json:"title"`
 	Mimetype           string    `json:"mimetype"`
@@ -181,7 +181,7 @@ type ListFilesRow struct {
 }
 
 func (q *Queries) ListFiles(ctx context.Context, arg ListFilesParams) ([]ListFilesRow, error) {
-	rows, err := q.db.Query(ctx, listFiles, arg.TeamID, arg.ID, arg.Limit)
+	rows, err := q.db.Query(ctx, listFiles, arg.WorkspaceID, arg.ID, arg.Limit)
 	if err != nil {
 		return nil, err
 	}
@@ -191,7 +191,7 @@ func (q *Queries) ListFiles(ctx context.Context, arg ListFilesParams) ([]ListFil
 		var i ListFilesRow
 		if err := rows.Scan(
 			&i.ID,
-			&i.TeamID,
+			&i.WorkspaceID,
 			&i.Name,
 			&i.Title,
 			&i.Mimetype,
@@ -217,26 +217,26 @@ func (q *Queries) ListFiles(ctx context.Context, arg ListFilesParams) ([]ListFil
 }
 
 const listFilesByChannel = `-- name: ListFilesByChannel :many
-SELECT f.id, f.team_id, f.name, f.title, f.mimetype, f.filetype, f.size, f.user_id,
+SELECT f.id, f.workspace_id, f.name, f.title, f.mimetype, f.filetype, f.size, f.user_id,
        f.url_private, f.url_private_download, f.permalink, f.is_external, f.external_url,
        f.created_at, f.updated_at
 FROM files f
 INNER JOIN file_channels fc ON f.id = fc.file_id
-WHERE f.team_id = $1 AND fc.channel_id = $2 AND f.id > $3
+WHERE f.workspace_id = $1 AND fc.channel_id = $2 AND f.id > $3
 ORDER BY f.id ASC
 LIMIT $4
 `
 
 type ListFilesByChannelParams struct {
-	TeamID    string `json:"team_id"`
-	ChannelID string `json:"channel_id"`
-	ID        string `json:"id"`
-	Limit     int32  `json:"limit"`
+	WorkspaceID string `json:"workspace_id"`
+	ChannelID   string `json:"channel_id"`
+	ID          string `json:"id"`
+	Limit       int32  `json:"limit"`
 }
 
 type ListFilesByChannelRow struct {
 	ID                 string    `json:"id"`
-	TeamID             string    `json:"team_id"`
+	WorkspaceID        string    `json:"workspace_id"`
 	Name               string    `json:"name"`
 	Title              string    `json:"title"`
 	Mimetype           string    `json:"mimetype"`
@@ -254,7 +254,7 @@ type ListFilesByChannelRow struct {
 
 func (q *Queries) ListFilesByChannel(ctx context.Context, arg ListFilesByChannelParams) ([]ListFilesByChannelRow, error) {
 	rows, err := q.db.Query(ctx, listFilesByChannel,
-		arg.TeamID,
+		arg.WorkspaceID,
 		arg.ChannelID,
 		arg.ID,
 		arg.Limit,
@@ -268,7 +268,7 @@ func (q *Queries) ListFilesByChannel(ctx context.Context, arg ListFilesByChannel
 		var i ListFilesByChannelRow
 		if err := rows.Scan(
 			&i.ID,
-			&i.TeamID,
+			&i.WorkspaceID,
 			&i.Name,
 			&i.Title,
 			&i.Mimetype,
@@ -294,27 +294,27 @@ func (q *Queries) ListFilesByChannel(ctx context.Context, arg ListFilesByChannel
 }
 
 const listFilesByChannelAndUser = `-- name: ListFilesByChannelAndUser :many
-SELECT f.id, f.team_id, f.name, f.title, f.mimetype, f.filetype, f.size, f.user_id,
+SELECT f.id, f.workspace_id, f.name, f.title, f.mimetype, f.filetype, f.size, f.user_id,
        f.url_private, f.url_private_download, f.permalink, f.is_external, f.external_url,
        f.created_at, f.updated_at
 FROM files f
 INNER JOIN file_channels fc ON f.id = fc.file_id
-WHERE f.team_id = $1 AND fc.channel_id = $2 AND f.user_id = $3 AND f.id > $4
+WHERE f.workspace_id = $1 AND fc.channel_id = $2 AND f.user_id = $3 AND f.id > $4
 ORDER BY f.id ASC
 LIMIT $5
 `
 
 type ListFilesByChannelAndUserParams struct {
-	TeamID    string `json:"team_id"`
-	ChannelID string `json:"channel_id"`
-	UserID    string `json:"user_id"`
-	ID        string `json:"id"`
-	Limit     int32  `json:"limit"`
+	WorkspaceID string `json:"workspace_id"`
+	ChannelID   string `json:"channel_id"`
+	UserID      string `json:"user_id"`
+	ID          string `json:"id"`
+	Limit       int32  `json:"limit"`
 }
 
 type ListFilesByChannelAndUserRow struct {
 	ID                 string    `json:"id"`
-	TeamID             string    `json:"team_id"`
+	WorkspaceID        string    `json:"workspace_id"`
 	Name               string    `json:"name"`
 	Title              string    `json:"title"`
 	Mimetype           string    `json:"mimetype"`
@@ -332,7 +332,7 @@ type ListFilesByChannelAndUserRow struct {
 
 func (q *Queries) ListFilesByChannelAndUser(ctx context.Context, arg ListFilesByChannelAndUserParams) ([]ListFilesByChannelAndUserRow, error) {
 	rows, err := q.db.Query(ctx, listFilesByChannelAndUser,
-		arg.TeamID,
+		arg.WorkspaceID,
 		arg.ChannelID,
 		arg.UserID,
 		arg.ID,
@@ -347,7 +347,7 @@ func (q *Queries) ListFilesByChannelAndUser(ctx context.Context, arg ListFilesBy
 		var i ListFilesByChannelAndUserRow
 		if err := rows.Scan(
 			&i.ID,
-			&i.TeamID,
+			&i.WorkspaceID,
 			&i.Name,
 			&i.Title,
 			&i.Mimetype,
@@ -373,25 +373,25 @@ func (q *Queries) ListFilesByChannelAndUser(ctx context.Context, arg ListFilesBy
 }
 
 const listFilesByUser = `-- name: ListFilesByUser :many
-SELECT id, team_id, name, title, mimetype, filetype, size, user_id,
+SELECT id, workspace_id, name, title, mimetype, filetype, size, user_id,
        url_private, url_private_download, permalink, is_external, external_url,
        created_at, updated_at
 FROM files
-WHERE team_id = $1 AND user_id = $2 AND id > $3
+WHERE workspace_id = $1 AND user_id = $2 AND id > $3
 ORDER BY id ASC
 LIMIT $4
 `
 
 type ListFilesByUserParams struct {
-	TeamID string `json:"team_id"`
-	UserID string `json:"user_id"`
-	ID     string `json:"id"`
-	Limit  int32  `json:"limit"`
+	WorkspaceID string `json:"workspace_id"`
+	UserID      string `json:"user_id"`
+	ID          string `json:"id"`
+	Limit       int32  `json:"limit"`
 }
 
 type ListFilesByUserRow struct {
 	ID                 string    `json:"id"`
-	TeamID             string    `json:"team_id"`
+	WorkspaceID        string    `json:"workspace_id"`
 	Name               string    `json:"name"`
 	Title              string    `json:"title"`
 	Mimetype           string    `json:"mimetype"`
@@ -409,7 +409,7 @@ type ListFilesByUserRow struct {
 
 func (q *Queries) ListFilesByUser(ctx context.Context, arg ListFilesByUserParams) ([]ListFilesByUserRow, error) {
 	rows, err := q.db.Query(ctx, listFilesByUser,
-		arg.TeamID,
+		arg.WorkspaceID,
 		arg.UserID,
 		arg.ID,
 		arg.Limit,
@@ -423,7 +423,7 @@ func (q *Queries) ListFilesByUser(ctx context.Context, arg ListFilesByUserParams
 		var i ListFilesByUserRow
 		if err := rows.Scan(
 			&i.ID,
-			&i.TeamID,
+			&i.WorkspaceID,
 			&i.Name,
 			&i.Title,
 			&i.Mimetype,
@@ -448,34 +448,37 @@ func (q *Queries) ListFilesByUser(ctx context.Context, arg ListFilesByUserParams
 	return items, nil
 }
 
-const shareFileToChannel = `-- name: ShareFileToChannel :exec
+const shareFileToChannel = `-- name: ShareFileToChannel :execrows
 INSERT INTO file_channels (file_id, channel_id)
 SELECT $2, $3
 FROM files f
-JOIN conversations c ON c.id = $3 AND c.team_id = f.team_id
-WHERE f.team_id = $1 AND f.id = $2
+JOIN conversations c ON c.id = $3 AND c.workspace_id = f.workspace_id
+WHERE f.workspace_id = $1 AND f.id = $2
 ON CONFLICT DO NOTHING
 `
 
 type ShareFileToChannelParams struct {
-	TeamID    string `json:"team_id"`
-	FileID    string `json:"file_id"`
-	ChannelID string `json:"channel_id"`
+	WorkspaceID string `json:"workspace_id"`
+	FileID      string `json:"file_id"`
+	ChannelID   string `json:"channel_id"`
 }
 
-func (q *Queries) ShareFileToChannel(ctx context.Context, arg ShareFileToChannelParams) error {
-	_, err := q.db.Exec(ctx, shareFileToChannel, arg.TeamID, arg.FileID, arg.ChannelID)
-	return err
+func (q *Queries) ShareFileToChannel(ctx context.Context, arg ShareFileToChannelParams) (int64, error) {
+	result, err := q.db.Exec(ctx, shareFileToChannel, arg.WorkspaceID, arg.FileID, arg.ChannelID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const updateFileComplete = `-- name: UpdateFileComplete :exec
 UPDATE files SET title = $3, url_private = $4, url_private_download = $5,
                  permalink = $6, upload_complete = TRUE
-WHERE team_id = $1 AND id = $2
+WHERE workspace_id = $1 AND id = $2
 `
 
 type UpdateFileCompleteParams struct {
-	TeamID             string `json:"team_id"`
+	WorkspaceID        string `json:"workspace_id"`
 	ID                 string `json:"id"`
 	Title              string `json:"title"`
 	UrlPrivate         string `json:"url_private"`
@@ -485,7 +488,7 @@ type UpdateFileCompleteParams struct {
 
 func (q *Queries) UpdateFileComplete(ctx context.Context, arg UpdateFileCompleteParams) error {
 	_, err := q.db.Exec(ctx, updateFileComplete,
-		arg.TeamID,
+		arg.WorkspaceID,
 		arg.ID,
 		arg.Title,
 		arg.UrlPrivate,

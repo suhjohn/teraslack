@@ -22,7 +22,7 @@ func newMockEventRepoTenant() *mockEventRepoTenant {
 func (m *mockEventRepoTenant) CreateSubscription(_ context.Context, params domain.CreateEventSubscriptionParams) (*domain.EventSubscription, error) {
 	sub := &domain.EventSubscription{
 		ID:           "ES123",
-		TeamID:       params.TeamID,
+		WorkspaceID:       params.WorkspaceID,
 		URL:          params.URL,
 		Type:         params.Type,
 		ResourceType: params.ResourceType,
@@ -50,33 +50,33 @@ func (m *mockEventRepoTenant) DeleteSubscription(_ context.Context, id string) e
 func (m *mockEventRepoTenant) ListSubscriptions(_ context.Context, params domain.ListEventSubscriptionsParams) ([]domain.EventSubscription, error) {
 	var out []domain.EventSubscription
 	for _, sub := range m.subs {
-		if params.TeamID == "" || sub.TeamID == params.TeamID {
+		if params.WorkspaceID == "" || sub.WorkspaceID == params.WorkspaceID {
 			out = append(out, *sub)
 		}
 	}
 	return out, nil
 }
 
-func (m *mockEventRepoTenant) ListSubscriptionsByEvent(_ context.Context, teamID, eventType, resourceType, resourceID string) ([]domain.EventSubscription, error) {
-	return m.ListSubscriptions(context.Background(), domain.ListEventSubscriptionsParams{TeamID: teamID})
+func (m *mockEventRepoTenant) ListSubscriptionsByEvent(_ context.Context, workspaceID, eventType, resourceType, resourceID string) ([]domain.EventSubscription, error) {
+	return m.ListSubscriptions(context.Background(), domain.ListEventSubscriptionsParams{WorkspaceID: workspaceID})
 }
 
 func (m *mockEventRepoTenant) WithTx(_ pgx.Tx) repository.EventRepository { return m }
 
 func TestEventService_TenantAccessDenied(t *testing.T) {
 	repo := newMockEventRepoTenant()
-	repo.subs["ES123"] = &domain.EventSubscription{ID: "ES123", TeamID: "T999", URL: "https://example.com", Type: domain.EventTypeConversationMessageCreated}
+	repo.subs["ES123"] = &domain.EventSubscription{ID: "ES123", WorkspaceID: "T999", URL: "https://example.com", Type: domain.EventTypeConversationMessageCreated}
 	svc := NewEventService(repo, &mockUserRepoForUG{}, nil, mockTxBeginner{}, nil)
 
-	ctx := context.WithValue(context.Background(), ctxutil.ContextKeyTeamID, "T123")
+	ctx := context.WithValue(context.Background(), ctxutil.ContextKeyWorkspaceID, "T123")
 
 	if _, err := svc.GetSubscription(ctx, "ES123"); err == nil || !errors.Is(err, domain.ErrForbidden) {
 		t.Fatalf("expected forbidden from GetSubscription, got %v", err)
 	}
-	if _, err := svc.ListSubscriptions(ctx, domain.ListEventSubscriptionsParams{TeamID: "T999"}); err == nil || !errors.Is(err, domain.ErrForbidden) {
+	if _, err := svc.ListSubscriptions(ctx, domain.ListEventSubscriptionsParams{WorkspaceID: "T999"}); err == nil || !errors.Is(err, domain.ErrForbidden) {
 		t.Fatalf("expected forbidden from ListSubscriptions, got %v", err)
 	}
-	if _, err := svc.CreateSubscription(ctx, domain.CreateEventSubscriptionParams{TeamID: "T999", URL: "https://example.com", Type: domain.EventTypeConversationMessageCreated}); err == nil || !errors.Is(err, domain.ErrForbidden) {
+	if _, err := svc.CreateSubscription(ctx, domain.CreateEventSubscriptionParams{WorkspaceID: "T999", URL: "https://example.com", Type: domain.EventTypeConversationMessageCreated}); err == nil || !errors.Is(err, domain.ErrForbidden) {
 		t.Fatalf("expected forbidden from CreateSubscription, got %v", err)
 	}
 }
@@ -87,7 +87,7 @@ func TestEventService_CreateSubscription_RejectsLegacyEventType(t *testing.T) {
 
 	ctx := ctxutil.WithUser(context.Background(), "U123", "T123")
 	_, err := svc.CreateSubscription(ctx, domain.CreateEventSubscriptionParams{
-		TeamID: "T123",
+		WorkspaceID: "T123",
 		URL:    "https://example.com",
 		Type:   "message.posted",
 	})
@@ -100,7 +100,7 @@ func TestEventService_UpdateSubscription_RejectsLegacyEventType(t *testing.T) {
 	repo := newMockEventRepoTenant()
 	repo.subs["ES123"] = &domain.EventSubscription{
 		ID:     "ES123",
-		TeamID: "T123",
+		WorkspaceID: "T123",
 		URL:    "https://example.com",
 		Type:   domain.EventTypeConversationMessageCreated,
 	}
@@ -120,21 +120,21 @@ func TestEventService_SubscriptionMutationsRequireWorkspaceAdmin(t *testing.T) {
 	repo := newMockEventRepoTenant()
 	repo.subs["ES123"] = &domain.EventSubscription{
 		ID:     "ES123",
-		TeamID: "T123",
+		WorkspaceID: "T123",
 		URL:    "https://example.com",
 		Type:   domain.EventTypeConversationMessageCreated,
 	}
 	userRepo := &mockUserRepoForUGRoles{
 		users: map[string]*domain.User{
-			"U123": {ID: "U123", TeamID: "T123", PrincipalType: domain.PrincipalTypeHuman, AccountType: domain.AccountTypeMember},
-			"U999": {ID: "U999", TeamID: "T123", PrincipalType: domain.PrincipalTypeHuman, AccountType: domain.AccountTypeAdmin},
+			"U123": {ID: "U123", WorkspaceID: "T123", PrincipalType: domain.PrincipalTypeHuman, AccountType: domain.AccountTypeMember},
+			"U999": {ID: "U999", WorkspaceID: "T123", PrincipalType: domain.PrincipalTypeHuman, AccountType: domain.AccountTypeAdmin},
 		},
 	}
 	svc := NewEventService(repo, userRepo, nil, mockTxBeginner{}, nil)
 
 	memberCtx := ctxutil.WithUser(context.Background(), "U123", "T123")
 	if _, err := svc.CreateSubscription(memberCtx, domain.CreateEventSubscriptionParams{
-		TeamID: "T123",
+		WorkspaceID: "T123",
 		URL:    "https://example.com",
 		Type:   domain.EventTypeConversationMessageCreated,
 	}); err == nil || !errors.Is(err, domain.ErrForbidden) {
@@ -146,7 +146,7 @@ func TestEventService_SubscriptionMutationsRequireWorkspaceAdmin(t *testing.T) {
 
 	adminCtx := ctxutil.WithUser(context.Background(), "U999", "T123")
 	if _, err := svc.CreateSubscription(adminCtx, domain.CreateEventSubscriptionParams{
-		TeamID: "T123",
+		WorkspaceID: "T123",
 		URL:    "https://example.com",
 		Type:   domain.EventTypeConversationMessageCreated,
 	}); err != nil {

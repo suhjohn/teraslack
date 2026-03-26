@@ -1,6 +1,13 @@
 x-app-env: &app-env
   DATABASE_URL: postgres://slackbackend:slackbackend@db:${DB_PORT:-35432}/slackbackend?sslmode=disable
-  BASE_URL: http://server:${API_PORT:-38080}
+  MIGRATION_DATABASE_URL: postgres://slackbackend:slackbackend@db:${DB_PORT:-35432}/slackbackend?sslmode=disable
+  BASE_URL: ${BASE_URL:-http://localhost:${API_PORT:-38080}}
+  FRONTEND_URL: ${FRONTEND_URL:-http://localhost:${FRONTEND_PORT:-3201}}
+  AUTH_STATE_SECRET: ${AUTH_STATE_SECRET:-}
+  GITHUB_OAUTH_CLIENT_ID: ${GITHUB_OAUTH_CLIENT_ID:-}
+  GITHUB_OAUTH_CLIENT_SECRET: ${GITHUB_OAUTH_CLIENT_SECRET:-}
+  GOOGLE_OAUTH_CLIENT_ID: ${GOOGLE_OAUTH_CLIENT_ID:-}
+  GOOGLE_OAUTH_CLIENT_SECRET: ${GOOGLE_OAUTH_CLIENT_SECRET:-}
   S3_BUCKET: ${S3_BUCKET}
   S3_REGION: ${S3_REGION:-us-west-2}
   S3_ENDPOINT: ${S3_ENDPOINT:-}
@@ -8,8 +15,25 @@ x-app-env: &app-env
   S3_SECRET_KEY: ${S3_SECRET_KEY:-${AWS_SECRET_ACCESS_KEY:-}}
   S3_KEY_PREFIX: ${S3_KEY_PREFIX:-}
   TURBOPUFFER_API_KEY: ${TURBOPUFFER_API_KEY:-}
+  TURBOPUFFER_REGION: ${TURBOPUFFER_REGION:-aws-us-west-2}
   TURBOPUFFER_NS_PREFIX: ${TURBOPUFFER_NS_PREFIX:-teraslack}
   ENCRYPTION_KEY: ${ENCRYPTION_KEY:-}
+
+x-server-build: &server-build
+  context: ./server
+  dockerfile: Dockerfile
+
+x-app-service: &app-service
+  image: teraslack-server-local
+  build: *server-build
+  env_file:
+    - .env
+  environment:
+    <<: *app-env
+  depends_on:
+    db:
+      condition: service_healthy
+  restart: unless-stopped
 
 services:
   db:
@@ -30,68 +54,50 @@ services:
       retries: 5
 
   server:
-    build:
-      context: ./server
-      dockerfile: Dockerfile
+    <<: *app-service
     environment:
       <<: *app-env
       PORT: ${API_PORT:-38080}
-    depends_on:
-      db:
-        condition: service_healthy
     ports:
       - "${API_PORT:-38080}:${API_PORT:-38080}"
-    restart: unless-stopped
 
   external-event-projector:
-    build:
-      context: ./server
-      dockerfile: Dockerfile
+    <<: *app-service
     command: ["/app/external-event-projector"]
-    environment:
-      <<: *app-env
-    depends_on:
-      db:
-        condition: service_healthy
-    restart: unless-stopped
 
   webhook-producer:
-    build:
-      context: ./server
-      dockerfile: Dockerfile
+    <<: *app-service
     command: ["/app/webhook-producer"]
     environment:
       <<: *app-env
       WEBHOOK_QUEUE_S3_KEY: ${WEBHOOK_QUEUE_S3_KEY:-queues/webhooks/queue.json}
-    depends_on:
-      db:
-        condition: service_healthy
-    restart: unless-stopped
 
   webhook-worker:
-    build:
-      context: ./server
-      dockerfile: Dockerfile
+    <<: *app-service
     command: ["/app/webhook-worker"]
     environment:
       <<: *app-env
       WEBHOOK_QUEUE_S3_KEY: ${WEBHOOK_QUEUE_S3_KEY:-queues/webhooks/queue.json}
       WORKER_ID: ${WEBHOOK_WORKER_ID:-wh-1}
-    restart: unless-stopped
 
   indexer:
-    build:
-      context: ./server
-      dockerfile: Dockerfile
+    <<: *app-service
     command: ["/app/indexer"]
     environment:
       <<: *app-env
       INDEX_QUEUE_S3_KEY: ${INDEX_QUEUE_S3_KEY:-queues/index/queue.json}
       WORKER_ID: ${INDEXER_WORKER_ID:-idx-1}
-    depends_on:
-      db:
-        condition: service_healthy
-    restart: unless-stopped
+
+  mcp-server:
+    <<: *app-service
+    command: ["/app/teraslack-mcp-server"]
+    environment:
+      <<: *app-env
+      PORT: ${MCP_PORT:-8090}
+      TERASLACK_BASE_URL: http://server:${API_PORT:-38080}
+      TERASLACK_SYSTEM_API_KEY: ${TERASLACK_SYSTEM_API_KEY:-}
+    ports:
+      - "${MCP_PORT:-8090}:${MCP_PORT:-8090}"
 
 volumes:
   pgdata:

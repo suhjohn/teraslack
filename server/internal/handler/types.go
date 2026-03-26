@@ -17,7 +17,7 @@ type APIKeySecretResponse struct {
 
 type EventSubscriptionResponse struct {
 	ID           string    `json:"id"`
-	TeamID       string    `json:"team_id"`
+	WorkspaceID       string    `json:"workspace_id"`
 	URL          string    `json:"url"`
 	Type         string    `json:"type,omitempty"`
 	ResourceType string    `json:"resource_type,omitempty"`

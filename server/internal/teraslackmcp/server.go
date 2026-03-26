@@ -1,10 +1,8 @@
 package teraslackmcp
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -15,57 +13,63 @@ import (
 	"sync"
 	"time"
 
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/suhjohn/teraslack/internal/domain"
 )
 
-const defaultProtocolVersion = "2025-06-18"
-
 type Config struct {
-	BaseURL        string
-	APIKey         string
-	BootstrapToken string
-	TeamID         string
-	UserID         string
-	UserName       string
-	UserEmail      string
-	PeerUserID     string
-	PeerUserName   string
-	PeerUserEmail  string
-	ChannelID      string
-	DebugLogPath   string
+	BaseURL         string
+	APIKey          string
+	BootstrapToken  string
+	MCPBaseURL      string
+	OAuthIssuer     string
+	OAuthSigningKey string
+	WorkspaceID     string
+	UserID          string
+	UserName        string
+	UserEmail       string
+	Permissions     []string
+	OAuthScopes     []string
+	PeerUserID      string
+	PeerUserName    string
+	PeerUserEmail   string
+	ChannelID    string
+	DebugLogPath string
 }
 
 func LoadConfigFromEnv() (Config, error) {
 	cfg := Config{
-		BaseURL:        strings.TrimSpace(os.Getenv("TERASLACK_BASE_URL")),
-		APIKey:         strings.TrimSpace(os.Getenv("TERASLACK_API_KEY")),
-		BootstrapToken: firstNonEmptyEnv("TERASLACK_BOOTSTRAP_TOKEN", "TERASLACK_BOOTSTRAP_API_KEY", "TERASLACK_SYSTEM_API_KEY"),
-		TeamID:         strings.TrimSpace(os.Getenv("TERASLACK_TEAM_ID")),
-		UserID:         strings.TrimSpace(os.Getenv("TERASLACK_USER_ID")),
-		UserName:       strings.TrimSpace(os.Getenv("TERASLACK_USER_NAME")),
-		UserEmail:      strings.TrimSpace(os.Getenv("TERASLACK_USER_EMAIL")),
-		PeerUserID:     strings.TrimSpace(os.Getenv("TERASLACK_PEER_USER_ID")),
-		PeerUserName:   strings.TrimSpace(os.Getenv("TERASLACK_PEER_USER_NAME")),
-		PeerUserEmail:  strings.TrimSpace(os.Getenv("TERASLACK_PEER_USER_EMAIL")),
-		ChannelID:      strings.TrimSpace(os.Getenv("TERASLACK_CHANNEL_ID")),
-		DebugLogPath:   strings.TrimSpace(os.Getenv("TERASLACK_MCP_DEBUG_LOG")),
+		BaseURL:         strings.TrimSpace(os.Getenv("TERASLACK_BASE_URL")),
+		APIKey:          strings.TrimSpace(os.Getenv("TERASLACK_API_KEY")),
+		BootstrapToken:  strings.TrimSpace(os.Getenv("TERASLACK_SYSTEM_API_KEY")),
+		MCPBaseURL:      strings.TrimSpace(os.Getenv("MCP_BASE_URL")),
+		OAuthIssuer:     strings.TrimSpace(firstNonEmptyEnv("MCP_OAUTH_ISSUER", "TERASLACK_BASE_URL")),
+		OAuthSigningKey: strings.TrimSpace(firstNonEmptyEnv("MCP_OAUTH_SIGNING_KEY", "ENCRYPTION_KEY")),
+		WorkspaceID:     strings.TrimSpace(os.Getenv("TERASLACK_WORKSPACE_ID")),
+		UserID:          strings.TrimSpace(os.Getenv("TERASLACK_USER_ID")),
+		UserName:        strings.TrimSpace(os.Getenv("TERASLACK_USER_NAME")),
+		UserEmail:       strings.TrimSpace(os.Getenv("TERASLACK_USER_EMAIL")),
+		PeerUserID:      strings.TrimSpace(os.Getenv("TERASLACK_PEER_USER_ID")),
+		PeerUserName:    strings.TrimSpace(os.Getenv("TERASLACK_PEER_USER_NAME")),
+		PeerUserEmail:   strings.TrimSpace(os.Getenv("TERASLACK_PEER_USER_EMAIL")),
+		ChannelID:    strings.TrimSpace(os.Getenv("TERASLACK_CHANNEL_ID")),
+		DebugLogPath: strings.TrimSpace(os.Getenv("TERASLACK_MCP_DEBUG_LOG")),
 	}
 
 	if cfg.BaseURL == "" {
 		return Config{}, fmt.Errorf("missing required environment variable: TERASLACK_BASE_URL")
-	}
-	if cfg.APIKey == "" && cfg.BootstrapToken == "" {
-		return Config{}, fmt.Errorf("either TERASLACK_API_KEY or a bootstrap token must be configured")
 	}
 	return cfg, nil
 }
 
 type sessionState struct {
 	Token         string
-	TeamID        string
+	WorkspaceID   string
 	UserID        string
 	UserName      string
 	UserEmail     string
+	Permissions   []string
+	OAuthScopes   []string
 	PeerUserID    string
 	PeerUserName  string
 	PeerUserEmail string
@@ -73,22 +77,44 @@ type sessionState struct {
 	client        *Client
 }
 
+type sessionData struct {
+	owner              sessionState
+	current            sessionState
+	sessionIdentity    sessionState
+	autoProvisionErr   error
+	autoProvisionOnce  sync.Once
+	nextSubscriptionID int64
+	subscriptions      map[string]conversationSubscription
+	lastAccess         time.Time
+}
+
 type Server struct {
 	cfg             Config
 	logger          *slog.Logger
 	debug           io.Writer
 	bootstrapClient *Client
+	initial         sessionState
+	sdkServer       *mcp.Server
+	httpHandler     http.Handler
+	sessionTTL      time.Duration
+	channelCancel   context.CancelFunc
 
-	mu      sync.RWMutex
-	current sessionState
+	mu       sync.RWMutex
+	sessions map[string]*sessionData
 }
+
+type conversationSubscription struct {
+	ID        string
+	ChannelID string
+	Cursor    string
+	State     sessionState
+}
+
+type sessionContextKey struct{}
 
 func NewServer(cfg Config, logger *slog.Logger) (*Server, error) {
 	if strings.TrimSpace(cfg.BaseURL) == "" {
 		return nil, fmt.Errorf("base URL is required")
-	}
-	if strings.TrimSpace(cfg.APIKey) == "" && strings.TrimSpace(cfg.BootstrapToken) == "" {
-		return nil, fmt.Errorf("an acting API key or bootstrap token is required")
 	}
 	if logger == nil {
 		logger = slog.New(slog.NewTextHandler(io.Discard, nil))
@@ -102,32 +128,29 @@ func NewServer(cfg Config, logger *slog.Logger) (*Server, error) {
 		}
 	}
 
-	var current sessionState
+	initial := sessionState{
+		Token:         cfg.APIKey,
+		WorkspaceID:   cfg.WorkspaceID,
+		UserID:        cfg.UserID,
+		UserName:      cfg.UserName,
+		UserEmail:     cfg.UserEmail,
+		Permissions:   append([]string(nil), cfg.Permissions...),
+		OAuthScopes:   append([]string(nil), cfg.OAuthScopes...),
+		PeerUserID:    cfg.PeerUserID,
+		PeerUserName:  cfg.PeerUserName,
+		PeerUserEmail: cfg.PeerUserEmail,
+		ChannelID:     cfg.ChannelID,
+	}
 	if cfg.APIKey != "" {
 		client, err := NewClient(cfg.BaseURL, cfg.APIKey)
 		if err != nil {
 			return nil, err
 		}
-		current = sessionState{
-			Token:         cfg.APIKey,
-			TeamID:        cfg.TeamID,
-			UserID:        cfg.UserID,
-			UserName:      cfg.UserName,
-			UserEmail:     cfg.UserEmail,
-			PeerUserID:    cfg.PeerUserID,
-			PeerUserName:  cfg.PeerUserName,
-			PeerUserEmail: cfg.PeerUserEmail,
-			ChannelID:     cfg.ChannelID,
-			client:        client,
-		}
-	}
-
-	bootstrapToken := strings.TrimSpace(cfg.BootstrapToken)
-	if bootstrapToken == "" {
-		bootstrapToken = strings.TrimSpace(cfg.APIKey)
+		initial.client = client
 	}
 
 	var bootstrapClient *Client
+	bootstrapToken := strings.TrimSpace(cfg.BootstrapToken)
 	if bootstrapToken != "" {
 		client, err := NewClient(cfg.BaseURL, bootstrapToken)
 		if err != nil {
@@ -136,240 +159,125 @@ func NewServer(cfg Config, logger *slog.Logger) (*Server, error) {
 		bootstrapClient = client
 	}
 
-	return &Server{
+	srv := &Server{
 		cfg:             cfg,
 		logger:          logger,
 		debug:           debug,
 		bootstrapClient: bootstrapClient,
-		current:         current,
-	}, nil
-}
+		initial:         initial,
+		sessionTTL:      30 * time.Minute,
+		sessions:        map[string]*sessionData{},
+	}
+	srv.sdkServer = srv.newMCPServer()
+	srv.httpHandler = mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server {
+		return srv.sdkServer
+	}, &mcp.StreamableHTTPOptions{
+		Logger:         logger,
+		SessionTimeout: srv.sessionTTL,
+	})
 
-type rpcRequest struct {
-	JSONRPC string          `json:"jsonrpc"`
-	ID      json.RawMessage `json:"id,omitempty"`
-	Method  string          `json:"method"`
-	Params  json.RawMessage `json:"params,omitempty"`
-}
+	// Start channel polling loop for HTTP transport (stdio starts it in Serve).
+	ctx, cancel := context.WithCancel(context.Background())
+	srv.channelCancel = cancel
+	go srv.startChannelLoop(ctx)
 
-type rpcResponse struct {
-	JSONRPC string    `json:"jsonrpc"`
-	ID      any       `json:"id,omitempty"`
-	Result  any       `json:"result,omitempty"`
-	Error   *rpcError `json:"error,omitempty"`
-}
-
-type rpcError struct {
-	Code    int    `json:"code"`
-	Message string `json:"message"`
+	return srv, nil
 }
 
 func (s *Server) Serve(ctx context.Context, in io.Reader, out io.Writer) error {
-	reader := bufio.NewReader(in)
-	writer := bufio.NewWriter(out)
-	defer writer.Flush()
-	s.debugf("serve start")
-
-	for {
-		payload, err := readRPCMessage(reader)
-		if err != nil {
-			if errors.Is(err, io.EOF) {
-				s.debugf("serve EOF")
-				return nil
-			}
-			s.debugf("serve read error: %v", err)
-			return err
-		}
-		s.debugf("serve received payload bytes=%d", len(payload))
-
-		if len(payload) == 0 {
-			continue
-		}
-
-		if payload[0] == '[' {
-			var batch []json.RawMessage
-			if err := json.Unmarshal(payload, &batch); err != nil {
-				if err := writeRPCMessage(writer, rpcResponse{
-					JSONRPC: "2.0",
-					Error:   &rpcError{Code: -32700, Message: "invalid JSON batch"},
-				}); err != nil {
-					return err
-				}
-				continue
-			}
-			for _, msg := range batch {
-				if err := s.handleOne(ctx, msg, writer); err != nil {
-					return err
-				}
-			}
-			continue
-		}
-
-		if err := s.handleOne(ctx, payload, writer); err != nil {
-			return err
-		}
+	reader := io.NopCloser(in)
+	if rc, ok := in.(io.ReadCloser); ok {
+		reader = rc
 	}
-}
 
-func (s *Server) HTTPHandler() http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			w.Header().Set("Allow", http.MethodPost)
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
+	var writer io.WriteCloser = nopWriteCloser{Writer: out}
+	if wc, ok := out.(io.WriteCloser); ok {
+		writer = wc
+	}
 
-		payload, err := io.ReadAll(r.Body)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
-		}
+	go s.startChannelLoop(ctx)
 
-		w.Header().Set("Content-Type", "application/json")
-		w.Header().Set("MCP-Protocol-Version", defaultProtocolVersion)
-
-		if len(payload) == 0 {
-			http.Error(w, "empty request body", http.StatusBadRequest)
-			return
-		}
-
-		if payload[0] == '[' {
-			var batch []json.RawMessage
-			if err := json.Unmarshal(payload, &batch); err != nil {
-				_ = json.NewEncoder(w).Encode(rpcResponse{
-					JSONRPC: "2.0",
-					Error:   &rpcError{Code: -32700, Message: "invalid JSON batch"},
-				})
-				return
-			}
-
-			responses := make([]rpcResponse, 0, len(batch))
-			for _, msg := range batch {
-				resp, ok := s.decodeAndDispatch(r.Context(), msg)
-				if ok {
-					responses = append(responses, resp)
-				}
-			}
-			if len(responses) == 0 {
-				w.WriteHeader(http.StatusAccepted)
-				return
-			}
-			_ = json.NewEncoder(w).Encode(responses)
-			return
-		}
-
-		resp, ok := s.decodeAndDispatch(r.Context(), payload)
-		if !ok {
-			w.WriteHeader(http.StatusAccepted)
-			return
-		}
-		_ = json.NewEncoder(w).Encode(resp)
+	return s.sdkServer.Run(ctx, &mcp.IOTransport{
+		Reader: reader,
+		Writer: writer,
 	})
 }
 
-func (s *Server) handleOne(ctx context.Context, payload []byte, writer *bufio.Writer) error {
-	resp, ok := s.decodeAndDispatch(ctx, payload)
-	if !ok {
-		return nil
-	}
-	return writeRPCMessage(writer, resp)
+func (s *Server) HTTPHandler() http.Handler {
+	return s.httpHandler
 }
 
-func (s *Server) decodeAndDispatch(ctx context.Context, payload []byte) (rpcResponse, bool) {
-	var req rpcRequest
-	if err := json.Unmarshal(payload, &req); err != nil {
-		return rpcResponse{
-			JSONRPC: "2.0",
-			Error:   &rpcError{Code: -32700, Message: "invalid JSON"},
-		}, true
-	}
-
-	return s.dispatch(ctx, req)
+type nopWriteCloser struct {
+	io.Writer
 }
 
-func (s *Server) dispatch(ctx context.Context, req rpcRequest) (rpcResponse, bool) {
-	s.debugf("dispatch method=%s", req.Method)
-	var id any
-	if len(req.ID) > 0 {
-		if err := json.Unmarshal(req.ID, &id); err != nil {
-			id = string(req.ID)
+func (nopWriteCloser) Close() error { return nil }
+
+func (s *Server) newMCPServer() *mcp.Server {
+	server := mcp.NewServer(&mcp.Implementation{
+		Name:    "teraslack-mcp",
+		Version: "0.3.0",
+	}, &mcp.ServerOptions{
+		Logger:    s.logger,
+		KeepAlive: 30 * time.Second,
+		Capabilities: &mcp.ServerCapabilities{
+			Experimental: map[string]any{
+				"claude/channel": map[string]any{},
+			},
+		},
+		Instructions: "Incoming Teraslack messages arrive as <channel source=\"teraslack\" channel_id=\"...\" sender_id=\"...\" sender_name=\"...\">. " +
+			"To respond, use the send_message tool with the channel_id from the tag.",
+	})
+
+	for _, spec := range s.tools() {
+		name, _ := spec["name"].(string)
+		if name == "" {
+			continue
 		}
+		description, _ := spec["description"].(string)
+		server.AddTool(&mcp.Tool{
+			Name:        name,
+			Description: description,
+			InputSchema: spec["inputSchema"],
+		}, s.mcpToolHandler(name))
 	}
 
-	switch req.Method {
-	case "initialize":
-		var params struct {
-			ProtocolVersion string `json:"protocolVersion"`
-		}
-		_ = json.Unmarshal(req.Params, &params)
-		protocolVersion := params.ProtocolVersion
-		if protocolVersion == "" {
-			protocolVersion = defaultProtocolVersion
-		}
+	return server
+}
 
-		return rpcResponse{
-			JSONRPC: "2.0",
-			ID:      id,
-			Result: map[string]any{
-				"protocolVersion": protocolVersion,
-				"capabilities": map[string]any{
-					"tools": map[string]any{
-						"listChanged": false,
-					},
-				},
-				"serverInfo": map[string]any{
-					"name":    "teraslack-mcp",
-					"version": "0.2.0",
-				},
-			},
-		}, true
-	case "notifications/initialized":
-		return rpcResponse{}, false
-	case "ping":
-		return rpcResponse{
-			JSONRPC: "2.0",
-			ID:      id,
-			Result:  map[string]any{},
-		}, true
-	case "tools/list":
-		return rpcResponse{
-			JSONRPC: "2.0",
-			ID:      id,
-			Result: map[string]any{
-				"tools": s.tools(),
-			},
-		}, true
-	case "tools/call":
-		result, err := s.callTool(ctx, req.Params)
+func (s *Server) mcpToolHandler(name string) mcp.ToolHandler {
+	return func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		ctx = context.WithValue(ctx, sessionContextKey{}, req.Session)
+		raw, err := json.Marshal(struct {
+			Name      string          `json:"name"`
+			Arguments json.RawMessage `json:"arguments,omitempty"`
+		}{
+			Name:      name,
+			Arguments: req.Params.Arguments,
+		})
 		if err != nil {
-			return rpcResponse{
-				JSONRPC: "2.0",
-				ID:      id,
-				Result: map[string]any{
-					"content": []map[string]any{{
-						"type": "text",
-						"text": err.Error(),
-					}},
-					"isError": true,
-				},
-			}, true
+			return nil, fmt.Errorf("marshal tool call: %w", err)
 		}
-		return rpcResponse{
-			JSONRPC: "2.0",
-			ID:      id,
-			Result: map[string]any{
-				"content": []map[string]any{{
-					"type": "text",
-					"text": result,
-				}},
+
+		resultText, err := s.callTool(ctx, raw)
+		if err != nil {
+			result := &mcp.CallToolResult{}
+			result.SetError(err)
+			return result, nil
+		}
+
+		result := &mcp.CallToolResult{
+			Content: []mcp.Content{
+				&mcp.TextContent{Text: resultText},
 			},
-		}, true
-	default:
-		return rpcResponse{
-			JSONRPC: "2.0",
-			ID:      id,
-			Error:   &rpcError{Code: -32601, Message: "method not found"},
-		}, true
+		}
+
+		var structured map[string]any
+		if err := json.Unmarshal([]byte(resultText), &structured); err == nil {
+			result.StructuredContent = structured
+		}
+
+		return result, nil
 	}
 }
 
@@ -377,7 +285,7 @@ func (s *Server) tools() []map[string]any {
 	return []map[string]any{
 		{
 			"name":        "register",
-			"description": "Create or reuse a Teraslack agent identity by name using the configured bootstrap token, issue a scoped API key for it, and switch this MCP session to act as that identity.",
+			"description": "Create or reuse a Teraslack agent identity by name using the configured system API key, issue a scoped API key for it, and switch this MCP session to act as that identity.",
 			"inputSchema": map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -417,6 +325,43 @@ func (s *Server) tools() []map[string]any {
 		{
 			"name":        "whoami",
 			"description": "Return the active Teraslack identity for this MCP session and whether bootstrap registration is available.",
+			"inputSchema": map[string]any{
+				"type":                 "object",
+				"properties":           map[string]any{},
+				"additionalProperties": false,
+			},
+		},
+		{
+			"name":        "list_owned_identities",
+			"description": "List Teraslack agent identities owned by the approving human for this MCP session.",
+			"inputSchema": map[string]any{
+				"type":                 "object",
+				"properties":           map[string]any{},
+				"additionalProperties": false,
+			},
+		},
+		{
+			"name":        "switch_identity",
+			"description": "Switch this MCP session to an existing owned Teraslack agent identity by user_id, name, or email.",
+			"inputSchema": map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"user_id": map[string]any{
+						"type": "string",
+					},
+					"name": map[string]any{
+						"type": "string",
+					},
+					"email": map[string]any{
+						"type": "string",
+					},
+				},
+				"additionalProperties": false,
+			},
+		},
+		{
+			"name":        "reset_identity",
+			"description": "Reset this MCP session back to its auto-provisioned session agent identity.",
 			"inputSchema": map[string]any{
 				"type":                 "object",
 				"properties":           map[string]any{},
@@ -474,23 +419,8 @@ func (s *Server) tools() []map[string]any {
 					"text": map[string]any{
 						"type": "string",
 					},
-					"notification_targets": map[string]any{
-						"type": "array",
-						"items": map[string]any{
-							"type": "string",
-						},
-					},
-					"notification_kind": map[string]any{
-						"type": "string",
-					},
-					"notification_reason": map[string]any{
-						"type": "string",
-					},
-					"notification_title": map[string]any{
-						"type": "string",
-					},
-					"notification_body_preview": map[string]any{
-						"type": "string",
+					"metadata": map[string]any{
+						"type": "object",
 					},
 				},
 				"required":             []string{"text"},
@@ -545,8 +475,63 @@ func (s *Server) tools() []map[string]any {
 			},
 		},
 		{
+			"name":        "subscribe_conversation",
+			"description": "Create a future-only event subscription for a Teraslack conversation and return a cursor-backed subscription id.",
+			"inputSchema": map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"channel_id": map[string]any{
+						"type": "string",
+					},
+				},
+				"additionalProperties": false,
+			},
+		},
+		{
+			"name":        "next_event",
+			"description": "Wait for the next matching event on a previously subscribed Teraslack conversation.",
+			"inputSchema": map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"subscription_id": map[string]any{
+						"type": "string",
+					},
+					"event_type": map[string]any{
+						"type": "string",
+					},
+					"text": map[string]any{
+						"type": "string",
+					},
+					"contains_text": map[string]any{
+						"type": "string",
+					},
+					"from_email": map[string]any{
+						"type": "string",
+					},
+					"from_user_id": map[string]any{
+						"type": "string",
+					},
+					"include_self": map[string]any{
+						"type": "boolean",
+					},
+					"timeout_seconds": map[string]any{
+						"type":    "integer",
+						"minimum": 1,
+						"maximum": 300,
+					},
+					"poll_interval_ms": map[string]any{
+						"type":    "integer",
+						"minimum": 100,
+						"maximum": 10000,
+					},
+				},
+				"required":             []string{"subscription_id"},
+				"additionalProperties": false,
+			},
+		},
+		{
 			"name":        "api_request",
-			"description": "Call any Teraslack HTTP API over MCP. By default it uses the active identity; set auth_scope to bootstrap to use the bootstrap token instead.",
+			"description": "Call any Teraslack HTTP API over MCP. By default it uses the active identity; set auth_scope to bootstrap to use the system API key instead.",
 			"inputSchema": map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -571,12 +556,18 @@ func (s *Server) tools() []map[string]any {
 			},
 		},
 		{
-			"name":        "list_notifications",
-			"description": "List recent synthesized inbox-style summaries derived from external events.",
+			"name":        "list_events",
+			"description": "List recent external events from the Teraslack event stream.",
 			"inputSchema": map[string]any{
 				"type": "object",
 				"properties": map[string]any{
-					"kind": map[string]any{
+					"type": map[string]any{
+						"type": "string",
+					},
+					"resource_type": map[string]any{
+						"type": "string",
+					},
+					"resource_id": map[string]any{
 						"type": "string",
 					},
 					"limit": map[string]any{
@@ -589,18 +580,18 @@ func (s *Server) tools() []map[string]any {
 			},
 		},
 		{
-			"name":        "wait_for_notification",
-			"description": "Wait until a matching synthesized notification appears from the external event stream.",
+			"name":        "wait_for_events",
+			"description": "Wait until a matching external event appears from the Teraslack event stream.",
 			"inputSchema": map[string]any{
 				"type": "object",
 				"properties": map[string]any{
-					"kind": map[string]any{
+					"type": map[string]any{
 						"type": "string",
 					},
-					"body_preview": map[string]any{
+					"resource_type": map[string]any{
 						"type": "string",
 					},
-					"from_email": map[string]any{
+					"resource_id": map[string]any{
 						"type": "string",
 					},
 					"timeout_seconds": map[string]any{
@@ -629,8 +620,17 @@ func (s *Server) tools() []map[string]any {
 					"text": map[string]any{
 						"type": "string",
 					},
+					"contains_text": map[string]any{
+						"type": "string",
+					},
 					"from_email": map[string]any{
 						"type": "string",
+					},
+					"from_user_id": map[string]any{
+						"type": "string",
+					},
+					"include_existing": map[string]any{
+						"type": "boolean",
 					},
 					"timeout_seconds": map[string]any{
 						"type":    "integer",
@@ -663,6 +663,12 @@ func (s *Server) callTool(ctx context.Context, raw json.RawMessage) (string, err
 		return s.handleRegister(ctx, req.Arguments)
 	case "whoami":
 		return s.handleWhoAmI(ctx)
+	case "list_owned_identities":
+		return s.handleListOwnedIdentities(ctx)
+	case "switch_identity":
+		return s.handleSwitchIdentity(ctx, req.Arguments)
+	case "reset_identity":
+		return s.handleResetIdentity(ctx)
 	case "search_users":
 		return s.handleSearchUsers(ctx, req.Arguments)
 	case "create_dm":
@@ -673,12 +679,16 @@ func (s *Server) callTool(ctx context.Context, raw json.RawMessage) (string, err
 		return s.handleListMessages(ctx, req.Arguments)
 	case "wait_for_event":
 		return s.handleWaitForEvent(ctx, req.Arguments)
+	case "subscribe_conversation":
+		return s.handleSubscribeConversation(ctx, req.Arguments)
+	case "next_event":
+		return s.handleNextEvent(ctx, req.Arguments)
 	case "api_request":
 		return s.handleAPIRequest(ctx, req.Arguments)
-	case "list_notifications":
-		return s.handleListNotifications(ctx, req.Arguments)
-	case "wait_for_notification":
-		return s.handleWaitForNotification(ctx, req.Arguments)
+	case "list_events":
+		return s.handleListEvents(ctx, req.Arguments)
+	case "wait_for_events":
+		return s.handleWaitForEvents(ctx, req.Arguments)
 	case "wait_for_message":
 		return s.handleWaitForMessage(ctx, req.Arguments)
 	default:
@@ -687,9 +697,20 @@ func (s *Server) callTool(ctx context.Context, raw json.RawMessage) (string, err
 }
 
 func (s *Server) handleRegister(ctx context.Context, args map[string]any) (string, error) {
+	owner, err := s.ownerState(ctx)
+	if err != nil {
+		return "", err
+	}
+	if len(owner.OAuthScopes) > 0 {
+		return "", fmt.Errorf("register is unavailable for OAuth-backed MCP sessions; a session identity is provisioned automatically")
+	}
 	bootstrap := s.bootstrap()
 	if bootstrap == nil {
-		return "", fmt.Errorf("register requires a configured bootstrap token")
+		return "", fmt.Errorf("register requires a configured system API key")
+	}
+	current, err := s.currentState(ctx)
+	if err != nil {
+		return "", err
 	}
 
 	name := strings.TrimSpace(stringArg(args, "name", ""))
@@ -737,9 +758,7 @@ func (s *Server) handleRegister(ctx context.Context, args map[string]any) (strin
 
 	key, secret, err := bootstrap.CreateAPIKey(ctx, domain.CreateAPIKeyParams{
 		Name:        apiKeyName,
-		PrincipalID: user.ID,
-		Type:        domain.APIKeyTypePersistent,
-		Environment: domain.APIKeyEnvLive,
+		UserID:      user.ID,
 		Permissions: permissions,
 		ExpiresIn:   strings.TrimSpace(stringArg(args, "expires_in", "")),
 	})
@@ -752,15 +771,14 @@ func (s *Server) handleRegister(ctx context.Context, args map[string]any) (strin
 		return "", err
 	}
 
-	current, _ := s.currentState(ctx)
 	current.Token = secret
-	current.TeamID = firstNonEmpty(key.TeamID, user.TeamID, current.TeamID, s.cfg.TeamID)
+	current.WorkspaceID = firstNonEmpty(key.WorkspaceID, user.WorkspaceID, current.WorkspaceID, s.cfg.WorkspaceID)
 	current.UserID = user.ID
 	current.UserName = user.Name
 	current.UserEmail = user.Email
 	current.ChannelID = ""
 	current.client = client
-	s.setCurrentState(current)
+	s.setCurrentState(ctx, current)
 
 	return marshalToolResult(map[string]any{
 		"status": "registered",
@@ -773,8 +791,8 @@ func (s *Server) handleRegister(ctx context.Context, args map[string]any) (strin
 		},
 		"api_key": map[string]any{
 			"id":           key.ID,
-			"team_id":      key.TeamID,
-			"principal_id": key.PrincipalID,
+			"workspace_id": key.WorkspaceID,
+			"user_id":      key.UserID,
 			"permissions":  key.Permissions,
 		},
 	})
@@ -785,13 +803,18 @@ func (s *Server) handleWhoAmI(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	owner, err := s.ownerState(ctx)
+	if err != nil {
+		return "", err
+	}
+	data := s.sessionDataForContext(ctx)
 
 	result := map[string]any{
 		"registered":          current.client != nil,
-		"bootstrap_available": s.bootstrap() != nil,
+		"bootstrap_available": s.bootstrapAvailable(owner),
 	}
-	if current.TeamID != "" {
-		result["team_id"] = current.TeamID
+	if current.WorkspaceID != "" {
+		result["workspace_id"] = current.WorkspaceID
 	}
 	if current.client != nil {
 		result["user"] = map[string]any{
@@ -799,6 +822,34 @@ func (s *Server) handleWhoAmI(ctx context.Context) (string, error) {
 			"name":  current.UserName,
 			"email": current.UserEmail,
 		}
+	}
+	if owner.UserID != "" {
+		result["owner"] = map[string]any{
+			"id":    owner.UserID,
+			"name":  owner.UserName,
+			"email": owner.UserEmail,
+		}
+	}
+	if data.sessionIdentity.UserID != "" {
+		result["session_identity"] = map[string]any{
+			"id":    data.sessionIdentity.UserID,
+			"name":  data.sessionIdentity.UserName,
+			"email": data.sessionIdentity.UserEmail,
+		}
+	}
+	switch {
+	case current.UserID != "" && current.UserID == data.sessionIdentity.UserID:
+		result["identity_mode"] = "session"
+	case current.UserID != "" && current.UserID == owner.UserID:
+		result["identity_mode"] = "owner"
+	default:
+		result["identity_mode"] = "switched"
+	}
+	if len(current.Permissions) > 0 {
+		result["permissions"] = current.Permissions
+	}
+	if len(current.OAuthScopes) > 0 {
+		result["scopes"] = current.OAuthScopes
 	}
 	if current.PeerUserID != "" || current.PeerUserName != "" || current.PeerUserEmail != "" {
 		result["peer"] = map[string]any{
@@ -815,6 +866,77 @@ func (s *Server) handleWhoAmI(ctx context.Context) (string, error) {
 	return marshalToolResult(result)
 }
 
+func (s *Server) handleListOwnedIdentities(ctx context.Context) (string, error) {
+	owner, err := s.ownerState(ctx)
+	if err != nil {
+		return "", err
+	}
+	users, err := s.listOwnedAgentUsers(ctx, owner)
+	if err != nil {
+		return "", err
+	}
+	data := s.sessionDataForContext(ctx)
+	out := make([]map[string]any, 0, len(users))
+	for _, user := range users {
+		out = append(out, map[string]any{
+			"id":             user.ID,
+			"name":           user.Name,
+			"email":          user.Email,
+			"owner_id":       user.OwnerID,
+			"principal_type": user.PrincipalType,
+			"is_bot":         user.IsBot,
+			"current":        user.ID == data.current.UserID,
+			"session":        user.ID == data.sessionIdentity.UserID,
+		})
+	}
+	return marshalToolResult(map[string]any{"identities": out})
+}
+
+func (s *Server) handleSwitchIdentity(ctx context.Context, args map[string]any) (string, error) {
+	owner, err := s.ownerState(ctx)
+	if err != nil {
+		return "", err
+	}
+	user, err := s.resolveOwnedAgentUser(ctx, owner, args)
+	if err != nil {
+		return "", err
+	}
+	state, err := s.issueSessionStateForUser(ctx, owner, user, fmt.Sprintf("%s shared MCP key", user.Name))
+	if err != nil {
+		return "", err
+	}
+	s.setCurrentState(ctx, state)
+	return marshalToolResult(map[string]any{
+		"status": "switched",
+		"user": map[string]any{
+			"id":             user.ID,
+			"name":           user.Name,
+			"email":          user.Email,
+			"principal_type": user.PrincipalType,
+			"is_bot":         user.IsBot,
+		},
+	})
+}
+
+func (s *Server) handleResetIdentity(ctx context.Context) (string, error) {
+	data := s.sessionDataForContext(ctx)
+	if err := s.ensureSessionIdentity(ctx, data); err != nil {
+		return "", err
+	}
+	if data.sessionIdentity.client == nil || data.sessionIdentity.UserID == "" {
+		return "", fmt.Errorf("no session identity is configured for this MCP session")
+	}
+	s.setCurrentState(ctx, data.sessionIdentity)
+	return marshalToolResult(map[string]any{
+		"status": "reset",
+		"user": map[string]any{
+			"id":    data.sessionIdentity.UserID,
+			"name":  data.sessionIdentity.UserName,
+			"email": data.sessionIdentity.UserEmail,
+		},
+	})
+}
+
 func (s *Server) handleSearchUsers(ctx context.Context, args map[string]any) (string, error) {
 	current, err := s.requireCurrentState(ctx)
 	if err != nil {
@@ -828,15 +950,21 @@ func (s *Server) handleSearchUsers(ctx context.Context, args map[string]any) (st
 	limit := intArg(args, "limit", 20)
 	exact := boolArg(args, "exact", false)
 
+	// Use API email filter when the query looks like an email and exact match is requested.
+	emailFilter := ""
+	if exact && strings.Contains(query, "@") {
+		emailFilter = query
+	}
+
 	var out []map[string]any
 	cursor := ""
 	for len(out) < limit {
-		page, err := current.client.ListUsers(ctx, current.TeamID, cursor, 100)
+		page, err := current.client.ListUsers(ctx, current.WorkspaceID, cursor, emailFilter, 100)
 		if err != nil {
 			return "", err
 		}
 		for _, user := range page.Items {
-			if !userMatchesQuery(user, query, exact) {
+			if emailFilter == "" && !userMatchesQuery(user, query, exact) {
 				continue
 			}
 			out = append(out, map[string]any{
@@ -886,7 +1014,7 @@ func (s *Server) handleCreateDM(ctx context.Context, args map[string]any) (strin
 	setDefault := boolArg(args, "set_default", true)
 	if setDefault {
 		current.ChannelID = conv.ID
-		s.setCurrentState(current)
+		s.setCurrentState(ctx, current)
 	}
 
 	return marshalToolResult(map[string]any{
@@ -912,13 +1040,14 @@ func (s *Server) handleSendMessage(ctx context.Context, args map[string]any) (st
 		return "", fmt.Errorf("channel_id is required unless a default conversation is already set")
 	}
 
-	msg, err := current.client.PostMessage(ctx, channelID, current.UserID, text, notificationMetadataFromArgs(args))
+	metadata := mapArg(args, "metadata")
+	msg, err := current.client.PostMessage(ctx, channelID, current.UserID, text, metadata)
 	if err != nil {
 		return "", err
 	}
 	if current.ChannelID == "" {
 		current.ChannelID = channelID
-		s.setCurrentState(current)
+		s.setCurrentState(ctx, current)
 	}
 
 	s.logger.Info("sent teraslack message", "channel_id", channelID, "user_email", current.UserEmail, "text", text, "ts", msg.TS)
@@ -1001,6 +1130,94 @@ func (s *Server) handleWaitForEvent(ctx context.Context, args map[string]any) (s
 	}
 }
 
+func (s *Server) handleSubscribeConversation(ctx context.Context, args map[string]any) (string, error) {
+	current, err := s.requireCurrentState(ctx)
+	if err != nil {
+		return "", err
+	}
+
+	channelID := s.resolveChannelID(current, args)
+	if channelID == "" {
+		return "", fmt.Errorf("channel_id is required unless a default conversation is already set")
+	}
+
+	cursor, err := s.currentEventCursor(ctx, current.client)
+	if err != nil {
+		return "", err
+	}
+
+	subscriptionID := s.createConversationSubscription(ctx, current, channelID, cursor)
+	return marshalToolResult(map[string]any{
+		"status":          "subscribed",
+		"subscription_id": subscriptionID,
+		"channel_id":      channelID,
+		"after_event_id":  cursor,
+	})
+}
+
+func (s *Server) handleNextEvent(ctx context.Context, args map[string]any) (string, error) {
+	subscriptionID := strings.TrimSpace(stringArg(args, "subscription_id", ""))
+	if subscriptionID == "" {
+		return "", fmt.Errorf("subscription_id is required")
+	}
+
+	subscription, ok := s.conversationSubscription(ctx, subscriptionID)
+	if !ok {
+		return "", fmt.Errorf("unknown subscription %q", subscriptionID)
+	}
+
+	eventType := strings.TrimSpace(stringArg(args, "event_type", ""))
+	wantText := stringArg(args, "text", "")
+	wantContains := stringArg(args, "contains_text", "")
+	wantEmail := stringArg(args, "from_email", "")
+	wantUserID := stringArg(args, "from_user_id", "")
+	includeSelf := boolArg(args, "include_self", false)
+	timeout := time.Duration(intArg(args, "timeout_seconds", 30)) * time.Second
+	pollInterval := time.Duration(intArg(args, "poll_interval_ms", 500)) * time.Millisecond
+
+	deadline := time.Now().Add(timeout)
+	cursor := subscription.Cursor
+
+	for {
+		page, err := subscription.State.client.ListEventPage(ctx, cursor, "", domain.ResourceTypeConversation, subscription.ChannelID, 50)
+		if err != nil {
+			return "", err
+		}
+		for _, event := range page.Items {
+			cursor = strconv.FormatInt(event.ID, 10)
+			s.updateConversationSubscriptionCursor(ctx, subscriptionID, cursor)
+
+			if !s.conversationEventMatches(subscription.State, event, eventType, wantUserID, wantEmail, wantText, wantContains, includeSelf) {
+				continue
+			}
+
+			result := map[string]any{
+				"status":          "received",
+				"subscription_id": subscriptionID,
+				"channel_id":      subscription.ChannelID,
+				"cursor":          cursor,
+				"event":           event,
+			}
+			if summary, ok := s.messageSummaryFromEvent(subscription.State, event); ok {
+				result["message"] = summary
+			}
+			return marshalToolResult(result)
+		}
+		if page.NextCursor != "" && page.NextCursor != cursor {
+			cursor = page.NextCursor
+			s.updateConversationSubscriptionCursor(ctx, subscriptionID, cursor)
+		}
+		if time.Now().After(deadline) {
+			return "", fmt.Errorf("timed out waiting for next matching event after %s", timeout)
+		}
+		select {
+		case <-ctx.Done():
+			return "", ctx.Err()
+		case <-time.After(pollInterval):
+		}
+	}
+}
+
 func (s *Server) handleAPIRequest(ctx context.Context, args map[string]any) (string, error) {
 	scope := strings.TrimSpace(stringArg(args, "auth_scope", ""))
 	client, resolvedScope, err := s.clientForScope(ctx, scope)
@@ -1035,43 +1252,34 @@ func (s *Server) handleAPIRequest(ctx context.Context, args map[string]any) (str
 	})
 }
 
-func (s *Server) handleListNotifications(ctx context.Context, args map[string]any) (string, error) {
+func (s *Server) handleListEvents(ctx context.Context, args map[string]any) (string, error) {
 	current, err := s.requireCurrentState(ctx)
 	if err != nil {
 		return "", err
 	}
 
-	kind := stringArg(args, "kind", "")
+	eventType := stringArg(args, "type", "")
+	resourceType := stringArg(args, "resource_type", "")
+	resourceID := stringArg(args, "resource_id", "")
 	limit := intArg(args, "limit", 20)
-	events, err := current.client.ListEvents(ctx, "", "", "", "", limit)
+	events, err := current.client.ListEvents(ctx, "", eventType, resourceType, resourceID, limit)
 	if err != nil {
 		return "", err
 	}
-	out := make([]notificationSummary, 0, len(events))
-	for _, event := range events {
-		summary, ok := s.summarizeEventNotification(current, event)
-		if !ok {
-			continue
-		}
-		if kind != "" && summary.Kind != kind {
-			continue
-		}
-		out = append(out, summary)
-	}
 	return marshalToolResult(map[string]any{
-		"notifications": out,
+		"events": events,
 	})
 }
 
-func (s *Server) handleWaitForNotification(ctx context.Context, args map[string]any) (string, error) {
+func (s *Server) handleWaitForEvents(ctx context.Context, args map[string]any) (string, error) {
 	current, err := s.requireCurrentState(ctx)
 	if err != nil {
 		return "", err
 	}
 
-	wantKind := stringArg(args, "kind", "")
-	wantPreview := stringArg(args, "body_preview", "")
-	wantEmail := stringArg(args, "from_email", current.PeerUserEmail)
+	eventType := stringArg(args, "type", "")
+	resourceType := stringArg(args, "resource_type", "")
+	resourceID := stringArg(args, "resource_id", "")
 	timeout := time.Duration(intArg(args, "timeout_seconds", 30)) * time.Second
 	pollInterval := time.Duration(intArg(args, "poll_interval_ms", 500)) * time.Millisecond
 
@@ -1081,34 +1289,21 @@ func (s *Server) handleWaitForNotification(ctx context.Context, args map[string]
 	}
 	deadline := time.Now().Add(timeout)
 	for {
-		page, err := current.client.ListEventPage(ctx, cursor, "", "", "", 50)
+		page, err := current.client.ListEventPage(ctx, cursor, eventType, resourceType, resourceID, 50)
 		if err != nil {
 			return "", err
 		}
 		for _, event := range page.Items {
-			summary, ok := s.summarizeEventNotification(current, event)
-			if !ok {
-				continue
-			}
-			if wantKind != "" && summary.Kind != wantKind {
-				continue
-			}
-			if wantPreview != "" && summary.BodyPreview != wantPreview {
-				continue
-			}
-			if wantEmail != "" && summary.ActorEmail != wantEmail {
-				continue
-			}
 			return marshalToolResult(map[string]any{
-				"status":       "received",
-				"notification": summary,
+				"status": "received",
+				"event":  event,
 			})
 		}
 		if page.NextCursor != "" {
 			cursor = page.NextCursor
 		}
 		if time.Now().After(deadline) {
-			return "", fmt.Errorf("timed out waiting for matching notification after %s", timeout)
+			return "", fmt.Errorf("timed out waiting for matching event after %s", timeout)
 		}
 		select {
 		case <-ctx.Done():
@@ -1129,9 +1324,20 @@ func (s *Server) handleWaitForMessage(ctx context.Context, args map[string]any) 
 		return "", fmt.Errorf("channel_id is required unless a default conversation is already set")
 	}
 	wantText := stringArg(args, "text", "")
+	wantContains := stringArg(args, "contains_text", "")
 	wantEmail := stringArg(args, "from_email", current.PeerUserEmail)
+	wantUserID := stringArg(args, "from_user_id", current.PeerUserID)
+	includeExisting := boolArg(args, "include_existing", false)
 	timeout := time.Duration(intArg(args, "timeout_seconds", 30)) * time.Second
 	pollInterval := time.Duration(intArg(args, "poll_interval_ms", 500)) * time.Millisecond
+
+	afterTS := ""
+	if !includeExisting {
+		afterTS, err = s.currentTopLevelMessageTS(ctx, current.client, channelID)
+		if err != nil {
+			return "", err
+		}
+	}
 
 	deadline := time.Now().Add(timeout)
 	for {
@@ -1141,13 +1347,22 @@ func (s *Server) handleWaitForMessage(ctx context.Context, args map[string]any) 
 		}
 		for _, msg := range msgs {
 			summary := s.summarizeMessage(current, msg)
+			if !includeExisting && compareMessageTS(summary.TS, afterTS) <= 0 {
+				continue
+			}
 			if summary.UserID == current.UserID || msg.IsDeleted || msg.ThreadTS != nil {
 				continue
 			}
 			if wantText != "" && summary.Text != wantText {
 				continue
 			}
+			if wantContains != "" && !strings.Contains(summary.Text, wantContains) {
+				continue
+			}
 			if wantEmail != "" && summary.SenderEmail != wantEmail {
+				continue
+			}
+			if wantUserID != "" && summary.UserID != wantUserID {
 				continue
 			}
 			s.logger.Info("matched teraslack message", "channel_id", channelID, "sender_email", summary.SenderEmail, "text", summary.Text, "ts", summary.TS)
@@ -1175,39 +1390,94 @@ type messageSummary struct {
 	SenderEmail string `json:"sender_email"`
 }
 
-type notificationSummary struct {
-	ID          int64  `json:"id"`
-	Kind        string `json:"kind"`
-	Reason      string `json:"reason"`
-	ActorID     string `json:"actor_id"`
-	ActorEmail  string `json:"actor_email"`
-	ChannelID   string `json:"channel_id"`
-	MessageTS   string `json:"message_ts"`
-	Title       string `json:"title"`
-	BodyPreview string `json:"body_preview"`
-	State       string `json:"state"`
-}
-
 func (s *Server) bootstrap() *Client {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.bootstrapClient
 }
 
-func (s *Server) setCurrentState(state sessionState) {
+func (s *Server) sessionDataForContext(ctx context.Context) *sessionData {
+	key := s.sessionKeyFromContext(ctx)
+	now := time.Now()
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.current = state
+
+	if s.sessions == nil {
+		s.sessions = make(map[string]*sessionData)
+	}
+	if s.sessionTTL > 0 {
+		for sessionKey, data := range s.sessions {
+			if now.Sub(data.lastAccess) > s.sessionTTL {
+				delete(s.sessions, sessionKey)
+			}
+		}
+	}
+
+	data, ok := s.sessions[key]
+	if !ok {
+		data = &sessionData{
+			owner:              s.initial,
+			current:            s.initial,
+			nextSubscriptionID: 1,
+			subscriptions:      map[string]conversationSubscription{},
+			lastAccess:         now,
+		}
+		s.sessions[key] = data
+	} else {
+		data.lastAccess = now
+	}
+
+	return data
+}
+
+func (s *Server) sessionKeyFromContext(ctx context.Context) string {
+	if ctx != nil {
+		if session, ok := ctx.Value(sessionContextKey{}).(*mcp.ServerSession); ok && session != nil {
+			if id := strings.TrimSpace(session.ID()); id != "" {
+				return id
+			}
+			return fmt.Sprintf("stdio:%p", session)
+		}
+	}
+	return "default"
+}
+
+func (s *Server) setCurrentState(ctx context.Context, state sessionState) {
+	data := s.sessionDataForContext(ctx)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	data.current = state
 }
 
 func (s *Server) currentState(ctx context.Context) (sessionState, error) {
-	s.mu.RLock()
-	state := s.current
-	s.mu.RUnlock()
+	data := s.sessionDataForContext(ctx)
+	if err := s.ensureSessionIdentity(ctx, data); err != nil {
+		return sessionState{}, err
+	}
+	state := data.current
+	return s.hydrateState(ctx, state, func(next sessionState) {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		data.current = next
+	})
+}
+
+func (s *Server) ownerState(ctx context.Context) (sessionState, error) {
+	data := s.sessionDataForContext(ctx)
+	state := data.owner
+	return s.hydrateState(ctx, state, func(next sessionState) {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		data.owner = next
+	})
+}
+
+func (s *Server) hydrateState(ctx context.Context, state sessionState, persist func(sessionState)) (sessionState, error) {
 	if state.client == nil {
 		return state, nil
 	}
-	if state.TeamID != "" && state.UserID != "" && state.UserEmail != "" {
+	if state.WorkspaceID != "" && state.UserID != "" && state.UserEmail != "" && len(state.Permissions) > 0 && len(state.OAuthScopes) > 0 {
 		return state, nil
 	}
 
@@ -1215,8 +1485,8 @@ func (s *Server) currentState(ctx context.Context) (sessionState, error) {
 	if err != nil {
 		return sessionState{}, err
 	}
-	if state.TeamID == "" {
-		state.TeamID = auth.TeamID
+	if state.WorkspaceID == "" {
+		state.WorkspaceID = auth.WorkspaceID
 	}
 	if state.UserID == "" {
 		state.UserID = auth.UserID
@@ -1232,7 +1502,15 @@ func (s *Server) currentState(ctx context.Context) (sessionState, error) {
 			}
 		}
 	}
-	s.setCurrentState(state)
+	if len(state.Permissions) == 0 {
+		state.Permissions = append([]string(nil), auth.Permissions...)
+	}
+	if len(state.OAuthScopes) == 0 {
+		state.OAuthScopes = append([]string(nil), auth.Scopes...)
+	}
+	if persist != nil {
+		persist(state)
+	}
 	return state, nil
 }
 
@@ -1262,18 +1540,142 @@ func (s *Server) clientForScope(ctx context.Context, scope string) (*Client, str
 		}
 		bootstrap := s.bootstrap()
 		if bootstrap == nil {
-			return nil, "", fmt.Errorf("no bootstrap token is configured")
+			return nil, "", fmt.Errorf("no system API key is configured")
+		}
+		if owner, err := s.ownerState(ctx); err == nil {
+			if len(owner.OAuthScopes) > 0 {
+				return nil, "", fmt.Errorf("bootstrap operations are unavailable for OAuth-backed MCP sessions")
+			}
 		}
 		return bootstrap, "bootstrap", nil
 	case "bootstrap":
 		bootstrap := s.bootstrap()
 		if bootstrap == nil {
-			return nil, "", fmt.Errorf("no bootstrap token is configured")
+			return nil, "", fmt.Errorf("no system API key is configured")
+		}
+		if owner, err := s.ownerState(ctx); err == nil {
+			if len(owner.OAuthScopes) > 0 {
+				return nil, "", fmt.Errorf("bootstrap operations are unavailable for OAuth-backed MCP sessions")
+			}
 		}
 		return bootstrap, "bootstrap", nil
 	default:
 		return nil, "", fmt.Errorf("auth_scope must be current or bootstrap")
 	}
+}
+
+func (s *Server) ensureSessionIdentity(ctx context.Context, data *sessionData) error {
+	if data == nil {
+		return nil
+	}
+
+	owner, err := s.ownerState(ctx)
+	if err != nil {
+		return err
+	}
+	if len(owner.OAuthScopes) == 0 {
+		return nil
+	}
+
+	data.autoProvisionOnce.Do(func() {
+		provisioner, err := s.sessionProvisioningClient(owner)
+		if err != nil {
+			data.autoProvisionErr = err
+			return
+		}
+
+		sessionKey := s.sessionKeyFromContext(ctx)
+		name := buildSessionAgentName(sessionKey)
+		user, err := provisioner.CreateUser(ctx, domain.CreateUserParams{
+			Name:          name,
+			Email:         defaultAgentEmail(name),
+			OwnerID:       owner.UserID,
+			PrincipalType: domain.PrincipalTypeAgent,
+			IsBot:         true,
+		})
+		if err != nil {
+			data.autoProvisionErr = err
+			return
+		}
+
+		state, err := s.issueSessionStateForUser(ctx, owner, user, fmt.Sprintf("%s session MCP key", user.Name))
+		if err != nil {
+			data.autoProvisionErr = err
+			return
+		}
+
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		data.sessionIdentity = state
+		data.current = state
+	})
+	return data.autoProvisionErr
+}
+
+func (s *Server) issueSessionStateForUser(ctx context.Context, owner sessionState, user *domain.User, keyName string) (sessionState, error) {
+	if user == nil {
+		return sessionState{}, fmt.Errorf("user is required")
+	}
+	provisioner, err := s.sessionProvisioningClient(owner)
+	if err != nil {
+		return sessionState{}, err
+	}
+
+	key, secret, err := provisioner.CreateAPIKey(ctx, domain.CreateAPIKeyParams{
+		Name:        keyName,
+		UserID:      user.ID,
+		Permissions: []string{"*"},
+	})
+	if err != nil {
+		return sessionState{}, err
+	}
+
+	client, err := NewClient(s.cfg.BaseURL, secret)
+	if err != nil {
+		return sessionState{}, err
+	}
+
+	return sessionState{
+		Token:         secret,
+		WorkspaceID:   firstNonEmpty(key.WorkspaceID, user.WorkspaceID, owner.WorkspaceID, s.cfg.WorkspaceID),
+		UserID:        user.ID,
+		UserName:      user.Name,
+		UserEmail:     user.Email,
+		Permissions:   append([]string(nil), key.Permissions...),
+		OAuthScopes:   append([]string(nil), owner.OAuthScopes...),
+		ChannelID:     "",
+		PeerUserID:    "",
+		PeerUserName:  "",
+		PeerUserEmail: "",
+		client:        client,
+	}, nil
+}
+
+func (s *Server) sessionProvisioningClient(owner sessionState) (*Client, error) {
+	if len(owner.OAuthScopes) > 0 {
+		if owner.client == nil {
+			return nil, fmt.Errorf("no active owner identity is configured for session provisioning")
+		}
+		return owner.client, nil
+	}
+	bootstrap := s.bootstrap()
+	if bootstrap == nil {
+		return nil, fmt.Errorf("no system API key is configured")
+	}
+	return bootstrap, nil
+}
+
+func (s *Server) bootstrapAvailable(owner sessionState) bool {
+	return len(owner.OAuthScopes) == 0 && s.bootstrap() != nil
+}
+
+func hasScope(scopes []string, target string) bool {
+	for _, scope := range scopes {
+		if scope == target {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *Server) currentEventCursor(ctx context.Context, client *Client) (string, error) {
@@ -1301,9 +1703,7 @@ func (s *Server) summarizeMessage(state sessionState, msg domain.Message) messag
 	}
 }
 
-func (s *Server) summarizeEventNotification(state sessionState, event domain.ExternalEvent) (notificationSummary, bool) {
-	var summary notificationSummary
-
+func (s *Server) messageSummaryFromEvent(state sessionState, event domain.ExternalEvent) (messageSummary, bool) {
 	switch event.Type {
 	case domain.EventTypeConversationMessageCreated, domain.EventTypeConversationMessageUpdated:
 		var payload struct {
@@ -1313,64 +1713,47 @@ func (s *Server) summarizeEventNotification(state sessionState, event domain.Ext
 			Text      string `json:"text"`
 		}
 		if err := json.Unmarshal(event.Payload, &payload); err != nil {
-			return notificationSummary{}, false
+			return messageSummary{}, false
 		}
-		summary = notificationSummary{
-			ID:          event.ID,
-			Kind:        "message",
-			ActorID:     payload.UserID,
-			ChannelID:   payload.ChannelID,
-			MessageTS:   payload.TS,
-			BodyPreview: payload.Text,
-			State:       "new",
-		}
-		if state.ChannelID != "" && payload.ChannelID == state.ChannelID {
-			summary.Kind = "direct_message"
-			summary.Title = "New direct message"
-			summary.Reason = "dm_recipient"
-		}
-	case domain.EventTypeFileShared:
-		var payload struct {
-			ChannelID string `json:"channel_id"`
-		}
-		if err := json.Unmarshal(event.Payload, &payload); err != nil {
-			return notificationSummary{}, false
-		}
-		summary = notificationSummary{
-			ID:        event.ID,
-			Kind:      "file_shared",
-			Reason:    "resource_shared",
-			ChannelID: payload.ChannelID,
-			Title:     "A file was shared",
-			State:     "new",
-		}
-	case domain.EventTypeConversationMemberAdded:
-		var payload struct {
-			ConversationID string `json:"conversation_id"`
-			UserID         string `json:"user_id"`
-			ActorID        string `json:"actor_id"`
-		}
-		if err := json.Unmarshal(event.Payload, &payload); err != nil {
-			return notificationSummary{}, false
-		}
-		if payload.UserID != state.UserID {
-			return notificationSummary{}, false
-		}
-		summary = notificationSummary{
-			ID:        event.ID,
-			Kind:      "conversation_invite",
-			Reason:    "invited",
-			ActorID:   payload.ActorID,
-			ChannelID: payload.ConversationID,
-			Title:     "You were added to a conversation",
-			State:     "new",
-		}
+		return messageSummary{
+			TS:          payload.TS,
+			Text:        payload.Text,
+			UserID:      payload.UserID,
+			SenderEmail: s.emailForUserID(state, payload.UserID),
+		}, true
 	default:
-		return notificationSummary{}, false
+		return messageSummary{}, false
+	}
+}
+
+func (s *Server) conversationEventMatches(state sessionState, event domain.ExternalEvent, eventType, wantUserID, wantEmail, wantText, wantContains string, includeSelf bool) bool {
+	if eventType != "" && event.Type != eventType {
+		return false
+	}
+	if wantUserID == "" && wantEmail == "" && wantText == "" && wantContains == "" && includeSelf {
+		return true
 	}
 
-	summary.ActorEmail = s.emailForUserID(state, summary.ActorID)
-	return summary, true
+	summary, ok := s.messageSummaryFromEvent(state, event)
+	if !ok {
+		return wantUserID == "" && wantEmail == "" && wantText == "" && wantContains == ""
+	}
+	if !includeSelf && summary.UserID == state.UserID {
+		return false
+	}
+	if wantUserID != "" && summary.UserID != wantUserID {
+		return false
+	}
+	if wantEmail != "" && summary.SenderEmail != wantEmail {
+		return false
+	}
+	if wantText != "" && summary.Text != wantText {
+		return false
+	}
+	if wantContains != "" && !strings.Contains(summary.Text, wantContains) {
+		return false
+	}
+	return true
 }
 
 func (s *Server) emailForUserID(state sessionState, userID string) string {
@@ -1397,10 +1780,51 @@ func (s *Server) resolveChannelID(state sessionState, args map[string]any) strin
 	return state.ChannelID
 }
 
+func (s *Server) createConversationSubscription(ctx context.Context, state sessionState, channelID, cursor string) string {
+	data := s.sessionDataForContext(ctx)
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	id := fmt.Sprintf("sub_%03d", data.nextSubscriptionID)
+	data.nextSubscriptionID++
+	data.subscriptions[id] = conversationSubscription{
+		ID:        id,
+		ChannelID: channelID,
+		Cursor:    cursor,
+		State:     state,
+	}
+	return id
+}
+
+func (s *Server) conversationSubscription(ctx context.Context, id string) (conversationSubscription, bool) {
+	data := s.sessionDataForContext(ctx)
+
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	subscription, ok := data.subscriptions[id]
+	return subscription, ok
+}
+
+func (s *Server) updateConversationSubscriptionCursor(ctx context.Context, id, cursor string) {
+	data := s.sessionDataForContext(ctx)
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	subscription, ok := data.subscriptions[id]
+	if !ok {
+		return
+	}
+	subscription.Cursor = cursor
+	data.subscriptions[id] = subscription
+}
+
 func (s *Server) findUserByIdentity(ctx context.Context, client *Client, name, email string) (*domain.User, bool, error) {
 	cursor := ""
 	for {
-		page, err := client.ListUsers(ctx, s.cfg.TeamID, cursor, 100)
+		page, err := client.ListUsers(ctx, s.cfg.WorkspaceID, cursor, email, 100)
 		if err != nil {
 			return nil, false, err
 		}
@@ -1419,6 +1843,64 @@ func (s *Server) findUserByIdentity(ctx context.Context, client *Client, name, e
 		}
 		cursor = page.NextCursor
 	}
+}
+
+func (s *Server) listOwnedAgentUsers(ctx context.Context, owner sessionState) ([]domain.User, error) {
+	client, err := s.sessionProvisioningClient(owner)
+	if err != nil {
+		return nil, err
+	}
+	if owner.UserID == "" {
+		return nil, fmt.Errorf("session owner is missing user metadata")
+	}
+
+	cursor := ""
+	var users []domain.User
+	for {
+		page, err := client.ListUsers(ctx, firstNonEmpty(owner.WorkspaceID, s.cfg.WorkspaceID), cursor, "", 100)
+		if err != nil {
+			return nil, err
+		}
+		for _, user := range page.Items {
+			if user.PrincipalType != domain.PrincipalTypeAgent || user.OwnerID != owner.UserID {
+				continue
+			}
+			users = append(users, user)
+		}
+		if page.NextCursor == "" || len(page.Items) == 0 {
+			break
+		}
+		cursor = page.NextCursor
+	}
+	return users, nil
+}
+
+func (s *Server) resolveOwnedAgentUser(ctx context.Context, owner sessionState, args map[string]any) (*domain.User, error) {
+	userID := strings.TrimSpace(stringArg(args, "user_id", ""))
+	name := strings.TrimSpace(stringArg(args, "name", ""))
+	email := strings.TrimSpace(stringArg(args, "email", ""))
+	if userID == "" && name == "" && email == "" {
+		return nil, fmt.Errorf("switch_identity requires user_id, name, or email")
+	}
+
+	users, err := s.listOwnedAgentUsers(ctx, owner)
+	if err != nil {
+		return nil, err
+	}
+	for _, user := range users {
+		switch {
+		case userID != "" && user.ID == userID:
+			u := user
+			return &u, nil
+		case name != "" && strings.EqualFold(strings.TrimSpace(user.Name), name):
+			u := user
+			return &u, nil
+		case email != "" && strings.EqualFold(strings.TrimSpace(user.Email), email):
+			u := user
+			return &u, nil
+		}
+	}
+	return nil, fmt.Errorf("owned agent identity not found")
 }
 
 func marshalToolResult(v any) (string, error) {
@@ -1456,6 +1938,19 @@ func defaultAgentEmail(name string) string {
 		slug = "agent"
 	}
 	return slug + "@mcp.teraslack.local"
+}
+
+func buildSessionAgentName(sessionKey string) string {
+	sessionKey = strings.TrimSpace(sessionKey)
+	if sessionKey == "" {
+		return "mcp-session-agent"
+	}
+	if len(sessionKey) > 8 {
+		sessionKey = sessionKey[len(sessionKey)-8:]
+	}
+	replacer := strings.NewReplacer(":", "-", "/", "-", "_", "-", "@", "-")
+	sessionKey = replacer.Replace(sessionKey)
+	return "mcp-session-" + sessionKey
 }
 
 func userMatchesQuery(user domain.User, query string, exact bool) bool {
@@ -1593,77 +2088,67 @@ func stringSliceArg(args map[string]any, key string) []string {
 	return out
 }
 
-func notificationMetadataFromArgs(args map[string]any) map[string]any {
-	targets := stringSliceArg(args, "notification_targets")
-	if len(targets) == 0 {
-		return nil
+func (s *Server) currentTopLevelMessageTS(ctx context.Context, client *Client, channelID string) (string, error) {
+	msgs, err := client.ListMessages(ctx, channelID, 50)
+	if err != nil {
+		return "", err
 	}
-	notification := map[string]any{
-		"targets": targets,
-	}
-	if v := strings.TrimSpace(stringArg(args, "notification_kind", "")); v != "" {
-		notification["kind"] = v
-	}
-	if v := strings.TrimSpace(stringArg(args, "notification_reason", "")); v != "" {
-		notification["reason"] = v
-	}
-	if v := strings.TrimSpace(stringArg(args, "notification_title", "")); v != "" {
-		notification["title"] = v
-	}
-	if v := strings.TrimSpace(stringArg(args, "notification_body_preview", "")); v != "" {
-		notification["body_preview"] = v
-	}
-	return map[string]any{"notification": notification}
-}
 
-func readRPCMessage(reader *bufio.Reader) ([]byte, error) {
-	contentLength := -1
-	for {
-		line, err := reader.ReadString('\n')
-		if err != nil {
-			return nil, err
-		}
-		line = strings.TrimRight(line, "\r\n")
-		if line == "" {
-			break
-		}
-		parts := strings.SplitN(line, ":", 2)
-		if len(parts) != 2 {
+	latest := ""
+	for _, msg := range msgs {
+		if msg.IsDeleted || msg.ThreadTS != nil {
 			continue
 		}
-		key := strings.TrimSpace(strings.ToLower(parts[0]))
-		value := strings.TrimSpace(parts[1])
-		if key == "content-length" {
-			n, err := strconv.Atoi(value)
-			if err != nil {
-				return nil, fmt.Errorf("invalid content-length %q: %w", value, err)
-			}
-			contentLength = n
+		if compareMessageTS(msg.TS, latest) > 0 {
+			latest = msg.TS
 		}
 	}
-	if contentLength < 0 {
-		return nil, fmt.Errorf("missing content-length header")
-	}
-
-	payload := make([]byte, contentLength)
-	if _, err := io.ReadFull(reader, payload); err != nil {
-		return nil, err
-	}
-	return payload, nil
+	return latest, nil
 }
 
-func writeRPCMessage(writer *bufio.Writer, msg rpcResponse) error {
-	data, err := json.Marshal(msg)
+func compareMessageTS(left, right string) int {
+	if left == right {
+		return 0
+	}
+	leftMajor, leftMinor, leftOK := splitMessageTS(left)
+	rightMajor, rightMinor, rightOK := splitMessageTS(right)
+	if leftOK && rightOK {
+		switch {
+		case leftMajor < rightMajor:
+			return -1
+		case leftMajor > rightMajor:
+			return 1
+		case leftMinor < rightMinor:
+			return -1
+		case leftMinor > rightMinor:
+			return 1
+		default:
+			return 0
+		}
+	}
+	if left < right {
+		return -1
+	}
+	return 1
+}
+
+func splitMessageTS(value string) (int64, int64, bool) {
+	if value == "" {
+		return 0, 0, true
+	}
+	parts := strings.SplitN(value, ".", 2)
+	major, err := strconv.ParseInt(parts[0], 10, 64)
 	if err != nil {
-		return fmt.Errorf("marshal RPC message: %w", err)
+		return 0, 0, false
 	}
-	if _, err := fmt.Fprintf(writer, "Content-Length: %d\r\n\r\n", len(data)); err != nil {
-		return err
+	if len(parts) == 1 {
+		return major, 0, true
 	}
-	if _, err := writer.Write(data); err != nil {
-		return err
+	minor, err := strconv.ParseInt(parts[1], 10, 64)
+	if err != nil {
+		return 0, 0, false
 	}
-	return writer.Flush()
+	return major, minor, true
 }
 
 func (s *Server) debugf(format string, args ...any) {

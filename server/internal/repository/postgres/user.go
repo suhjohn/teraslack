@@ -43,7 +43,7 @@ func (r *UserRepo) Create(ctx context.Context, params domain.CreateUserParams) (
 
 	row, err := r.q.CreateUser(ctx, sqlcgen.CreateUserParams{
 		ID:            id,
-		TeamID:        params.TeamID,
+		WorkspaceID:        params.WorkspaceID,
 		Name:          params.Name,
 		RealName:      params.RealName,
 		DisplayName:   params.DisplayName,
@@ -72,63 +72,48 @@ func (r *UserRepo) Get(ctx context.Context, id string) (*domain.User, error) {
 	return userFieldsToDomain(getUserRowToFields(row))
 }
 
-func (r *UserRepo) GetByTeamEmail(ctx context.Context, teamID, email string) (*domain.User, error) {
-	row, err := r.q.GetUserByTeamEmail(ctx, sqlcgen.GetUserByTeamEmailParams{
-		TeamID: teamID,
+func (r *UserRepo) GetByTeamEmail(ctx context.Context, workspaceID, email string) (*domain.User, error) {
+	row, err := r.q.GetUserByWorkspaceEmail(ctx, sqlcgen.GetUserByWorkspaceEmailParams{
+		WorkspaceID: workspaceID,
 		Email:  email,
 	})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, domain.ErrNotFound
 		}
-		return nil, fmt.Errorf("get user by team email: %w", err)
+		return nil, fmt.Errorf("get user by workspace email: %w", err)
 	}
 	return userFieldsToDomain(getUserByTeamEmailRowToFields(row))
 }
 
 func (r *UserRepo) ListByEmail(ctx context.Context, email string) ([]domain.User, error) {
-	rows, err := r.db.Query(ctx, `
-		SELECT id, team_id, name, real_name, display_name, email,
-			principal_type, owner_id, account_type, is_bot, deleted, profile,
-			created_at, updated_at
-		FROM users
-		WHERE LOWER(email) = LOWER($1)
-		ORDER BY created_at ASC, id ASC
-	`, email)
+	rows, err := r.q.ListUsersByEmail(ctx, email)
 	if err != nil {
 		return nil, fmt.Errorf("list users by email: %w", err)
 	}
-	defer rows.Close()
 
 	users := make([]domain.User, 0)
-	for rows.Next() {
-		var fields userFields
-		if err := rows.Scan(
-			&fields.ID,
-			&fields.TeamID,
-			&fields.Name,
-			&fields.RealName,
-			&fields.DisplayName,
-			&fields.Email,
-			&fields.PrincipalType,
-			&fields.OwnerID,
-			&fields.AccountType,
-			&fields.IsBot,
-			&fields.Deleted,
-			&fields.Profile,
-			&fields.CreatedAt,
-			&fields.UpdatedAt,
-		); err != nil {
-			return nil, fmt.Errorf("scan user by email: %w", err)
-		}
-		user, err := userFieldsToDomain(fields)
+	for _, row := range rows {
+		user, err := userFieldsToDomain(userFields{
+			ID:            row.ID,
+			WorkspaceID:   row.WorkspaceID,
+			Name:          row.Name,
+			RealName:      row.RealName,
+			DisplayName:   row.DisplayName,
+			Email:         row.Email,
+			PrincipalType: row.PrincipalType,
+			OwnerID:       row.OwnerID,
+			AccountType:   row.AccountType,
+			IsBot:         row.IsBot,
+			Deleted:       row.Deleted,
+			Profile:       row.Profile,
+			CreatedAt:     row.CreatedAt,
+			UpdatedAt:     row.UpdatedAt,
+		})
 		if err != nil {
 			return nil, fmt.Errorf("convert user by email: %w", err)
 		}
 		users = append(users, *user)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate users by email: %w", err)
 	}
 	return users, nil
 }
@@ -195,7 +180,7 @@ func (r *UserRepo) List(ctx context.Context, params domain.ListUsersParams) (*do
 	}
 
 	rows, err := r.q.ListUsers(ctx, sqlcgen.ListUsersParams{
-		TeamID: params.TeamID,
+		WorkspaceID: params.WorkspaceID,
 		ID:     params.Cursor,
 		Limit:  int32(limit + 1),
 	})

@@ -37,9 +37,9 @@ func (m *mockRoleAssignmentRepo) ReplaceForUser(_ context.Context, _, userID str
 func TestRoleService_SetUserRoles_RequiresPrimaryAdminOrRolesAdmin(t *testing.T) {
 	roleRepo := newMockRoleAssignmentRepo()
 	userRepo := newMockUserRepoTenant()
-	userRepo.users["U_PRIMARY"] = &domain.User{ID: "U_PRIMARY", TeamID: "T123", PrincipalType: domain.PrincipalTypeHuman, AccountType: domain.AccountTypePrimaryAdmin}
-	userRepo.users["U_ADMIN"] = &domain.User{ID: "U_ADMIN", TeamID: "T123", PrincipalType: domain.PrincipalTypeHuman, AccountType: domain.AccountTypeAdmin}
-	userRepo.users["U_TARGET"] = &domain.User{ID: "U_TARGET", TeamID: "T123", PrincipalType: domain.PrincipalTypeHuman, AccountType: domain.AccountTypeMember}
+	userRepo.users["U_PRIMARY"] = &domain.User{ID: "U_PRIMARY", WorkspaceID: "T123", PrincipalType: domain.PrincipalTypeHuman, AccountType: domain.AccountTypePrimaryAdmin}
+	userRepo.users["U_ADMIN"] = &domain.User{ID: "U_ADMIN", WorkspaceID: "T123", PrincipalType: domain.PrincipalTypeHuman, AccountType: domain.AccountTypeAdmin}
+	userRepo.users["U_TARGET"] = &domain.User{ID: "U_TARGET", WorkspaceID: "T123", PrincipalType: domain.PrincipalTypeHuman, AccountType: domain.AccountTypeMember}
 	svc := NewRoleService(roleRepo, userRepo)
 
 	adminCtx := ctxutil.WithUser(context.Background(), "U_ADMIN", "T123")
@@ -61,8 +61,8 @@ func TestRoleService_AdminWithRolesAdminCanSetManageableUserRoles(t *testing.T) 
 	roleRepo := newMockRoleAssignmentRepo()
 	roleRepo.roles["U_ADMIN"] = []domain.DelegatedRole{domain.DelegatedRoleRolesAdmin}
 	userRepo := newMockUserRepoTenant()
-	userRepo.users["U_ADMIN"] = &domain.User{ID: "U_ADMIN", TeamID: "T123", PrincipalType: domain.PrincipalTypeHuman, AccountType: domain.AccountTypeAdmin}
-	userRepo.users["U_TARGET"] = &domain.User{ID: "U_TARGET", TeamID: "T123", PrincipalType: domain.PrincipalTypeHuman, AccountType: domain.AccountTypeMember}
+	userRepo.users["U_ADMIN"] = &domain.User{ID: "U_ADMIN", WorkspaceID: "T123", PrincipalType: domain.PrincipalTypeHuman, AccountType: domain.AccountTypeAdmin}
+	userRepo.users["U_TARGET"] = &domain.User{ID: "U_TARGET", WorkspaceID: "T123", PrincipalType: domain.PrincipalTypeHuman, AccountType: domain.AccountTypeMember}
 	svc := NewRoleService(roleRepo, userRepo)
 
 	ctx := ctxutil.WithUser(context.Background(), "U_ADMIN", "T123")
@@ -79,7 +79,7 @@ func TestRoleService_ListUserRoles_AllowsSelf(t *testing.T) {
 	roleRepo := newMockRoleAssignmentRepo()
 	roleRepo.roles["U123"] = []domain.DelegatedRole{domain.DelegatedRoleSupportReadonly}
 	userRepo := newMockUserRepoTenant()
-	userRepo.users["U123"] = &domain.User{ID: "U123", TeamID: "T123", PrincipalType: domain.PrincipalTypeHuman, AccountType: domain.AccountTypeMember}
+	userRepo.users["U123"] = &domain.User{ID: "U123", WorkspaceID: "T123", PrincipalType: domain.PrincipalTypeHuman, AccountType: domain.AccountTypeMember}
 	svc := NewRoleService(roleRepo, userRepo)
 
 	ctx := ctxutil.WithUser(context.Background(), "U123", "T123")

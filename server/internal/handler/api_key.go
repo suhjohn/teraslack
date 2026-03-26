@@ -28,17 +28,13 @@ func (h *APIKeyHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Default team_id from auth context if not provided
-	if params.TeamID == "" {
-		params.TeamID = ctxutil.GetTeamID(r.Context())
+	// Default workspace_id from auth context if not provided
+	if params.WorkspaceID == "" {
+		params.WorkspaceID = ctxutil.GetWorkspaceID(r.Context())
 	}
-	// Default principal_id from auth context if not provided
-	if params.PrincipalID == "" {
-		params.PrincipalID = ctxutil.GetUserID(r.Context())
-	}
-	// Default created_by from auth context
-	if params.CreatedBy == "" {
-		params.CreatedBy = ctxutil.GetUserID(r.Context())
+	// Always track the authenticated actor who created the key.
+	if actorID := ctxutil.GetActingUserID(r.Context()); actorID != "" {
+		params.CreatedBy = actorID
 	}
 
 	key, rawKey, err := h.svc.Create(r.Context(), params)
@@ -75,16 +71,16 @@ func (h *APIKeyHandler) List(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	limit, _ := strconv.Atoi(q.Get("limit"))
 	params := domain.ListAPIKeysParams{
-		TeamID:      ctxutil.GetTeamID(r.Context()),
-		PrincipalID: q.Get("principal_id"),
-		Cursor:      q.Get("cursor"),
-		Limit:       limit,
+		WorkspaceID: ctxutil.GetWorkspaceID(r.Context()),
+		UserID: q.Get("user_id"),
+		Cursor: q.Get("cursor"),
+		Limit:  limit,
 	}
 	if q.Get("include_revoked") == "true" {
 		params.IncludeRevoked = true
 	}
-	if params.TeamID == "" {
-		params.TeamID = q.Get("team_id")
+	if params.WorkspaceID == "" {
+		params.WorkspaceID = q.Get("workspace_id")
 	}
 
 	page, err := h.svc.List(r.Context(), params)

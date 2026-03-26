@@ -39,7 +39,7 @@ func (r *UsergroupRepo) Create(ctx context.Context, params domain.CreateUsergrou
 
 	row, err := qtx.CreateUsergroup(ctx, sqlcgen.CreateUsergroupParams{
 		ID:          id,
-		TeamID:      params.TeamID,
+		WorkspaceID:      params.WorkspaceID,
 		Name:        params.Name,
 		Handle:      params.Handle,
 		Description: params.Description,
@@ -126,9 +126,9 @@ func (r *UsergroupRepo) List(ctx context.Context, params domain.ListUsergroupsPa
 	var err error
 
 	if params.IncludeDisabled {
-		rows, err = r.q.ListUsergroupsIncludeDisabled(ctx, params.TeamID)
+		rows, err = r.q.ListUsergroupsIncludeDisabled(ctx, params.WorkspaceID)
 	} else {
-		rows, err = r.q.ListUsergroups(ctx, params.TeamID)
+		rows, err = r.q.ListUsergroups(ctx, params.WorkspaceID)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("list usergroups: %w", err)

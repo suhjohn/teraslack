@@ -11,16 +11,20 @@ type InternalEvent struct {
 	EventType     string          `json:"event_type"`
 	AggregateType string          `json:"aggregate_type"`
 	AggregateID   string          `json:"aggregate_id"`
-	TeamID        string          `json:"team_id"`
+	WorkspaceID        string          `json:"workspace_id"`
 	ActorID       string          `json:"actor_id"`
+	ShardKey      string          `json:"shard_key,omitempty"`
+	ShardID       int             `json:"shard_id"`
 	Payload       json.RawMessage `json:"payload"`
 	Metadata      json.RawMessage `json:"metadata,omitempty"`
 	CreatedAt     time.Time       `json:"created_at"`
 }
 
+const InternalEventShardCount = 16
+
 // Aggregate type constants.
 const (
-	AggregateTeam         = "team"
+	AggregateWorkspace         = "workspace"
 	AggregateUser         = "user"
 	AggregateConversation = "conversation"
 	AggregateMessage      = "message"
@@ -34,12 +38,12 @@ const (
 
 // Event type constants for event sourcing.
 const (
-	EventTeamCreated = "team.created"
-	EventTeamUpdated = "team.updated"
+	EventWorkspaceCreated = "workspace.created"
+	EventWorkspaceUpdated = "workspace.updated"
 
-	EventUserCreated = "user.created"
-	EventUserUpdated = "user.updated"
-	EventUserDeleted = "user.deleted"
+	EventUserCreated      = "user.created"
+	EventUserUpdated      = "user.updated"
+	EventUserDeleted      = "user.deleted"
 	EventUserRolesUpdated = "user.roles_updated"
 
 	EventConversationCreated              = "conversation.created"

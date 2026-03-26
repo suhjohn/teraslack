@@ -5,7 +5,7 @@ import "time"
 // File represents an uploaded file.
 type File struct {
 	ID                 string    `json:"id"`
-	TeamID             string    `json:"team_id"`
+	WorkspaceID             string    `json:"workspace_id"`
 	Name               string    `json:"name"`
 	Title              string    `json:"title"`
 	Mimetype           string    `json:"mimetype"`
@@ -44,7 +44,7 @@ type CompleteUploadParams struct {
 
 // ListFilesParams holds the parameters for listing files.
 type ListFilesParams struct {
-	TeamID    string `json:"team_id"`
+	WorkspaceID    string `json:"workspace_id"`
 	ChannelID string `json:"channel_id,omitempty"`
 	UserID    string `json:"user_id,omitempty"`
 	Cursor    string `json:"cursor"`

@@ -47,7 +47,7 @@ func (s *PinService) Add(ctx context.Context, params domain.PinParams) (*domain.
 	if conv.IsArchived {
 		return nil, domain.ErrChannelArchived
 	}
-	if err := ensureTeamAccess(ctx, conv.TeamID); err != nil {
+	if err := ensureWorkspaceAccess(ctx, conv.WorkspaceID); err != nil {
 		return nil, err
 	}
 
@@ -71,7 +71,7 @@ func (s *PinService) Add(ctx context.Context, params domain.PinParams) (*domain.
 		EventType:     domain.EventPinAdded,
 		AggregateType: domain.AggregatePin,
 		AggregateID:   pin.ChannelID + ":" + pin.MessageTS,
-		TeamID:        conv.TeamID,
+		WorkspaceID:        conv.WorkspaceID,
 		ActorID:       actorID,
 		Payload:       payload,
 	}); err != nil {
@@ -92,7 +92,7 @@ func (s *PinService) Remove(ctx context.Context, params domain.PinParams) error 
 	if err != nil {
 		return fmt.Errorf("channel: %w", err)
 	}
-	if err := ensureTeamAccess(ctx, conv.TeamID); err != nil {
+	if err := ensureWorkspaceAccess(ctx, conv.WorkspaceID); err != nil {
 		return err
 	}
 
@@ -110,7 +110,7 @@ func (s *PinService) Remove(ctx context.Context, params domain.PinParams) error 
 		EventType:     domain.EventPinRemoved,
 		AggregateType: domain.AggregatePin,
 		AggregateID:   params.ChannelID + ":" + params.MessageTS,
-		TeamID:        conv.TeamID,
+		WorkspaceID:        conv.WorkspaceID,
 		ActorID:       ctxutil.GetActingUserID(ctx),
 		Payload:       payload,
 	}); err != nil {
@@ -131,7 +131,7 @@ func (s *PinService) List(ctx context.Context, channelID string) ([]domain.Pin, 
 	if err != nil {
 		return nil, fmt.Errorf("channel: %w", err)
 	}
-	if err := ensureTeamAccess(ctx, conv.TeamID); err != nil {
+	if err := ensureWorkspaceAccess(ctx, conv.WorkspaceID); err != nil {
 		return nil, err
 	}
 	return s.repo.List(ctx, domain.ListPinsParams{ChannelID: channelID})

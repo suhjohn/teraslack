@@ -35,7 +35,7 @@ func TestAPIKey_CreateForHumanPrincipal(t *testing.T) {
 
 	// Create a human user
 	user, err := userSvc.Create(ctx, domain.CreateUserParams{
-		TeamID:        "T001",
+		WorkspaceID:   "T001",
 		Name:          "alice",
 		Email:         "alice@example.com",
 		PrincipalType: domain.PrincipalTypeHuman,
@@ -47,10 +47,8 @@ func TestAPIKey_CreateForHumanPrincipal(t *testing.T) {
 	// Create an API key for the human
 	key, rawKey, err := apiKeySvc.Create(ctx, domain.CreateAPIKeyParams{
 		Name:        "alice-key",
-		TeamID:      "T001",
-		PrincipalID: user.ID,
-		Type:        domain.APIKeyTypePersistent,
-		Environment: domain.APIKeyEnvLive,
+		WorkspaceID: "T001",
+		UserID:      user.ID,
 		Permissions: []string{"chat:write", "channels:read"},
 	})
 	if err != nil {
@@ -64,28 +62,22 @@ func TestAPIKey_CreateForHumanPrincipal(t *testing.T) {
 	if key.Name != "alice-key" {
 		t.Errorf("key.Name = %q, want %q", key.Name, "alice-key")
 	}
-	if key.TeamID != "T001" {
-		t.Errorf("key.TeamID = %q, want %q", key.TeamID, "T001")
+	if key.WorkspaceID != "T001" {
+		t.Errorf("key.WorkspaceID = %q, want %q", key.WorkspaceID, "T001")
 	}
-	if key.PrincipalID != user.ID {
-		t.Errorf("key.PrincipalID = %q, want %q", key.PrincipalID, user.ID)
+	if key.UserID != user.ID {
+		t.Errorf("key.UserID = %q, want %q", key.UserID, user.ID)
 	}
-	if key.Type != domain.APIKeyTypePersistent {
-		t.Errorf("key.Type = %q, want %q", key.Type, domain.APIKeyTypePersistent)
-	}
-	if key.Environment != domain.APIKeyEnvLive {
-		t.Errorf("key.Environment = %q, want %q", key.Environment, domain.APIKeyEnvLive)
-	}
-	if key.KeyPrefix != "sk_live_" {
-		t.Errorf("key.KeyPrefix = %q, want %q", key.KeyPrefix, "sk_live_")
+	if key.KeyPrefix != "sk_" {
+		t.Errorf("key.KeyPrefix = %q, want %q", key.KeyPrefix, "sk_")
 	}
 	if len(key.KeyHint) != 4 {
 		t.Errorf("key.KeyHint length = %d, want 4", len(key.KeyHint))
 	}
 
 	// Verify raw key format
-	if !strings.HasPrefix(rawKey, "sk_live_") {
-		t.Errorf("rawKey prefix = %q, want sk_live_ prefix", rawKey[:8])
+	if !strings.HasPrefix(rawKey, "sk_") {
+		t.Errorf("rawKey prefix = %q, want sk_ prefix", rawKey[:8])
 	}
 	if rawKey == "" {
 		t.Error("rawKey is empty")
@@ -137,7 +129,7 @@ func TestAPIKey_CreateForAgentPrincipal(t *testing.T) {
 
 	// Create human owner
 	human, err := userSvc.Create(ctx, domain.CreateUserParams{
-		TeamID:        "T001",
+		WorkspaceID:   "T001",
 		Name:          "alice",
 		Email:         "alice@example.com",
 		PrincipalType: domain.PrincipalTypeHuman,
@@ -148,7 +140,7 @@ func TestAPIKey_CreateForAgentPrincipal(t *testing.T) {
 
 	// Create agent owned by alice
 	agent, err := userSvc.Create(ctx, domain.CreateUserParams{
-		TeamID:        "T001",
+		WorkspaceID:   "T001",
 		Name:          "devin-agent",
 		Email:         "devin@example.com",
 		PrincipalType: domain.PrincipalTypeAgent,
@@ -175,26 +167,20 @@ func TestAPIKey_CreateForAgentPrincipal(t *testing.T) {
 	// Create API key for the agent, on behalf of alice
 	key, rawKey, err := apiKeySvc.Create(ctx, domain.CreateAPIKeyParams{
 		Name:        "devin-key",
-		TeamID:      "T001",
-		PrincipalID: agent.ID,
+		WorkspaceID: "T001",
+		UserID:      agent.ID,
 		CreatedBy:   human.ID,
-		OnBehalfOf:  human.ID,
-		Type:        domain.APIKeyTypePersistent,
-		Environment: domain.APIKeyEnvLive,
 		Permissions: []string{"chat:write"},
 	})
 	if err != nil {
 		t.Fatalf("create api key: %v", err)
 	}
 
-	if key.PrincipalID != agent.ID {
-		t.Errorf("key.PrincipalID = %q, want %q", key.PrincipalID, agent.ID)
+	if key.UserID != agent.ID {
+		t.Errorf("key.UserID = %q, want %q", key.UserID, agent.ID)
 	}
 	if key.CreatedBy != human.ID {
 		t.Errorf("key.CreatedBy = %q, want %q", key.CreatedBy, human.ID)
-	}
-	if key.OnBehalfOf != human.ID {
-		t.Errorf("key.OnBehalfOf = %q, want %q", key.OnBehalfOf, human.ID)
 	}
 	if rawKey == "" {
 		t.Error("rawKey is empty")
@@ -218,7 +204,7 @@ func TestAPIKey_CreateTestEnvironment(t *testing.T) {
 	apiKeySvc := service.NewAPIKeyService(apiKeyRepo, userRepo, recorder, pool, logger)
 
 	user, err := userSvc.Create(ctx, domain.CreateUserParams{
-		TeamID:        "T001",
+		WorkspaceID:   "T001",
 		Name:          "bob",
 		Email:         "bob@example.com",
 		PrincipalType: domain.PrincipalTypeHuman,
@@ -229,23 +215,17 @@ func TestAPIKey_CreateTestEnvironment(t *testing.T) {
 
 	key, rawKey, err := apiKeySvc.Create(ctx, domain.CreateAPIKeyParams{
 		Name:        "test-key",
-		TeamID:      "T001",
-		PrincipalID: user.ID,
-		Type:        domain.APIKeyTypePersistent,
-		Environment: domain.APIKeyEnvTest,
+		WorkspaceID: "T001",
+		UserID:      user.ID,
 	})
 	if err != nil {
 		t.Fatalf("create api key: %v", err)
 	}
-
-	if key.Environment != domain.APIKeyEnvTest {
-		t.Errorf("environment = %q, want %q", key.Environment, domain.APIKeyEnvTest)
+	if key.KeyPrefix != "sk_" {
+		t.Errorf("key_prefix = %q, want %q", key.KeyPrefix, "sk_")
 	}
-	if key.KeyPrefix != "sk_test_" {
-		t.Errorf("key_prefix = %q, want %q", key.KeyPrefix, "sk_test_")
-	}
-	if !strings.HasPrefix(rawKey, "sk_test_") {
-		t.Errorf("rawKey should start with sk_test_, got %q", rawKey[:8])
+	if !strings.HasPrefix(rawKey, "sk_") {
+		t.Errorf("rawKey should start with sk_, got %q", rawKey[:8])
 	}
 }
 
@@ -271,22 +251,22 @@ func TestAPIKey_CreateValidationErrors(t *testing.T) {
 		{
 			name: "missing name",
 			params: domain.CreateAPIKeyParams{
-				TeamID:      "T001",
-				PrincipalID: "U123",
+				WorkspaceID: "T001",
+				UserID:      "U123",
 			},
 		},
 		{
-			name: "missing team_id",
-			params: domain.CreateAPIKeyParams{
-				Name:        "test",
-				PrincipalID: "U123",
-			},
-		},
-		{
-			name: "missing principal_id",
+			name: "missing workspace_id",
 			params: domain.CreateAPIKeyParams{
 				Name:   "test",
-				TeamID: "T001",
+				UserID: "U123",
+			},
+		},
+		{
+			name: "missing created_by for system key",
+			params: domain.CreateAPIKeyParams{
+				Name:        "test",
+				WorkspaceID: "T001",
 			},
 		},
 	}
@@ -298,6 +278,73 @@ func TestAPIKey_CreateValidationErrors(t *testing.T) {
 				t.Error("expected error, got nil")
 			}
 		})
+	}
+}
+
+func TestAPIKey_CreateSystemKey(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test")
+	}
+
+	pool := setupTestDB(t)
+	ctx := context.Background()
+	logger := newTestLogger()
+
+	userRepo := pgRepo.NewUserRepo(pool)
+	apiKeyRepo := pgRepo.NewAPIKeyRepo(pool)
+	eventStoreRepo := pgRepo.NewEventStoreRepo(pool)
+	recorder := service.NewEventRecorder(eventStoreRepo)
+	userSvc := service.NewUserService(userRepo, recorder, pool, logger)
+	apiKeySvc := service.NewAPIKeyService(apiKeyRepo, userRepo, recorder, pool, logger)
+
+	admin, err := userSvc.Create(ctx, domain.CreateUserParams{
+		WorkspaceID:   "T001",
+		Name:          "admin",
+		Email:         "admin@example.com",
+		PrincipalType: domain.PrincipalTypeHuman,
+		AccountType:   domain.AccountTypeAdmin,
+	})
+	if err != nil {
+		t.Fatalf("create admin: %v", err)
+	}
+
+	key, rawKey, err := apiKeySvc.Create(ctx, domain.CreateAPIKeyParams{
+		Name:        "system-key",
+		WorkspaceID: "T001",
+		CreatedBy:   admin.ID,
+	})
+	if err != nil {
+		t.Fatalf("create system api key: %v", err)
+	}
+
+	if key.UserID != "" {
+		t.Errorf("key.UserID = %q, want empty", key.UserID)
+	}
+	if key.CreatedBy != admin.ID {
+		t.Errorf("key.CreatedBy = %q, want %q", key.CreatedBy, admin.ID)
+	}
+	if !strings.HasPrefix(rawKey, "sk_") {
+		t.Errorf("rawKey should start with sk_, got %q", rawKey[:8])
+	}
+
+	var principalID *string
+	err = pool.QueryRow(ctx, "SELECT principal_id FROM api_keys WHERE id = $1", key.ID).Scan(&principalID)
+	if err != nil {
+		t.Fatalf("query api key principal_id: %v", err)
+	}
+	if principalID != nil {
+		t.Fatalf("principal_id = %q, want NULL", *principalID)
+	}
+
+	validation, err := apiKeySvc.ValidateAPIKey(ctx, rawKey)
+	if err != nil {
+		t.Fatalf("validate system api key: %v", err)
+	}
+	if validation.PrincipalType != domain.PrincipalTypeSystem {
+		t.Errorf("principal_type = %q, want %q", validation.PrincipalType, domain.PrincipalTypeSystem)
+	}
+	if validation.UserID != "" {
+		t.Errorf("validation.UserID = %q, want empty", validation.UserID)
 	}
 }
 
@@ -318,9 +365,8 @@ func TestAPIKey_CreateForNonexistentPrincipal(t *testing.T) {
 
 	_, _, err := apiKeySvc.Create(ctx, domain.CreateAPIKeyParams{
 		Name:        "ghost-key",
-		TeamID:      "T001",
-		PrincipalID: "NONEXISTENT",
-		Environment: domain.APIKeyEnvLive,
+		WorkspaceID: "T001",
+		UserID:      "NONEXISTENT",
 	})
 	if err == nil {
 		t.Fatal("expected error for nonexistent principal, got nil")
@@ -344,13 +390,12 @@ func TestAPIKey_GetStripsKeyHash(t *testing.T) {
 	apiKeySvc := service.NewAPIKeyService(apiKeyRepo, userRepo, recorder, pool, logger)
 
 	user, _ := userSvc.Create(ctx, domain.CreateUserParams{
-		TeamID: "T001", Name: "alice", Email: "alice@example.com",
+		WorkspaceID: "T001", Name: "alice", Email: "alice@example.com",
 		PrincipalType: domain.PrincipalTypeHuman,
 	})
 
 	key, _, _ := apiKeySvc.Create(ctx, domain.CreateAPIKeyParams{
-		Name: "test-key", TeamID: "T001", PrincipalID: user.ID,
-		Environment: domain.APIKeyEnvLive,
+		Name: "test-key", WorkspaceID: "T001", UserID: user.ID,
 	})
 
 	got, err := apiKeySvc.Get(ctx, key.ID)
@@ -382,27 +427,23 @@ func TestAPIKey_ListAndFilter(t *testing.T) {
 	apiKeySvc := service.NewAPIKeyService(apiKeyRepo, userRepo, recorder, pool, logger)
 
 	alice, _ := userSvc.Create(ctx, domain.CreateUserParams{
-		TeamID: "T001", Name: "alice", Email: "alice@example.com",
+		WorkspaceID: "T001", Name: "alice", Email: "alice@example.com",
 		PrincipalType: domain.PrincipalTypeHuman,
 	})
 	bob, _ := userSvc.Create(ctx, domain.CreateUserParams{
-		TeamID: "T001", Name: "bob", Email: "bob@example.com",
+		WorkspaceID: "T001", Name: "bob", Email: "bob@example.com",
 		PrincipalType: domain.PrincipalTypeHuman,
 	})
 
 	// Create 2 keys for alice, 1 for bob
-	apiKeySvc.Create(ctx, domain.CreateAPIKeyParams{
-		Name: "alice-key-1", TeamID: "T001", PrincipalID: alice.ID, Environment: domain.APIKeyEnvLive,
-	})
+	apiKeySvc.Create(ctx, domain.CreateAPIKeyParams{Name: "alice-key-1", WorkspaceID: "T001", UserID: alice.ID})
 	key2, _, _ := apiKeySvc.Create(ctx, domain.CreateAPIKeyParams{
-		Name: "alice-key-2", TeamID: "T001", PrincipalID: alice.ID, Environment: domain.APIKeyEnvLive,
+		Name: "alice-key-2", WorkspaceID: "T001", UserID: alice.ID,
 	})
-	apiKeySvc.Create(ctx, domain.CreateAPIKeyParams{
-		Name: "bob-key-1", TeamID: "T001", PrincipalID: bob.ID, Environment: domain.APIKeyEnvLive,
-	})
+	apiKeySvc.Create(ctx, domain.CreateAPIKeyParams{Name: "bob-key-1", WorkspaceID: "T001", UserID: bob.ID})
 
-	// List all keys for team
-	page, err := apiKeySvc.List(ctx, domain.ListAPIKeysParams{TeamID: "T001"})
+	// List all keys for workspace
+	page, err := apiKeySvc.List(ctx, domain.ListAPIKeysParams{WorkspaceID: "T001"})
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}
@@ -419,7 +460,7 @@ func TestAPIKey_ListAndFilter(t *testing.T) {
 
 	// Filter by principal
 	page, err = apiKeySvc.List(ctx, domain.ListAPIKeysParams{
-		TeamID: "T001", PrincipalID: alice.ID,
+		WorkspaceID: "T001", UserID: alice.ID,
 	})
 	if err != nil {
 		t.Fatalf("list by principal: %v", err)
@@ -433,7 +474,7 @@ func TestAPIKey_ListAndFilter(t *testing.T) {
 
 	// List without revoked (default)
 	page, err = apiKeySvc.List(ctx, domain.ListAPIKeysParams{
-		TeamID: "T001", PrincipalID: alice.ID,
+		WorkspaceID: "T001", UserID: alice.ID,
 	})
 	if err != nil {
 		t.Fatalf("list without revoked: %v", err)
@@ -444,7 +485,7 @@ func TestAPIKey_ListAndFilter(t *testing.T) {
 
 	// List with revoked included
 	page, err = apiKeySvc.List(ctx, domain.ListAPIKeysParams{
-		TeamID: "T001", PrincipalID: alice.ID, IncludeRevoked: true,
+		WorkspaceID: "T001", UserID: alice.ID, IncludeRevoked: true,
 	})
 	if err != nil {
 		t.Fatalf("list with revoked: %v", err)
@@ -471,13 +512,12 @@ func TestAPIKey_UpdateNameDescriptionPermissions(t *testing.T) {
 	apiKeySvc := service.NewAPIKeyService(apiKeyRepo, userRepo, recorder, pool, logger)
 
 	user, _ := userSvc.Create(ctx, domain.CreateUserParams{
-		TeamID: "T001", Name: "alice", Email: "alice@example.com",
+		WorkspaceID: "T001", Name: "alice", Email: "alice@example.com",
 		PrincipalType: domain.PrincipalTypeHuman,
 	})
 
 	key, _, _ := apiKeySvc.Create(ctx, domain.CreateAPIKeyParams{
-		Name: "original", TeamID: "T001", PrincipalID: user.ID,
-		Environment: domain.APIKeyEnvLive, Permissions: []string{"chat:write"},
+		Name: "original", WorkspaceID: "T001", UserID: user.ID, Permissions: []string{"chat:write"},
 	})
 
 	newName := "updated-name"
@@ -546,13 +586,12 @@ func TestAPIKey_Revoke(t *testing.T) {
 	apiKeySvc := service.NewAPIKeyService(apiKeyRepo, userRepo, recorder, pool, logger)
 
 	user, _ := userSvc.Create(ctx, domain.CreateUserParams{
-		TeamID: "T001", Name: "alice", Email: "alice@example.com",
+		WorkspaceID: "T001", Name: "alice", Email: "alice@example.com",
 		PrincipalType: domain.PrincipalTypeHuman,
 	})
 
 	key, rawKey, _ := apiKeySvc.Create(ctx, domain.CreateAPIKeyParams{
-		Name: "to-revoke", TeamID: "T001", PrincipalID: user.ID,
-		Environment: domain.APIKeyEnvLive,
+		Name: "to-revoke", WorkspaceID: "T001", UserID: user.ID,
 	})
 
 	// Revoke
@@ -605,13 +644,12 @@ func TestAPIKey_ValidateLiveKey(t *testing.T) {
 	apiKeySvc := service.NewAPIKeyService(apiKeyRepo, userRepo, recorder, pool, logger)
 
 	user, _ := userSvc.Create(ctx, domain.CreateUserParams{
-		TeamID: "T001", Name: "alice", Email: "alice@example.com",
+		WorkspaceID: "T001", Name: "alice", Email: "alice@example.com",
 		PrincipalType: domain.PrincipalTypeHuman,
 	})
 
 	_, rawKey, _ := apiKeySvc.Create(ctx, domain.CreateAPIKeyParams{
-		Name: "live-key", TeamID: "T001", PrincipalID: user.ID,
-		Type: domain.APIKeyTypePersistent, Environment: domain.APIKeyEnvLive,
+		Name: "live-key", WorkspaceID: "T001", UserID: user.ID,
 		Permissions: []string{"chat:write", "channels:read"},
 	})
 
@@ -620,14 +658,11 @@ func TestAPIKey_ValidateLiveKey(t *testing.T) {
 		t.Fatalf("validate: %v", err)
 	}
 
-	if validation.TeamID != "T001" {
-		t.Errorf("TeamID = %q, want %q", validation.TeamID, "T001")
+	if validation.WorkspaceID != "T001" {
+		t.Errorf("WorkspaceID = %q, want %q", validation.WorkspaceID, "T001")
 	}
-	if validation.PrincipalID != user.ID {
-		t.Errorf("PrincipalID = %q, want %q", validation.PrincipalID, user.ID)
-	}
-	if validation.Environment != domain.APIKeyEnvLive {
-		t.Errorf("Environment = %q, want %q", validation.Environment, domain.APIKeyEnvLive)
+	if validation.UserID != user.ID {
+		t.Errorf("UserID = %q, want %q", validation.UserID, user.ID)
 	}
 	if len(validation.Permissions) != 2 {
 		t.Errorf("Permissions count = %d, want 2", len(validation.Permissions))
@@ -651,21 +686,17 @@ func TestAPIKey_ValidateTestKey(t *testing.T) {
 	apiKeySvc := service.NewAPIKeyService(apiKeyRepo, userRepo, recorder, pool, logger)
 
 	user, _ := userSvc.Create(ctx, domain.CreateUserParams{
-		TeamID: "T001", Name: "bob", Email: "bob@example.com",
+		WorkspaceID: "T001", Name: "bob", Email: "bob@example.com",
 		PrincipalType: domain.PrincipalTypeHuman,
 	})
 
 	_, rawKey, _ := apiKeySvc.Create(ctx, domain.CreateAPIKeyParams{
-		Name: "test-key", TeamID: "T001", PrincipalID: user.ID,
-		Environment: domain.APIKeyEnvTest,
+		Name: "test-key", WorkspaceID: "T001", UserID: user.ID,
 	})
 
-	validation, err := apiKeySvc.ValidateAPIKey(ctx, rawKey)
+	_, err := apiKeySvc.ValidateAPIKey(ctx, rawKey)
 	if err != nil {
 		t.Fatalf("validate: %v", err)
-	}
-	if validation.Environment != domain.APIKeyEnvTest {
-		t.Errorf("Environment = %q, want %q", validation.Environment, domain.APIKeyEnvTest)
 	}
 }
 
@@ -686,14 +717,13 @@ func TestAPIKey_ValidateExpiredKey(t *testing.T) {
 	apiKeySvc := service.NewAPIKeyService(apiKeyRepo, userRepo, recorder, pool, logger)
 
 	user, _ := userSvc.Create(ctx, domain.CreateUserParams{
-		TeamID: "T001", Name: "alice", Email: "alice@example.com",
+		WorkspaceID: "T001", Name: "alice", Email: "alice@example.com",
 		PrincipalType: domain.PrincipalTypeHuman,
 	})
 
 	// Create a key that expires in 1 second
 	_, rawKey, _ := apiKeySvc.Create(ctx, domain.CreateAPIKeyParams{
-		Name: "short-lived", TeamID: "T001", PrincipalID: user.ID,
-		Environment: domain.APIKeyEnvLive, ExpiresIn: "1s",
+		Name: "short-lived", WorkspaceID: "T001", UserID: user.ID, ExpiresIn: "1s",
 	})
 
 	// Should work initially
@@ -750,13 +780,12 @@ func TestAPIKey_UsageTracking(t *testing.T) {
 	apiKeySvc := service.NewAPIKeyService(apiKeyRepo, userRepo, recorder, pool, logger)
 
 	user, _ := userSvc.Create(ctx, domain.CreateUserParams{
-		TeamID: "T001", Name: "alice", Email: "alice@example.com",
+		WorkspaceID: "T001", Name: "alice", Email: "alice@example.com",
 		PrincipalType: domain.PrincipalTypeHuman,
 	})
 
 	key, rawKey, _ := apiKeySvc.Create(ctx, domain.CreateAPIKeyParams{
-		Name: "usage-key", TeamID: "T001", PrincipalID: user.ID,
-		Environment: domain.APIKeyEnvLive,
+		Name: "usage-key", WorkspaceID: "T001", UserID: user.ID,
 	})
 
 	// Validate 3 times
@@ -806,13 +835,12 @@ func TestAPIKey_RotateCreatesNewKey(t *testing.T) {
 	apiKeySvc := service.NewAPIKeyService(apiKeyRepo, userRepo, recorder, pool, logger)
 
 	user, _ := userSvc.Create(ctx, domain.CreateUserParams{
-		TeamID: "T001", Name: "alice", Email: "alice@example.com",
+		WorkspaceID: "T001", Name: "alice", Email: "alice@example.com",
 		PrincipalType: domain.PrincipalTypeHuman,
 	})
 
 	oldKey, oldRawKey, _ := apiKeySvc.Create(ctx, domain.CreateAPIKeyParams{
-		Name: "original", TeamID: "T001", PrincipalID: user.ID,
-		Environment: domain.APIKeyEnvLive, Permissions: []string{"chat:write"},
+		Name: "original", WorkspaceID: "T001", UserID: user.ID, Permissions: []string{"chat:write"},
 	})
 
 	// Rotate with 1h grace period
@@ -890,13 +918,12 @@ func TestAPIKey_RotateRevokedKeyFails(t *testing.T) {
 	apiKeySvc := service.NewAPIKeyService(apiKeyRepo, userRepo, recorder, pool, logger)
 
 	user, _ := userSvc.Create(ctx, domain.CreateUserParams{
-		TeamID: "T001", Name: "alice", Email: "alice@example.com",
+		WorkspaceID: "T001", Name: "alice", Email: "alice@example.com",
 		PrincipalType: domain.PrincipalTypeHuman,
 	})
 
 	key, _, _ := apiKeySvc.Create(ctx, domain.CreateAPIKeyParams{
-		Name: "to-revoke", TeamID: "T001", PrincipalID: user.ID,
-		Environment: domain.APIKeyEnvLive,
+		Name: "to-revoke", WorkspaceID: "T001", UserID: user.ID,
 	})
 
 	apiKeySvc.Revoke(ctx, key.ID)
@@ -924,13 +951,12 @@ func TestAPIKey_RotateCustomGracePeriod(t *testing.T) {
 	apiKeySvc := service.NewAPIKeyService(apiKeyRepo, userRepo, recorder, pool, logger)
 
 	user, _ := userSvc.Create(ctx, domain.CreateUserParams{
-		TeamID: "T001", Name: "alice", Email: "alice@example.com",
+		WorkspaceID: "T001", Name: "alice", Email: "alice@example.com",
 		PrincipalType: domain.PrincipalTypeHuman,
 	})
 
 	key, _, _ := apiKeySvc.Create(ctx, domain.CreateAPIKeyParams{
-		Name: "rotate-test", TeamID: "T001", PrincipalID: user.ID,
-		Environment: domain.APIKeyEnvLive,
+		Name: "rotate-test", WorkspaceID: "T001", UserID: user.ID,
 	})
 
 	// 7 day grace period
@@ -972,7 +998,7 @@ func TestPrincipalType_DefaultsToHuman(t *testing.T) {
 
 	// Create user without specifying principal_type
 	user, err := userSvc.Create(ctx, domain.CreateUserParams{
-		TeamID: "T001", Name: "default-user", Email: "default@example.com",
+		WorkspaceID: "T001", Name: "default-user", Email: "default@example.com",
 		PrincipalType: domain.PrincipalTypeHuman,
 	})
 	if err != nil {
@@ -1001,14 +1027,14 @@ func TestPrincipalType_AgentWithOwner(t *testing.T) {
 	userSvc := service.NewUserService(userRepo, recorder, pool, logger)
 
 	human, _ := userSvc.Create(ctx, domain.CreateUserParams{
-		TeamID:        "T001",
+		WorkspaceID:   "T001",
 		Name:          "alice",
 		Email:         "alice@example.com",
 		PrincipalType: domain.PrincipalTypeHuman,
 	})
 
 	agent, err := userSvc.Create(ctx, domain.CreateUserParams{
-		TeamID:        "T001",
+		WorkspaceID:   "T001",
 		Name:          "devin",
 		Email:         "devin@example.com",
 		PrincipalType: domain.PrincipalTypeAgent,
@@ -1048,13 +1074,13 @@ func TestAPIKey_AgentActionsTrackedInEvents(t *testing.T) {
 
 	// Create human + agent + API key for agent
 	human, _ := userSvc.Create(ctx, domain.CreateUserParams{
-		TeamID:        "T001",
+		WorkspaceID:   "T001",
 		Name:          "alice",
 		Email:         "alice@example.com",
 		PrincipalType: domain.PrincipalTypeHuman,
 	})
 	agent, _ := userSvc.Create(ctx, domain.CreateUserParams{
-		TeamID:        "T001",
+		WorkspaceID:   "T001",
 		Name:          "devin",
 		Email:         "devin@example.com",
 		PrincipalType: domain.PrincipalTypeAgent,
@@ -1062,9 +1088,8 @@ func TestAPIKey_AgentActionsTrackedInEvents(t *testing.T) {
 	})
 
 	_, rawKey, _ := apiKeySvc.Create(ctx, domain.CreateAPIKeyParams{
-		Name: "agent-key", TeamID: "T001", PrincipalID: agent.ID,
-		CreatedBy: human.ID, OnBehalfOf: human.ID,
-		Environment: domain.APIKeyEnvLive,
+		Name: "agent-key", WorkspaceID: "T001", UserID: agent.ID,
+		CreatedBy: human.ID,
 	})
 
 	// Validate key to get the validation info (simulating what auth middleware does)
@@ -1074,14 +1099,14 @@ func TestAPIKey_AgentActionsTrackedInEvents(t *testing.T) {
 	}
 
 	// Simulate what auth middleware does: set context with principal info
-	ctxWithAuth := context.WithValue(ctx, "user_id", validation.PrincipalID)
+	ctxWithAuth := context.WithValue(ctx, "user_id", validation.UserID)
 
 	// Agent creates a conversation
 	conv, err := convSvc.Create(ctxWithAuth, domain.CreateConversationParams{
-		TeamID:    "T001",
-		Name:      "agent-created-channel",
-		Type:      domain.ConversationTypePublicChannel,
-		CreatorID: agent.ID,
+		WorkspaceID: "T001",
+		Name:        "agent-created-channel",
+		Type:        domain.ConversationTypePublicChannel,
+		CreatorID:   agent.ID,
 	})
 	if err != nil {
 		t.Fatalf("create conversation: %v", err)
@@ -1092,9 +1117,6 @@ func TestAPIKey_AgentActionsTrackedInEvents(t *testing.T) {
 	}
 
 	// Verify delegation info is available
-	if validation.OnBehalfOf != human.ID {
-		t.Errorf("validation.OnBehalfOf = %q, want %q", validation.OnBehalfOf, human.ID)
-	}
 }
 
 // ---------- 5. Event Sourcing Consistency ----------
@@ -1116,14 +1138,13 @@ func TestAPIKey_FullLifecycleEventCount(t *testing.T) {
 	apiKeySvc := service.NewAPIKeyService(apiKeyRepo, userRepo, recorder, pool, logger)
 
 	user, _ := userSvc.Create(ctx, domain.CreateUserParams{
-		TeamID: "T001", Name: "alice", Email: "alice@example.com",
+		WorkspaceID: "T001", Name: "alice", Email: "alice@example.com",
 		PrincipalType: domain.PrincipalTypeHuman,
 	})
 
 	// 1. Create
 	key, _, _ := apiKeySvc.Create(ctx, domain.CreateAPIKeyParams{
-		Name: "lifecycle-key", TeamID: "T001", PrincipalID: user.ID,
-		Environment: domain.APIKeyEnvLive,
+		Name: "lifecycle-key", WorkspaceID: "T001", UserID: user.ID,
 	})
 
 	// 2. Update
@@ -1213,13 +1234,12 @@ func TestAPIKey_EventPayloadsRedacted(t *testing.T) {
 	apiKeySvc := service.NewAPIKeyService(apiKeyRepo, userRepo, recorder, pool, logger)
 
 	user, _ := userSvc.Create(ctx, domain.CreateUserParams{
-		TeamID: "T001", Name: "alice", Email: "alice@example.com",
+		WorkspaceID: "T001", Name: "alice", Email: "alice@example.com",
 		PrincipalType: domain.PrincipalTypeHuman,
 	})
 
 	key, _, _ := apiKeySvc.Create(ctx, domain.CreateAPIKeyParams{
-		Name: "redact-test", TeamID: "T001", PrincipalID: user.ID,
-		Environment: domain.APIKeyEnvLive,
+		Name: "redact-test", WorkspaceID: "T001", UserID: user.ID,
 	})
 
 	// Check all api_key events don't contain key_hash
@@ -1267,14 +1287,13 @@ func TestAPIKey_TransactionalAtomicity(t *testing.T) {
 	apiKeySvc := service.NewAPIKeyService(apiKeyRepo, userRepo, recorder, pool, logger)
 
 	user, _ := userSvc.Create(ctx, domain.CreateUserParams{
-		TeamID: "T001", Name: "alice", Email: "alice@example.com",
+		WorkspaceID: "T001", Name: "alice", Email: "alice@example.com",
 		PrincipalType: domain.PrincipalTypeHuman,
 	})
 
 	// Create a key and verify both projection and event exist
 	key, _, err := apiKeySvc.Create(ctx, domain.CreateAPIKeyParams{
-		Name: "atomic-test", TeamID: "T001", PrincipalID: user.ID,
-		Environment: domain.APIKeyEnvLive,
+		Name: "atomic-test", WorkspaceID: "T001", UserID: user.ID,
 	})
 	if err != nil {
 		t.Fatalf("create: %v", err)

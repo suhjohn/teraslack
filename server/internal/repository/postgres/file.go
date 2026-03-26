@@ -28,7 +28,7 @@ func (r *FileRepo) WithTx(tx pgx.Tx) repository.FileRepository {
 func (r *FileRepo) Create(ctx context.Context, f *domain.File) error {
 	return r.q.CreateFile(ctx, sqlcgen.CreateFileParams{
 		ID:                 f.ID,
-		TeamID:             f.TeamID,
+		WorkspaceID:             f.WorkspaceID,
 		Name:               f.Name,
 		Title:              f.Title,
 		Mimetype:           f.Mimetype,
@@ -45,8 +45,8 @@ func (r *FileRepo) Create(ctx context.Context, f *domain.File) error {
 	})
 }
 
-func (r *FileRepo) Get(ctx context.Context, teamID, id string) (*domain.File, error) {
-	row, err := r.q.GetFile(ctx, sqlcgen.GetFileParams{TeamID: teamID, ID: id})
+func (r *FileRepo) Get(ctx context.Context, workspaceID, id string) (*domain.File, error) {
+	row, err := r.q.GetFile(ctx, sqlcgen.GetFileParams{WorkspaceID: workspaceID, ID: id})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, domain.ErrNotFound
@@ -65,9 +65,9 @@ func (r *FileRepo) Get(ctx context.Context, teamID, id string) (*domain.File, er
 	return f, nil
 }
 
-func (r *FileRepo) Update(ctx context.Context, teamID string, f *domain.File) error {
+func (r *FileRepo) Update(ctx context.Context, workspaceID string, f *domain.File) error {
 	return r.q.UpdateFileComplete(ctx, sqlcgen.UpdateFileCompleteParams{
-		TeamID:             teamID,
+		WorkspaceID:             workspaceID,
 		ID:                 f.ID,
 		Title:              f.Title,
 		UrlPrivate:         f.URLPrivate,
@@ -76,8 +76,8 @@ func (r *FileRepo) Update(ctx context.Context, teamID string, f *domain.File) er
 	})
 }
 
-func (r *FileRepo) Delete(ctx context.Context, teamID, id string) error {
-	return r.q.DeleteFile(ctx, sqlcgen.DeleteFileParams{TeamID: teamID, ID: id})
+func (r *FileRepo) Delete(ctx context.Context, workspaceID, id string) error {
+	return r.q.DeleteFile(ctx, sqlcgen.DeleteFileParams{WorkspaceID: workspaceID, ID: id})
 }
 
 func (r *FileRepo) List(ctx context.Context, params domain.ListFilesParams) (*domain.CursorPage[domain.File], error) {
@@ -91,7 +91,7 @@ func (r *FileRepo) List(ctx context.Context, params domain.ListFilesParams) (*do
 	switch {
 	case params.ChannelID != "" && params.UserID != "":
 		rows, err := r.q.ListFilesByChannelAndUser(ctx, sqlcgen.ListFilesByChannelAndUserParams{
-			TeamID:    params.TeamID,
+			WorkspaceID:    params.WorkspaceID,
 			ChannelID: params.ChannelID,
 			UserID:    params.UserID,
 			ID:        params.Cursor,
@@ -105,7 +105,7 @@ func (r *FileRepo) List(ctx context.Context, params domain.ListFilesParams) (*do
 		}
 	case params.ChannelID != "":
 		rows, err := r.q.ListFilesByChannel(ctx, sqlcgen.ListFilesByChannelParams{
-			TeamID:    params.TeamID,
+			WorkspaceID:    params.WorkspaceID,
 			ChannelID: params.ChannelID,
 			ID:        params.Cursor,
 			Limit:     int32(limit + 1),
@@ -118,7 +118,7 @@ func (r *FileRepo) List(ctx context.Context, params domain.ListFilesParams) (*do
 		}
 	case params.UserID != "":
 		rows, err := r.q.ListFilesByUser(ctx, sqlcgen.ListFilesByUserParams{
-			TeamID: params.TeamID,
+			WorkspaceID: params.WorkspaceID,
 			UserID: params.UserID,
 			ID:     params.Cursor,
 			Limit:  int32(limit + 1),
@@ -131,7 +131,7 @@ func (r *FileRepo) List(ctx context.Context, params domain.ListFilesParams) (*do
 		}
 	default:
 		rows, err := r.q.ListFiles(ctx, sqlcgen.ListFilesParams{
-			TeamID: params.TeamID,
+			WorkspaceID: params.WorkspaceID,
 			ID:     params.Cursor,
 			Limit:  int32(limit + 1),
 		})
@@ -157,8 +157,8 @@ func (r *FileRepo) List(ctx context.Context, params domain.ListFilesParams) (*do
 	return page, nil
 }
 
-func (r *FileRepo) ShareToChannel(ctx context.Context, teamID, fileID, channelID string) error {
-	if _, err := r.q.GetFile(ctx, sqlcgen.GetFileParams{TeamID: teamID, ID: fileID}); err != nil {
+func (r *FileRepo) ShareToChannel(ctx context.Context, workspaceID, fileID, channelID string) error {
+	if _, err := r.q.GetFile(ctx, sqlcgen.GetFileParams{WorkspaceID: workspaceID, ID: fileID}); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return domain.ErrNotFound
 		}
@@ -172,20 +172,19 @@ func (r *FileRepo) ShareToChannel(ctx context.Context, teamID, fileID, channelID
 		}
 		return fmt.Errorf("get conversation: %w", err)
 	}
-	if conv.TeamID != teamID {
+	if conv.WorkspaceID != workspaceID {
 		return domain.ErrNotFound
 	}
 
-	tag, err := r.db.Exec(ctx,
-		`INSERT INTO file_channels (file_id, channel_id)
-		 VALUES ($1, $2)
-		 ON CONFLICT DO NOTHING`,
-		fileID, channelID,
-	)
+	rowsAffected, err := r.q.ShareFileToChannel(ctx, sqlcgen.ShareFileToChannelParams{
+		WorkspaceID:    workspaceID,
+		FileID:    fileID,
+		ChannelID: channelID,
+	})
 	if err != nil {
 		return fmt.Errorf("share file to channel: %w", err)
 	}
-	if tag.RowsAffected() == 0 {
+	if rowsAffected == 0 {
 		return domain.ErrAlreadyShared
 	}
 	return nil

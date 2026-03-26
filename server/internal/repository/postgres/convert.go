@@ -51,6 +51,20 @@ func textToStringPtr(t pgtype.Text) *string {
 	return nil
 }
 
+func boolToBoolPtr(b any) *bool {
+	switch v := b.(type) {
+	case bool:
+		return &v
+	case pgtype.Bool:
+		if v.Valid {
+			return &v.Bool
+		}
+		return nil
+	default:
+		return nil
+	}
+}
+
 func stringPtrToText(s *string) pgtype.Text {
 	if s != nil {
 		return pgtype.Text{String: *s, Valid: true}
@@ -65,9 +79,16 @@ func stringToText(s string) pgtype.Text {
 	return pgtype.Text{String: s, Valid: true}
 }
 
+func timeToPgTimestamptz(t *time.Time) pgtype.Timestamptz {
+	if t == nil {
+		return pgtype.Timestamptz{}
+	}
+	return pgtype.Timestamptz{Time: *t, Valid: true}
+}
+
 // userFields is a common struct for user row conversion.
 type userFields struct {
-	ID, TeamID, Name, RealName, DisplayName, Email string
+	ID, WorkspaceID, Name, RealName, DisplayName, Email string
 	PrincipalType, OwnerID, AccountType            string
 	IsBot, Deleted                                 bool
 	Profile                                        []byte
@@ -83,7 +104,7 @@ func userFieldsToDomain(u userFields) (*domain.User, error) {
 	}
 	return &domain.User{
 		ID:            u.ID,
-		TeamID:        u.TeamID,
+		WorkspaceID:        u.WorkspaceID,
 		Name:          u.Name,
 		RealName:      u.RealName,
 		DisplayName:   u.DisplayName,
@@ -101,7 +122,7 @@ func userFieldsToDomain(u userFields) (*domain.User, error) {
 
 func createUserRowToFields(r sqlcgen.CreateUserRow) userFields {
 	return userFields{
-		ID: r.ID, TeamID: r.TeamID, Name: r.Name, RealName: r.RealName,
+		ID: r.ID, WorkspaceID: r.WorkspaceID, Name: r.Name, RealName: r.RealName,
 		DisplayName: r.DisplayName, Email: r.Email, PrincipalType: r.PrincipalType,
 		OwnerID: r.OwnerID, AccountType: r.AccountType, IsBot: r.IsBot, Deleted: r.Deleted, Profile: r.Profile,
 		CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt,
@@ -110,16 +131,16 @@ func createUserRowToFields(r sqlcgen.CreateUserRow) userFields {
 
 func getUserRowToFields(r sqlcgen.GetUserRow) userFields {
 	return userFields{
-		ID: r.ID, TeamID: r.TeamID, Name: r.Name, RealName: r.RealName,
+		ID: r.ID, WorkspaceID: r.WorkspaceID, Name: r.Name, RealName: r.RealName,
 		DisplayName: r.DisplayName, Email: r.Email, PrincipalType: r.PrincipalType,
 		OwnerID: r.OwnerID, AccountType: r.AccountType, IsBot: r.IsBot, Deleted: r.Deleted, Profile: r.Profile,
 		CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt,
 	}
 }
 
-func getUserByTeamEmailRowToFields(r sqlcgen.GetUserByTeamEmailRow) userFields {
+func getUserByTeamEmailRowToFields(r sqlcgen.GetUserByWorkspaceEmailRow) userFields {
 	return userFields{
-		ID: r.ID, TeamID: r.TeamID, Name: r.Name, RealName: r.RealName,
+		ID: r.ID, WorkspaceID: r.WorkspaceID, Name: r.Name, RealName: r.RealName,
 		DisplayName: r.DisplayName, Email: r.Email, PrincipalType: r.PrincipalType,
 		OwnerID: r.OwnerID, AccountType: r.AccountType, IsBot: r.IsBot, Deleted: r.Deleted, Profile: r.Profile,
 		CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt,
@@ -128,7 +149,7 @@ func getUserByTeamEmailRowToFields(r sqlcgen.GetUserByTeamEmailRow) userFields {
 
 func updateUserRowToFields(r sqlcgen.UpdateUserRow) userFields {
 	return userFields{
-		ID: r.ID, TeamID: r.TeamID, Name: r.Name, RealName: r.RealName,
+		ID: r.ID, WorkspaceID: r.WorkspaceID, Name: r.Name, RealName: r.RealName,
 		DisplayName: r.DisplayName, Email: r.Email, PrincipalType: r.PrincipalType,
 		OwnerID: r.OwnerID, AccountType: r.AccountType, IsBot: r.IsBot, Deleted: r.Deleted, Profile: r.Profile,
 		CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt,
@@ -137,61 +158,130 @@ func updateUserRowToFields(r sqlcgen.UpdateUserRow) userFields {
 
 func listUserRowToFields(r sqlcgen.ListUsersRow) userFields {
 	return userFields{
-		ID: r.ID, TeamID: r.TeamID, Name: r.Name, RealName: r.RealName,
+		ID: r.ID, WorkspaceID: r.WorkspaceID, Name: r.Name, RealName: r.RealName,
 		DisplayName: r.DisplayName, Email: r.Email, PrincipalType: r.PrincipalType,
 		OwnerID: r.OwnerID, AccountType: r.AccountType, IsBot: r.IsBot, Deleted: r.Deleted, Profile: r.Profile,
 		CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt,
 	}
 }
 
-func apiKeyToDomain(k sqlcgen.ApiKey) *domain.APIKey {
-	return &domain.APIKey{
-		ID:                k.ID,
-		Name:              k.Name,
-		Description:       k.Description,
-		KeyHash:           k.KeyHash,
-		KeyPrefix:         k.KeyPrefix,
-		KeyHint:           k.KeyHint,
-		TeamID:            k.TeamID,
-		PrincipalID:       k.PrincipalID,
-		CreatedBy:         k.CreatedBy,
-		OnBehalfOf:        k.OnBehalfOf,
-		Type:              domain.APIKeyType(k.Type),
-		Environment:       domain.APIKeyEnvironment(k.Environment),
-		Permissions:       k.Permissions,
-		ExpiresAt:         tsToTimePtr(k.ExpiresAt),
-		LastUsedAt:        tsToTimePtr(k.LastUsedAt),
-		RequestCount:      k.RequestCount,
-		Revoked:           k.Revoked,
-		RevokedAt:         tsToTimePtr(k.RevokedAt),
-		RotatedToID:       k.RotatedToID,
-		GracePeriodEndsAt: tsToTimePtr(k.GracePeriodEndsAt),
-		CreatedAt:         tsToTime(k.CreatedAt),
-		UpdatedAt:         tsToTime(k.UpdatedAt),
+func apiKeyToDomain(row any) *domain.APIKey {
+	switch k := row.(type) {
+	case sqlcgen.ApiKey:
+		return apiKeyFieldsToDomain(k.ID, k.Name, k.Description, k.KeyHash, k.KeyPrefix, k.KeyHint, k.WorkspaceID, k.PrincipalID.String, k.CreatedBy, k.Permissions, k.ExpiresAt, k.LastUsedAt, k.RequestCount, k.Revoked, k.RevokedAt, k.RotatedToID, k.GracePeriodEndsAt, k.CreatedAt, k.UpdatedAt)
+	case sqlcgen.CreateAPIKeyRow:
+		return apiKeyFieldsToDomain(k.ID, k.Name, k.Description, k.KeyHash, k.KeyPrefix, k.KeyHint, k.WorkspaceID, k.PrincipalID, k.CreatedBy, k.Permissions, k.ExpiresAt, k.LastUsedAt, k.RequestCount, k.Revoked, k.RevokedAt, k.RotatedToID, k.GracePeriodEndsAt, k.CreatedAt, k.UpdatedAt)
+	case sqlcgen.GetAPIKeyRow:
+		return apiKeyFieldsToDomain(k.ID, k.Name, k.Description, k.KeyHash, k.KeyPrefix, k.KeyHint, k.WorkspaceID, k.PrincipalID, k.CreatedBy, k.Permissions, k.ExpiresAt, k.LastUsedAt, k.RequestCount, k.Revoked, k.RevokedAt, k.RotatedToID, k.GracePeriodEndsAt, k.CreatedAt, k.UpdatedAt)
+	case sqlcgen.GetAPIKeyByHashRow:
+		return apiKeyFieldsToDomain(k.ID, k.Name, k.Description, k.KeyHash, k.KeyPrefix, k.KeyHint, k.WorkspaceID, k.PrincipalID, k.CreatedBy, k.Permissions, k.ExpiresAt, k.LastUsedAt, k.RequestCount, k.Revoked, k.RevokedAt, k.RotatedToID, k.GracePeriodEndsAt, k.CreatedAt, k.UpdatedAt)
+	case sqlcgen.ListAPIKeysRow:
+		return apiKeyFieldsToDomain(k.ID, k.Name, k.Description, k.KeyHash, k.KeyPrefix, k.KeyHint, k.WorkspaceID, k.PrincipalID, k.CreatedBy, k.Permissions, k.ExpiresAt, k.LastUsedAt, k.RequestCount, k.Revoked, k.RevokedAt, k.RotatedToID, k.GracePeriodEndsAt, k.CreatedAt, k.UpdatedAt)
+	case sqlcgen.ListAPIKeysIncludeRevokedRow:
+		return apiKeyFieldsToDomain(k.ID, k.Name, k.Description, k.KeyHash, k.KeyPrefix, k.KeyHint, k.WorkspaceID, k.PrincipalID, k.CreatedBy, k.Permissions, k.ExpiresAt, k.LastUsedAt, k.RequestCount, k.Revoked, k.RevokedAt, k.RotatedToID, k.GracePeriodEndsAt, k.CreatedAt, k.UpdatedAt)
+	case sqlcgen.ListAPIKeysByPrincipalRow:
+		return apiKeyFieldsToDomain(k.ID, k.Name, k.Description, k.KeyHash, k.KeyPrefix, k.KeyHint, k.WorkspaceID, k.PrincipalID, k.CreatedBy, k.Permissions, k.ExpiresAt, k.LastUsedAt, k.RequestCount, k.Revoked, k.RevokedAt, k.RotatedToID, k.GracePeriodEndsAt, k.CreatedAt, k.UpdatedAt)
+	case sqlcgen.ListAPIKeysByPrincipalIncludeRevokedRow:
+		return apiKeyFieldsToDomain(k.ID, k.Name, k.Description, k.KeyHash, k.KeyPrefix, k.KeyHint, k.WorkspaceID, k.PrincipalID, k.CreatedBy, k.Permissions, k.ExpiresAt, k.LastUsedAt, k.RequestCount, k.Revoked, k.RevokedAt, k.RotatedToID, k.GracePeriodEndsAt, k.CreatedAt, k.UpdatedAt)
+	case sqlcgen.UpdateAPIKeyRow:
+		return apiKeyFieldsToDomain(k.ID, k.Name, k.Description, k.KeyHash, k.KeyPrefix, k.KeyHint, k.WorkspaceID, k.PrincipalID, k.CreatedBy, k.Permissions, k.ExpiresAt, k.LastUsedAt, k.RequestCount, k.Revoked, k.RevokedAt, k.RotatedToID, k.GracePeriodEndsAt, k.CreatedAt, k.UpdatedAt)
+	default:
+		panic("unsupported api key row type")
 	}
 }
 
-func convToDomain(c sqlcgen.Conversation) *domain.Conversation {
+func apiKeyFieldsToDomain(
+	id, name, description, keyHash, keyPrefix, keyHint, workspaceID, principalID, createdBy string,
+	permissions []string,
+	expiresAt, lastUsedAt any,
+	requestCount int64,
+	revoked bool,
+	revokedAt any,
+	rotatedToID string,
+	gracePeriodEndsAt, createdAt, updatedAt any,
+) *domain.APIKey {
+	return &domain.APIKey{
+		ID:                id,
+		Name:              name,
+		Description:       description,
+		KeyHash:           keyHash,
+		KeyPrefix:         keyPrefix,
+		KeyHint:           keyHint,
+		WorkspaceID:            workspaceID,
+		UserID:            principalID,
+		CreatedBy:         createdBy,
+		Permissions:       permissions,
+		ExpiresAt:         tsToTimePtr(expiresAt),
+		LastUsedAt:        tsToTimePtr(lastUsedAt),
+		RequestCount:      requestCount,
+		Revoked:           revoked,
+		RevokedAt:         tsToTimePtr(revokedAt),
+		RotatedToID:       rotatedToID,
+		GracePeriodEndsAt: tsToTimePtr(gracePeriodEndsAt),
+		CreatedAt:         tsToTime(createdAt),
+		UpdatedAt:         tsToTime(updatedAt),
+	}
+}
+
+func convToDomain(row any) *domain.Conversation {
+	switch c := row.(type) {
+	case sqlcgen.Conversation:
+		return convFieldsToDomain(c.ID, c.WorkspaceID, c.Name, c.Type, c.CreatorID, c.IsArchived, c.TopicValue, c.TopicCreator, c.TopicLastSet, c.PurposeValue, c.PurposeCreator, c.PurposeLastSet, c.NumMembers, c.LastMessageTs, c.LastActivityTs, c.CreatedAt, c.UpdatedAt)
+	case sqlcgen.CreateConversationRow:
+		return convFieldsToDomain(c.ID, c.WorkspaceID, c.Name, c.Type, c.CreatorID, c.IsArchived, c.TopicValue, c.TopicCreator, c.TopicLastSet, c.PurposeValue, c.PurposeCreator, c.PurposeLastSet, c.NumMembers, c.LastMessageTs, c.LastActivityTs, c.CreatedAt, c.UpdatedAt)
+	case sqlcgen.GetConversationRow:
+		return convFieldsToDomain(c.ID, c.WorkspaceID, c.Name, c.Type, c.CreatorID, c.IsArchived, c.TopicValue, c.TopicCreator, c.TopicLastSet, c.PurposeValue, c.PurposeCreator, c.PurposeLastSet, c.NumMembers, c.LastMessageTs, c.LastActivityTs, c.CreatedAt, c.UpdatedAt)
+	case sqlcgen.UpdateConversationRow:
+		return convFieldsToDomain(c.ID, c.WorkspaceID, c.Name, c.Type, c.CreatorID, c.IsArchived, c.TopicValue, c.TopicCreator, c.TopicLastSet, c.PurposeValue, c.PurposeCreator, c.PurposeLastSet, c.NumMembers, c.LastMessageTs, c.LastActivityTs, c.CreatedAt, c.UpdatedAt)
+	case sqlcgen.SetConversationTopicRow:
+		return convFieldsToDomain(c.ID, c.WorkspaceID, c.Name, c.Type, c.CreatorID, c.IsArchived, c.TopicValue, c.TopicCreator, c.TopicLastSet, c.PurposeValue, c.PurposeCreator, c.PurposeLastSet, c.NumMembers, c.LastMessageTs, c.LastActivityTs, c.CreatedAt, c.UpdatedAt)
+	case sqlcgen.SetConversationPurposeRow:
+		return convFieldsToDomain(c.ID, c.WorkspaceID, c.Name, c.Type, c.CreatorID, c.IsArchived, c.TopicValue, c.TopicCreator, c.TopicLastSet, c.PurposeValue, c.PurposeCreator, c.PurposeLastSet, c.NumMembers, c.LastMessageTs, c.LastActivityTs, c.CreatedAt, c.UpdatedAt)
+	case sqlcgen.ListVisibleConversationsRow:
+		conv := convFieldsToDomain(c.ID, c.WorkspaceID, c.Name, c.Type, c.CreatorID, c.IsArchived, c.TopicValue, c.TopicCreator, c.TopicLastSet, c.PurposeValue, c.PurposeCreator, c.PurposeLastSet, c.NumMembers, c.LastMessageTs, c.LastActivityTs, c.CreatedAt, c.UpdatedAt)
+		conv.LastReadTS = textToStringPtr(c.LastReadTs)
+		conv.HasUnread = boolToBoolPtr(c.HasUnread)
+		return conv
+	case sqlcgen.GetCanonicalDMConversationRow:
+		return convFieldsToDomain(c.ID, c.WorkspaceID, c.Name, c.Type, c.CreatorID, c.IsArchived, c.TopicValue, c.TopicCreator, c.TopicLastSet, c.PurposeValue, c.PurposeCreator, c.PurposeLastSet, c.NumMembers, c.LastMessageTs, c.LastActivityTs, c.CreatedAt, c.UpdatedAt)
+	default:
+		panic("unsupported conversation row type")
+	}
+}
+
+func convFieldsToDomain(
+	id, workspaceID, name, convType, creatorID string,
+	isArchived bool,
+	topicValue, topicCreator string,
+	topicLastSet *time.Time,
+	purposeValue, purposeCreator string,
+	purposeLastSet *time.Time,
+	numMembers int32,
+	lastMessageTs, lastActivityTs pgtype.Text,
+	createdAt, updatedAt time.Time,
+) *domain.Conversation {
 	return &domain.Conversation{
-		ID:         c.ID,
-		TeamID:     c.TeamID,
-		Name:       c.Name,
-		Type:       domain.ConversationType(c.Type),
-		CreatorID:  c.CreatorID,
-		IsArchived: c.IsArchived,
+		ID:         id,
+		WorkspaceID:     workspaceID,
+		Name:       name,
+		Type:       domain.ConversationType(convType),
+		CreatorID:  creatorID,
+		IsArchived: isArchived,
 		Topic: domain.TopicPurpose{
-			Value:   c.TopicValue,
-			Creator: c.TopicCreator,
-			LastSet: tsToTimePtr(c.TopicLastSet),
+			Value:   topicValue,
+			Creator: topicCreator,
+			LastSet: tsToTimePtr(topicLastSet),
 		},
 		Purpose: domain.TopicPurpose{
-			Value:   c.PurposeValue,
-			Creator: c.PurposeCreator,
-			LastSet: tsToTimePtr(c.PurposeLastSet),
+			Value:   purposeValue,
+			Creator: purposeCreator,
+			LastSet: tsToTimePtr(purposeLastSet),
 		},
-		NumMembers: int(c.NumMembers),
-		CreatedAt:  tsToTime(c.CreatedAt),
-		UpdatedAt:  tsToTime(c.UpdatedAt),
+		NumMembers:     int(numMembers),
+		LastMessageTS:  textToStringPtr(lastMessageTs),
+		LastActivityTS: textToStringPtr(lastActivityTs),
+		CreatedAt:      tsToTime(createdAt),
+		UpdatedAt:      tsToTime(updatedAt),
 	}
 }
 
@@ -220,7 +310,7 @@ func msgToDomain(m sqlcgen.Message) *domain.Message {
 func usergroupToDomain(ug sqlcgen.Usergroup) *domain.Usergroup {
 	return &domain.Usergroup{
 		ID:          ug.ID,
-		TeamID:      ug.TeamID,
+		WorkspaceID: ug.WorkspaceID,
 		Name:        ug.Name,
 		Handle:      ug.Handle,
 		Description: ug.Description,
@@ -261,7 +351,7 @@ func bookmarkToDomain(b sqlcgen.Bookmark) *domain.Bookmark {
 func fileToDomain(f sqlcgen.GetFileRow) *domain.File {
 	return &domain.File{
 		ID:                 f.ID,
-		TeamID:             f.TeamID,
+		WorkspaceID: f.WorkspaceID,
 		Name:               f.Name,
 		Title:              f.Title,
 		Mimetype:           f.Mimetype,
@@ -281,7 +371,7 @@ func fileToDomain(f sqlcgen.GetFileRow) *domain.File {
 func fileListToDomain(f sqlcgen.ListFilesRow) *domain.File {
 	return &domain.File{
 		ID:                 f.ID,
-		TeamID:             f.TeamID,
+		WorkspaceID: f.WorkspaceID,
 		Name:               f.Name,
 		Title:              f.Title,
 		Mimetype:           f.Mimetype,
@@ -301,7 +391,7 @@ func fileListToDomain(f sqlcgen.ListFilesRow) *domain.File {
 func fileByUserToDomain(f sqlcgen.ListFilesByUserRow) *domain.File {
 	return &domain.File{
 		ID:                 f.ID,
-		TeamID:             f.TeamID,
+		WorkspaceID: f.WorkspaceID,
 		Name:               f.Name,
 		Title:              f.Title,
 		Mimetype:           f.Mimetype,
@@ -321,7 +411,7 @@ func fileByUserToDomain(f sqlcgen.ListFilesByUserRow) *domain.File {
 func fileByChannelToDomain(f sqlcgen.ListFilesByChannelRow) *domain.File {
 	return &domain.File{
 		ID:                 f.ID,
-		TeamID:             f.TeamID,
+		WorkspaceID: f.WorkspaceID,
 		Name:               f.Name,
 		Title:              f.Title,
 		Mimetype:           f.Mimetype,
@@ -341,7 +431,7 @@ func fileByChannelToDomain(f sqlcgen.ListFilesByChannelRow) *domain.File {
 func fileByChannelAndUserToDomain(f sqlcgen.ListFilesByChannelAndUserRow) *domain.File {
 	return &domain.File{
 		ID:                 f.ID,
-		TeamID:             f.TeamID,
+		WorkspaceID: f.WorkspaceID,
 		Name:               f.Name,
 		Title:              f.Title,
 		Mimetype:           f.Mimetype,
@@ -360,7 +450,7 @@ func fileByChannelAndUserToDomain(f sqlcgen.ListFilesByChannelAndUserRow) *domai
 
 func createEventSubRowToDomain(e sqlcgen.CreateEventSubscriptionRow) *domain.EventSubscription {
 	return &domain.EventSubscription{
-		ID: e.ID, TeamID: e.TeamID, URL: e.Url, Type: e.EventType, ResourceType: e.ResourceType, ResourceID: e.ResourceID,
+		ID: e.ID, WorkspaceID: e.WorkspaceID, URL: e.Url, Type: e.EventType, ResourceType: e.ResourceType, ResourceID: e.ResourceID,
 		EncryptedSecret: e.EncryptedSecret, Enabled: e.Enabled,
 		CreatedAt: tsToTime(e.CreatedAt), UpdatedAt: tsToTime(e.UpdatedAt),
 	}
@@ -368,7 +458,7 @@ func createEventSubRowToDomain(e sqlcgen.CreateEventSubscriptionRow) *domain.Eve
 
 func getEventSubRowToDomain(e sqlcgen.GetEventSubscriptionRow) *domain.EventSubscription {
 	return &domain.EventSubscription{
-		ID: e.ID, TeamID: e.TeamID, URL: e.Url, Type: e.EventType, ResourceType: e.ResourceType, ResourceID: e.ResourceID,
+		ID: e.ID, WorkspaceID: e.WorkspaceID, URL: e.Url, Type: e.EventType, ResourceType: e.ResourceType, ResourceID: e.ResourceID,
 		EncryptedSecret: e.EncryptedSecret, Enabled: e.Enabled,
 		CreatedAt: tsToTime(e.CreatedAt), UpdatedAt: tsToTime(e.UpdatedAt),
 	}
@@ -376,7 +466,7 @@ func getEventSubRowToDomain(e sqlcgen.GetEventSubscriptionRow) *domain.EventSubs
 
 func updateEventSubRowToDomain(e sqlcgen.UpdateEventSubscriptionRow) *domain.EventSubscription {
 	return &domain.EventSubscription{
-		ID: e.ID, TeamID: e.TeamID, URL: e.Url, Type: e.EventType, ResourceType: e.ResourceType, ResourceID: e.ResourceID,
+		ID: e.ID, WorkspaceID: e.WorkspaceID, URL: e.Url, Type: e.EventType, ResourceType: e.ResourceType, ResourceID: e.ResourceID,
 		EncryptedSecret: e.EncryptedSecret, Enabled: e.Enabled,
 		CreatedAt: tsToTime(e.CreatedAt), UpdatedAt: tsToTime(e.UpdatedAt),
 	}
@@ -384,15 +474,15 @@ func updateEventSubRowToDomain(e sqlcgen.UpdateEventSubscriptionRow) *domain.Eve
 
 func listEventSubRowToDomain(e sqlcgen.ListEventSubscriptionsRow) *domain.EventSubscription {
 	return &domain.EventSubscription{
-		ID: e.ID, TeamID: e.TeamID, URL: e.Url, Type: e.EventType, ResourceType: e.ResourceType, ResourceID: e.ResourceID,
+		ID: e.ID, WorkspaceID: e.WorkspaceID, URL: e.Url, Type: e.EventType, ResourceType: e.ResourceType, ResourceID: e.ResourceID,
 		EncryptedSecret: e.EncryptedSecret, Enabled: e.Enabled,
 		CreatedAt: tsToTime(e.CreatedAt), UpdatedAt: tsToTime(e.UpdatedAt),
 	}
 }
 
-func listEventSubByTeamEventRowToDomain(e sqlcgen.ListEventSubscriptionsByTeamAndEventRow) *domain.EventSubscription {
+func listEventSubByTeamEventRowToDomain(e sqlcgen.ListEventSubscriptionsByWorkspaceAndEventRow) *domain.EventSubscription {
 	return &domain.EventSubscription{
-		ID: e.ID, TeamID: e.TeamID, URL: e.Url, Type: e.EventType, ResourceType: e.ResourceType, ResourceID: e.ResourceID,
+		ID: e.ID, WorkspaceID: e.WorkspaceID, URL: e.Url, Type: e.EventType, ResourceType: e.ResourceType, ResourceID: e.ResourceID,
 		EncryptedSecret: e.EncryptedSecret, Enabled: e.Enabled,
 		CreatedAt: tsToTime(e.CreatedAt), UpdatedAt: tsToTime(e.UpdatedAt),
 	}
@@ -401,7 +491,7 @@ func listEventSubByTeamEventRowToDomain(e sqlcgen.ListEventSubscriptionsByTeamAn
 func authSessionToDomain(s sqlcgen.AuthSession) *domain.AuthSession {
 	return &domain.AuthSession{
 		ID:        s.ID,
-		TeamID:    s.TeamID,
+		WorkspaceID: s.WorkspaceID,
 		UserID:    s.UserID,
 		Provider:  domain.AuthProvider(s.Provider),
 		ExpiresAt: tsToTime(s.ExpiresAt),
@@ -413,7 +503,7 @@ func authSessionToDomain(s sqlcgen.AuthSession) *domain.AuthSession {
 func oauthAccountToDomain(a sqlcgen.OauthAccount) *domain.OAuthAccount {
 	return &domain.OAuthAccount{
 		ID:              a.ID,
-		TeamID:          a.TeamID,
+		WorkspaceID:     a.WorkspaceID,
 		UserID:          a.UserID,
 		Provider:        domain.AuthProvider(a.Provider),
 		ProviderSubject: a.ProviderSubject,

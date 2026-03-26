@@ -94,6 +94,9 @@ func (m *mockConvRepoForBookmark) Get(_ context.Context, id string) (*domain.Con
 	}
 	return &domain.Conversation{ID: id}, nil
 }
+func (m *mockConvRepoForBookmark) GetCanonicalDM(_ context.Context, _, _, _ string) (*domain.Conversation, error) {
+	return nil, domain.ErrNotFound
+}
 func (m *mockConvRepoForBookmark) Update(_ context.Context, _ string, _ domain.UpdateConversationParams) (*domain.Conversation, error) {
 	return nil, nil
 }
@@ -123,7 +126,7 @@ func (m *mockConvRepoForBookmark) IsMember(_ context.Context, _, _ string) (bool
 func (m *mockConvRepoForBookmark) WithTx(_ pgx.Tx) repository.ConversationRepository { return m }
 
 type mockConvRepoForBookmarkTenant struct {
-	teamID string
+	workspaceID string
 }
 
 func (m *mockConvRepoForBookmarkTenant) Create(_ context.Context, _ domain.CreateConversationParams) (*domain.Conversation, error) {
@@ -133,7 +136,10 @@ func (m *mockConvRepoForBookmarkTenant) Get(_ context.Context, id string) (*doma
 	if id == "" {
 		return nil, domain.ErrNotFound
 	}
-	return &domain.Conversation{ID: id, TeamID: m.teamID}, nil
+	return &domain.Conversation{ID: id, WorkspaceID: m.workspaceID}, nil
+}
+func (m *mockConvRepoForBookmarkTenant) GetCanonicalDM(_ context.Context, _, _, _ string) (*domain.Conversation, error) {
+	return nil, domain.ErrNotFound
 }
 func (m *mockConvRepoForBookmarkTenant) Update(_ context.Context, _ string, _ domain.UpdateConversationParams) (*domain.Conversation, error) {
 	return nil, nil
@@ -285,9 +291,9 @@ func TestBookmarkService_CRUD(t *testing.T) {
 func TestBookmarkService_TenantAccessDenied(t *testing.T) {
 	repo := newMockBookmarkRepo()
 	repo.bookmarks["Bk123"] = &domain.Bookmark{ID: "Bk123", ChannelID: "C123", Title: "Secret", Link: "https://example.com"}
-	svc := NewBookmarkService(repo, &mockConvRepoForBookmarkTenant{teamID: "T999"}, nil, mockTxBeginner{}, nil)
+	svc := NewBookmarkService(repo, &mockConvRepoForBookmarkTenant{workspaceID: "T999"}, nil, mockTxBeginner{}, nil)
 
-	ctx := context.WithValue(context.Background(), ctxutil.ContextKeyTeamID, "T123")
+	ctx := context.WithValue(context.Background(), ctxutil.ContextKeyWorkspaceID, "T123")
 
 	if _, err := svc.Create(ctx, domain.CreateBookmarkParams{ChannelID: "C123", Title: "Doc", Link: "https://go.dev", CreatedBy: "U123"}); err == nil || !errors.Is(err, domain.ErrForbidden) {
 		t.Fatalf("expected forbidden from Create, got %v", err)

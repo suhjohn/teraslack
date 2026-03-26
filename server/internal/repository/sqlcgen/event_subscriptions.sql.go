@@ -13,14 +13,14 @@ import (
 )
 
 const createEventSubscription = `-- name: CreateEventSubscription :one
-INSERT INTO event_subscriptions (id, team_id, url, event_type, resource_type, resource_id, encrypted_secret)
+INSERT INTO event_subscriptions (id, workspace_id, url, event_type, resource_type, resource_id, encrypted_secret)
 VALUES ($1, $2, $3, $4, $5, $6, $7)
-RETURNING id, team_id, url, event_type, resource_type, resource_id, encrypted_secret, enabled, created_at, updated_at
+RETURNING id, workspace_id, url, event_type, resource_type, resource_id, encrypted_secret, enabled, created_at, updated_at
 `
 
 type CreateEventSubscriptionParams struct {
 	ID              string `json:"id"`
-	TeamID          string `json:"team_id"`
+	WorkspaceID     string `json:"workspace_id"`
 	Url             string `json:"url"`
 	EventType       string `json:"event_type"`
 	ResourceType    string `json:"resource_type"`
@@ -30,7 +30,7 @@ type CreateEventSubscriptionParams struct {
 
 type CreateEventSubscriptionRow struct {
 	ID              string    `json:"id"`
-	TeamID          string    `json:"team_id"`
+	WorkspaceID     string    `json:"workspace_id"`
 	Url             string    `json:"url"`
 	EventType       string    `json:"event_type"`
 	ResourceType    string    `json:"resource_type"`
@@ -44,7 +44,7 @@ type CreateEventSubscriptionRow struct {
 func (q *Queries) CreateEventSubscription(ctx context.Context, arg CreateEventSubscriptionParams) (CreateEventSubscriptionRow, error) {
 	row := q.db.QueryRow(ctx, createEventSubscription,
 		arg.ID,
-		arg.TeamID,
+		arg.WorkspaceID,
 		arg.Url,
 		arg.EventType,
 		arg.ResourceType,
@@ -54,7 +54,7 @@ func (q *Queries) CreateEventSubscription(ctx context.Context, arg CreateEventSu
 	var i CreateEventSubscriptionRow
 	err := row.Scan(
 		&i.ID,
-		&i.TeamID,
+		&i.WorkspaceID,
 		&i.Url,
 		&i.EventType,
 		&i.ResourceType,
@@ -77,13 +77,13 @@ func (q *Queries) DeleteEventSubscription(ctx context.Context, id string) error 
 }
 
 const getEventSubscription = `-- name: GetEventSubscription :one
-SELECT id, team_id, url, event_type, resource_type, resource_id, encrypted_secret, enabled, created_at, updated_at
+SELECT id, workspace_id, url, event_type, resource_type, resource_id, encrypted_secret, enabled, created_at, updated_at
 FROM event_subscriptions WHERE id = $1
 `
 
 type GetEventSubscriptionRow struct {
 	ID              string    `json:"id"`
-	TeamID          string    `json:"team_id"`
+	WorkspaceID     string    `json:"workspace_id"`
 	Url             string    `json:"url"`
 	EventType       string    `json:"event_type"`
 	ResourceType    string    `json:"resource_type"`
@@ -99,7 +99,7 @@ func (q *Queries) GetEventSubscription(ctx context.Context, id string) (GetEvent
 	var i GetEventSubscriptionRow
 	err := row.Scan(
 		&i.ID,
-		&i.TeamID,
+		&i.WorkspaceID,
 		&i.Url,
 		&i.EventType,
 		&i.ResourceType,
@@ -113,14 +113,14 @@ func (q *Queries) GetEventSubscription(ctx context.Context, id string) (GetEvent
 }
 
 const listEventSubscriptions = `-- name: ListEventSubscriptions :many
-SELECT id, team_id, url, event_type, resource_type, resource_id, encrypted_secret, enabled, created_at, updated_at
-FROM event_subscriptions WHERE team_id = $1
+SELECT id, workspace_id, url, event_type, resource_type, resource_id, encrypted_secret, enabled, created_at, updated_at
+FROM event_subscriptions WHERE workspace_id = $1
 ORDER BY created_at ASC
 `
 
 type ListEventSubscriptionsRow struct {
 	ID              string    `json:"id"`
-	TeamID          string    `json:"team_id"`
+	WorkspaceID     string    `json:"workspace_id"`
 	Url             string    `json:"url"`
 	EventType       string    `json:"event_type"`
 	ResourceType    string    `json:"resource_type"`
@@ -131,8 +131,8 @@ type ListEventSubscriptionsRow struct {
 	UpdatedAt       time.Time `json:"updated_at"`
 }
 
-func (q *Queries) ListEventSubscriptions(ctx context.Context, teamID string) ([]ListEventSubscriptionsRow, error) {
-	rows, err := q.db.Query(ctx, listEventSubscriptions, teamID)
+func (q *Queries) ListEventSubscriptions(ctx context.Context, workspaceID string) ([]ListEventSubscriptionsRow, error) {
+	rows, err := q.db.Query(ctx, listEventSubscriptions, workspaceID)
 	if err != nil {
 		return nil, err
 	}
@@ -142,7 +142,7 @@ func (q *Queries) ListEventSubscriptions(ctx context.Context, teamID string) ([]
 		var i ListEventSubscriptionsRow
 		if err := rows.Scan(
 			&i.ID,
-			&i.TeamID,
+			&i.WorkspaceID,
 			&i.Url,
 			&i.EventType,
 			&i.ResourceType,
@@ -162,10 +162,10 @@ func (q *Queries) ListEventSubscriptions(ctx context.Context, teamID string) ([]
 	return items, nil
 }
 
-const listEventSubscriptionsByTeamAndEvent = `-- name: ListEventSubscriptionsByTeamAndEvent :many
-SELECT id, team_id, url, event_type, resource_type, resource_id, encrypted_secret, enabled, created_at, updated_at
+const listEventSubscriptionsByWorkspaceAndEvent = `-- name: ListEventSubscriptionsByWorkspaceAndEvent :many
+SELECT id, workspace_id, url, event_type, resource_type, resource_id, encrypted_secret, enabled, created_at, updated_at
 FROM event_subscriptions
-WHERE team_id = $1
+WHERE workspace_id = $1
   AND enabled = TRUE
   AND (event_type = '' OR event_type = $2)
   AND ($3::TEXT IS NULL OR resource_type = '' OR resource_type = $3)
@@ -173,16 +173,16 @@ WHERE team_id = $1
 ORDER BY created_at ASC
 `
 
-type ListEventSubscriptionsByTeamAndEventParams struct {
-	TeamID       string      `json:"team_id"`
+type ListEventSubscriptionsByWorkspaceAndEventParams struct {
+	WorkspaceID  string      `json:"workspace_id"`
 	EventType    string      `json:"event_type"`
 	ResourceType pgtype.Text `json:"resource_type"`
 	ResourceID   pgtype.Text `json:"resource_id"`
 }
 
-type ListEventSubscriptionsByTeamAndEventRow struct {
+type ListEventSubscriptionsByWorkspaceAndEventRow struct {
 	ID              string    `json:"id"`
-	TeamID          string    `json:"team_id"`
+	WorkspaceID     string    `json:"workspace_id"`
 	Url             string    `json:"url"`
 	EventType       string    `json:"event_type"`
 	ResourceType    string    `json:"resource_type"`
@@ -193,9 +193,9 @@ type ListEventSubscriptionsByTeamAndEventRow struct {
 	UpdatedAt       time.Time `json:"updated_at"`
 }
 
-func (q *Queries) ListEventSubscriptionsByTeamAndEvent(ctx context.Context, arg ListEventSubscriptionsByTeamAndEventParams) ([]ListEventSubscriptionsByTeamAndEventRow, error) {
-	rows, err := q.db.Query(ctx, listEventSubscriptionsByTeamAndEvent,
-		arg.TeamID,
+func (q *Queries) ListEventSubscriptionsByWorkspaceAndEvent(ctx context.Context, arg ListEventSubscriptionsByWorkspaceAndEventParams) ([]ListEventSubscriptionsByWorkspaceAndEventRow, error) {
+	rows, err := q.db.Query(ctx, listEventSubscriptionsByWorkspaceAndEvent,
+		arg.WorkspaceID,
 		arg.EventType,
 		arg.ResourceType,
 		arg.ResourceID,
@@ -204,12 +204,12 @@ func (q *Queries) ListEventSubscriptionsByTeamAndEvent(ctx context.Context, arg 
 		return nil, err
 	}
 	defer rows.Close()
-	items := []ListEventSubscriptionsByTeamAndEventRow{}
+	items := []ListEventSubscriptionsByWorkspaceAndEventRow{}
 	for rows.Next() {
-		var i ListEventSubscriptionsByTeamAndEventRow
+		var i ListEventSubscriptionsByWorkspaceAndEventRow
 		if err := rows.Scan(
 			&i.ID,
-			&i.TeamID,
+			&i.WorkspaceID,
 			&i.Url,
 			&i.EventType,
 			&i.ResourceType,
@@ -233,7 +233,7 @@ const updateEventSubscription = `-- name: UpdateEventSubscription :one
 UPDATE event_subscriptions
 SET url = $2, event_type = $3, resource_type = $4, resource_id = $5, enabled = $6
 WHERE id = $1
-RETURNING id, team_id, url, event_type, resource_type, resource_id, encrypted_secret, enabled, created_at, updated_at
+RETURNING id, workspace_id, url, event_type, resource_type, resource_id, encrypted_secret, enabled, created_at, updated_at
 `
 
 type UpdateEventSubscriptionParams struct {
@@ -247,7 +247,7 @@ type UpdateEventSubscriptionParams struct {
 
 type UpdateEventSubscriptionRow struct {
 	ID              string    `json:"id"`
-	TeamID          string    `json:"team_id"`
+	WorkspaceID     string    `json:"workspace_id"`
 	Url             string    `json:"url"`
 	EventType       string    `json:"event_type"`
 	ResourceType    string    `json:"resource_type"`
@@ -270,7 +270,7 @@ func (q *Queries) UpdateEventSubscription(ctx context.Context, arg UpdateEventSu
 	var i UpdateEventSubscriptionRow
 	err := row.Scan(
 		&i.ID,
-		&i.TeamID,
+		&i.WorkspaceID,
 		&i.Url,
 		&i.EventType,
 		&i.ResourceType,

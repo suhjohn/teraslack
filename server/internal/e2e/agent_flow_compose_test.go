@@ -46,7 +46,7 @@ func TestComposeE2E_AgentSessionFlow(t *testing.T) {
 	owner := bootstrapOwnerUser(t, ctx, pool)
 
 	httpClient := &http.Client{Timeout: 10 * time.Second}
-	ownerToken := createSessionToken(t, ctx, pool, owner.TeamID, owner.ID)
+	ownerToken := createSessionToken(t, ctx, pool, owner.WorkspaceID, owner.ID)
 
 	agentA := createUserViaHTTP(t, httpClient, baseURL, ownerToken, domain.CreateUserParams{
 		Name:          uniqueName("agent-a"),
@@ -64,10 +64,10 @@ func TestComposeE2E_AgentSessionFlow(t *testing.T) {
 	})
 
 	_, agentAKey := createAPIKeyViaHTTP(t, httpClient, baseURL, ownerToken, domain.CreateAPIKeyParams{
-		Name:        "Agent A Key",
-		TeamID:      owner.TeamID,
-		PrincipalID: agentA.ID,
-		CreatedBy:   owner.ID,
+		Name:      "Agent A Key",
+		WorkspaceID: owner.WorkspaceID,
+		UserID:    agentA.ID,
+		CreatedBy: owner.ID,
 		Permissions: []string{
 			domain.PermissionMessagesRead,
 			domain.PermissionMessagesWrite,
@@ -76,10 +76,10 @@ func TestComposeE2E_AgentSessionFlow(t *testing.T) {
 		},
 	})
 	_, agentBKey := createAPIKeyViaHTTP(t, httpClient, baseURL, ownerToken, domain.CreateAPIKeyParams{
-		Name:        "Agent B Key",
-		TeamID:      owner.TeamID,
-		PrincipalID: agentB.ID,
-		CreatedBy:   owner.ID,
+		Name:      "Agent B Key",
+		WorkspaceID: owner.WorkspaceID,
+		UserID:    agentB.ID,
+		CreatedBy: owner.ID,
 		Permissions: []string{
 			domain.PermissionMessagesRead,
 			domain.PermissionMessagesWrite,
@@ -146,7 +146,7 @@ func TestComposeE2E_AgentSessionFlow(t *testing.T) {
 		t.Fatalf("bookmarks = %+v, want %s", bookmarks, bookmark.ID)
 	}
 
-	eventTypes := queryTeamEventTypes(t, ctx, pool, owner.TeamID)
+	eventTypes := queryWorkspaceEventTypes(t, ctx, pool, owner.WorkspaceID)
 	wantEvents := []string{
 		domain.EventUserCreated,
 		domain.EventUserCreated,
@@ -190,9 +190,9 @@ func bootstrapOwnerUser(t *testing.T, ctx context.Context, pool *pgxpool.Pool) *
 	recorder := service.NewEventRecorder(eventStoreRepo)
 	userSvc := service.NewUserService(userRepo, recorder, pool, logger)
 
-	teamID := uniqueName("T-agent-e2e")
+	workspaceID := uniqueName("T-agent-e2e")
 	owner, err := userSvc.Create(ctx, domain.CreateUserParams{
-		TeamID:        teamID,
+		WorkspaceID:   workspaceID,
 		Name:          uniqueName("owner"),
 		Email:         uniqueEmail("owner"),
 		PrincipalType: domain.PrincipalTypeHuman,
@@ -204,10 +204,10 @@ func bootstrapOwnerUser(t *testing.T, ctx context.Context, pool *pgxpool.Pool) *
 	return owner
 }
 
-func createSessionToken(t *testing.T, ctx context.Context, pool *pgxpool.Pool, teamID, userID string) string {
+func createSessionToken(t *testing.T, ctx context.Context, pool *pgxpool.Pool, workspaceID, userID string) string {
 	t.Helper()
 	session, err := pgRepo.NewAuthRepo(pool).CreateSession(ctx, domain.CreateAuthSessionParams{
-		TeamID:    teamID,
+		WorkspaceID: workspaceID,
 		UserID:    userID,
 		Provider:  domain.AuthProviderGitHub,
 		ExpiresAt: time.Now().UTC().Add(24 * time.Hour),
@@ -230,12 +230,6 @@ func createUserViaHTTP(t *testing.T, httpClient *http.Client, baseURL, token str
 
 func createAPIKeyViaHTTP(t *testing.T, httpClient *http.Client, baseURL, token string, params domain.CreateAPIKeyParams) (domain.APIKey, string) {
 	t.Helper()
-	if params.Type == "" {
-		params.Type = domain.APIKeyTypePersistent
-	}
-	if params.Environment == "" {
-		params.Environment = domain.APIKeyEnvLive
-	}
 	var resp struct {
 		APIKey domain.APIKey `json:"api_key"`
 		Secret string        `json:"secret"`
@@ -345,10 +339,10 @@ func listBookmarksViaHTTP(t *testing.T, httpClient *http.Client, baseURL, auth, 
 	return resp.Items
 }
 
-func queryTeamEventTypes(t *testing.T, ctx context.Context, pool *pgxpool.Pool, teamID string) []string {
+func queryWorkspaceEventTypes(t *testing.T, ctx context.Context, pool *pgxpool.Pool, workspaceID string) []string {
 	t.Helper()
 
-	rows, err := pool.Query(ctx, "SELECT event_type FROM internal_events WHERE team_id = $1 ORDER BY id ASC", teamID)
+	rows, err := pool.Query(ctx, "SELECT event_type FROM internal_events WHERE workspace_id = $1 ORDER BY id ASC", workspaceID)
 	if err != nil {
 		t.Fatalf("query internal_events: %v", err)
 	}

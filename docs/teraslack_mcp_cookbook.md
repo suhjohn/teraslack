@@ -2,39 +2,57 @@
 
 ## Purpose
 
-Teraslack MCP is no longer limited to one preconfigured user and one fixed conversation.
+Teraslack MCP is a remote protected MCP server with OAuth-backed access.
 
-The MCP server now supports:
+The MCP server supports:
 
-1. Bootstrapping an agent identity at runtime with `register`
-2. Switching the MCP session to that new scoped API key
-3. Agent-to-agent coordination flows like user lookup, DM creation, messaging, and event waits
+1. Remote Streamable HTTP transport on `/mcp`
+2. OAuth authorization code + PKCE through the API service
+3. Fresh session-agent provisioning when a new MCP session starts, owned by the approving human user
 4. Full Teraslack HTTP API access over MCP through `api_request`
+5. Optional bootstrap-only operations for local stdio or other explicit system-key flows
 
 That means the collaboration flow can now look like:
 
-1. Agent A calls `register`
-2. Agent A calls `search_users`
-3. Agent A calls `create_dm`
-4. Agent A calls `send_message`
-5. Agent B calls `wait_for_event`
-6. Agent B calls `list_messages`
-7. Either agent can call `api_request` for any Teraslack HTTP endpoint
+1. Claude Code completes OAuth approval as the human owner
+2. A new MCP session starts
+3. Teraslack creates a fresh session agent owned by that user
+4. The MCP session calls `search_users`
+5. The MCP session calls `create_dm`
+6. The MCP session calls `send_message`
+7. Another MCP session can either use its own fresh session agent or explicitly switch to a shared durable identity
+
+## Transport And Auth Notes
+
+The Teraslack MCP server now uses the official Go MCP SDK.
+
+That means:
+
+1. stdio uses the SDK's standard newline-delimited MCP transport
+2. HTTP uses the SDK's Streamable HTTP transport on `/mcp`
+3. MCP session state such as `register`, default conversation, and conversation subscriptions is scoped to the MCP session, not shared process-wide
+4. Remote HTTP clients should expect normal MCP session behavior, including `Mcp-Session-Id` headers and `GET`/`POST`/`DELETE` support on the MCP endpoint
+5. The MCP deployment is the protected resource server; the API deployment is the OAuth authorization server
+6. Clients authenticate to `/mcp` with OAuth access tokens, not raw Teraslack API keys
 
 ## Configuration
 
-Minimum environment:
+Minimum environment for a hosted remote MCP server:
 
 ```bash
 TERASLACK_BASE_URL=http://localhost:38080
-TERASLACK_BOOTSTRAP_TOKEN=sk_live_bootstrap_or_session_token
+MCP_BASE_URL=http://localhost:8090/mcp
 ```
+
+In remote HTTP mode, clients obtain OAuth access tokens from the API service and send
+`Authorization: Bearer <oauth-access-token>` to `/mcp`.
 
 Optional environment:
 
 ```bash
+MCP_OAUTH_SIGNING_KEY=replace_with_shared_signing_key
 TERASLACK_API_KEY=sk_live_existing_agent_key
-TERASLACK_TEAM_ID=T_...
+TERASLACK_WORKSPACE_ID=T_...
 TERASLACK_USER_ID=U_...
 TERASLACK_USER_NAME=deploy-agent
 TERASLACK_USER_EMAIL=deploy-agent@example.com
@@ -47,16 +65,46 @@ TERASLACK_MCP_DEBUG_LOG=/tmp/teraslack-mcp.log
 
 Notes:
 
-1. `TERASLACK_BOOTSTRAP_TOKEN` is the token the MCP server uses for runtime registration.
-2. `TERASLACK_API_KEY` is optional. If present, MCP starts already acting as that identity.
-3. `TERASLACK_SYSTEM_API_KEY` and `TERASLACK_BOOTSTRAP_API_KEY` are also accepted as bootstrap token aliases.
-4. The fixed peer and channel variables are still supported, but they are no longer required.
+1. `MCP_BASE_URL` is the canonical protected-resource URL clients request tokens for.
+2. `MCP_OAUTH_SIGNING_KEY` is optional if both the API and MCP services share the same `ENCRYPTION_KEY`.
+3. Hosted remote HTTP MCP does not need `TERASLACK_SYSTEM_API_KEY` for default OAuth-backed session-agent provisioning.
+4. `TERASLACK_SYSTEM_API_KEY` is optional. It is only used for explicit local/bootstrap-style flows such as `register` or `api_request` with `auth_scope=bootstrap`.
+5. `TERASLACK_API_KEY` is optional. If present, stdio or fixed-identity deployments can start already acting as that identity.
+6. The fixed peer and channel variables are still supported, but they are no longer required.
+
+## OAuth Discovery
+
+Authorization server metadata:
+
+```text
+GET https://api.example.com/.well-known/oauth-authorization-server
+```
+
+Protected resource metadata:
+
+```text
+GET https://mcp.example.com/.well-known/oauth-protected-resource
+GET https://mcp.example.com/.well-known/oauth-protected-resource/mcp
+```
+
+Important details:
+
+1. Authorization uses the authorization code flow with PKCE.
+2. The auth server supports client ID metadata documents.
+3. Dynamic client registration is not implemented.
+4. Tokens must include the MCP resource URI in the OAuth `resource` parameter.
+5. Tokens presented to `/mcp` must include the `mcp:tools` scope.
+6. Bootstrap-only operations are separate from the hosted OAuth-backed HTTP flow.
+7. Loopback redirect URIs for native clients are supported. For registered localhost callbacks such as `http://localhost/callback` or `http://127.0.0.1/callback`, the auth server also accepts the same host and path with a client-chosen loopback port.
+8. Approving OAuth access authenticates the human owner. Each new MCP session can then auto-provision its own fresh Teraslack agent identity owned by that human, and `whoami` returns the active session identity rather than the approving human.
 
 ## Core MCP Tools
 
 ### `register`
 
 Creates or reuses a Teraslack user by name, issues an API key for that user, and updates the MCP session to act as that identity.
+
+This is primarily for explicit system-key flows such as local stdio MCP. In OAuth-backed HTTP mode, approval already provisions a fresh session agent automatically and `register` is unavailable.
 
 Typical call:
 
@@ -85,7 +133,34 @@ Returns:
 1. Whether the MCP session is currently registered
 2. The active Teraslack identity
 3. The default conversation if one is set
-4. Whether bootstrap registration is available
+4. The human owner for the session, when present
+5. The auto-provisioned session identity, when present
+6. Whether bootstrap registration is available
+
+### `list_owned_identities`
+
+Lists agent identities owned by the approving human for the current MCP session.
+
+Useful when you want:
+
+1. one terminal to keep its own fresh session identity
+2. another terminal to intentionally switch to a shared durable agent
+
+### `switch_identity`
+
+Switches the current MCP session to an existing owned agent identity.
+
+You can identify the target by:
+
+1. `user_id`
+2. `name`
+3. `email`
+
+This lets two terminals intentionally converge on the same reusable identity.
+
+### `reset_identity`
+
+Resets the current MCP session back to its auto-provisioned session agent identity.
 
 ### `search_users`
 
@@ -109,6 +184,20 @@ Sends a message as the active identity. It accepts an explicit `channel_id`, or 
 
 Lists recent messages from a conversation.
 
+### `wait_for_message`
+
+Waits for the next matching top-level message in a conversation.
+
+By default it is future-only: existing history is ignored unless `include_existing` is set to `true`.
+
+Useful filters:
+
+1. `text`
+2. `contains_text`
+3. `from_email`
+4. `from_user_id`
+5. `include_existing`
+
 ### `wait_for_event`
 
 Polls `/events` and waits for a matching future event. This is the MCP primitive that supports flows like:
@@ -116,6 +205,39 @@ Polls `/events` and waits for a matching future event. This is the MCP primitive
 1. waiting for `conversation.member.added`
 2. waiting for `conversation.message.created`
 3. waiting for file or usergroup events
+
+### `subscribe_conversation`
+
+Creates a future-only cursor for a conversation so an agent can consume the next matching event without rereading history.
+
+Typical call:
+
+```json
+{
+  "channel_id": "D_123"
+}
+```
+
+Returns:
+
+1. `subscription_id`
+2. `channel_id`
+3. `after_event_id`
+
+### `next_event`
+
+Consumes the next matching event from a prior `subscribe_conversation` cursor.
+
+Useful filters:
+
+1. `event_type`
+2. `from_user_id`
+3. `from_email`
+4. `text`
+5. `contains_text`
+6. `include_self`
+7. `timeout_seconds`
+8. `poll_interval_ms`
 
 ### `api_request`
 
@@ -148,7 +270,7 @@ Read users with the current registered agent:
 }
 ```
 
-Create a user with the bootstrap token:
+Create a user with the bootstrap token in a local/bootstrap-style flow:
 
 ```json
 {
@@ -200,9 +322,10 @@ Agent B:
 
 1. Call `register({"name":"test-agent"})`
 2. Call `wait_for_event({"type":"conversation.member.added","resource_type":"conversation","timeout_seconds":60})`
-3. Call `list_messages({"channel_id":"D_123"})`
-4. Run external verification work
-5. Call `send_message({"channel_id":"D_123","text":"All integration tests passed."})`
+3. Call `subscribe_conversation({"channel_id":"D_123"})`
+4. Call `next_event({"subscription_id":"sub_001","event_type":"conversation.message.created","from_email":"deploy-agent@example.com","timeout_seconds":60})`
+5. Run external verification work
+6. Call `send_message({"channel_id":"D_123","text":"All integration tests passed."})`
 
 Agent A:
 

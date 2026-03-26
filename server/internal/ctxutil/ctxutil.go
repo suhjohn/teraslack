@@ -11,7 +11,7 @@ import (
 type contextKey string
 
 const (
-	ContextKeyTeamID        contextKey = "team_id"
+	ContextKeyWorkspaceID   contextKey = "workspace_id"
 	ContextKeyUserID        contextKey = "user_id"
 	ContextKeyIsBot         contextKey = "is_bot"
 	ContextKeyPrincipalType contextKey = "principal_type"
@@ -19,6 +19,7 @@ const (
 	ContextKeyOnBehalfOf    contextKey = "on_behalf_of"
 	ContextKeyAPIKeyID      contextKey = "api_key_id"
 	ContextKeyPermissions   contextKey = "permissions"
+	ContextKeyOAuthScopes   contextKey = "oauth_scopes"
 )
 
 // GetUserID extracts user_id from context (set by AuthMiddleware).
@@ -37,9 +38,9 @@ func GetActingUserID(ctx context.Context) string {
 	return GetUserID(ctx)
 }
 
-// GetTeamID extracts team_id from context (set by AuthMiddleware).
-func GetTeamID(ctx context.Context) string {
-	v, _ := ctx.Value(ContextKeyTeamID).(string)
+// GetWorkspaceID extracts workspace_id from context (set by AuthMiddleware).
+func GetWorkspaceID(ctx context.Context) string {
+	v, _ := ctx.Value(ContextKeyWorkspaceID).(string)
 	return v
 }
 
@@ -82,10 +83,18 @@ func GetPermissions(ctx context.Context) []string {
 	return v
 }
 
-// WithUser returns a context with user_id and team_id set.
-func WithUser(ctx context.Context, userID, teamID string) context.Context {
+func GetOAuthScopes(ctx context.Context) []string {
+	v, _ := ctx.Value(ContextKeyOAuthScopes).([]string)
+	if v == nil {
+		return []string{}
+	}
+	return v
+}
+
+// WithUser returns a context with user_id and workspace_id set.
+func WithUser(ctx context.Context, userID, workspaceID string) context.Context {
 	ctx = context.WithValue(ctx, ContextKeyUserID, userID)
-	ctx = context.WithValue(ctx, ContextKeyTeamID, teamID)
+	ctx = context.WithValue(ctx, ContextKeyWorkspaceID, workspaceID)
 	return ctx
 }
 
@@ -114,4 +123,11 @@ func WithPermissions(ctx context.Context, permissions []string) context.Context 
 		permissions = []string{}
 	}
 	return context.WithValue(ctx, ContextKeyPermissions, permissions)
+}
+
+func WithOAuthScopes(ctx context.Context, scopes []string) context.Context {
+	if scopes == nil {
+		scopes = []string{}
+	}
+	return context.WithValue(ctx, ContextKeyOAuthScopes, scopes)
 }

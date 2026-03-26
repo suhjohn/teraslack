@@ -36,7 +36,7 @@ func (s *ConversationReadService) MarkRead(ctx context.Context, params domain.Ma
 	if err != nil {
 		return err
 	}
-	if err := ensureTeamAccess(ctx, conv.TeamID); err != nil {
+	if err := ensureWorkspaceAccess(ctx, conv.WorkspaceID); err != nil {
 		return err
 	}
 	isMember, err := s.convRepo.IsMember(ctx, params.ConversationID, userID)
@@ -48,7 +48,7 @@ func (s *ConversationReadService) MarkRead(ctx context.Context, params domain.Ma
 	}
 
 	return s.repo.Upsert(ctx, domain.ConversationRead{
-		TeamID:         conv.TeamID,
+		WorkspaceID:         conv.WorkspaceID,
 		ConversationID: params.ConversationID,
 		UserID:         userID,
 		LastReadTS:     params.LastReadTS,

@@ -44,13 +44,13 @@ func (s *RoleService) ListUserRoles(ctx context.Context, userID string) ([]domai
 	if err != nil {
 		return nil, err
 	}
-	if err := ensureTeamAccess(ctx, target.TeamID); err != nil {
+	if err := ensureWorkspaceAccess(ctx, target.WorkspaceID); err != nil {
 		return nil, err
 	}
 	if err := s.authorizeRoleRead(ctx, target); err != nil {
 		return nil, err
 	}
-	return s.repo.ListByUser(ctx, target.TeamID, target.ID)
+	return s.repo.ListByUser(ctx, target.WorkspaceID, target.ID)
 }
 
 func (s *RoleService) SetUserRoles(ctx context.Context, userID string, roles []domain.DelegatedRole) ([]domain.DelegatedRole, error) {
@@ -61,7 +61,7 @@ func (s *RoleService) SetUserRoles(ctx context.Context, userID string, roles []d
 	if err != nil {
 		return nil, err
 	}
-	if err := ensureTeamAccess(ctx, target.TeamID); err != nil {
+	if err := ensureWorkspaceAccess(ctx, target.WorkspaceID); err != nil {
 		return nil, err
 	}
 	if target.PrincipalType != domain.PrincipalTypeHuman {
@@ -75,7 +75,7 @@ func (s *RoleService) SetUserRoles(ctx context.Context, userID string, roles []d
 	if err := s.authorizeRoleWrite(ctx, target); err != nil {
 		return nil, err
 	}
-	before, err := s.repo.ListByUser(ctx, target.TeamID, target.ID)
+	before, err := s.repo.ListByUser(ctx, target.WorkspaceID, target.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -86,7 +86,7 @@ func (s *RoleService) SetUserRoles(ctx context.Context, userID string, roles []d
 		}
 	}
 	if s.db == nil {
-		if err := s.repo.ReplaceForUser(ctx, target.TeamID, target.ID, roles, assignedBy); err != nil {
+		if err := s.repo.ReplaceForUser(ctx, target.WorkspaceID, target.ID, roles, assignedBy); err != nil {
 			return nil, err
 		}
 	} else {
@@ -95,7 +95,7 @@ func (s *RoleService) SetUserRoles(ctx context.Context, userID string, roles []d
 			return nil, fmt.Errorf("begin tx: %w", err)
 		}
 		defer tx.Rollback(ctx)
-		if err := s.repo.WithTx(tx).ReplaceForUser(ctx, target.TeamID, target.ID, roles, assignedBy); err != nil {
+		if err := s.repo.WithTx(tx).ReplaceForUser(ctx, target.WorkspaceID, target.ID, roles, assignedBy); err != nil {
 			return nil, err
 		}
 		payload, _ := json.Marshal(map[string]any{
@@ -106,13 +106,13 @@ func (s *RoleService) SetUserRoles(ctx context.Context, userID string, roles []d
 			EventType:     domain.EventUserRolesUpdated,
 			AggregateType: domain.AggregateUser,
 			AggregateID:   target.ID,
-			TeamID:        target.TeamID,
+			WorkspaceID:        target.WorkspaceID,
 			ActorID:       assignedBy,
 			Payload:       payload,
 		}); err != nil {
 			return nil, fmt.Errorf("record user.roles_updated event: %w", err)
 		}
-		if err := recordAuthorizationAudit(ctx, s.auditRepo, tx, target.TeamID, domain.AuditActionDelegatedRolesUpdated, "user", target.ID, map[string]any{
+		if err := recordAuthorizationAudit(ctx, s.auditRepo, tx, target.WorkspaceID, domain.AuditActionDelegatedRolesUpdated, "user", target.ID, map[string]any{
 			"before": before,
 			"after":  roles,
 		}); err != nil {
@@ -122,7 +122,7 @@ func (s *RoleService) SetUserRoles(ctx context.Context, userID string, roles []d
 			return nil, fmt.Errorf("commit tx: %w", err)
 		}
 	}
-	return s.repo.ListByUser(ctx, target.TeamID, target.ID)
+	return s.repo.ListByUser(ctx, target.WorkspaceID, target.ID)
 }
 
 func (s *RoleService) authorizeRoleRead(ctx context.Context, target *domain.User) error {
@@ -166,7 +166,7 @@ func hasDelegatedRole(ctx context.Context, repo repository.RoleAssignmentReposit
 	if actor == nil || repo == nil {
 		return false
 	}
-	roles, err := repo.ListByUser(ctx, actor.TeamID, actor.ID)
+	roles, err := repo.ListByUser(ctx, actor.WorkspaceID, actor.ID)
 	if err != nil {
 		return false
 	}

@@ -1,30 +1,30 @@
 -- name: CreateUsergroup :one
-INSERT INTO usergroups (id, team_id, name, handle, description, created_by, updated_by)
+INSERT INTO usergroups (id, workspace_id, name, handle, description, created_by, updated_by)
 VALUES ($1, $2, $3, $4, $5, $6, $6)
-RETURNING id, team_id, name, handle, description, is_external, enabled,
+RETURNING id, workspace_id, name, handle, description, is_external, enabled,
           user_count, created_by, updated_by, created_at, updated_at;
 
 -- name: GetUsergroup :one
-SELECT id, team_id, name, handle, description, is_external, enabled,
+SELECT id, workspace_id, name, handle, description, is_external, enabled,
        user_count, created_by, updated_by, created_at, updated_at
 FROM usergroups WHERE id = $1;
 
 -- name: UpdateUsergroup :one
 UPDATE usergroups SET name = $2, handle = $3, description = $4, updated_by = $5
 WHERE id = $1
-RETURNING id, team_id, name, handle, description, is_external, enabled,
+RETURNING id, workspace_id, name, handle, description, is_external, enabled,
           user_count, created_by, updated_by, created_at, updated_at;
 
 -- name: ListUsergroups :many
-SELECT id, team_id, name, handle, description, is_external, enabled,
+SELECT id, workspace_id, name, handle, description, is_external, enabled,
        user_count, created_by, updated_by, created_at, updated_at
-FROM usergroups WHERE team_id = $1 AND enabled = TRUE
+FROM usergroups WHERE workspace_id = $1 AND enabled = TRUE
 ORDER BY name ASC;
 
 -- name: ListUsergroupsIncludeDisabled :many
-SELECT id, team_id, name, handle, description, is_external, enabled,
+SELECT id, workspace_id, name, handle, description, is_external, enabled,
        user_count, created_by, updated_by, created_at, updated_at
-FROM usergroups WHERE team_id = $1
+FROM usergroups WHERE workspace_id = $1
 ORDER BY name ASC;
 
 -- name: EnableUsergroup :exec

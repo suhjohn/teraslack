@@ -29,7 +29,7 @@ func (h *AuthHandler) StartOAuth(w http.ResponseWriter, r *http.Request) {
 	provider := domain.AuthProvider(r.PathValue("provider"))
 	result, err := h.svc.StartOAuth(r.Context(), domain.StartOAuthParams{
 		Provider:    provider,
-		TeamID:      r.URL.Query().Get("team_id"),
+		WorkspaceID: r.URL.Query().Get("workspace_id"),
 		InviteToken: r.URL.Query().Get("invite"),
 		RedirectTo:  r.URL.Query().Get("redirect_to"),
 	})
@@ -90,11 +90,13 @@ func (h *AuthHandler) CompleteOAuth(w http.ResponseWriter, r *http.Request) {
 
 func (h *AuthHandler) Me(w http.ResponseWriter, r *http.Request) {
 	httputil.WriteResource(w, http.StatusOK, domain.AuthContext{
-		TeamID:        ctxutil.GetTeamID(r.Context()),
+		WorkspaceID:   ctxutil.GetWorkspaceID(r.Context()),
 		UserID:        ctxutil.GetUserID(r.Context()),
 		PrincipalType: ctxutil.GetPrincipalType(r.Context()),
 		AccountType:   ctxutil.GetAccountType(r.Context()),
 		IsBot:         ctxutil.GetIsBot(r.Context()),
+		Permissions:   ctxutil.GetPermissions(r.Context()),
+		Scopes:        ctxutil.GetOAuthScopes(r.Context()),
 	})
 }
 
@@ -118,13 +120,50 @@ func (h *AuthHandler) RevokeCurrentSession(w http.ResponseWriter, r *http.Reques
 	httputil.WriteNoContent(w)
 }
 
+func (h *AuthHandler) SwitchCurrentSessionWorkspace(w http.ResponseWriter, r *http.Request) {
+	token, isAPIKey := authCredentialFromRequest(r)
+	if token == "" {
+		httputil.WriteErrorResponse(w, r, http.StatusUnauthorized, "authentication_required", "Authentication is required.")
+		return
+	}
+	if isAPIKey {
+		httputil.WriteErrorResponse(w, r, http.StatusBadRequest, "invalid_request", "API keys cannot switch browser workspaces.")
+		return
+	}
+
+	var req struct {
+		WorkspaceID string `json:"workspace_id"`
+	}
+	if err := httputil.DecodeJSON(r, &req); err != nil {
+		httputil.WriteError(w, r, domain.ErrInvalidArgument)
+		return
+	}
+
+	session, err := h.svc.SwitchWorkspace(r.Context(), token, req.WorkspaceID)
+	if err != nil {
+		httputil.WriteError(w, r, err)
+		return
+	}
+
+	http.SetCookie(w, &http.Cookie{
+		Name:     sessionCookieName,
+		Value:    session.Token,
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   requestIsSecure(r),
+		SameSite: http.SameSiteLaxMode,
+		Expires:  session.ExpiresAt,
+	})
+	httputil.WriteNoContent(w)
+}
+
 var authBypassPaths = map[string]bool{
 	"/healthz":      true,
 	"/openapi.json": true,
 	"/openapi.yaml": true,
 }
 
-func AuthMiddleware(authSvc *service.AuthService, apiKeySvc *service.APIKeyService) func(http.Handler) http.Handler {
+func AuthMiddleware(authSvc *service.AuthService, apiKeySvc *service.APIKeyService, mcpOAuthSvc *service.MCPOAuthService) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if isAuthBypassRequest(r) {
@@ -151,13 +190,26 @@ func AuthMiddleware(authSvc *service.AuthService, apiKeySvc *service.APIKeyServi
 					return
 				}
 
-				ctx = context.WithValue(ctx, ctxutil.ContextKeyTeamID, validation.TeamID)
-				ctx = context.WithValue(ctx, ctxutil.ContextKeyUserID, validation.PrincipalID)
+				ctx = context.WithValue(ctx, ctxutil.ContextKeyWorkspaceID, validation.WorkspaceID)
+				ctx = context.WithValue(ctx, ctxutil.ContextKeyUserID, validation.UserID)
 				ctx = ctxutil.WithPrincipal(ctx, validation.PrincipalType, validation.AccountType, validation.IsBot)
-				ctx = ctxutil.WithDelegation(ctx, validation.OnBehalfOf, validation.KeyID)
+				ctx = ctxutil.WithDelegation(ctx, "", validation.KeyID)
 				ctx = ctxutil.WithPermissions(ctx, validation.Permissions)
 				next.ServeHTTP(w, r.WithContext(ctx))
 				return
+			}
+
+			if mcpOAuthSvc != nil && strings.Count(token, ".") == 2 {
+				auth, err := mcpOAuthSvc.ValidateAPIAccessToken(ctx, token)
+				if err == nil {
+					ctx = context.WithValue(ctx, ctxutil.ContextKeyWorkspaceID, auth.WorkspaceID)
+					ctx = context.WithValue(ctx, ctxutil.ContextKeyUserID, auth.UserID)
+					ctx = ctxutil.WithPrincipal(ctx, auth.PrincipalType, auth.AccountType, auth.IsBot)
+					ctx = ctxutil.WithPermissions(ctx, auth.Permissions)
+					ctx = ctxutil.WithOAuthScopes(ctx, auth.Scopes)
+					next.ServeHTTP(w, r.WithContext(ctx))
+					return
+				}
 			}
 
 			if authSvc == nil {
@@ -171,7 +223,7 @@ func AuthMiddleware(authSvc *service.AuthService, apiKeySvc *service.APIKeyServi
 				return
 			}
 
-			ctx = context.WithValue(ctx, ctxutil.ContextKeyTeamID, auth.TeamID)
+			ctx = context.WithValue(ctx, ctxutil.ContextKeyWorkspaceID, auth.WorkspaceID)
 			ctx = context.WithValue(ctx, ctxutil.ContextKeyUserID, auth.UserID)
 			ctx = ctxutil.WithPrincipal(ctx, auth.PrincipalType, auth.AccountType, auth.IsBot)
 			next.ServeHTTP(w, r.WithContext(ctx))
@@ -179,8 +231,8 @@ func AuthMiddleware(authSvc *service.AuthService, apiKeySvc *service.APIKeyServi
 	}
 }
 
-func GetTeamID(ctx context.Context) string {
-	return ctxutil.GetTeamID(ctx)
+func GetWorkspaceID(ctx context.Context) string {
+	return ctxutil.GetWorkspaceID(ctx)
 }
 
 func GetUserID(ctx context.Context) string {
@@ -191,14 +243,16 @@ func isAuthBypassRequest(r *http.Request) bool {
 	if authBypassPaths[r.URL.Path] {
 		return true
 	}
-	return strings.HasPrefix(r.URL.Path, "/auth/oauth/")
+	return strings.HasPrefix(r.URL.Path, "/auth/oauth/") ||
+		strings.HasPrefix(r.URL.Path, "/oauth/") ||
+		strings.HasPrefix(r.URL.Path, "/.well-known/oauth-authorization-server")
 }
 
 func authCredentialFromRequest(r *http.Request) (token string, isAPIKey bool) {
 	authHeader := strings.TrimSpace(r.Header.Get("Authorization"))
 	if strings.HasPrefix(authHeader, "Bearer ") {
 		token = strings.TrimSpace(strings.TrimPrefix(authHeader, "Bearer "))
-		return token, strings.HasPrefix(token, "sk_live_") || strings.HasPrefix(token, "sk_test_")
+		return token, strings.HasPrefix(token, "sk_") || strings.HasPrefix(token, "sk_live_") || strings.HasPrefix(token, "sk_test_")
 	}
 
 	cookie, err := r.Cookie(sessionCookieName)

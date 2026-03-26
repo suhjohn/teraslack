@@ -13,8 +13,8 @@ import (
 	"github.com/suhjohn/teraslack/internal/repository"
 )
 
-func TestMessageService_UpdateMessage_UsesConversationTeamID(t *testing.T) {
-	conv := &domain.Conversation{ID: "C123", TeamID: "T999"}
+func TestMessageService_UpdateMessage_UsesConversationWorkspaceID(t *testing.T) {
+	conv := &domain.Conversation{ID: "C123", WorkspaceID: "T999"}
 	updated := &domain.Message{
 		TS:        "123.456",
 		ChannelID: "C123",
@@ -40,8 +40,8 @@ func TestMessageService_UpdateMessage_UsesConversationTeamID(t *testing.T) {
 	if got.Text != "updated text" {
 		t.Fatalf("UpdateMessage() text = %q, want %q", got.Text, "updated text")
 	}
-	if recorder.event.TeamID != "T999" {
-		t.Fatalf("recorded team_id = %q, want %q", recorder.event.TeamID, "T999")
+	if recorder.event.WorkspaceID != "T999" {
+		t.Fatalf("recorded workspace_id = %q, want %q", recorder.event.WorkspaceID, "T999")
 	}
 
 	var payload domain.Message
@@ -53,8 +53,8 @@ func TestMessageService_UpdateMessage_UsesConversationTeamID(t *testing.T) {
 	}
 }
 
-func TestMessageService_DeleteMessage_UsesConversationTeamIDAndSnapshot(t *testing.T) {
-	conv := &domain.Conversation{ID: "C123", TeamID: "T999"}
+func TestMessageService_DeleteMessage_UsesConversationWorkspaceIDAndSnapshot(t *testing.T) {
+	conv := &domain.Conversation{ID: "C123", WorkspaceID: "T999"}
 	existing := &domain.Message{
 		TS:        "123.456",
 		ChannelID: "C123",
@@ -78,8 +78,8 @@ func TestMessageService_DeleteMessage_UsesConversationTeamIDAndSnapshot(t *testi
 	if !msgRepo.deleted {
 		t.Fatal("expected DeleteMessage() to delete the message")
 	}
-	if recorder.event.TeamID != "T999" {
-		t.Fatalf("recorded team_id = %q, want %q", recorder.event.TeamID, "T999")
+	if recorder.event.WorkspaceID != "T999" {
+		t.Fatalf("recorded workspace_id = %q, want %q", recorder.event.WorkspaceID, "T999")
 	}
 
 	var payload domain.Message
@@ -91,8 +91,8 @@ func TestMessageService_DeleteMessage_UsesConversationTeamIDAndSnapshot(t *testi
 	}
 }
 
-func TestMessageService_AddReaction_UsesConversationTeamID(t *testing.T) {
-	conv := &domain.Conversation{ID: "C123", TeamID: "T999"}
+func TestMessageService_AddReaction_UsesConversationWorkspaceID(t *testing.T) {
+	conv := &domain.Conversation{ID: "C123", WorkspaceID: "T999"}
 	existing := &domain.Message{TS: "123.456", ChannelID: "C123", UserID: "U123", Text: "hello"}
 
 	recorder := &captureEventRecorder{}
@@ -112,13 +112,13 @@ func TestMessageService_AddReaction_UsesConversationTeamID(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("AddReaction() error = %v", err)
 	}
-	if recorder.event.TeamID != "T999" {
-		t.Fatalf("recorded team_id = %q, want %q", recorder.event.TeamID, "T999")
+	if recorder.event.WorkspaceID != "T999" {
+		t.Fatalf("recorded workspace_id = %q, want %q", recorder.event.WorkspaceID, "T999")
 	}
 }
 
-func TestMessageService_RemoveReaction_UsesConversationTeamID(t *testing.T) {
-	conv := &domain.Conversation{ID: "C123", TeamID: "T999"}
+func TestMessageService_RemoveReaction_UsesConversationWorkspaceID(t *testing.T) {
+	conv := &domain.Conversation{ID: "C123", WorkspaceID: "T999"}
 
 	recorder := &captureEventRecorder{}
 	svc := NewMessageService(
@@ -137,8 +137,8 @@ func TestMessageService_RemoveReaction_UsesConversationTeamID(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("RemoveReaction() error = %v", err)
 	}
-	if recorder.event.TeamID != "T999" {
-		t.Fatalf("recorded team_id = %q, want %q", recorder.event.TeamID, "T999")
+	if recorder.event.WorkspaceID != "T999" {
+		t.Fatalf("recorded workspace_id = %q, want %q", recorder.event.WorkspaceID, "T999")
 	}
 }
 
@@ -148,7 +148,7 @@ func TestMessageService_History_DeniesPrivateConversationNonMember(t *testing.T)
 		&conversationRepoStub{
 			conversation: &domain.Conversation{
 				ID:     "G123",
-				TeamID: "T123",
+				WorkspaceID: "T123",
 				Type:   domain.ConversationTypePrivateChannel,
 			},
 			isMember: false,
@@ -175,7 +175,7 @@ func TestMessageService_History_AllowsPublicConversationNonMember(t *testing.T) 
 		&conversationRepoStub{
 			conversation: &domain.Conversation{
 				ID:     "C123",
-				TeamID: "T123",
+				WorkspaceID: "T123",
 				Type:   domain.ConversationTypePublicChannel,
 			},
 			isMember: false,
@@ -203,7 +203,7 @@ func TestMessageService_PostMessage_DeniesPrivateConversationNonMember(t *testin
 		&conversationRepoStub{
 			conversation: &domain.Conversation{
 				ID:     "G123",
-				TeamID: "T123",
+				WorkspaceID: "T123",
 				Type:   domain.ConversationTypePrivateChannel,
 			},
 			isMember: false,
@@ -219,8 +219,45 @@ func TestMessageService_PostMessage_DeniesPrivateConversationNonMember(t *testin
 	}
 }
 
+func TestMessageService_PostMessage_UsesRowOnlyParentLookup(t *testing.T) {
+	msgRepo := &messageRepoStub{
+		existing: &domain.Message{TS: "123.456", ChannelID: "C123", UserID: "U123", Text: "root"},
+		created:  &domain.Message{TS: "123.457", ChannelID: "C123", UserID: "U123", Text: "reply"},
+	}
+	svc := NewMessageService(
+		msgRepo,
+		&conversationRepoStub{
+			conversation: &domain.Conversation{
+				ID:     "C123",
+				WorkspaceID: "T123",
+				Type:   domain.ConversationTypePublicChannel,
+			},
+			isMember: true,
+		},
+		nil,
+		mockTxBeginner{},
+		slog.New(slog.NewJSONHandler(io.Discard, nil)),
+	)
+
+	ctx := ctxutil.WithUser(context.Background(), "U123", "T123")
+	ctx = ctxutil.WithPrincipal(ctx, domain.PrincipalTypeHuman, domain.AccountTypeMember, false)
+	if _, err := svc.PostMessage(ctx, domain.PostMessageParams{
+		ChannelID: "C123",
+		Text:      "reply",
+		ThreadTS:  "123.456",
+	}); err != nil {
+		t.Fatalf("PostMessage() error = %v", err)
+	}
+	if msgRepo.getRowCalls != 1 {
+		t.Fatalf("GetRow() calls = %d, want 1", msgRepo.getRowCalls)
+	}
+	if msgRepo.getCalls != 0 {
+		t.Fatalf("Get() calls = %d, want 0", msgRepo.getCalls)
+	}
+}
+
 func TestMessageService_UpdateMessage_RequiresAuthor(t *testing.T) {
-	conv := &domain.Conversation{ID: "C123", TeamID: "T123"}
+	conv := &domain.Conversation{ID: "C123", WorkspaceID: "T123"}
 	existing := &domain.Message{TS: "123.456", ChannelID: "C123", UserID: "U_AUTHOR", Text: "original"}
 	svc := NewMessageService(
 		&messageRepoStub{existing: existing, updated: existing},
@@ -238,7 +275,7 @@ func TestMessageService_UpdateMessage_RequiresAuthor(t *testing.T) {
 }
 
 func TestMessageService_DeleteMessage_AllowsWorkspaceAdmin(t *testing.T) {
-	conv := &domain.Conversation{ID: "C123", TeamID: "T123"}
+	conv := &domain.Conversation{ID: "C123", WorkspaceID: "T123"}
 	existing := &domain.Message{TS: "123.456", ChannelID: "C123", UserID: "U_AUTHOR", Text: "delete me"}
 	msgRepo := &messageRepoStub{existing: existing}
 	svc := NewMessageService(
@@ -281,6 +318,8 @@ type messageRepoStub struct {
 	existing          *domain.Message
 	updated           *domain.Message
 	deleted           bool
+	getCalls          int
+	getRowCalls       int
 	historyPage       *domain.CursorPage[domain.Message]
 	repliesPage       *domain.CursorPage[domain.Message]
 	reactions         []domain.Reaction
@@ -298,6 +337,15 @@ func (r *messageRepoStub) Create(ctx context.Context, params domain.PostMessageP
 }
 
 func (r *messageRepoStub) Get(ctx context.Context, channelID, ts string) (*domain.Message, error) {
+	r.getCalls++
+	if r.existing == nil {
+		return nil, domain.ErrNotFound
+	}
+	return r.existing, nil
+}
+
+func (r *messageRepoStub) GetRow(ctx context.Context, channelID, ts string) (*domain.Message, error) {
+	r.getRowCalls++
 	if r.existing == nil {
 		return nil, domain.ErrNotFound
 	}
@@ -354,6 +402,13 @@ func (r *conversationRepoStub) Create(ctx context.Context, params domain.CreateC
 }
 
 func (r *conversationRepoStub) Get(ctx context.Context, id string) (*domain.Conversation, error) {
+	if r.conversation == nil {
+		return nil, domain.ErrNotFound
+	}
+	return r.conversation, nil
+}
+
+func (r *conversationRepoStub) GetCanonicalDM(ctx context.Context, workspaceID, userAID, userBID string) (*domain.Conversation, error) {
 	if r.conversation == nil {
 		return nil, domain.ErrNotFound
 	}

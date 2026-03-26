@@ -23,7 +23,7 @@ func (m *mockPinRepoTenant) List(_ context.Context, _ domain.ListPinsParams) ([]
 func (m *mockPinRepoTenant) WithTx(_ pgx.Tx) repository.PinRepository { return m }
 
 type mockConvRepoForPinTenant struct {
-	teamID string
+	workspaceID string
 }
 
 func (m *mockConvRepoForPinTenant) Create(_ context.Context, _ domain.CreateConversationParams) (*domain.Conversation, error) {
@@ -33,7 +33,10 @@ func (m *mockConvRepoForPinTenant) Get(_ context.Context, id string) (*domain.Co
 	if id == "" {
 		return nil, domain.ErrNotFound
 	}
-	return &domain.Conversation{ID: id, TeamID: m.teamID}, nil
+	return &domain.Conversation{ID: id, WorkspaceID: m.workspaceID}, nil
+}
+func (m *mockConvRepoForPinTenant) GetCanonicalDM(_ context.Context, _, _, _ string) (*domain.Conversation, error) {
+	return nil, domain.ErrNotFound
 }
 func (m *mockConvRepoForPinTenant) Update(_ context.Context, _ string, _ domain.UpdateConversationParams) (*domain.Conversation, error) {
 	return nil, nil
@@ -71,6 +74,9 @@ func (m *mockMsgRepoForPinTenant) Create(_ context.Context, _ domain.PostMessage
 func (m *mockMsgRepoForPinTenant) Get(_ context.Context, channelID, ts string) (*domain.Message, error) {
 	return &domain.Message{ChannelID: channelID, TS: ts}, nil
 }
+func (m *mockMsgRepoForPinTenant) GetRow(_ context.Context, channelID, ts string) (*domain.Message, error) {
+	return &domain.Message{ChannelID: channelID, TS: ts}, nil
+}
 func (m *mockMsgRepoForPinTenant) Update(_ context.Context, _, _ string, _ domain.UpdateMessageParams) (*domain.Message, error) {
 	return nil, nil
 }
@@ -93,9 +99,9 @@ func (m *mockMsgRepoForPinTenant) GetReactions(_ context.Context, _, _ string) (
 func (m *mockMsgRepoForPinTenant) WithTx(_ pgx.Tx) repository.MessageRepository { return m }
 
 func TestPinService_TenantAccessDenied(t *testing.T) {
-	svc := NewPinService(&mockPinRepoTenant{}, &mockConvRepoForPinTenant{teamID: "T999"}, &mockMsgRepoForPinTenant{}, nil, mockTxBeginner{}, nil)
+	svc := NewPinService(&mockPinRepoTenant{}, &mockConvRepoForPinTenant{workspaceID: "T999"}, &mockMsgRepoForPinTenant{}, nil, mockTxBeginner{}, nil)
 
-	ctx := context.WithValue(context.Background(), ctxutil.ContextKeyTeamID, "T123")
+	ctx := context.WithValue(context.Background(), ctxutil.ContextKeyWorkspaceID, "T123")
 
 	if _, err := svc.Add(ctx, domain.PinParams{ChannelID: "C123", MessageTS: "123.456", UserID: "U123"}); err == nil || !errors.Is(err, domain.ErrForbidden) {
 		t.Fatalf("expected forbidden from Add, got %v", err)
