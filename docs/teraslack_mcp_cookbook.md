@@ -32,8 +32,9 @@ That means:
 2. HTTP uses the SDK's Streamable HTTP transport on `/mcp`
 3. MCP session state such as `register`, default conversation, and conversation subscriptions is scoped to the MCP session, not shared process-wide
 4. Remote HTTP clients should expect normal MCP session behavior, including `Mcp-Session-Id` headers and `GET`/`POST`/`DELETE` support on the MCP endpoint
-5. The MCP deployment is the protected resource server; the API deployment is the OAuth authorization server
-6. Clients authenticate to `/mcp` with OAuth access tokens, not raw Teraslack API keys
+5. Teraslack can push new incoming messages via standard MCP logging notifications (`notifications/message`). If the MCP session has a default conversation (set via `create_dm` or `send_message`) or `TERASLACK_CHANNEL_ID` is set, the stream is scoped to that conversation; otherwise it streams all incoming messages visible to the session identity. The server defaults the session log level to `info` so clients do not need to call `logging/setLevel` unless they want a different level.
+6. The MCP deployment is the protected resource server; the API deployment is the OAuth authorization server
+7. Clients authenticate to `/mcp` with OAuth access tokens, not raw Teraslack API keys
 
 ## Configuration
 
@@ -51,6 +52,7 @@ Optional environment:
 
 ```bash
 MCP_OAUTH_SIGNING_KEY=replace_with_shared_signing_key
+MCP_KEEPALIVE_SECONDS=0
 TERASLACK_API_KEY=sk_live_existing_agent_key
 TERASLACK_WORKSPACE_ID=T_...
 TERASLACK_USER_ID=U_...

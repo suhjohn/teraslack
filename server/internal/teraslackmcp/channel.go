@@ -4,41 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"reflect"
 	"strconv"
+	"strings"
 	"time"
-	"unsafe"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/suhjohn/teraslack/internal/domain"
 )
 
-// channelNotifier sends arbitrary JSON-RPC notifications through a ServerSession.
-//
-// The Go MCP SDK (v1.4.1) does not expose a public method for sending custom
-// notifications — only NotifyProgress and Log are available. Channel events
-// require the method "notifications/claude/channel", so we access the session's
-// underlying jsonrpc2.Connection (unexported) via reflect+unsafe and call its
-// public Notify method.
-type channelNotifier interface {
-	Notify(ctx context.Context, method string, params any) error
-}
-
-func sessionNotifier(ss *mcp.ServerSession) (channelNotifier, error) {
-	field, ok := reflect.TypeOf(ss).Elem().FieldByName("conn")
-	if !ok {
-		return nil, fmt.Errorf("ServerSession has no conn field")
-	}
-	ptr := unsafe.Add(unsafe.Pointer(ss), field.Offset)
-	val := reflect.NewAt(field.Type, ptr).Elem()
-	n, ok := val.Interface().(channelNotifier)
-	if !ok {
-		return nil, fmt.Errorf("conn does not implement channelNotifier")
-	}
-	return n, nil
-}
-
-// channelEvent is the JSON-RPC notification payload for "notifications/claude/channel".
 type channelEvent struct {
 	Content string            `json:"content"`
 	Meta    map[string]string `json:"meta,omitempty"`
@@ -51,57 +24,81 @@ func (s *Server) startChannelLoop(ctx context.Context) {
 	ticker := time.NewTicker(time.Duration(s.channelPollIntervalMS()) * time.Millisecond)
 	defer ticker.Stop()
 
-	var cursor string
+	cursors := map[string]string{}
+	channelIDs := map[string]string{}
 
-	// Grab initial cursor so we only see messages arriving after startup.
-	if err := s.initChannelCursor(ctx, &cursor); err != nil {
-		s.logger.Warn("channel: failed to get initial cursor", "error", err)
-	}
-
-	s.logger.Info("channel: polling started", "cursor", cursor)
+	s.logger.Info("channel: polling started", "fallback_channel_id", s.cfg.ChannelID != "")
 
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			s.pollChannelEvents(ctx, &cursor)
+			s.pollSessionChannelEvents(ctx, cursors, channelIDs)
 		}
 	}
 }
 
-func (s *Server) initChannelCursor(ctx context.Context, cursor *string) error {
-	// Use the first available session's client to get the initial cursor.
-	client, _, err := s.anySessionClient(ctx)
-	if err != nil {
-		return err
+func (s *Server) pollSessionChannelEvents(ctx context.Context, cursors map[string]string, channelIDs map[string]string) {
+	for session := range s.sdkServer.Sessions() {
+		sessionKey := s.sessionKeyFromSession(session)
+		state, ok := s.sessionStateForPush(sessionKey)
+		if !ok {
+			continue
+		}
+
+		channelID := firstNonEmpty(state.ChannelID, s.cfg.ChannelID)
+		filterKey := channelID
+		if filterKey == "" {
+			filterKey = "*"
+		}
+
+		if channelIDs[sessionKey] != filterKey {
+			channelIDs[sessionKey] = filterKey
+			cursor, err := s.initialCursorForMessages(ctx, state.client, channelID)
+			if err != nil {
+				s.logger.Warn("channel: failed to get initial cursor", "channel_id", channelID, "error", err)
+				cursor = ""
+			}
+			cursors[sessionKey] = cursor
+		}
+
+		cursor := cursors[sessionKey]
+		next, err := s.pollChannelEventsOnce(ctx, state.client, state.UserID, channelID, cursor, func(event channelEvent) {
+			s.pushChannelNotificationToSession(ctx, session, event)
+		})
+		if err != nil {
+			s.logger.Warn("channel: poll error", "channel_id", channelID, "error", err)
+			continue
+		}
+		cursors[sessionKey] = next
 	}
-	page, err := client.ListEventPage(ctx, "", domain.EventTypeConversationMessageCreated, "", "", 1)
-	if err != nil {
-		return err
-	}
-	if len(page.Items) > 0 {
-		*cursor = strconv.FormatInt(page.Items[0].ID, 10)
-	}
-	return nil
 }
 
-func (s *Server) pollChannelEvents(ctx context.Context, cursor *string) {
-	client, selfUserID, err := s.anySessionClient(ctx)
-	if err != nil {
-		return // no session ready yet
+func (s *Server) pollChannelEventsOnce(
+	ctx context.Context,
+	client *Client,
+	selfUserID string,
+	channelID string,
+	cursor string,
+	push func(channelEvent),
+) (string, error) {
+	resourceType := ""
+	resourceID := ""
+	if channelID != "" {
+		resourceType = domain.ResourceTypeConversation
+		resourceID = channelID
 	}
 
-	channelID := s.cfg.ChannelID
-
-	page, err := client.ListEventPage(ctx, *cursor, domain.EventTypeConversationMessageCreated, domain.ResourceTypeConversation, channelID, 50)
+	page, err := client.ListEventPage(ctx, cursor, domain.EventTypeConversationMessageCreated, resourceType, resourceID, 50)
 	if err != nil {
-		s.logger.Warn("channel: poll error", "error", err)
-		return
+		return cursor, err
 	}
+
+	next := cursor
 
 	for _, event := range page.Items {
-		*cursor = strconv.FormatInt(event.ID, 10)
+		next = strconv.FormatInt(event.ID, 10)
 
 		var payload struct {
 			TS        string `json:"ts"`
@@ -129,45 +126,68 @@ func (s *Server) pollChannelEvents(ctx context.Context, cursor *string) {
 			meta["thread_ts"] = payload.ThreadTS
 		}
 
-		s.pushChannelNotification(ctx, channelEvent{
+		push(channelEvent{
 			Content: payload.Text,
 			Meta:    meta,
 		})
 	}
 
-	if page.NextCursor != "" && page.NextCursor != *cursor {
-		*cursor = page.NextCursor
+	if page.NextCursor != "" && page.NextCursor != next {
+		next = page.NextCursor
+	}
+	return next, nil
+}
+
+func (s *Server) pushChannelNotificationToSession(ctx context.Context, session *mcp.ServerSession, event channelEvent) {
+	if err := setServerSessionLogLevelIfEmpty(session, "info"); err != nil {
+		s.logger.Warn("channel: failed to set default log level", "error", err)
+	}
+	if err := session.Log(ctx, &mcp.LoggingMessageParams{
+		Level:  "info",
+		Logger: "teraslack/channel",
+		Data: map[string]any{
+			"type":    "teraslack.channel_message",
+			"content": event.Content,
+			"meta":    event.Meta,
+		},
+	}); err != nil {
+		s.logger.Warn("channel: log notify error", "error", err)
 	}
 }
 
-func (s *Server) pushChannelNotification(ctx context.Context, event channelEvent) {
-	for session := range s.sdkServer.Sessions() {
-		notifier, err := sessionNotifier(session)
-		if err != nil {
-			s.logger.Warn("channel: cannot get notifier", "error", err)
-			continue
-		}
-		if err := notifier.Notify(ctx, "notifications/claude/channel", event); err != nil {
-			s.logger.Warn("channel: notify error", "error", err)
-		}
+func (s *Server) sessionKeyFromSession(session *mcp.ServerSession) string {
+	if session == nil {
+		return "default"
 	}
+	if id := strings.TrimSpace(session.ID()); id != "" {
+		return id
+	}
+	return fmt.Sprintf("stdio:%p", session)
 }
 
-// anySessionClient returns a teraslack API client and user ID from the first
-// available session. Used by the channel loop to poll events without being
-// tied to a specific tool call context.
-func (s *Server) anySessionClient(ctx context.Context) (*Client, string, error) {
+func (s *Server) sessionStateForPush(sessionKey string) (sessionState, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	for _, data := range s.sessions {
-		if data.current.client != nil && data.current.UserID != "" {
-			return data.current.client, data.current.UserID, nil
+	if s.sessions == nil {
+		if s.initial.client != nil && s.initial.UserID != "" && s.cfg.ChannelID != "" {
+			return s.initial, true
 		}
-		if data.sessionIdentity.client != nil && data.sessionIdentity.UserID != "" {
-			return data.sessionIdentity.client, data.sessionIdentity.UserID, nil
-		}
+		return sessionState{}, false
 	}
-	return nil, "", fmt.Errorf("no active session")
+	data := s.sessions[sessionKey]
+	if data == nil {
+		if s.initial.client != nil && s.initial.UserID != "" && s.cfg.ChannelID != "" {
+			return s.initial, true
+		}
+		return sessionState{}, false
+	}
+	if data.current.client != nil && data.current.UserID != "" {
+		return data.current, true
+	}
+	if data.sessionIdentity.client != nil && data.sessionIdentity.UserID != "" {
+		return data.sessionIdentity, true
+	}
+	return sessionState{}, false
 }
 
 // resolveUserName looks up a display name for a user ID, falling back to the ID.
@@ -187,4 +207,25 @@ func (s *Server) resolveUserName(client *Client, userID string) string {
 
 func (s *Server) channelPollIntervalMS() int {
 	return 1000
+}
+
+func (s *Server) initialCursorForMessages(ctx context.Context, client *Client, channelID string) (string, error) {
+	if client == nil {
+		return "", fmt.Errorf("client is required")
+	}
+	resourceType := ""
+	resourceID := ""
+	if channelID != "" {
+		resourceType = domain.ResourceTypeConversation
+		resourceID = channelID
+	}
+
+	page, err := client.ListEventPage(ctx, "", domain.EventTypeConversationMessageCreated, resourceType, resourceID, 1)
+	if err != nil {
+		return "", err
+	}
+	if len(page.Items) == 0 {
+		return "", nil
+	}
+	return strconv.FormatInt(page.Items[0].ID, 10), nil
 }

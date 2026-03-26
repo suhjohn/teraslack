@@ -108,7 +108,7 @@ func run(logger *slog.Logger) error {
 		Addr:         ":" + port,
 		Handler:      mux,
 		ReadTimeout:  10 * time.Second,
-		WriteTimeout: 5 * time.Minute, // long for polling tools
+		WriteTimeout: 0, // allow long-lived SSE streams on /mcp
 		IdleTimeout:  60 * time.Second,
 	}
 

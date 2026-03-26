@@ -24,6 +24,7 @@ type Config struct {
 	MCPBaseURL      string
 	OAuthIssuer     string
 	OAuthSigningKey string
+	KeepAlive       time.Duration
 	WorkspaceID     string
 	UserID          string
 	UserName        string
@@ -33,11 +34,20 @@ type Config struct {
 	PeerUserID      string
 	PeerUserName    string
 	PeerUserEmail   string
-	ChannelID    string
-	DebugLogPath string
+	ChannelID       string
+	DebugLogPath    string
 }
 
 func LoadConfigFromEnv() (Config, error) {
+	keepAlive := time.Duration(0)
+	if raw := strings.TrimSpace(os.Getenv("MCP_KEEPALIVE_SECONDS")); raw != "" {
+		seconds, err := strconv.Atoi(raw)
+		if err != nil || seconds < 0 {
+			return Config{}, fmt.Errorf("invalid MCP_KEEPALIVE_SECONDS %q", raw)
+		}
+		keepAlive = time.Duration(seconds) * time.Second
+	}
+
 	cfg := Config{
 		BaseURL:         strings.TrimSpace(os.Getenv("TERASLACK_BASE_URL")),
 		APIKey:          strings.TrimSpace(os.Getenv("TERASLACK_API_KEY")),
@@ -45,6 +55,7 @@ func LoadConfigFromEnv() (Config, error) {
 		MCPBaseURL:      strings.TrimSpace(os.Getenv("MCP_BASE_URL")),
 		OAuthIssuer:     strings.TrimSpace(firstNonEmptyEnv("MCP_OAUTH_ISSUER", "TERASLACK_BASE_URL")),
 		OAuthSigningKey: strings.TrimSpace(firstNonEmptyEnv("MCP_OAUTH_SIGNING_KEY", "ENCRYPTION_KEY")),
+		KeepAlive:       keepAlive,
 		WorkspaceID:     strings.TrimSpace(os.Getenv("TERASLACK_WORKSPACE_ID")),
 		UserID:          strings.TrimSpace(os.Getenv("TERASLACK_USER_ID")),
 		UserName:        strings.TrimSpace(os.Getenv("TERASLACK_USER_NAME")),
@@ -52,8 +63,8 @@ func LoadConfigFromEnv() (Config, error) {
 		PeerUserID:      strings.TrimSpace(os.Getenv("TERASLACK_PEER_USER_ID")),
 		PeerUserName:    strings.TrimSpace(os.Getenv("TERASLACK_PEER_USER_NAME")),
 		PeerUserEmail:   strings.TrimSpace(os.Getenv("TERASLACK_PEER_USER_EMAIL")),
-		ChannelID:    strings.TrimSpace(os.Getenv("TERASLACK_CHANNEL_ID")),
-		DebugLogPath: strings.TrimSpace(os.Getenv("TERASLACK_MCP_DEBUG_LOG")),
+		ChannelID:       strings.TrimSpace(os.Getenv("TERASLACK_CHANNEL_ID")),
+		DebugLogPath:    strings.TrimSpace(os.Getenv("TERASLACK_MCP_DEBUG_LOG")),
 	}
 
 	if cfg.BaseURL == "" {
@@ -195,8 +206,6 @@ func (s *Server) Serve(ctx context.Context, in io.Reader, out io.Writer) error {
 		writer = wc
 	}
 
-	go s.startChannelLoop(ctx)
-
 	return s.sdkServer.Run(ctx, &mcp.IOTransport{
 		Reader: reader,
 		Writer: writer,
@@ -219,14 +228,18 @@ func (s *Server) newMCPServer() *mcp.Server {
 		Version: "0.3.0",
 	}, &mcp.ServerOptions{
 		Logger:    s.logger,
-		KeepAlive: 30 * time.Second,
-		Capabilities: &mcp.ServerCapabilities{
-			Experimental: map[string]any{
-				"claude/channel": map[string]any{},
-			},
+		KeepAlive: s.cfg.KeepAlive,
+		InitializedHandler: func(ctx context.Context, req *mcp.InitializedRequest) {
+			if err := setServerSessionLogLevelIfEmpty(req.Session, "info"); err != nil {
+				s.logger.Warn("mcp: failed to set default log level", "error", err)
+			}
 		},
-		Instructions: "Incoming Teraslack messages arrive as <channel source=\"teraslack\" channel_id=\"...\" sender_id=\"...\" sender_name=\"...\">. " +
-			"To respond, use the send_message tool with the channel_id from the tag.",
+		Capabilities: &mcp.ServerCapabilities{
+			Logging: &mcp.LoggingCapabilities{},
+		},
+		Instructions: "Teraslack may stream incoming conversation messages as MCP logging notifications (notifications/message). " +
+			"If this MCP session has a default conversation (set via create_dm or send_message) or the deployment sets TERASLACK_CHANNEL_ID, streaming is scoped to that conversation; otherwise it streams all incoming messages visible to the session identity. " +
+			"To respond, use the send_message tool with the channel_id from the notification metadata.",
 	})
 
 	for _, spec := range s.tools() {
