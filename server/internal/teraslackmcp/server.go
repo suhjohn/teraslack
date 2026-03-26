@@ -301,7 +301,7 @@ func (s *Server) newMCPServer() *mcp.Server {
 		},
 		Instructions: "Teraslack may stream incoming conversation messages as MCP logging notifications (notifications/message). " +
 			"For OAuth-backed remote MCP, call whoami with a client session_id (unique per Claude/Codex run) to provision a per-client session agent. " +
-			"Streaming requires a conversation ID: set a default conversation for this MCP session using create_dm or send_message, or set TERASLACK_CHANNEL_ID on the server. " +
+			"Streaming follows the current MCP session identity and delivers incoming messages visible to that identity across its conversations. " +
 			"To respond, use send_message with the conversation_id from the notification metadata.",
 	})
 

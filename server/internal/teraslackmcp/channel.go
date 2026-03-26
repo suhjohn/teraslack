@@ -24,30 +24,21 @@ func (s *Server) startChannelLoop(ctx context.Context) {
 	defer ticker.Stop()
 
 	cursors := map[string]string{}
-	channelIDs := map[string]string{}
 	tokens := map[string]string{}
 
-	if s.cfg.ChannelID != "" {
-		s.logger.Info("channel: polling started", "fallback_channel_id", true, "channel_id", s.cfg.ChannelID)
-	} else {
-		s.logger.Info(
-			"channel: polling started (no TERASLACK_CHANNEL_ID; each MCP session must set a default conversation)",
-			"fallback_channel_id",
-			false,
-		)
-	}
+	s.logger.Info("channel: polling started (identity-wide inbox mode)")
 
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			s.pollSessionChannelEvents(ctx, cursors, channelIDs, tokens)
+			s.pollSessionChannelEvents(ctx, cursors, tokens)
 		}
 	}
 }
 
-func (s *Server) pollSessionChannelEvents(ctx context.Context, cursors map[string]string, channelIDs map[string]string, tokens map[string]string) {
+func (s *Server) pollSessionChannelEvents(ctx context.Context, cursors map[string]string, tokens map[string]string) {
 	for session := range s.sdkServer.Sessions() {
 		sessionKey := s.sessionKeyFromSession(session)
 		state, ok := s.sessionStateForPush(sessionKey)
@@ -60,46 +51,23 @@ func (s *Server) pollSessionChannelEvents(ctx context.Context, cursors map[strin
 		if tokens[sessionKey] != state.Token {
 			tokens[sessionKey] = state.Token
 			delete(cursors, sessionKey)
-			delete(channelIDs, sessionKey)
-		}
-
-		channelID := firstNonEmpty(state.ChannelID, s.cfg.ChannelID)
-		if channelID == "" {
-			const disabled = "__disabled__"
-				if channelIDs[sessionKey] != disabled {
-					channelIDs[sessionKey] = disabled
-					delete(cursors, sessionKey)
-					s.logger.Info(
-						"channel: polling disabled for session (no default conversation configured; call create_dm/send_message or set TERASLACK_CHANNEL_ID)",
-						"session_id",
-						session.ID(),
-					)
-				}
-				continue
-			}
-
-		filterKey := channelID
-
-		if channelIDs[sessionKey] != filterKey {
-			channelIDs[sessionKey] = filterKey
-			cursor, err := s.initialCursorForMessages(ctx, state.client, channelID)
+			cursor, err := s.initialCursorForMessages(ctx, state.client)
 			if err != nil {
-				s.logger.Warn("channel: failed to get initial cursor", "channel_id", channelID, "error", err)
+				s.logger.Warn("channel: failed to get initial cursor", "session_id", session.ID(), "error", err)
 				cursor = ""
 			}
 			cursors[sessionKey] = cursor
 		}
 
 		cursor := cursors[sessionKey]
-		next, err := s.pollChannelEventsOnce(ctx, state.client, state.UserID, channelID, cursor, func(event channelEvent) {
+		next, err := s.pollChannelEventsOnce(ctx, state.client, state.UserID, cursor, func(event channelEvent) {
 			s.pushChannelNotificationToSession(ctx, session, event)
 		})
 		if err != nil {
-			s.logger.Warn("channel: poll error", "channel_id", channelID, "error", err)
+			s.logger.Warn("channel: poll error", "session_id", session.ID(), "error", err)
 			// If we got a cursor-scoped error (common when the underlying identity
 			// changes or the cursor becomes invalid), force a re-init next tick.
 			delete(cursors, sessionKey)
-			delete(channelIDs, sessionKey)
 			continue
 		}
 		cursors[sessionKey] = next
@@ -110,15 +78,10 @@ func (s *Server) pollChannelEventsOnce(
 	ctx context.Context,
 	client *Client,
 	selfUserID string,
-	channelID string,
 	cursor string,
 	push func(channelEvent),
 ) (string, error) {
-	if channelID == "" {
-		return cursor, fmt.Errorf("conversation_id is required for message polling")
-	}
-
-	page, err := client.ListEventPage(ctx, cursor, domain.EventTypeConversationMessageCreated, domain.ResourceTypeConversation, channelID, 50)
+	page, err := client.ListEventPage(ctx, cursor, domain.EventTypeConversationMessageCreated, domain.ResourceTypeConversation, "", 50)
 	if err != nil {
 		return cursor, err
 	}
@@ -206,14 +169,14 @@ func (s *Server) sessionStateForPush(sessionKey string) (sessionState, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	if s.sessions == nil {
-		if s.initial.client != nil && s.initial.UserID != "" && s.cfg.ChannelID != "" {
+		if s.initial.client != nil && s.initial.UserID != "" {
 			return s.initial, true
 		}
 		return sessionState{}, false
 	}
 	data := s.sessions[sessionKey]
 	if data == nil {
-		if s.initial.client != nil && s.initial.UserID != "" && s.cfg.ChannelID != "" {
+		if s.initial.client != nil && s.initial.UserID != "" {
 			return s.initial, true
 		}
 		return sessionState{}, false
@@ -246,15 +209,12 @@ func (s *Server) channelPollIntervalMS() int {
 	return 1000
 }
 
-func (s *Server) initialCursorForMessages(ctx context.Context, client *Client, channelID string) (string, error) {
+func (s *Server) initialCursorForMessages(ctx context.Context, client *Client) (string, error) {
 	if client == nil {
 		return "", fmt.Errorf("client is required")
 	}
-	if channelID == "" {
-		return "", fmt.Errorf("conversation_id is required")
-	}
 
-	page, err := client.ListEventPage(ctx, "", domain.EventTypeConversationMessageCreated, domain.ResourceTypeConversation, channelID, 1)
+	page, err := client.ListEventPage(ctx, "", domain.EventTypeConversationMessageCreated, domain.ResourceTypeConversation, "", 1)
 	if err != nil {
 		return "", err
 	}
