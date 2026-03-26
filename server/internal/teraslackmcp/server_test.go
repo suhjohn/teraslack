@@ -389,6 +389,71 @@ func TestServer_StreamableHTTPAutoProvisionsDistinctSessionAgents(t *testing.T) 
 	}
 }
 
+func TestServer_StreamableHTTPOAuthRegisterCreatesOwnedAgent(t *testing.T) {
+	backend := newMockMCPBackend()
+	serverURL := httptest.NewServer(backend).URL
+	t.Cleanup(func() { backend.close() })
+
+	srv, err := NewServer(Config{
+		BaseURL:     serverURL,
+		APIKey:      backend.oauthHumanToken,
+		WorkspaceID: backend.workspaceID,
+		UserID:      backend.humanUserID,
+		OAuthScopes: []string{domain.MCPOAuthScopeTools},
+		Permissions: []string{domain.PermissionMessagesWrite},
+	}, nil)
+	if err != nil {
+		t.Fatalf("NewServer() error = %v", err)
+	}
+
+	httpServer := httptest.NewServer(srv.HTTPHandler())
+	defer httpServer.Close()
+
+	client := mcp.NewClient(&mcp.Implementation{Name: "client-a", Version: "v0.0.1"}, nil)
+	session, err := client.Connect(context.Background(), &mcp.StreamableClientTransport{Endpoint: httpServer.URL}, nil)
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	defer session.Close()
+
+	registerResp := callSessionToolJSON(t, session, "register", map[string]any{
+		"name": "agent-a",
+	})
+	user := nestedMap(t, registerResp, "user")
+	if got := user["name"]; got != "agent-a" {
+		t.Fatalf("register user name = %v, want agent-a", got)
+	}
+	if got := user["principal_type"]; got != string(domain.PrincipalTypeAgent) {
+		t.Fatalf("register principal_type = %v, want %s", got, domain.PrincipalTypeAgent)
+	}
+
+	whoamiResp := callSessionToolJSON(t, session, "whoami", map[string]any{})
+	current := nestedMap(t, whoamiResp, "user")
+	if got := current["id"]; got != user["id"] {
+		t.Fatalf("whoami user id = %v, want %v", got, user["id"])
+	}
+	if got := whoamiResp["identity_mode"]; got != "switched" {
+		t.Fatalf("whoami identity_mode = %v, want switched", got)
+	}
+
+	identitiesResp := callSessionToolJSON(t, session, "list_owned_identities", map[string]any{})
+	identities := nestedSlice(t, identitiesResp, "identities")
+	found := false
+	for _, raw := range identities {
+		identity, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		if identity["id"] == user["id"] {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("registered agent %v not found in owned identities: %+v", user["id"], identities)
+	}
+}
+
 func TestServer_StreamableHTTPSwitchIdentityAndReset(t *testing.T) {
 	backend := newMockMCPBackend()
 	serverURL := httptest.NewServer(backend).URL

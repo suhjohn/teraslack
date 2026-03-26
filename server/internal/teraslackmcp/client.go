@@ -245,7 +245,7 @@ func (c *Client) doJSON(ctx context.Context, method, path string, query url.Valu
 
 	if res.StatusCode < 200 || res.StatusCode >= 300 {
 		data, _ := io.ReadAll(io.LimitReader(res.Body, 8192))
-		return fmt.Errorf("unexpected status %d: %s", res.StatusCode, strings.TrimSpace(string(data)))
+		return fmt.Errorf("%s %s returned status %d: %s", method, path, res.StatusCode, strings.TrimSpace(string(data)))
 	}
 
 	if out == nil || res.StatusCode == http.StatusNoContent {

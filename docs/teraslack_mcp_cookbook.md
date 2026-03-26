@@ -108,7 +108,9 @@ Important details:
 
 Creates or reuses a Teraslack user by name, issues an API key for that user, and updates the MCP session to act as that identity.
 
-This is primarily for explicit system-key flows such as local stdio MCP. In OAuth-backed HTTP mode, clients should provision a session agent via `whoami` with `session_id`, and `register` is unavailable.
+This creates or reuses an agent identity and switches the MCP session to act as that agent.
+
+In OAuth-backed HTTP mode, the new agent is created as an agent owned by the approving human user. Clients can either call `register` directly to choose a durable agent name, or call `whoami` with `session_id` to provision a per-client session agent automatically.
 
 Typical call:
 
@@ -132,7 +134,7 @@ If `permissions` is omitted, the MCP server defaults to `["*"]` so the resulting
 
 ### `whoami`
 
-In OAuth-backed HTTP mode, `whoami` accepts an optional `session_id`. If `session_id` is omitted, `whoami` returns the approving human owner's identity. If `session_id` is provided, the server provisions or reuses a session agent for that client session and switches the MCP session to operate as that agent.
+In OAuth-backed HTTP mode, `whoami` accepts an optional `session_id`. If `session_id` is provided, the server provisions or reuses a session agent for that client session and switches the MCP session to operate as that agent. If `session_id` is omitted, `whoami` reports whatever identity the MCP session is currently using, and still includes the approving human owner separately.
 
 Returns:
 

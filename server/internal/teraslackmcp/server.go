@@ -7,6 +7,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -116,12 +117,14 @@ type Server struct {
 	cfg             Config
 	logger          *slog.Logger
 	debug           io.Writer
+	debugCloser     io.Closer
 	bootstrapClient *Client
 	initial         sessionState
 	sdkServer       *mcp.Server
 	httpHandler     http.Handler
 	sessionTTL      time.Duration
 	channelCancel   context.CancelFunc
+	closeOnce       sync.Once
 
 	mu       sync.RWMutex
 	sessions map[string]*sessionData
@@ -145,10 +148,12 @@ func NewServer(cfg Config, logger *slog.Logger) (*Server, error) {
 	}
 
 	var debug io.Writer = io.Discard
+	var debugCloser io.Closer
 	if cfg.DebugLogPath != "" {
 		f, err := os.OpenFile(cfg.DebugLogPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 		if err == nil {
 			debug = f
+			debugCloser = f
 		}
 	}
 
@@ -187,18 +192,25 @@ func NewServer(cfg Config, logger *slog.Logger) (*Server, error) {
 		cfg:             cfg,
 		logger:          logger,
 		debug:           debug,
+		debugCloser:     debugCloser,
 		bootstrapClient: bootstrapClient,
 		initial:         initial,
 		sessionTTL:      30 * time.Minute,
 		sessions:        map[string]*sessionData{},
 	}
 	srv.sdkServer = srv.newMCPServer()
+
+	crossOriginProtection := &http.CrossOriginProtection{}
+	if origin := trustedOriginFromURL(cfg.MCPBaseURL); origin != "" {
+		_ = crossOriginProtection.AddTrustedOrigin(origin)
+	}
 	baseHandler := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server {
 		return srv.sdkServer
 	}, &mcp.StreamableHTTPOptions{
-		Logger:         logger,
-		EventStore:     streamableHTTPEventStore,
-		SessionTimeout: srv.sessionTTL,
+		Logger:                logger,
+		EventStore:            streamableHTTPEventStore,
+		SessionTimeout:        srv.sessionTTL,
+		CrossOriginProtection: crossOriginProtection,
 	})
 	srv.httpHandler = withSSEHeartbeat(baseHandler, srv.cfg.SSEHeartbeat)
 
@@ -231,11 +243,45 @@ func (s *Server) HTTPHandler() http.Handler {
 	return s.httpHandler
 }
 
+func (s *Server) HasActiveSessions() bool {
+	if s == nil || s.sdkServer == nil {
+		return false
+	}
+	for range s.sdkServer.Sessions() {
+		return true
+	}
+	return false
+}
+
+func (s *Server) Close() error {
+	var closeErr error
+	if s == nil {
+		return nil
+	}
+	s.closeOnce.Do(func() {
+		if s.channelCancel != nil {
+			s.channelCancel()
+		}
+		if s.debugCloser != nil {
+			closeErr = s.debugCloser.Close()
+		}
+	})
+	return closeErr
+}
+
 type nopWriteCloser struct {
 	io.Writer
 }
 
 func (nopWriteCloser) Close() error { return nil }
+
+func trustedOriginFromURL(raw string) string {
+	parsed, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+		return ""
+	}
+	return strings.ToLower(parsed.Scheme) + "://" + strings.ToLower(parsed.Host)
+}
 
 func (s *Server) newMCPServer() *mcp.Server {
 	server := mcp.NewServer(&mcp.Implementation{
@@ -747,11 +793,11 @@ func (s *Server) handleRegister(ctx context.Context, args map[string]any) (strin
 	if err != nil {
 		return "", err
 	}
-	if len(owner.OAuthScopes) > 0 {
-		return "", fmt.Errorf("register is unavailable for OAuth-backed MCP sessions; a session identity is provisioned automatically")
-	}
-	bootstrap := s.bootstrap()
-	if bootstrap == nil {
+	provisioner, err := s.sessionProvisioningClient(owner)
+	if err != nil {
+		if len(owner.OAuthScopes) > 0 {
+			return "", fmt.Errorf("register requires an active owner identity for OAuth-backed MCP sessions")
+		}
 		return "", fmt.Errorf("register requires a configured system API key")
 	}
 	current, err := s.currentState(ctx)
@@ -776,20 +822,20 @@ func (s *Server) handleRegister(ctx context.Context, args map[string]any) (strin
 		return "", fmt.Errorf("principal_type must be one of agent, system, or human")
 	}
 
-	user, found, err := s.findUserByIdentity(ctx, bootstrap, name, email)
+	user, found, err := s.findUserByIdentity(ctx, provisioner, name, email)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("lookup user by identity: %w", err)
 	}
 	if !found {
-		user, err = bootstrap.CreateUser(ctx, domain.CreateUserParams{
+		user, err = provisioner.CreateUser(ctx, domain.CreateUserParams{
 			Name:          name,
 			Email:         email,
-			OwnerID:       strings.TrimSpace(stringArg(args, "owner_id", "")),
+			OwnerID:       firstNonEmpty(strings.TrimSpace(stringArg(args, "owner_id", "")), owner.UserID),
 			PrincipalType: principalType,
 			IsBot:         boolArg(args, "is_bot", principalType != domain.PrincipalTypeHuman),
 		})
 		if err != nil {
-			return "", err
+			return "", fmt.Errorf("create user %q: %w", name, err)
 		}
 	}
 
@@ -802,14 +848,14 @@ func (s *Server) handleRegister(ctx context.Context, args map[string]any) (strin
 		apiKeyName = fmt.Sprintf("%s MCP key", user.Name)
 	}
 
-	key, secret, err := bootstrap.CreateAPIKey(ctx, domain.CreateAPIKeyParams{
+	key, secret, err := provisioner.CreateAPIKey(ctx, domain.CreateAPIKeyParams{
 		Name:        apiKeyName,
 		UserID:      user.ID,
 		Permissions: permissions,
 		ExpiresIn:   strings.TrimSpace(stringArg(args, "expires_in", "")),
 	})
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("create API key for user %q (%s): %w", user.Name, user.ID, err)
 	}
 
 	client, err := NewClient(s.cfg.BaseURL, secret)
@@ -854,40 +900,6 @@ func (s *Server) handleWhoAmI(ctx context.Context, args map[string]any) (string,
 	clientSessionID := strings.TrimSpace(stringArg(args, "session_id", ""))
 	mcpSessionID := strings.TrimSpace(s.sessionKeyFromContext(ctx))
 
-	// For OAuth-backed MCP sessions, the owner identity is the approving human.
-	// We only provision/use a session agent once the client supplies a session_id.
-	if len(owner.OAuthScopes) > 0 && clientSessionID == "" {
-		result := map[string]any{
-			"registered":          owner.client != nil,
-			"bootstrap_available": false,
-			"identity_mode":       "owner",
-			"mcp_session_id":      mcpSessionID,
-			"session_agent_ready": false,
-		}
-		if owner.WorkspaceID != "" {
-			result["workspace_id"] = owner.WorkspaceID
-		}
-		if owner.UserID != "" {
-			result["user"] = map[string]any{
-				"id":    owner.UserID,
-				"name":  owner.UserName,
-				"email": owner.UserEmail,
-			}
-			result["owner"] = map[string]any{
-				"id":    owner.UserID,
-				"name":  owner.UserName,
-				"email": owner.UserEmail,
-			}
-		}
-		if len(owner.Permissions) > 0 {
-			result["permissions"] = owner.Permissions
-		}
-		if len(owner.OAuthScopes) > 0 {
-			result["scopes"] = owner.OAuthScopes
-		}
-		return marshalToolResult(result)
-	}
-
 	if len(owner.OAuthScopes) > 0 && clientSessionID != "" {
 		s.setClientSessionID(ctx, clientSessionID)
 	}
@@ -928,6 +940,9 @@ func (s *Server) handleWhoAmI(ctx context.Context, args map[string]any) (string,
 			"name":  data.sessionIdentity.UserName,
 			"email": data.sessionIdentity.UserEmail,
 		}
+	}
+	if len(owner.OAuthScopes) > 0 {
+		result["session_agent_ready"] = data.sessionIdentity.client != nil && data.sessionIdentity.UserID != ""
 	}
 	switch {
 	case current.UserID != "" && current.UserID == data.sessionIdentity.UserID:
