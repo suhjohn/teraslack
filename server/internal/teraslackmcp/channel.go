@@ -30,7 +30,11 @@ func (s *Server) startChannelLoop(ctx context.Context) {
 	if s.cfg.ChannelID != "" {
 		s.logger.Info("channel: polling started", "fallback_channel_id", true, "channel_id", s.cfg.ChannelID)
 	} else {
-		s.logger.Info("channel: polling started (requires a default conversation per MCP session)", "fallback_channel_id", false)
+		s.logger.Info(
+			"channel: polling started (no TERASLACK_CHANNEL_ID; each MCP session must set a default conversation)",
+			"fallback_channel_id",
+			false,
+		)
 	}
 
 	for {
@@ -62,13 +66,17 @@ func (s *Server) pollSessionChannelEvents(ctx context.Context, cursors map[strin
 		channelID := firstNonEmpty(state.ChannelID, s.cfg.ChannelID)
 		if channelID == "" {
 			const disabled = "__disabled__"
-			if channelIDs[sessionKey] != disabled {
-				channelIDs[sessionKey] = disabled
-				delete(cursors, sessionKey)
-				s.logger.Info("channel: polling disabled for session (no default conversation configured)", "session_id", session.ID())
+				if channelIDs[sessionKey] != disabled {
+					channelIDs[sessionKey] = disabled
+					delete(cursors, sessionKey)
+					s.logger.Info(
+						"channel: polling disabled for session (no default conversation configured; call create_dm/send_message or set TERASLACK_CHANNEL_ID)",
+						"session_id",
+						session.ID(),
+					)
+				}
+				continue
 			}
-			continue
-		}
 
 		filterKey := channelID
 
@@ -107,7 +115,7 @@ func (s *Server) pollChannelEventsOnce(
 	push func(channelEvent),
 ) (string, error) {
 	if channelID == "" {
-		return cursor, fmt.Errorf("channel_id is required for message polling")
+		return cursor, fmt.Errorf("conversation_id is required for message polling")
 	}
 
 	page, err := client.ListEventPage(ctx, cursor, domain.EventTypeConversationMessageCreated, domain.ResourceTypeConversation, channelID, 50)
@@ -135,10 +143,11 @@ func (s *Server) pollChannelEventsOnce(
 		}
 
 		meta := map[string]string{
-			"channel_id":  event.ResourceID,
-			"sender_id":   payload.UserID,
-			"sender_name": s.resolveUserName(client, payload.UserID),
-			"message_ts":  payload.TS,
+			"conversation_id": event.ResourceID,
+			"channel_id":      event.ResourceID, // alias
+			"sender_id":       payload.UserID,
+			"sender_name":     s.resolveUserName(client, payload.UserID),
+			"message_ts":      payload.TS,
 		}
 		if payload.ThreadTS != "" {
 			meta["thread_ts"] = payload.ThreadTS
@@ -176,7 +185,7 @@ func (s *Server) pushChannelNotificationToSession(ctx context.Context, session *
 	s.logger.Info(
 		"channel: pushed notification",
 		"session_id", session.ID(),
-		"channel_id", event.Meta["channel_id"],
+		"conversation_id", event.Meta["conversation_id"],
 		"sender_id", event.Meta["sender_id"],
 		"message_ts", event.Meta["message_ts"],
 		"content_len", len(event.Content),
@@ -242,7 +251,7 @@ func (s *Server) initialCursorForMessages(ctx context.Context, client *Client, c
 		return "", fmt.Errorf("client is required")
 	}
 	if channelID == "" {
-		return "", fmt.Errorf("channel_id is required")
+		return "", fmt.Errorf("conversation_id is required")
 	}
 
 	page, err := client.ListEventPage(ctx, "", domain.EventTypeConversationMessageCreated, domain.ResourceTypeConversation, channelID, 1)

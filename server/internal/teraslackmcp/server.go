@@ -255,7 +255,7 @@ func (s *Server) newMCPServer() *mcp.Server {
 		Instructions: "Teraslack may stream incoming conversation messages as MCP logging notifications (notifications/message). " +
 			"For OAuth-backed remote MCP, call whoami with a client session_id (unique per Claude/Codex run) to provision a per-client session agent. " +
 			"Streaming requires a conversation ID: set a default conversation for this MCP session using create_dm or send_message, or set TERASLACK_CHANNEL_ID on the server. " +
-			"To respond, use send_message with the channel_id from the notification metadata.",
+			"To respond, use send_message with the conversation_id from the notification metadata.",
 	})
 
 	for _, spec := range s.tools() {
@@ -441,16 +441,19 @@ func (s *Server) tools() []map[string]any {
 				"additionalProperties": false,
 			},
 		},
-		{
-			"name":        "send_message",
-			"description": "Send a message to a Teraslack conversation as the active identity.",
-			"inputSchema": map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"channel_id": map[string]any{
-						"type": "string",
-					},
-					"text": map[string]any{
+			{
+				"name":        "send_message",
+				"description": "Send a message to a Teraslack conversation as the active identity. Prefer conversation_id; channel_id is accepted as an alias.",
+				"inputSchema": map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"conversation_id": map[string]any{
+							"type": "string",
+						},
+						"channel_id": map[string]any{
+							"type": "string",
+						},
+						"text": map[string]any{
 						"type": "string",
 					},
 					"metadata": map[string]any{
@@ -461,16 +464,19 @@ func (s *Server) tools() []map[string]any {
 				"additionalProperties": false,
 			},
 		},
-		{
-			"name":        "list_messages",
-			"description": "List recent messages in a Teraslack conversation.",
-			"inputSchema": map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"channel_id": map[string]any{
-						"type": "string",
-					},
-					"limit": map[string]any{
+			{
+				"name":        "list_messages",
+				"description": "List recent messages in a Teraslack conversation. Prefer conversation_id; channel_id is accepted as an alias.",
+				"inputSchema": map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"conversation_id": map[string]any{
+							"type": "string",
+						},
+						"channel_id": map[string]any{
+							"type": "string",
+						},
+						"limit": map[string]any{
 						"type":    "integer",
 						"minimum": 1,
 						"maximum": 100,
@@ -508,17 +514,20 @@ func (s *Server) tools() []map[string]any {
 				"additionalProperties": false,
 			},
 		},
-		{
-			"name":        "subscribe_conversation",
-			"description": "Create a future-only event subscription for a Teraslack conversation and return a cursor-backed subscription id.",
-			"inputSchema": map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"channel_id": map[string]any{
-						"type": "string",
+			{
+				"name":        "subscribe_conversation",
+				"description": "Create a future-only event subscription for a Teraslack conversation and return a cursor-backed subscription id. Prefer conversation_id; channel_id is accepted as an alias.",
+				"inputSchema": map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"conversation_id": map[string]any{
+							"type": "string",
+						},
+						"channel_id": map[string]any{
+							"type": "string",
+						},
 					},
-				},
-				"additionalProperties": false,
+					"additionalProperties": false,
 			},
 		},
 		{
@@ -642,16 +651,19 @@ func (s *Server) tools() []map[string]any {
 				"additionalProperties": false,
 			},
 		},
-		{
-			"name":        "wait_for_message",
-			"description": "Wait until a matching message appears in a Teraslack conversation.",
-			"inputSchema": map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"channel_id": map[string]any{
-						"type": "string",
-					},
-					"text": map[string]any{
+			{
+				"name":        "wait_for_message",
+				"description": "Wait until a matching message appears in a Teraslack conversation. Prefer conversation_id; channel_id is accepted as an alias.",
+				"inputSchema": map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"conversation_id": map[string]any{
+							"type": "string",
+						},
+						"channel_id": map[string]any{
+							"type": "string",
+						},
+						"text": map[string]any{
 						"type": "string",
 					},
 					"contains_text": map[string]any{
@@ -1119,22 +1131,22 @@ func (s *Server) handleSendMessage(ctx context.Context, args map[string]any) (st
 	if text == "" {
 		return "", fmt.Errorf("text is required")
 	}
-	channelID := s.resolveChannelID(current, args)
-	if channelID == "" {
-		return "", fmt.Errorf("channel_id is required unless a default conversation is already set")
+	conversationID := s.resolveConversationID(current, args)
+	if conversationID == "" {
+		return "", fmt.Errorf("conversation_id is required unless a default conversation is already set")
 	}
 
 	metadata := mapArg(args, "metadata")
-	msg, err := current.client.PostMessage(ctx, channelID, current.UserID, text, metadata)
+	msg, err := current.client.PostMessage(ctx, conversationID, current.UserID, text, metadata)
 	if err != nil {
 		return "", err
 	}
 	if current.ChannelID == "" {
-		current.ChannelID = channelID
+		current.ChannelID = conversationID
 		s.setCurrentState(ctx, current)
 	}
 
-	s.logger.Info("sent teraslack message", "channel_id", channelID, "user_email", current.UserEmail, "text", text, "ts", msg.TS)
+	s.logger.Info("sent teraslack message", "conversation_id", conversationID, "user_email", current.UserEmail, "text", text, "ts", msg.TS)
 	return marshalToolResult(map[string]any{
 		"status": "sent",
 		"message": messageSummary{
@@ -1143,7 +1155,8 @@ func (s *Server) handleSendMessage(ctx context.Context, args map[string]any) (st
 			UserID:      msg.UserID,
 			SenderEmail: s.emailForUserID(current, msg.UserID),
 		},
-		"channel_id": channelID,
+		"conversation_id": conversationID,
+		"channel_id":      conversationID,
 	})
 }
 
@@ -1153,12 +1166,12 @@ func (s *Server) handleListMessages(ctx context.Context, args map[string]any) (s
 		return "", err
 	}
 
-	channelID := s.resolveChannelID(current, args)
-	if channelID == "" {
-		return "", fmt.Errorf("channel_id is required unless a default conversation is already set")
+	conversationID := s.resolveConversationID(current, args)
+	if conversationID == "" {
+		return "", fmt.Errorf("conversation_id is required unless a default conversation is already set")
 	}
 	limit := intArg(args, "limit", 20)
-	msgs, err := current.client.ListMessages(ctx, channelID, limit)
+	msgs, err := current.client.ListMessages(ctx, conversationID, limit)
 	if err != nil {
 		return "", err
 	}
@@ -1167,8 +1180,9 @@ func (s *Server) handleListMessages(ctx context.Context, args map[string]any) (s
 		out = append(out, s.summarizeMessage(current, msg))
 	}
 	return marshalToolResult(map[string]any{
-		"channel_id": channelID,
-		"messages":   out,
+		"conversation_id": conversationID,
+		"channel_id":      conversationID,
+		"messages":        out,
 	})
 }
 
@@ -1220,9 +1234,9 @@ func (s *Server) handleSubscribeConversation(ctx context.Context, args map[strin
 		return "", err
 	}
 
-	channelID := s.resolveChannelID(current, args)
-	if channelID == "" {
-		return "", fmt.Errorf("channel_id is required unless a default conversation is already set")
+	conversationID := s.resolveConversationID(current, args)
+	if conversationID == "" {
+		return "", fmt.Errorf("conversation_id is required unless a default conversation is already set")
 	}
 
 	cursor, err := s.currentEventCursor(ctx, current.client)
@@ -1230,11 +1244,12 @@ func (s *Server) handleSubscribeConversation(ctx context.Context, args map[strin
 		return "", err
 	}
 
-	subscriptionID := s.createConversationSubscription(ctx, current, channelID, cursor)
+	subscriptionID := s.createConversationSubscription(ctx, current, conversationID, cursor)
 	return marshalToolResult(map[string]any{
 		"status":          "subscribed",
 		"subscription_id": subscriptionID,
-		"channel_id":      channelID,
+		"conversation_id": conversationID,
+		"channel_id":      conversationID,
 		"after_event_id":  cursor,
 	})
 }
@@ -1277,13 +1292,14 @@ func (s *Server) handleNextEvent(ctx context.Context, args map[string]any) (stri
 				continue
 			}
 
-			result := map[string]any{
-				"status":          "received",
-				"subscription_id": subscriptionID,
-				"channel_id":      subscription.ChannelID,
-				"cursor":          cursor,
-				"event":           event,
-			}
+				result := map[string]any{
+					"status":          "received",
+					"subscription_id": subscriptionID,
+					"conversation_id": subscription.ChannelID,
+					"channel_id":      subscription.ChannelID,
+					"cursor":          cursor,
+					"event":           event,
+				}
 			if summary, ok := s.messageSummaryFromEvent(subscription.State, event); ok {
 				result["message"] = summary
 			}
@@ -1405,9 +1421,9 @@ func (s *Server) handleWaitForMessage(ctx context.Context, args map[string]any) 
 		return "", err
 	}
 
-	channelID := s.resolveChannelID(current, args)
-	if channelID == "" {
-		return "", fmt.Errorf("channel_id is required unless a default conversation is already set")
+	conversationID := s.resolveConversationID(current, args)
+	if conversationID == "" {
+		return "", fmt.Errorf("conversation_id is required unless a default conversation is already set")
 	}
 	wantText := stringArg(args, "text", "")
 	wantContains := stringArg(args, "contains_text", "")
@@ -1419,7 +1435,7 @@ func (s *Server) handleWaitForMessage(ctx context.Context, args map[string]any) 
 
 	afterTS := ""
 	if !includeExisting {
-		afterTS, err = s.currentTopLevelMessageTS(ctx, current.client, channelID)
+		afterTS, err = s.currentTopLevelMessageTS(ctx, current.client, conversationID)
 		if err != nil {
 			return "", err
 		}
@@ -1427,7 +1443,7 @@ func (s *Server) handleWaitForMessage(ctx context.Context, args map[string]any) 
 
 	deadline := time.Now().Add(timeout)
 	for {
-		msgs, err := current.client.ListMessages(ctx, channelID, 50)
+		msgs, err := current.client.ListMessages(ctx, conversationID, 50)
 		if err != nil {
 			return "", err
 		}
@@ -1451,11 +1467,12 @@ func (s *Server) handleWaitForMessage(ctx context.Context, args map[string]any) 
 			if wantUserID != "" && summary.UserID != wantUserID {
 				continue
 			}
-			s.logger.Info("matched teraslack message", "channel_id", channelID, "sender_email", summary.SenderEmail, "text", summary.Text, "ts", summary.TS)
+			s.logger.Info("matched teraslack message", "conversation_id", conversationID, "sender_email", summary.SenderEmail, "text", summary.Text, "ts", summary.TS)
 			return marshalToolResult(map[string]any{
-				"status":     "received",
-				"channel_id": channelID,
-				"message":    summary,
+				"status":          "received",
+				"conversation_id": conversationID,
+				"channel_id":      conversationID,
+				"message":         summary,
 			})
 		}
 		if time.Now().After(deadline) {
@@ -1919,10 +1936,14 @@ func (s *Server) emailForUserID(state sessionState, userID string) string {
 	return userID
 }
 
-func (s *Server) resolveChannelID(state sessionState, args map[string]any) string {
-	channelID := strings.TrimSpace(stringArg(args, "channel_id", ""))
-	if channelID != "" {
-		return channelID
+func (s *Server) resolveConversationID(state sessionState, args map[string]any) string {
+	conversationID := strings.TrimSpace(stringArg(args, "conversation_id", ""))
+	if conversationID != "" {
+		return conversationID
+	}
+	conversationID = strings.TrimSpace(stringArg(args, "channel_id", ""))
+	if conversationID != "" {
+		return conversationID
 	}
 	return state.ChannelID
 }

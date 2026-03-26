@@ -61,12 +61,12 @@ func TestServer_RegisterAndCollaborate(t *testing.T) {
 	sendResp := callToolJSON(t, srv, "send_message", map[string]any{
 		"text": "Deploy to staging is done.",
 	})
-	if got := sendResp["channel_id"]; got != conversationID {
-		t.Fatalf("send_message channel_id = %v, want %s", got, conversationID)
+	if got := sendResp["conversation_id"]; got != conversationID {
+		t.Fatalf("send_message conversation_id = %v, want %s", got, conversationID)
 	}
 
 	listResp := callToolJSON(t, srv, "list_messages", map[string]any{
-		"channel_id": conversationID,
+		"conversation_id": conversationID,
 	})
 	messages := nestedSlice(t, listResp, "messages")
 	if len(messages) != 1 {
@@ -167,7 +167,7 @@ func TestServer_SubscribeConversationAndReadNextEvent(t *testing.T) {
 	backend.appendMessageEvent(channelID, backend.testAgentID, "old status")
 
 	subscribeResp := callToolJSON(t, srv, "subscribe_conversation", map[string]any{
-		"channel_id": channelID,
+		"conversation_id": channelID,
 	})
 	subscriptionID, _ := subscribeResp["subscription_id"].(string)
 	if subscriptionID == "" {
@@ -235,7 +235,7 @@ func TestServer_WaitForMessageIgnoresExistingHistoryByDefault(t *testing.T) {
 	}()
 
 	waitResp := callToolJSON(t, srv, "wait_for_message", map[string]any{
-		"channel_id":       channelID,
+		"conversation_id":  channelID,
 		"contains_text":    "status:",
 		"from_user_id":     backend.testAgentID,
 		"timeout_seconds":  2,

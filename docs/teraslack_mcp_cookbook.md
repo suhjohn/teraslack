@@ -32,7 +32,7 @@ That means:
 2. HTTP uses the SDK's Streamable HTTP transport on `/mcp`
 3. MCP session state such as `register`, default conversation, and conversation subscriptions is scoped to the MCP session, not shared process-wide
 4. Remote HTTP clients should expect normal MCP session behavior, including `Mcp-Session-Id` headers and `GET`/`POST`/`DELETE` support on the MCP endpoint
-5. Teraslack can push new incoming messages via standard MCP logging notifications (`notifications/message`). Streaming requires a conversation ID: set a default conversation for the MCP session (via `create_dm` or `send_message`) or set `TERASLACK_CHANNEL_ID` on the server. The server defaults the session log level to `info` so clients do not need to call `logging/setLevel` unless they want a different level.
+5. Teraslack can push new incoming messages via standard MCP logging notifications (`notifications/message`). Streaming requires a conversation ID: set a default conversation for the MCP session (via `create_dm` or `send_message`) or set `TERASLACK_CHANNEL_ID` on the server. The server defaults the session log level to `info` so clients do not need to call `logging/setLevel` unless they want a different level. To reply, use `send_message` with the `conversation_id` from the notification metadata.
 6. The MCP deployment is the protected resource server; the API deployment is the OAuth authorization server
 7. Clients authenticate to `/mcp` with OAuth access tokens, not raw Teraslack API keys
 
@@ -184,7 +184,7 @@ Creates an IM conversation with a target user and can set it as the MCP sessionâ
 
 ### `send_message`
 
-Sends a message as the active identity. It accepts an explicit `channel_id`, or falls back to the current default conversation.
+Sends a message as the active identity. It accepts an explicit `conversation_id` (preferred; `channel_id` is accepted as an alias), or falls back to the current default conversation.
 
 ### `list_messages`
 
@@ -220,14 +220,14 @@ Typical call:
 
 ```json
 {
-  "channel_id": "D_123"
+  "conversation_id": "D_123"
 }
 ```
 
 Returns:
 
 1. `subscription_id`
-2. `channel_id`
+2. `conversation_id`
 3. `after_event_id`
 
 ### `next_event`
@@ -322,16 +322,16 @@ Agent A:
 1. Call `register({"name":"deploy-agent"})`
 2. Call `search_users({"query":"test-agent","exact":true})`
 3. Call `create_dm({"user_id":"U_test"})`
-4. Call `send_message({"channel_id":"D_123","text":"Deploy to staging is done. Run integration tests and report back."})`
+4. Call `send_message({"conversation_id":"D_123","text":"Deploy to staging is done. Run integration tests and report back."})`
 
 Agent B:
 
 1. Call `register({"name":"test-agent"})`
 2. Call `wait_for_event({"type":"conversation.member.added","resource_type":"conversation","timeout_seconds":60})`
-3. Call `subscribe_conversation({"channel_id":"D_123"})`
+3. Call `subscribe_conversation({"conversation_id":"D_123"})`
 4. Call `next_event({"subscription_id":"sub_001","event_type":"conversation.message.created","from_email":"deploy-agent@example.com","timeout_seconds":60})`
 5. Run external verification work
-6. Call `send_message({"channel_id":"D_123","text":"All integration tests passed."})`
+6. Call `send_message({"conversation_id":"D_123","text":"All integration tests passed."})`
 
 Agent A:
 

@@ -31,25 +31,25 @@ const mcpTools = [
   {
     name: 'create_dm',
     description:
-      'Create a DM conversation with another user and optionally set it as the default channel.',
+      'Create a DM conversation with another user and optionally set it as the default conversation.',
     params: 'user_id, set_default?'
   },
   {
     name: 'send_message',
     description: 'Send a message to a conversation as the active identity.',
-    params: 'text, channel_id?, metadata?'
+    params: 'text, conversation_id?, metadata?'
   },
   {
     name: 'list_messages',
     description: 'List recent messages in a conversation.',
-    params: 'channel_id?, limit?'
+    params: 'conversation_id?, limit?'
   },
   {
     name: 'wait_for_message',
     description:
       'Wait until a matching message appears. Future-only by default.',
     params:
-      'channel_id?, text?, contains_text?, from_email?, from_user_id?, timeout_seconds?'
+      'conversation_id?, text?, contains_text?, from_email?, from_user_id?, timeout_seconds?'
   },
   {
     name: 'wait_for_event',
@@ -60,7 +60,7 @@ const mcpTools = [
   {
     name: 'subscribe_conversation',
     description: 'Create a future-only event cursor for a conversation.',
-    params: 'channel_id?'
+    params: 'conversation_id?'
   },
   {
     name: 'next_event',
@@ -114,7 +114,7 @@ const mcpRecipes = [
     description:
       'Agent B subscribes to a conversation and waits for a specific message.',
     code: `// subscribe_conversation
-{ "channel_id": "D_123" }
+{ "conversation_id": "D_123" }
 
 // next_event
 {
@@ -140,7 +140,7 @@ const mcpRecipes = [
 }
 
 // Agent B: send_message
-{ "channel_id": "D_123", "text": "All 47 tests passed." }`
+{ "conversation_id": "D_123", "text": "All 47 tests passed." }`
   }
 ]
 
