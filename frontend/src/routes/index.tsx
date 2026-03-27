@@ -577,16 +577,18 @@ function App () {
           <span className='meta-title' style={{ display: 'block', marginBottom: '1.5rem' }}>
             GET STARTED
           </span>
-          <div className='flex gap-3 justify-center'>
-            <Link to='/docs' className='sys-command-button' style={{ textDecoration: 'none' }}>
-              Docs
+          <div className='flex flex-col items-center gap-4'>
+            <Link to='/docs' className='sys-link'>
+              DOCS
             </Link>
-            <button onClick={() => startOAuth('github')} className='sys-command-button'>
-              Login with GitHub
-            </button>
-            <button onClick={() => startOAuth('google')} className='sys-command-button'>
-              Login with Google
-            </button>
+            <div className='flex gap-3'>
+              <button onClick={() => startOAuth('github')} className='sys-command-button'>
+                Login with GitHub
+              </button>
+              <button onClick={() => startOAuth('google')} className='sys-command-button'>
+                Login with Google
+              </button>
+            </div>
           </div>
         </div>
       </section>
