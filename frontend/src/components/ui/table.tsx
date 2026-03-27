@@ -45,7 +45,7 @@ export function TableRow({
   return (
     <tr
       className={cn(
-        'border-b border-[var(--sys-home-border)] transition-colors hover:bg-[var(--sys-home-accent-bg)] hover:text-[var(--sys-home-accent-fg)]',
+        'border-b border-[var(--sys-home-border)] sys-hover',
         className,
       )}
       {...props}

@@ -32,3 +32,29 @@ func TestRequirePermission_AllowsWildcardAPIKeyPermissions(t *testing.T) {
 		t.Fatalf("requirePermission() error = %v", err)
 	}
 }
+
+func TestRequireWorkspaceAdminActor_AllowsSystemPrincipal(t *testing.T) {
+	ctx := context.WithValue(context.Background(), ctxutil.ContextKeyWorkspaceID, "T123")
+	ctx = ctxutil.WithPrincipal(ctx, domain.PrincipalTypeSystem, domain.AccountTypePrimaryAdmin, true)
+
+	actor, err := requireWorkspaceAdminActor(ctx, newMockUserRepoTenant())
+	if err != nil {
+		t.Fatalf("requireWorkspaceAdminActor() error = %v", err)
+	}
+	if actor.PrincipalType != domain.PrincipalTypeSystem {
+		t.Fatalf("actor principal_type = %q, want %q", actor.PrincipalType, domain.PrincipalTypeSystem)
+	}
+}
+
+func TestRequirePrimaryAdminActor_AllowsSystemPrincipal(t *testing.T) {
+	ctx := context.WithValue(context.Background(), ctxutil.ContextKeyWorkspaceID, "T123")
+	ctx = ctxutil.WithPrincipal(ctx, domain.PrincipalTypeSystem, domain.AccountTypePrimaryAdmin, true)
+
+	actor, err := requirePrimaryAdminActor(ctx, newMockUserRepoTenant())
+	if err != nil {
+		t.Fatalf("requirePrimaryAdminActor() error = %v", err)
+	}
+	if actor.PrincipalType != domain.PrincipalTypeSystem {
+		t.Fatalf("actor principal_type = %q, want %q", actor.PrincipalType, domain.PrincipalTypeSystem)
+	}
+}

@@ -376,6 +376,9 @@ func (s *ConversationAccessService) ensureConversationVisible(ctx context.Contex
 		if isInternalCallWithoutAuth(ctx) {
 			return nil
 		}
+		if contextIsWorkspaceAdmin(ctx) {
+			return nil
+		}
 		actorID := ctxutil.GetActingUserID(ctx)
 		if actorID == "" {
 			return domain.ErrForbidden

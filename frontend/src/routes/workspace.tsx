@@ -283,7 +283,7 @@ function AdminLayout() {
                         key={item.to}
                         to={item.to}
                         activeOptions={{ exact: item.exact }}
-                        className="inline-flex items-center gap-2.5 border border-[var(--sys-home-border)] px-2 py-2 text-[12px] text-[var(--sys-home-muted)] transition-colors hover:bg-[var(--sys-home-accent-bg)] hover:text-[var(--sys-home-accent-fg)] data-[status=active]:bg-[var(--sys-home-accent-bg)] data-[status=active]:font-bold data-[status=active]:text-[var(--sys-home-accent-fg)]"
+                        className="inline-flex items-center gap-2.5 border border-[var(--sys-home-border)] px-2 py-2 text-[12px] text-[var(--sys-home-muted)] sys-hover data-[status=active]:bg-[var(--sys-home-accent-bg)] data-[status=active]:font-bold data-[status=active]:text-[var(--sys-home-accent-fg)]"
                       >
                         <item.icon className="h-4 w-4" />
                         {item.label}
@@ -371,7 +371,7 @@ function WorkspaceSwitcher({
       <button
         type="button"
         onClick={() => setOpen(!open)}
-        className="flex w-full items-center gap-2 rounded-none border border-[var(--sys-home-border)] bg-[var(--sys-home-bg)] px-3 py-2.5 text-left transition-colors hover:bg-[var(--sys-home-accent-bg)] hover:text-[var(--sys-home-accent-fg)]"
+        className="flex w-full items-center gap-2 rounded-none border border-[var(--sys-home-border)] bg-[var(--sys-home-bg)] px-3 py-2.5 text-left sys-hover"
       >
         <div className="flex h-6 w-6 flex-none items-center justify-center border border-[var(--sys-home-border)] bg-[var(--sys-home-bg)] text-xs font-bold text-[var(--sys-home-fg)]">
           {active?.name?.charAt(0).toUpperCase() ?? '?'}
@@ -398,7 +398,7 @@ function WorkspaceSwitcher({
                   setOpen(false)
                 })
               }}
-              className="flex w-full items-center gap-2 px-3 py-2 text-left text-[12px] text-[var(--sys-home-fg)] transition-colors hover:bg-[var(--sys-home-accent-bg)] hover:text-[var(--sys-home-accent-fg)]"
+              className="flex w-full items-center gap-2 px-3 py-2 text-left text-[12px] text-[var(--sys-home-fg)] sys-hover"
             >
               <div className="flex h-5 w-5 flex-none items-center justify-center border border-[var(--sys-home-border)] bg-[var(--sys-home-bg)] text-[10px] font-bold text-[var(--sys-home-fg)]">
                 {workspace.name.charAt(0).toUpperCase()}
@@ -416,7 +416,7 @@ function WorkspaceSwitcher({
               to="/workspace/settings"
               search={{ create: true }}
               onClick={() => setOpen(false)}
-              className="flex w-full items-center gap-2 px-3 py-2 text-left text-[12px] text-[var(--sys-home-muted)] no-underline transition-colors hover:bg-[var(--sys-home-accent-bg)] hover:text-[var(--sys-home-accent-fg)]"
+              className="flex w-full items-center gap-2 px-3 py-2 text-left text-[12px] text-[var(--sys-home-muted)] no-underline sys-hover"
             >
               <Plus className="h-3.5 w-3.5 flex-none" />
               <span>Create workspace</span>

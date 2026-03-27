@@ -92,9 +92,28 @@ func contextIsWorkspaceAdmin(ctx context.Context) bool {
 func loadActingUser(ctx context.Context, userRepo repository.UserRepository) (*domain.User, error) {
 	actorID := ctxutil.GetActingUserID(ctx)
 	if actorID == "" {
+		if actor, ok := syntheticSystemActor(ctx); ok {
+			return actor, nil
+		}
 		return nil, domain.ErrForbidden
 	}
 	return userRepo.Get(ctx, actorID)
+}
+
+func syntheticSystemActor(ctx context.Context) (*domain.User, bool) {
+	if ctxutil.GetPrincipalType(ctx) != domain.PrincipalTypeSystem {
+		return nil, false
+	}
+	workspaceID := ctxutil.GetWorkspaceID(ctx)
+	if workspaceID == "" {
+		return nil, false
+	}
+	return &domain.User{
+		WorkspaceID:   workspaceID,
+		PrincipalType: domain.PrincipalTypeSystem,
+		AccountType:   domain.AccountTypePrimaryAdmin,
+		IsBot:         true,
+	}, true
 }
 
 func requireWorkspaceAdminActor(ctx context.Context, userRepo repository.UserRepository) (*domain.User, error) {
@@ -138,6 +157,9 @@ func (a Authorizer) RequireWorkspaceAdminActor(ctx context.Context, userRepo rep
 	if err := ensureWorkspaceAccess(ctx, actor.WorkspaceID); err != nil {
 		return nil, err
 	}
+	if actor.PrincipalType == domain.PrincipalTypeSystem {
+		return actor, nil
+	}
 	if !a.IsWorkspaceAdminAccount(actor.EffectiveAccountType()) {
 		return nil, domain.ErrForbidden
 	}
@@ -148,6 +170,9 @@ func (a Authorizer) RequirePrimaryAdminActor(ctx context.Context, userRepo repos
 	actor, err := a.RequireWorkspaceAdminActor(ctx, userRepo)
 	if err != nil {
 		return nil, err
+	}
+	if actor.PrincipalType == domain.PrincipalTypeSystem {
+		return actor, nil
 	}
 	if actor.EffectiveAccountType() != domain.AccountTypePrimaryAdmin {
 		return nil, domain.ErrForbidden
@@ -162,6 +187,9 @@ func (Authorizer) CanSelfUpdateUser(params domain.UpdateUserParams) bool {
 func (a Authorizer) CanManagePrincipal(actor, target *domain.User) bool {
 	if actor == nil || target == nil {
 		return false
+	}
+	if actor.PrincipalType == domain.PrincipalTypeSystem {
+		return true
 	}
 	switch actor.EffectiveAccountType() {
 	case domain.AccountTypePrimaryAdmin:
@@ -179,6 +207,9 @@ func (a Authorizer) CanManagePrincipal(actor, target *domain.User) bool {
 func (Authorizer) CanAssignAccountType(actor *domain.User, principalType domain.PrincipalType, accountType domain.AccountType) bool {
 	if actor == nil {
 		return false
+	}
+	if actor.PrincipalType == domain.PrincipalTypeSystem {
+		return true
 	}
 	if principalType != domain.PrincipalTypeHuman {
 		return accountType == domain.AccountTypeNone

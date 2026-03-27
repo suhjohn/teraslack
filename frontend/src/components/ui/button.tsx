@@ -8,11 +8,11 @@ type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
 
 const variantClasses: Record<NonNullable<ButtonProps['variant']>, string> = {
   default:
-    'border-[var(--sys-home-border)] bg-[var(--sys-home-fg)] text-[var(--sys-home-bg)] hover:bg-[var(--sys-home-accent-bg)] hover:text-[var(--sys-home-accent-fg)]',
+    'border-[var(--sys-home-border)] bg-[var(--sys-home-fg)] text-[var(--sys-home-bg)] transition-opacity hover:opacity-80',
   outline:
-    'border-[var(--sys-home-border)] bg-transparent text-[var(--sys-home-fg)] hover:bg-[var(--sys-home-accent-bg)] hover:text-[var(--sys-home-accent-fg)]',
+    'border-[var(--sys-home-border)] bg-transparent text-[var(--sys-home-fg)] sys-hover',
   ghost:
-    'border-transparent bg-transparent text-[var(--sys-home-muted)] hover:border-[var(--sys-home-border)] hover:bg-[var(--sys-home-bg)] hover:text-[var(--sys-home-fg)]',
+    'border-transparent bg-transparent text-[var(--sys-home-muted)] sys-hover hover:border-[var(--sys-home-border)]',
   destructive:
     'border-[#dc2626] bg-[#dc2626] text-white hover:border-[#b91c1c] hover:bg-[#b91c1c]',
   link:

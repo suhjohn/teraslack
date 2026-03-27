@@ -418,6 +418,9 @@ func (s *MessageService) ensureConversationVisible(ctx context.Context, conv *do
 
 	switch conv.Type {
 	case domain.ConversationTypePrivateChannel, domain.ConversationTypeIM, domain.ConversationTypeMPIM:
+		if contextIsWorkspaceAdmin(ctx) {
+			return nil
+		}
 		actorID := ctxutil.GetActingUserID(ctx)
 		if actorID == "" {
 			for _, fallbackActorID := range fallbackActorIDs {
@@ -450,6 +453,9 @@ func ensureMessageEditor(ctx context.Context, msg *domain.Message) error {
 		return nil
 	}
 	if ctxutil.GetActingUserID(ctx) == msg.UserID {
+		return nil
+	}
+	if contextIsWorkspaceAdmin(ctx) {
 		return nil
 	}
 	return domain.ErrForbidden

@@ -195,6 +195,41 @@ func TestMessageService_History_AllowsPublicConversationNonMember(t *testing.T) 
 	}
 }
 
+func TestMessageService_History_AllowsSystemPrincipalPrivateConversation(t *testing.T) {
+	repo := &messageRepoStub{
+		historyPage: &domain.CursorPage[domain.Message]{
+			Items: []domain.Message{{TS: "123.456", ChannelID: "G123", UserID: "U123", Text: "hello"}},
+		},
+	}
+	svc := NewMessageService(
+		repo,
+		&conversationRepoStub{
+			conversation: &domain.Conversation{
+				ID:          "G123",
+				WorkspaceID: "T123",
+				Type:        domain.ConversationTypePrivateChannel,
+			},
+			isMember: false,
+		},
+		nil,
+		mockTxBeginner{},
+		slog.New(slog.NewJSONHandler(io.Discard, nil)),
+	)
+
+	ctx := context.WithValue(context.Background(), ctxutil.ContextKeyWorkspaceID, "T123")
+	ctx = ctxutil.WithPrincipal(ctx, domain.PrincipalTypeSystem, domain.AccountTypePrimaryAdmin, true)
+	ctx = ctxutil.WithDelegation(ctx, "", "AK_SYSTEM")
+	ctx = ctxutil.WithPermissions(ctx, []string{"*"})
+
+	page, err := svc.History(ctx, domain.ListMessagesParams{ChannelID: "G123"})
+	if err != nil {
+		t.Fatalf("History() error = %v", err)
+	}
+	if len(page.Items) != 1 {
+		t.Fatalf("History() items = %d, want 1", len(page.Items))
+	}
+}
+
 func TestMessageService_PostMessage_DeniesPrivateConversationNonMember(t *testing.T) {
 	svc := NewMessageService(
 		&messageRepoStub{
@@ -216,6 +251,45 @@ func TestMessageService_PostMessage_DeniesPrivateConversationNonMember(t *testin
 	ctx := ctxutil.WithUser(context.Background(), "U123", "T123")
 	if _, err := svc.PostMessage(ctx, domain.PostMessageParams{ChannelID: "G123", Text: "hello"}); err != domain.ErrForbidden {
 		t.Fatalf("PostMessage() error = %v, want forbidden", err)
+	}
+}
+
+func TestMessageService_UpdateMessage_AllowsSystemPrincipalEditor(t *testing.T) {
+	conv := &domain.Conversation{ID: "C123", WorkspaceID: "T123"}
+	existing := &domain.Message{
+		TS:        "123.456",
+		ChannelID: "C123",
+		UserID:    "U_OTHER",
+		Text:      "before",
+	}
+	updated := &domain.Message{
+		TS:        "123.456",
+		ChannelID: "C123",
+		UserID:    "U_OTHER",
+		Text:      "after",
+	}
+
+	svc := NewMessageService(
+		&messageRepoStub{existing: existing, updated: updated},
+		&conversationRepoStub{conversation: conv},
+		nil,
+		mockTxBeginner{},
+		slog.New(slog.NewJSONHandler(io.Discard, nil)),
+	)
+
+	ctx := context.WithValue(context.Background(), ctxutil.ContextKeyWorkspaceID, "T123")
+	ctx = ctxutil.WithPrincipal(ctx, domain.PrincipalTypeSystem, domain.AccountTypePrimaryAdmin, true)
+	ctx = ctxutil.WithDelegation(ctx, "", "AK_SYSTEM")
+	ctx = ctxutil.WithPermissions(ctx, []string{"*"})
+
+	msg, err := svc.UpdateMessage(ctx, "C123", "123.456", domain.UpdateMessageParams{
+		Text: ptrString("after"),
+	})
+	if err != nil {
+		t.Fatalf("UpdateMessage() error = %v", err)
+	}
+	if msg.Text != "after" {
+		t.Fatalf("UpdateMessage() text = %q, want %q", msg.Text, "after")
 	}
 }
 

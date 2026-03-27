@@ -28,6 +28,9 @@ func (s *ConversationReadService) MarkRead(ctx context.Context, params domain.Ma
 	}
 	userID := ctxutil.GetUserID(ctx)
 	if userID == "" {
+		if ctxutil.GetPrincipalType(ctx) == domain.PrincipalTypeSystem {
+			return nil
+		}
 		return fmt.Errorf("user_id: %w", domain.ErrInvalidAuth)
 	}
 	params.UserID = userID

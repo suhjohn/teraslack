@@ -124,7 +124,6 @@ type Server struct {
 	sdkServer       *mcp.Server
 	httpHandler     http.Handler
 	sessionTTL      time.Duration
-	channelCancel   context.CancelFunc
 	closeOnce       sync.Once
 
 	mu       sync.RWMutex
@@ -215,11 +214,6 @@ func NewServer(cfg Config, logger *slog.Logger) (*Server, error) {
 	})
 	srv.httpHandler = withSSEHeartbeat(baseHandler, srv.cfg.SSEHeartbeat)
 
-	// Start channel polling loop for HTTP transport (stdio starts it in Serve).
-	ctx, cancel := context.WithCancel(context.Background())
-	srv.channelCancel = cancel
-	go srv.startChannelLoop(ctx)
-
 	return srv, nil
 }
 
@@ -260,9 +254,6 @@ func (s *Server) Close() error {
 		return nil
 	}
 	s.closeOnce.Do(func() {
-		if s.channelCancel != nil {
-			s.channelCancel()
-		}
 		if s.debugCloser != nil {
 			closeErr = s.debugCloser.Close()
 		}
@@ -291,18 +282,8 @@ func (s *Server) newMCPServer() *mcp.Server {
 	}, &mcp.ServerOptions{
 		Logger:    s.logger,
 		KeepAlive: s.cfg.KeepAlive,
-		InitializedHandler: func(ctx context.Context, req *mcp.InitializedRequest) {
-			if err := setServerSessionLogLevelIfEmpty(req.Session, "info"); err != nil {
-				s.logger.Warn("mcp: failed to set default log level", "error", err)
-			}
-		},
-		Capabilities: &mcp.ServerCapabilities{
-			Logging: &mcp.LoggingCapabilities{},
-		},
-		Instructions: "Teraslack may stream incoming conversation messages as MCP logging notifications (notifications/message). " +
-			"For OAuth-backed remote MCP, call whoami with a client session_id (unique per Claude/Codex run) to provision a per-client session agent. " +
-			"Streaming follows the current MCP session identity and delivers incoming messages visible to that identity across its conversations. " +
-			"To respond, use send_message with the conversation_id from the notification metadata.",
+		Instructions: "For OAuth-backed remote MCP, call whoami with a client session_id (unique per Claude/Codex run) to provision a per-client session agent. " +
+			"Use send_message, create_dm, wait_for_event, wait_for_message, subscribe_conversation, and next_event for agent coordination.",
 	})
 
 	for _, spec := range s.tools() {

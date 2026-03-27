@@ -19,7 +19,7 @@ export function ListItem({
         'flex w-full items-center justify-between gap-3 border px-3 py-2.5 text-left font-[family-name:var(--font-mono)] text-[12px] transition-colors cursor-pointer',
         selected
           ? 'border-[var(--sys-home-border)] bg-[var(--sys-home-accent-bg)] text-[var(--sys-home-accent-fg)]'
-          : 'border-[var(--sys-home-border)] bg-[var(--sys-home-bg)] text-[var(--sys-home-fg)] hover:bg-[var(--sys-home-accent-bg)] hover:text-[var(--sys-home-accent-fg)]',
+          : 'border-[var(--sys-home-border)] bg-[var(--sys-home-bg)] text-[var(--sys-home-fg)] sys-hover',
         className,
       )}
       {...props}

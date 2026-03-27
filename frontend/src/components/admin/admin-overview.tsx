@@ -146,19 +146,19 @@ export function AdminOverview() {
             <Link
               key={item.label}
               to={item.to}
-              className="group flex items-center gap-3 border border-[var(--sys-home-border)] bg-[var(--sys-home-bg)] px-4 py-3.5 no-underline transition-colors hover:bg-[var(--sys-home-accent-bg)] hover:text-[var(--sys-home-accent-fg)]"
+              className="group flex items-center gap-3 border border-[var(--sys-home-border)] bg-[var(--sys-home-bg)] px-4 py-3.5 no-underline sys-hover"
             >
-              <Icon className="h-4 w-4 flex-none text-[var(--sys-home-muted)] group-hover:text-[var(--sys-home-accent-fg)]" />
+              <Icon className="h-4 w-4 flex-none text-[var(--sys-home-muted)] group-hover:text-[var(--sys-home-fg)]" />
               <div className="min-w-0">
                 <div className="flex items-center gap-1.5">
-                  <span className="text-xl font-bold tabular-nums text-[var(--sys-home-fg)] group-hover:text-[var(--sys-home-accent-fg)]">
+                  <span className="text-xl font-bold tabular-nums text-[var(--sys-home-fg)]">
                     {item.value}
                   </span>
                   {item.warn ? (
                     <span className="h-1.5 w-1.5 rounded-full bg-[#ca8a04]" />
                   ) : null}
                 </div>
-                <span className="text-[11px] uppercase tracking-[0.06em] text-[var(--sys-home-muted)] group-hover:text-[var(--sys-home-accent-fg)]">
+                <span className="text-[11px] uppercase tracking-[0.06em] text-[var(--sys-home-muted)] group-hover:text-[var(--sys-home-fg)]">
                   {item.label}
                 </span>
               </div>
@@ -274,7 +274,7 @@ function InsightCard({
       </div>
       <Link
         to={to}
-        className="flex items-center gap-1.5 border-t border-[var(--sys-home-border)] px-4 py-2.5 text-[11px] font-bold uppercase tracking-[0.06em] text-[var(--sys-home-muted)] no-underline transition-colors hover:bg-[var(--sys-home-accent-bg)] hover:text-[var(--sys-home-accent-fg)]"
+        className="flex items-center gap-1.5 border-t border-[var(--sys-home-border)] px-4 py-2.5 text-[11px] font-bold uppercase tracking-[0.06em] text-[var(--sys-home-muted)] no-underline sys-hover"
       >
         View details
         <ArrowRight className="h-3 w-3" />

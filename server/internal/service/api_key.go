@@ -410,7 +410,7 @@ func (s *APIKeyService) ValidateAPIKey(ctx context.Context, rawKey string) (*dom
 		return &domain.APIKeyValidation{
 			WorkspaceID:        key.WorkspaceID,
 			PrincipalType: domain.PrincipalTypeSystem,
-			AccountType:   domain.AccountTypeAdmin,
+			AccountType:   domain.AccountTypePrimaryAdmin,
 			KeyID:         key.ID,
 			Permissions:   key.Permissions,
 		}, nil

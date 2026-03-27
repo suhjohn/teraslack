@@ -16,7 +16,7 @@ export function Card({
       className={cn(
         'border border-[var(--sys-home-border)] bg-[var(--sys-home-bg)] text-[var(--sys-home-fg)]',
         variant === 'interactive' &&
-          'cursor-pointer transition-colors hover:bg-[var(--sys-home-accent-bg)] hover:text-[var(--sys-home-accent-fg)]',
+          'cursor-pointer sys-hover',
         className,
       )}
       {...props}

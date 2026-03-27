@@ -267,6 +267,7 @@ h2 { letter-spacing: -0.035em; }
   --sys-home-muted: rgba(26, 26, 26, 0.62);
   --sys-home-accent-bg: #1a1a1a;
   --sys-home-accent-fg: #eae6df;
+  --sys-home-hover-bg: rgba(26, 26, 26, 0.08);
   --sys-home-grid-size: 40px;
   --sys-home-panel-pad-h: 1.5rem;
   --sys-home-panel-pad-v: 1rem;
@@ -281,6 +282,7 @@ h2 { letter-spacing: -0.035em; }
   --sys-home-muted: rgba(220, 218, 213, 0.54);
   --sys-home-accent-bg: #dcdad5;
   --sys-home-accent-fg: #151516;
+  --sys-home-hover-bg: rgba(220, 218, 213, 0.1);
   --sys-home-highlight: #a0a0a0;
 }
 
@@ -293,8 +295,18 @@ h2 { letter-spacing: -0.035em; }
     --sys-home-muted: rgba(220, 218, 213, 0.54);
     --sys-home-accent-bg: #dcdad5;
     --sys-home-accent-fg: #151516;
+    --sys-home-hover-bg: rgba(220, 218, 213, 0.1);
     --sys-home-highlight: #a0a0a0;
   }
+}
+
+.sys-hover {
+  transition-property: color, background-color, border-color;
+  transition-duration: 150ms;
+}
+.sys-hover:hover {
+  background-color: var(--sys-home-hover-bg);
+  color: var(--sys-home-fg);
 }
 
 .sys-home {

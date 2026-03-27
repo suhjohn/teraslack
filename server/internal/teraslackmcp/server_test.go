@@ -247,49 +247,6 @@ func TestServer_WaitForMessageIgnoresExistingHistoryByDefault(t *testing.T) {
 	}
 }
 
-func TestServer_PollChannelEventsOnceCoversAllVisibleConversations(t *testing.T) {
-	backend := newMockMCPBackend()
-	serverURL := httptest.NewServer(backend).URL
-	t.Cleanup(func() { backend.close() })
-
-	client, err := NewClient(serverURL, backend.oauthHumanToken)
-	if err != nil {
-		t.Fatalf("NewClient() error = %v", err)
-	}
-	srv, err := NewServer(Config{
-		BaseURL: serverURL,
-	}, nil)
-	if err != nil {
-		t.Fatalf("NewServer() error = %v", err)
-	}
-
-	conversationA := backend.createConversationForTest(backend.humanUserID, backend.testAgentID)
-	conversationB := backend.createConversationForTest(backend.humanUserID, "U_OTHER")
-	backend.appendMessageEvent(conversationA, backend.testAgentID, "from A")
-	backend.appendMessageEvent(conversationB, "U_OTHER", "from B")
-	backend.appendMessageEvent(conversationA, backend.humanUserID, "from self")
-
-	var pushed []channelEvent
-	next, err := srv.pollChannelEventsOnce(context.Background(), client, backend.humanUserID, "", func(event channelEvent) {
-		pushed = append(pushed, event)
-	})
-	if err != nil {
-		t.Fatalf("pollChannelEventsOnce() error = %v", err)
-	}
-	if next == "" {
-		t.Fatalf("pollChannelEventsOnce() next cursor is empty")
-	}
-	if len(pushed) != 2 {
-		t.Fatalf("pollChannelEventsOnce() pushed count = %d, want 2", len(pushed))
-	}
-	if pushed[0].Meta["conversation_id"] != conversationA {
-		t.Fatalf("first pushed conversation_id = %v, want %s", pushed[0].Meta["conversation_id"], conversationA)
-	}
-	if pushed[1].Meta["conversation_id"] != conversationB {
-		t.Fatalf("second pushed conversation_id = %v, want %s", pushed[1].Meta["conversation_id"], conversationB)
-	}
-}
-
 func TestServer_StreamableHTTPToolsAndSessionState(t *testing.T) {
 	backend := newMockMCPBackend()
 	serverURL := httptest.NewServer(backend).URL
