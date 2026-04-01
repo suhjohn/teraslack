@@ -116,6 +116,35 @@ verify_sha256() {
   fi
 }
 
+manifest_artifact_shell_vars() {
+  platform="$1"
+  manifest_json=$(cat)
+  if [ -z "$manifest_json" ]; then
+    fail "installer received an empty release manifest"
+  fi
+  python3 - "$manifest_json" "$platform" <<'PY'
+import json
+import shlex
+import sys
+
+data = json.loads(sys.argv[1])
+platform = sys.argv[2]
+artifact = data.get("artifacts", {}).get(platform)
+if not artifact:
+    print("ERROR=missing_artifact")
+    raise SystemExit(0)
+
+binary_name = artifact.get("binary_name")
+if not binary_name:
+    binary_name = "teraslack.exe" if platform.startswith("windows-") else "teraslack"
+
+print(f"VERSION={shlex.quote(str(data.get('version', 'unknown')))}")
+print(f"ARTIFACT_URL={shlex.quote(str(artifact.get('url', '')))}")
+print(f"ARTIFACT_SHA256={shlex.quote(str(artifact.get('sha256', '')))}")
+print(f"ARTIFACT_BINARY_NAME={shlex.quote(str(binary_name))}")
+PY
+}
+
 extract_archive() {
   archive_path="$1"
   extract_dir="$2"
@@ -148,28 +177,7 @@ build_binary() {
 
   log "Resolving Teraslack CLI binary for $platform..."
   manifest=$(curl -fsSL "$MANIFEST_URL")
-  eval "$(printf '%s' "$manifest" | python3 - "$platform" <<'PY'
-import json
-import shlex
-import sys
-
-platform = sys.argv[1]
-data = json.load(sys.stdin)
-artifact = data.get("artifacts", {}).get(platform)
-if not artifact:
-    print("ERROR=missing_artifact")
-    sys.exit(0)
-
-binary_name = artifact.get("binary_name")
-if not binary_name:
-    binary_name = "teraslack.exe" if platform.startswith("windows-") else "teraslack"
-
-print(f"VERSION={shlex.quote(str(data.get('version', 'unknown')))}")
-print(f"ARTIFACT_URL={shlex.quote(str(artifact.get('url', '')))}")
-print(f"ARTIFACT_SHA256={shlex.quote(str(artifact.get('sha256', '')))}")
-print(f"ARTIFACT_BINARY_NAME={shlex.quote(str(binary_name))}")
-PY
-)"
+  eval "$(printf '%s' "$manifest" | manifest_artifact_shell_vars "$platform")"
 
   [ "${ERROR:-}" = "" ] || fail "no prebuilt CLI binary is available for platform $platform"
   [ -n "${ARTIFACT_URL:-}" ] || fail "manifest did not include an artifact URL for $platform"
