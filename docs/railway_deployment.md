@@ -176,7 +176,8 @@ This repo includes two workflows:
 GitHub Actions secrets and vars:
 
 1. Deploy workflow:
-   - secret: `RAILWAY_TOKEN`
+   - secret: `RAILWAY_TOKEN` if you are using a project token
+   - secret: `RAILWAY_API_TOKEN` if you are using an account or workspace token
    - secret: `RAILWAY_PROJECT_ID`
    - optional variable: `RAILWAY_ENVIRONMENT` (defaults to `production`)
 2. Stdio release workflow:
