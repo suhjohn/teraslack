@@ -65,13 +65,21 @@ open_browser() {
 }
 
 json_shell_vars() {
-  python3 - "$@" <<'PY'
+  json_input=$(cat)
+  if [ -z "$json_input" ]; then
+    fail "installer received an empty response from the API"
+  fi
+  python3 - "$json_input" "$@" <<'PY'
 import json
 import shlex
 import sys
 
-keys = sys.argv[1:]
-data = json.load(sys.stdin)
+raw = sys.argv[1]
+keys = sys.argv[2:]
+try:
+    data = json.loads(raw)
+except json.JSONDecodeError as exc:
+    raise SystemExit(f"installer expected JSON from the API but got invalid data: {exc}")
 
 for key in keys:
     value = data.get(key, "")
