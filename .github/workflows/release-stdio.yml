@@ -1,0 +1,102 @@
+name: Release Stdio MCP
+
+on:
+  push:
+    tags:
+      - stdio-v*
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version to publish, for example v0.1.0
+        required: true
+        type: string
+      create_github_release:
+        description: Create or update a GitHub release for this version
+        required: true
+        default: true
+        type: boolean
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-stdio-${{ github.ref_name || github.run_id }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve version
+        id: version
+        shell: bash
+        run: |
+          if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
+            version="${{ inputs.version }}"
+            tag="stdio-${version}"
+            create_release="${{ inputs.create_github_release }}"
+          else
+            tag="${GITHUB_REF_NAME}"
+            version="${tag#stdio-}"
+            create_release="true"
+          fi
+
+          if [[ -z "$version" || "$version" == "$tag" ]]; then
+            echo "failed to derive version from tag: $tag" >&2
+            exit 1
+          fi
+
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "create_release=$create_release" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: server/go.mod
+
+      - name: Build stdio release bundle
+        run: make build-stdio-release VERSION="${{ steps.version.outputs.version }}"
+
+      - name: Upload to downloads bucket
+        env:
+          S3_DOWNLOADS_BUCKET: ${{ secrets.S3_DOWNLOADS_BUCKET }}
+          S3_DOWNLOADS_ACCOUNT_ID: ${{ secrets.S3_DOWNLOADS_ACCOUNT_ID }}
+          S3_DOWNLOADS_ENDPOINT: ${{ secrets.S3_DOWNLOADS_ENDPOINT }}
+          S3_DOWNLOADS_ACCESS_KEY_ID: ${{ secrets.S3_DOWNLOADS_ACCESS_KEY_ID }}
+          S3_DOWNLOADS_SECRET_ACCESS_KEY: ${{ secrets.S3_DOWNLOADS_SECRET_ACCESS_KEY }}
+          S3_DOWNLOADS_PREFIX: ${{ vars.S3_DOWNLOADS_PREFIX || 'teraslack/stdio-mcp' }}
+        run: make upload-stdio-release VERSION="${{ steps.version.outputs.version }}"
+
+      - name: Create or update GitHub release
+        if: steps.version.outputs.create_release == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+          TAG_NAME: ${{ steps.version.outputs.tag }}
+        shell: bash
+        run: |
+          files=(
+            "dist/stdio-release/latest.json"
+            "dist/stdio-release/${VERSION}/SHA256SUMS"
+            "dist/stdio-release/${VERSION}/darwin-arm64/teraslack-stdio-mcp.tar.gz"
+            "dist/stdio-release/${VERSION}/darwin-amd64/teraslack-stdio-mcp.tar.gz"
+            "dist/stdio-release/${VERSION}/linux-amd64/teraslack-stdio-mcp.tar.gz"
+            "dist/stdio-release/${VERSION}/linux-arm64/teraslack-stdio-mcp.tar.gz"
+          )
+
+          notes=$(cat <<EOF
+          Published stdio MCP binaries for ${VERSION}.
+
+          Files are also uploaded to downloads.teraslack.ai via the release workflow.
+          EOF
+          )
+
+          if gh release view "$TAG_NAME" >/dev/null 2>&1; then
+            gh release upload "$TAG_NAME" "${files[@]}" --clobber
+          else
+            gh release create "$TAG_NAME" "${files[@]}" \
+              --title "Stdio MCP ${VERSION}" \
+              --notes "$notes"
+          fi

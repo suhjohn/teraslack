@@ -158,6 +158,34 @@ Automated downloads upload:
 2. Run `make release-stdio VERSION=v0.1.0`.
 3. If the bundle is already built, run `make upload-stdio-release VERSION=v0.1.0`.
 
+## GitHub Actions
+
+This repo includes two workflows:
+
+1. [`deploy.yml`](/Users/johnsuh/teraslack/.github/workflows/deploy.yml)
+   - triggers on push to `main`
+   - verifies the server build, targeted server tests, and frontend build
+   - deploys `frontend` and `server` to Railway
+2. [`release-stdio.yml`](/Users/johnsuh/teraslack/.github/workflows/release-stdio.yml)
+   - triggers on tags like `stdio-v0.1.0`
+   - can also be run manually
+   - builds the stdio MCP release bundle
+   - uploads artifacts to the downloads bucket
+   - creates or updates a GitHub Release
+
+GitHub Actions secrets and vars:
+
+1. Deploy workflow:
+   - secret: `RAILWAY_TOKEN`
+   - secret: `RAILWAY_PROJECT_ID`
+   - optional variable: `RAILWAY_ENVIRONMENT` (defaults to `production`)
+2. Stdio release workflow:
+   - secret: `S3_DOWNLOADS_BUCKET`
+   - secret: `S3_DOWNLOADS_ACCOUNT_ID` or `S3_DOWNLOADS_ENDPOINT`
+   - secret: `S3_DOWNLOADS_ACCESS_KEY_ID`
+   - secret: `S3_DOWNLOADS_SECRET_ACCESS_KEY`
+   - optional variable: `S3_DOWNLOADS_PREFIX` (defaults to `teraslack/stdio-mcp`)
+
 ## Make targets
 
 The repo root `Makefile` includes Railway deploy helpers:

@@ -1,9 +1,9 @@
 #!/usr/bin/env sh
 set -eu
 
-VERSION="${1:-}"
+VERSION="${1:-${VERSION:-}}"
 if [ -z "$VERSION" ]; then
-  echo "usage: scripts/upload-stdio-release.sh <version>" >&2
+  echo "usage: VERSION=v0.1.0 scripts/upload-stdio-release.sh [version]" >&2
   exit 1
 fi
 

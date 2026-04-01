@@ -1,5 +1,6 @@
 SERVER_DIR := server
 RAILWAY ?= railway
+RAILWAY_PROJECT ?=
 RAILWAY_ENV ?=
 RAILWAY_UP_FLAGS ?=
 RAILWAY_CHAIN_UP_FLAGS ?= --ci
@@ -98,12 +99,16 @@ railway-deploy:
 		server|external-event-projector|webhook-producer|webhook-worker|indexer|mcp-server) path="server" ;; \
 		*) echo "unknown Railway service: $(SERVICE)" >&2; exit 1 ;; \
 	esac; \
-	echo "Deploying $(SERVICE) from $$path"; \
+	project_args=""; \
+	if [ -n "$(RAILWAY_PROJECT)" ]; then \
+		project_args="--project $(RAILWAY_PROJECT)"; \
+	fi; \
+	env_args=""; \
 	if [ -n "$(RAILWAY_ENV)" ]; then \
-		$(RAILWAY) up $(RAILWAY_UP_FLAGS) --environment "$(RAILWAY_ENV)" --service "$(SERVICE)" --path-as-root "$$path"; \
-	else \
-		$(RAILWAY) up $(RAILWAY_UP_FLAGS) --service "$(SERVICE)" --path-as-root "$$path"; \
-	fi
+		env_args="--environment $(RAILWAY_ENV)"; \
+	fi; \
+	echo "Deploying $(SERVICE) from $$path"; \
+	$(RAILWAY) up $(RAILWAY_UP_FLAGS) $$project_args $$env_args --service "$(SERVICE)" --path-as-root "$$path"
 
 deploy-frontend:
 	$(MAKE) railway-deploy SERVICE=frontend
