@@ -396,6 +396,15 @@ func TestAuthService_SignupStoresChallengeAndSendsEmail(t *testing.T) {
 	}
 }
 
+func TestAuthService_SignupRequiresConfiguredEmailSender(t *testing.T) {
+	svc := NewAuthService(newMockAuthRepo(), &mockUserRepoForUG{}, nil, nil, nil, mockTxBeginner{}, nil, AuthConfig{})
+
+	_, err := svc.Signup(context.Background(), domain.SignupParams{Email: "alice@example.com"})
+	if !errors.Is(err, domain.ErrEmailAuthDisabled) {
+		t.Fatalf("Signup() error = %v, want email auth disabled", err)
+	}
+}
+
 func TestAuthService_VerifyCreatesPersonalWorkspaceAndSession(t *testing.T) {
 	repo := newMockAuthRepo()
 	userRepo := newMockUserRepoTenant()

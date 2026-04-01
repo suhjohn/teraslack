@@ -37,6 +37,17 @@ type AuthContext struct {
 	Scopes        []string      `json:"scopes,omitempty"`
 }
 
+type AuthMeResponse struct {
+	WorkspaceID   string        `json:"workspace_id"`
+	UserID        string        `json:"user_id"`
+	PrincipalType PrincipalType `json:"principal_type"`
+	AccountType   AccountType   `json:"account_type,omitempty"`
+	IsBot         bool          `json:"is_bot"`
+	Permissions   []string      `json:"permissions,omitempty"`
+	Scopes        []string      `json:"scopes,omitempty"`
+	User          *User         `json:"user,omitempty"`
+}
+
 type StartOAuthParams struct {
 	Provider    AuthProvider `json:"provider"`
 	WorkspaceID string       `json:"workspace_id"`

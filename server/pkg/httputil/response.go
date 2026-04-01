@@ -124,6 +124,14 @@ func WriteError(w http.ResponseWriter, r *http.Request, err error) {
 		status = http.StatusBadRequest
 		code = "invalid_request"
 		message = "The request is invalid."
+	case errors.Is(err, domain.ErrEmailAuthDisabled):
+		status = http.StatusServiceUnavailable
+		code = "email_auth_unavailable"
+		message = "Email sign-in is not configured."
+	case errors.Is(err, domain.ErrUnavailable):
+		status = http.StatusServiceUnavailable
+		code = "service_unavailable"
+		message = "The service is temporarily unavailable."
 	case errors.Is(err, domain.ErrForbidden):
 		status = http.StatusForbidden
 		code = "forbidden"

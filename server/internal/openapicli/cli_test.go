@@ -22,10 +22,16 @@ func TestNewBuildsCommandSurface(t *testing.T) {
 	}
 
 	assertCommandExists(t, cli, "workspaces", "list")
-	assertCommandExists(t, cli, "workspaces", "get-billing")
-	assertCommandExists(t, cli, "auth", "start-oauth")
+	assertCommandExists(t, cli, "workspaces", "billing")
+	assertCommandExists(t, cli, "auth", "oauth-start")
 	assertCommandExists(t, cli, "api-keys", "rotate")
-	assertCommandExists(t, cli, "messages", "create-reaction")
+	assertCommandExists(t, cli, "messages", "react")
+	assertCommandExists(t, cli, "auth", "me")
+	assertCommandExists(t, cli, "health", "get")
+	assertCommandExists(t, cli, "search", "run")
+	assertCommandExists(t, cli, "files", "start-upload")
+	assertCommandExists(t, cli, "conversations", "members")
+	assertCommandExists(t, cli, "conversations", "mark-read")
 }
 
 func TestBuildRequestBuildsPathQueryAndBody(t *testing.T) {
@@ -175,10 +181,28 @@ func TestRootHelpIncludesLifecycleCommands(t *testing.T) {
 	var output bytes.Buffer
 	cli.printRootHelp(&output)
 	text := output.String()
-	for _, token := range []string{"signin", "signout", "version", "update", "uninstall"} {
+	for _, token := range []string{"signin", "signout", "whoami", "health", "search", "version", "update", "uninstall"} {
 		if !strings.Contains(text, token) {
 			t.Fatalf("root help missing %q: %s", token, text)
 		}
+	}
+}
+
+func TestHelpSupportsTopLevelAliases(t *testing.T) {
+	cli, err := New()
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	exitCode := cli.Run(context.Background(), []string{"help", "whoami"}, &stdout, &stderr)
+	if exitCode != 0 {
+		t.Fatalf("Run(help whoami) exitCode = %d, stderr = %s", exitCode, stderr.String())
+	}
+	text := stdout.String()
+	if !strings.Contains(text, "auth me") {
+		t.Fatalf("help whoami output = %q, want auth me help", text)
 	}
 }
 

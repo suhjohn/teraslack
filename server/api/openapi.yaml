@@ -2611,6 +2611,18 @@ components:
         is_bot:
           type: boolean
           description: Whether the caller is a bot/agent.
+        permissions:
+          type: array
+          description: Effective permissions granted to the caller for this request context.
+          items:
+            type: string
+        scopes:
+          type: array
+          description: OAuth scopes associated with the current request when applicable.
+          items:
+            type: string
+        user:
+          $ref: "#/components/schemas/User"
     APIKey:
       type: object
       description: An API key used to authenticate requests. Keys are scoped to a workspace and optionally to a specific user.

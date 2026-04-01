@@ -178,7 +178,13 @@ func (h *AuthHandler) CompleteCLIOAuth(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *AuthHandler) Me(w http.ResponseWriter, r *http.Request) {
-	httputil.WriteResource(w, http.StatusOK, domain.AuthContext{
+	user, err := h.svc.GetCurrentUser(r.Context())
+	if err != nil {
+		httputil.WriteError(w, r, err)
+		return
+	}
+
+	httputil.WriteResource(w, http.StatusOK, domain.AuthMeResponse{
 		WorkspaceID:   ctxutil.GetWorkspaceID(r.Context()),
 		UserID:        ctxutil.GetUserID(r.Context()),
 		PrincipalType: ctxutil.GetPrincipalType(r.Context()),
@@ -186,6 +192,7 @@ func (h *AuthHandler) Me(w http.ResponseWriter, r *http.Request) {
 		IsBot:         ctxutil.GetIsBot(r.Context()),
 		Permissions:   ctxutil.GetPermissions(r.Context()),
 		Scopes:        ctxutil.GetOAuthScopes(r.Context()),
+		User:          user,
 	})
 }
 

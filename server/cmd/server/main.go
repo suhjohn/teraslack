@@ -168,6 +168,9 @@ func run(logger *slog.Logger) error {
 		ResendAPIKey:            cfg.ResendAPIKey,
 		AuthEmailFrom:           cfg.AuthEmailFrom,
 	})
+	if cfg.ResendAPIKey == "" || cfg.AuthEmailFrom == "" {
+		logger.Warn("email sign-in is disabled", "has_resend_api_key", cfg.ResendAPIKey != "", "has_auth_email_from", cfg.AuthEmailFrom != "")
+	}
 	authSvc.SetAuthorizationAuditRepository(auditRepo)
 	apiKeySvc := service.NewAPIKeyService(apiKeyRepo, userRepo, recorder, pool, logger)
 	apiKeySvc.SetExternalAccessRepository(externalAccessRepo)

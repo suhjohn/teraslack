@@ -8,6 +8,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -139,13 +140,28 @@ func (s *AuthService) SetAuthorizationAuditRepository(repo repository.Authorizat
 	s.auditRepo = repo
 }
 
+func (s *AuthService) GetCurrentUser(ctx context.Context) (*domain.User, error) {
+	userID := strings.TrimSpace(ctxutil.GetUserID(ctx))
+	if userID == "" {
+		return nil, nil
+	}
+	user, err := s.userRepo.Get(ctx, userID)
+	if err != nil {
+		if errors.Is(err, domain.ErrNotFound) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return user, nil
+}
+
 func (s *AuthService) Signup(ctx context.Context, params domain.SignupParams) (*domain.SignupResult, error) {
 	email, err := normalizeEmailAddress(params.Email)
 	if err != nil {
 		return nil, err
 	}
 	if s.emailSender == nil {
-		return nil, fmt.Errorf("email auth is not configured")
+		return nil, domain.ErrEmailAuthDisabled
 	}
 
 	code, err := randomNumericCode(6)

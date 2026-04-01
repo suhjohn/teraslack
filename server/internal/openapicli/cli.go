@@ -24,6 +24,11 @@ type CLI struct {
 	operationCnt int
 }
 
+type topLevelAlias struct {
+	Group   string
+	Command string
+}
+
 type Group struct {
 	DisplayName string
 	Name        string
@@ -64,6 +69,12 @@ type fileConfig struct {
 	SessionToken string `json:"session_token,omitempty"`
 	WorkspaceID  string `json:"workspace_id,omitempty"`
 	UserID       string `json:"user_id,omitempty"`
+}
+
+var topLevelAliases = map[string]topLevelAlias{
+	"whoami": {Group: "auth", Command: "me"},
+	"health": {Group: "health", Command: "get"},
+	"search": {Group: "search", Command: "run"},
 }
 
 func (v *stringValues) String() string {
@@ -163,6 +174,9 @@ func (c *CLI) Run(ctx context.Context, args []string, stdout, stderr io.Writer) 
 	if isLifecycleCommand(rest[0]) {
 		return c.runLifecycle(ctx, rest[0], rest[1:], output, stdout, stderr)
 	}
+	if alias, ok := topLevelAliases[rest[0]]; ok {
+		rest = append([]string{alias.Group, alias.Command}, rest[1:]...)
+	}
 
 	if baseURL == "" || sessionToken == "" || apiKey == "" {
 		cfg, err := loadFileConfig()
@@ -215,6 +229,20 @@ func (c *CLI) runHelp(args []string, stdout, stderr io.Writer) int {
 	}
 	if isLifecycleCommand(args[0]) {
 		c.printLifecycleHelp(args[0], stdout)
+		return 0
+	}
+	if alias, ok := topLevelAliases[args[0]]; ok {
+		group := c.groupByName[alias.Group]
+		if group == nil {
+			fmt.Fprintf(stderr, "unknown group %q\n", alias.Group)
+			return 2
+		}
+		op := group.byName[alias.Command]
+		if op == nil {
+			fmt.Fprintf(stderr, "unknown command %q for group %q\n", alias.Command, alias.Group)
+			return 2
+		}
+		c.printOperationHelp(op, stdout)
 		return 0
 	}
 
@@ -312,7 +340,7 @@ func buildOperation(path, method string, pathItem *openapi3.PathItem, operation 
 	op := &Operation{
 		GroupDisplayName: groupDisplayName,
 		GroupName:        slugify(groupDisplayName),
-		Name:             commandName(groupDisplayName, operation.OperationID),
+		Name:             commandName(method, path, groupDisplayName, operation.OperationID),
 		OperationID:      operation.OperationID,
 		Method:           method,
 		Path:             path,
@@ -552,6 +580,9 @@ func (c *CLI) printRootHelp(w io.Writer) {
 	fmt.Fprintln(w, "Built-in commands:")
 	fmt.Fprintln(w, "  signin              Sign in with email, Google, or GitHub")
 	fmt.Fprintln(w, "  signout             Remove the stored session token")
+	fmt.Fprintln(w, "  whoami              Show the current authenticated user")
+	fmt.Fprintln(w, "  health              Check API health")
+	fmt.Fprintln(w, "  search              Run a search request")
 	fmt.Fprintln(w, "  version             Print the installed CLI version")
 	fmt.Fprintln(w, "  update              Download and install the latest CLI release")
 	fmt.Fprintln(w, "  uninstall           Remove the installed CLI binary")
@@ -645,7 +676,118 @@ func bodyHasCursor(schemaRef *openapi3.SchemaRef) bool {
 	return ok
 }
 
-func commandName(groupDisplayName, operationID string) string {
+var commandNameOverrides = map[string]string{
+	"GET /auth/me":                                      "me",
+	"POST /auth/signup":                                 "signup",
+	"POST /auth/verify":                                 "verify",
+	"DELETE /auth/sessions/current":                     "signout",
+	"POST /auth/sessions/current/workspace":             "switch-workspace",
+	"GET /auth/oauth/{provider}/start":                  "oauth-start",
+	"GET /auth/oauth/{provider}/callback":               "oauth-complete",
+	"POST /api-keys/{id}/rotations":                     "rotate",
+	"GET /healthz":                                      "get",
+	"POST /search":                                      "run",
+	"POST /messages":                                    "send",
+	"POST /file-uploads":                                "start-upload",
+	"POST /file-uploads/{id}/complete":                  "complete-upload",
+	"POST /files/{id}/shares":                           "share",
+	"POST /workspaces/{id}/primary-admin":               "transfer-primary-admin",
+	"GET /users/{id}/roles":                             "roles",
+	"PUT /users/{id}/roles":                             "set-roles",
+	"GET /usergroups/{id}/members":                      "members",
+	"PUT /usergroups/{id}/members":                      "set-members",
+	"GET /conversations/{id}/members":                   "members",
+	"POST /conversations/{id}/members":                  "add-members",
+	"DELETE /conversations/{id}/members/{user_id}":      "remove-member",
+	"GET /conversations/{id}/bookmarks":                 "bookmarks",
+	"POST /conversations/{id}/bookmarks":                "bookmark",
+	"PATCH /conversations/{conversation_id}/bookmarks/{bookmark_id}": "update-bookmark",
+	"DELETE /conversations/{conversation_id}/bookmarks/{bookmark_id}": "delete-bookmark",
+	"GET /conversations/{id}/pins":                      "pins",
+	"POST /conversations/{id}/pins":                     "pin",
+	"DELETE /conversations/{id}/pins/{message_ts}":      "unpin",
+	"GET /conversations/{id}/managers":                  "managers",
+	"PUT /conversations/{id}/managers":                  "set-managers",
+	"GET /conversations/{id}/posting-policy":            "posting-policy",
+	"PUT /conversations/{id}/posting-policy":            "set-posting-policy",
+	"PUT /conversations/{id}/read-state":                "mark-read",
+	"GET /messages/{conversation_id}/{message_ts}/reactions": "reactions",
+	"POST /messages/{conversation_id}/{message_ts}/reactions": "react",
+	"DELETE /messages/{conversation_id}/{message_ts}/reactions/{reaction_name}": "unreact",
+}
+
+func commandName(method, path, groupDisplayName, operationID string) string {
+	if override := commandNameOverrides[method+" "+path]; override != "" {
+		return override
+	}
+
+	if name := commandNameFromPath(method, path); name != "" {
+		return name
+	}
+
+	return commandNameFromOperationID(groupDisplayName, operationID)
+}
+
+func commandNameFromPath(method, path string) string {
+	segments := strings.Split(strings.Trim(path, "/"), "/")
+	if len(segments) == 0 || segments[0] == "" {
+		return ""
+	}
+
+	switch {
+	case len(segments) == 1:
+		switch method {
+		case "GET":
+			return "list"
+		case "POST":
+			return "create"
+		}
+	case len(segments) == 2 && isPathParam(segments[1]):
+		switch method {
+		case "GET":
+			return "get"
+		case "PATCH", "PUT":
+			return "update"
+		case "DELETE":
+			return "delete"
+		}
+	case len(segments) == 3 && isPathParam(segments[1]) && !isPathParam(segments[2]):
+		switch method {
+		case "GET":
+			return segments[2]
+		case "PUT":
+			return "set-" + singularizeCommandSegment(segments[2])
+		case "POST":
+			return singularizeCommandSegment(segments[2])
+		}
+	case len(segments) == 4 && isPathParam(segments[1]) && !isPathParam(segments[2]) && isPathParam(segments[3]):
+		switch method {
+		case "PATCH":
+			return "update-" + singularizeCommandSegment(segments[2])
+		case "DELETE":
+			return "delete-" + singularizeCommandSegment(segments[2])
+		}
+	}
+
+	return ""
+}
+
+func isPathParam(segment string) bool {
+	return strings.HasPrefix(segment, "{") && strings.HasSuffix(segment, "}")
+}
+
+func singularizeCommandSegment(segment string) string {
+	switch {
+	case strings.HasSuffix(segment, "ies") && len(segment) > 3:
+		return strings.TrimSuffix(segment, "ies") + "y"
+	case strings.HasSuffix(segment, "s") && len(segment) > 1:
+		return strings.TrimSuffix(segment, "s")
+	default:
+		return segment
+	}
+}
+
+func commandNameFromOperationID(groupDisplayName, operationID string) string {
 	tokens := camelTokens(operationID)
 	if len(tokens) == 0 {
 		return "call"
