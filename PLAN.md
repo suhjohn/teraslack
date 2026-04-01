@@ -346,14 +346,14 @@ Requirements:
 
 Install a tiny wrapper, for example:
 
-1. `~/.teraslack/bin/teraslack-stdio-mcp`
+1. `~/.teraslack/bin/teraslack`
 
 Responsibilities:
 
 1. read config
 2. export `TERASLACK_BASE_URL`
 3. export `TERASLACK_API_KEY`
-4. exec the Teraslack stdio MCP binary
+4. exec the installed Teraslack entrypoint
 
 This keeps Codex and Claude registration stable even if the config location changes later.
 

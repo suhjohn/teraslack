@@ -88,16 +88,5 @@ services:
       INDEX_QUEUE_S3_KEY: ${INDEX_QUEUE_S3_KEY:-queues/index/queue.json}
       WORKER_ID: ${INDEXER_WORKER_ID:-idx-1}
 
-  mcp-server:
-    <<: *app-service
-    command: ["/app/teraslack-mcp-server"]
-    environment:
-      <<: *app-env
-      PORT: ${MCP_PORT:-8090}
-      TERASLACK_BASE_URL: http://server:${API_PORT:-38080}
-      TERASLACK_SYSTEM_API_KEY: ${TERASLACK_SYSTEM_API_KEY:-}
-    ports:
-      - "${MCP_PORT:-8090}:${MCP_PORT:-8090}"
-
 volumes:
   pgdata:
