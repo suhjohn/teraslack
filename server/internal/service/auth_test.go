@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -17,14 +18,16 @@ import (
 )
 
 type mockAuthRepo struct {
-	sessions   map[string]*domain.AuthSession
-	challenges map[string]*domain.EmailVerificationChallenge
+	sessions      map[string]*domain.AuthSession
+	challenges    map[string]*domain.EmailVerificationChallenge
+	oauthAccounts map[string]*domain.OAuthAccount
 }
 
 func newMockAuthRepo() *mockAuthRepo {
 	return &mockAuthRepo{
-		sessions:   make(map[string]*domain.AuthSession),
-		challenges: make(map[string]*domain.EmailVerificationChallenge),
+		sessions:      make(map[string]*domain.AuthSession),
+		challenges:    make(map[string]*domain.EmailVerificationChallenge),
+		oauthAccounts: make(map[string]*domain.OAuthAccount),
 	}
 }
 
@@ -101,16 +104,26 @@ func (m *mockAuthRepo) ConsumeEmailVerificationChallenge(_ context.Context, id s
 	return nil
 }
 
-func (m *mockAuthRepo) GetOAuthAccount(_ context.Context, _ string, _ domain.AuthProvider, _ string) (*domain.OAuthAccount, error) {
-	return nil, domain.ErrNotFound
+func (m *mockAuthRepo) GetOAuthAccount(_ context.Context, workspaceID string, provider domain.AuthProvider, providerSubject string) (*domain.OAuthAccount, error) {
+	account, ok := m.oauthAccounts[oauthAccountKey(workspaceID, provider, providerSubject)]
+	if !ok {
+		return nil, domain.ErrNotFound
+	}
+	return account, nil
 }
 
-func (m *mockAuthRepo) ListOAuthAccountsBySubject(_ context.Context, _ domain.AuthProvider, _ string) ([]domain.OAuthAccount, error) {
-	return nil, nil
+func (m *mockAuthRepo) ListOAuthAccountsBySubject(_ context.Context, provider domain.AuthProvider, providerSubject string) ([]domain.OAuthAccount, error) {
+	accounts := make([]domain.OAuthAccount, 0)
+	for _, account := range m.oauthAccounts {
+		if account.Provider == provider && account.ProviderSubject == providerSubject {
+			accounts = append(accounts, *account)
+		}
+	}
+	return accounts, nil
 }
 
 func (m *mockAuthRepo) UpsertOAuthAccount(_ context.Context, params domain.UpsertOAuthAccountParams) (*domain.OAuthAccount, error) {
-	return &domain.OAuthAccount{
+	account := &domain.OAuthAccount{
 		ID:              "OA123",
 		WorkspaceID:     params.WorkspaceID,
 		UserID:          params.UserID,
@@ -119,7 +132,13 @@ func (m *mockAuthRepo) UpsertOAuthAccount(_ context.Context, params domain.Upser
 		Email:           params.Email,
 		CreatedAt:       time.Now().UTC(),
 		UpdatedAt:       time.Now().UTC(),
-	}, nil
+	}
+	m.oauthAccounts[oauthAccountKey(params.WorkspaceID, params.Provider, params.ProviderSubject)] = account
+	return account, nil
+}
+
+func oauthAccountKey(workspaceID string, provider domain.AuthProvider, providerSubject string) string {
+	return workspaceID + "|" + string(provider) + "|" + providerSubject
 }
 
 type mockAuthEmailSender struct {
@@ -269,6 +288,32 @@ func TestAuthService_StartOAuth_AllowsFrontendRedirect(t *testing.T) {
 	}
 }
 
+func TestAuthService_StartCLIOAuth_AllowsLocalhostCallback(t *testing.T) {
+	svc := NewAuthService(newMockAuthRepo(), &mockUserRepoForUG{}, nil, nil, nil, mockTxBeginner{}, nil, AuthConfig{
+		BaseURL:                 "https://api.teraslack.ai",
+		FrontendURL:             "https://teraslack.ai",
+		StateSecret:             "test-secret",
+		GoogleOAuthClientID:     "google-client",
+		GoogleOAuthClientSecret: "google-secret",
+	})
+
+	result, err := svc.StartCLIOAuth(context.Background(), domain.StartOAuthParams{
+		Provider:    domain.AuthProviderGoogle,
+		CallbackURL: "http://127.0.0.1:43123/callback",
+	})
+	if err != nil {
+		t.Fatalf("StartCLIOAuth() error = %v", err)
+	}
+
+	u, err := url.Parse(result.AuthorizationURL)
+	if err != nil {
+		t.Fatalf("url.Parse() error = %v", err)
+	}
+	if got, want := u.Query().Get("redirect_uri"), "http://127.0.0.1:43123/callback"; got != want {
+		t.Fatalf("redirect_uri = %q, want %q", got, want)
+	}
+}
+
 func TestAuthService_StartOAuth_RejectsUnknownRedirectHost(t *testing.T) {
 	svc := NewAuthService(newMockAuthRepo(), &mockUserRepoForUG{}, nil, nil, nil, mockTxBeginner{}, nil, AuthConfig{
 		BaseURL:                 "https://api.teraslack.ai",
@@ -367,6 +412,7 @@ func TestAuthService_VerifyCreatesPersonalWorkspaceAndSession(t *testing.T) {
 	session, err := svc.Verify(context.Background(), domain.VerifyParams{
 		Email: "alice@example.com",
 		Code:  sender.codes[0],
+		Name:  "Alice Example",
 	})
 	if err != nil {
 		t.Fatalf("Verify() error = %v", err)
@@ -384,6 +430,9 @@ func TestAuthService_VerifyCreatesPersonalWorkspaceAndSession(t *testing.T) {
 	if user.Email != "alice@example.com" || user.AccountType != domain.AccountTypePrimaryAdmin {
 		t.Fatalf("unexpected created user: %+v", user)
 	}
+	if user.RealName != "Alice Example" || user.DisplayName != "Alice Example" {
+		t.Fatalf("expected created user name to come from verify params, got %+v", user)
+	}
 	for _, challenge := range repo.challenges {
 		if challenge.ConsumedAt == nil {
 			t.Fatal("expected challenge to be consumed")
@@ -397,6 +446,8 @@ func TestAuthService_VerifyUsesExistingUser(t *testing.T) {
 	userRepo.users["U_EXISTING"] = &domain.User{
 		ID:            "U_EXISTING",
 		WorkspaceID:   "T123",
+		RealName:      "Existing Name",
+		DisplayName:   "Existing Name",
 		Email:         "alice@example.com",
 		PrincipalType: domain.PrincipalTypeHuman,
 		AccountType:   domain.AccountTypeMember,
@@ -414,12 +465,16 @@ func TestAuthService_VerifyUsesExistingUser(t *testing.T) {
 	session, err := svc.Verify(context.Background(), domain.VerifyParams{
 		Email: "alice@example.com",
 		Code:  "123456",
+		Name:  "Updated Name",
 	})
 	if err != nil {
 		t.Fatalf("Verify() error = %v", err)
 	}
 	if session.WorkspaceID != "T123" || session.UserID != "U_EXISTING" {
 		t.Fatalf("unexpected session for existing user: %+v", session)
+	}
+	if got := userRepo.users["U_EXISTING"].RealName; got != "Existing Name" {
+		t.Fatalf("existing user real_name = %q, want unchanged existing value", got)
 	}
 }
 
@@ -439,5 +494,103 @@ func TestAuthService_VerifyRejectsExpiredCode(t *testing.T) {
 		Code:  "123456",
 	}); !errors.Is(err, domain.ErrInvalidAuth) {
 		t.Fatalf("Verify() error = %v, want invalid auth", err)
+	}
+}
+
+func TestAuthService_ResolveOAuthLogin_ReusesExistingEmailUser(t *testing.T) {
+	repo := newMockAuthRepo()
+	userRepo := newMockUserRepoTenant()
+	userRepo.users["U_EXISTING"] = &domain.User{
+		ID:            "U_EXISTING",
+		WorkspaceID:   "T123",
+		Email:         "johnsuh94@gmail.com",
+		PrincipalType: domain.PrincipalTypeHuman,
+		AccountType:   domain.AccountTypeMember,
+	}
+
+	svc := NewAuthService(repo, userRepo, newMockWorkspaceRepo(), nil, nil, mockTxBeginner{}, nil, AuthConfig{})
+
+	workspaceID, user, err := svc.resolveOAuthLogin(
+		context.Background(),
+		nil,
+		userRepo,
+		repo,
+		newMockWorkspaceRepo(),
+		nil,
+		oauthState{},
+		domain.AuthProviderGoogle,
+		oauthProfile{
+			Subject: "google-user-123",
+			Email:   "JohnSuh94@gmail.com",
+			Name:    "John Suh",
+			Login:   "johnsuh94",
+		},
+	)
+	if err != nil {
+		t.Fatalf("resolveOAuthLogin() error = %v", err)
+	}
+	if workspaceID != "T123" || user.ID != "U_EXISTING" {
+		t.Fatalf("unexpected oauth login target: workspace=%q user=%q", workspaceID, user.ID)
+	}
+	if len(userRepo.users) != 1 {
+		t.Fatalf("expected oauth login to reuse existing user, got %d users", len(userRepo.users))
+	}
+
+	accounts, err := repo.ListOAuthAccountsBySubject(context.Background(), domain.AuthProviderGoogle, "google-user-123")
+	if err != nil {
+		t.Fatalf("ListOAuthAccountsBySubject() error = %v", err)
+	}
+	if len(accounts) != 1 {
+		t.Fatalf("expected one linked oauth account, got %d", len(accounts))
+	}
+	if accounts[0].UserID != "U_EXISTING" || accounts[0].WorkspaceID != "T123" {
+		t.Fatalf("unexpected linked oauth account: %+v", accounts[0])
+	}
+	if accounts[0].Email != "johnsuh94@gmail.com" {
+		t.Fatalf("oauth account email = %q, want normalized lower-case email", accounts[0].Email)
+	}
+}
+
+func TestAuthService_VerifyReusesExistingOAuthUser(t *testing.T) {
+	repo := newMockAuthRepo()
+	userRepo := newMockUserRepoTenant()
+	userRepo.users["U_EXISTING"] = &domain.User{
+		ID:            "U_EXISTING",
+		WorkspaceID:   "T123",
+		Email:         "johnsuh94@gmail.com",
+		PrincipalType: domain.PrincipalTypeHuman,
+		AccountType:   domain.AccountTypeMember,
+	}
+	if _, err := repo.UpsertOAuthAccount(context.Background(), domain.UpsertOAuthAccountParams{
+		WorkspaceID:     "T123",
+		UserID:          "U_EXISTING",
+		Provider:        domain.AuthProviderGoogle,
+		ProviderSubject: "google-user-123",
+		Email:           "johnsuh94@gmail.com",
+	}); err != nil {
+		t.Fatalf("UpsertOAuthAccount() error = %v", err)
+	}
+
+	svc := NewAuthService(repo, userRepo, newMockWorkspaceRepo(), nil, nil, mockTxBeginner{}, nil, AuthConfig{})
+	repo.challenges["EV_EXISTING"] = &domain.EmailVerificationChallenge{
+		ID:        "EV_EXISTING",
+		Email:     "JohnSuh94@gmail.com",
+		CodeHash:  crypto.HashToken("123456"),
+		ExpiresAt: time.Now().UTC().Add(time.Minute),
+		CreatedAt: time.Now().UTC(),
+	}
+
+	session, err := svc.Verify(context.Background(), domain.VerifyParams{
+		Email: "JohnSuh94@gmail.com",
+		Code:  "123456",
+	})
+	if err != nil {
+		t.Fatalf("Verify() error = %v", err)
+	}
+	if session.WorkspaceID != "T123" || session.UserID != "U_EXISTING" {
+		t.Fatalf("unexpected session for existing oauth user: %+v", session)
+	}
+	if len(userRepo.users) != 1 {
+		t.Fatalf("expected verify to reuse existing oauth user, got %d users", len(userRepo.users))
 	}
 }

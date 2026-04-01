@@ -18,13 +18,6 @@ function Fail {
   throw $Message
 }
 
-function Get-DeviceName {
-  if ($env:COMPUTERNAME) {
-    return $env:COMPUTERNAME
-  }
-  return "local-machine"
-}
-
 function Get-Platform {
   $arch = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString().ToLowerInvariant()
   switch ($arch) {
@@ -40,31 +33,22 @@ function New-TempDir {
   return $path
 }
 
-function Open-Browser {
-  param([string]$Url)
-  try {
-    Start-Process $Url | Out-Null
-    return $true
-  } catch {
-    return $false
-  }
-}
-
 function Write-Config {
-  param(
-    [string]$BaseUrl,
-    [string]$WorkspaceId,
-    [string]$UserId,
-    [string]$ApiKey
-  )
-
   New-Item -ItemType Directory -Force -Path $InstallRoot | Out-Null
-  $payload = @{
-    base_url = $BaseUrl
-    workspace_id = $WorkspaceId
-    user_id = $UserId
-    api_key = $ApiKey
+
+  $payload = @{}
+  if (Test-Path -LiteralPath $ConfigFile) {
+    try {
+      $existing = Get-Content -LiteralPath $ConfigFile -Raw | ConvertFrom-Json -AsHashtable
+      if ($existing) {
+        $payload = $existing
+      }
+    } catch {
+      $payload = @{}
+    }
   }
+
+  $payload["base_url"] = $ApiBaseUrl
   Set-Content -Path $ConfigFile -Value (($payload | ConvertTo-Json) + [Environment]::NewLine) -Encoding UTF8
 }
 
@@ -96,42 +80,6 @@ function Verify-Sha256 {
   $actual = (Get-FileHash -Algorithm SHA256 -Path $FilePath).Hash.ToLowerInvariant()
   if ($actual -ne $Expected.ToLowerInvariant()) {
     Fail "SHA256 mismatch for downloaded CLI binary"
-  }
-}
-
-function Poll-InstallSession {
-  param(
-    [string]$InstallId,
-    [string]$PollToken
-  )
-
-  while ($true) {
-    $pollResponse = Invoke-RestMethod `
-      -Method Post `
-      -Uri "$ApiBaseUrl/cli/install/$InstallId/poll" `
-      -ContentType "application/json" `
-      -Body (@{ poll_token = $PollToken } | ConvertTo-Json -Compress)
-
-    switch ($pollResponse.status) {
-      "pending" {
-        Start-Sleep -Seconds 2
-      }
-      "approved" {
-        return $pollResponse
-      }
-      "expired" {
-        Fail "Install session expired before approval completed"
-      }
-      "cancelled" {
-        Fail "Install session was cancelled"
-      }
-      "consumed" {
-        Fail "Install credential was already claimed"
-      }
-      default {
-        Fail "Unexpected install session status: $($pollResponse.status)"
-      }
-    }
   }
 }
 
@@ -182,32 +130,7 @@ function Install-Binary {
   }
 }
 
-$deviceName = Get-DeviceName
-Write-Log "Creating Teraslack install session..."
-$createResponse = Invoke-RestMethod `
-  -Method Post `
-  -Uri "$ApiBaseUrl/cli/install/sessions" `
-  -ContentType "application/json" `
-  -Body (@{
-    client_kind = "local_cli"
-    device_name = $deviceName
-  } | ConvertTo-Json -Compress)
-
-Write-Log "Opening browser for Teraslack login and approval..."
-if (-not (Open-Browser -Url ([string]$createResponse.approval_url))) {
-  Write-Log "Open this URL in your browser to continue:"
-  Write-Log "  $($createResponse.approval_url)"
-}
-
-Write-Log "Waiting for approval..."
-$approved = Poll-InstallSession -InstallId ([string]$createResponse.install_id) -PollToken ([string]$createResponse.poll_token)
-
-Write-Config `
-  -BaseUrl ([string]$approved.base_url) `
-  -WorkspaceId ([string]$approved.workspace_id) `
-  -UserId ([string]$approved.user_id) `
-  -ApiKey ([string]$approved.api_key)
-
+Write-Config
 $installedBinaryPath = Install-Binary -Platform (Get-Platform)
 Ensure-Path
 
@@ -216,5 +139,7 @@ Write-Log "Teraslack CLI installed."
 Write-Log "Config: $ConfigFile"
 Write-Log "Binary: $installedBinaryPath"
 Write-Log ""
-Write-Log "Open a new shell and run:"
-Write-Log "  teraslack auth get-me"
+Write-Log "Open a new shell and run one of:"
+Write-Log "  teraslack signin email --email you@example.com --name ""Your Name"""
+Write-Log "  teraslack signin google"
+Write-Log "  teraslack signin github"

@@ -175,9 +175,25 @@ func TestRootHelpIncludesLifecycleCommands(t *testing.T) {
 	var output bytes.Buffer
 	cli.printRootHelp(&output)
 	text := output.String()
-	for _, token := range []string{"version", "update", "uninstall"} {
+	for _, token := range []string{"signin", "signout", "version", "update", "uninstall"} {
 		if !strings.Contains(text, token) {
 			t.Fatalf("root help missing %q: %s", token, text)
+		}
+	}
+}
+
+func TestSigninHelpIncludesProviders(t *testing.T) {
+	cli, err := New()
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	var output bytes.Buffer
+	cli.printSigninHelp(nil, &output)
+	text := output.String()
+	for _, token := range []string{"email", "google", "github"} {
+		if !strings.Contains(text, token) {
+			t.Fatalf("signin help missing %q: %s", token, text)
 		}
 	}
 }

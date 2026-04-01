@@ -94,6 +94,19 @@ func TestAuthMiddleware_BypassPaths(t *testing.T) {
 		t.Fatal("expected oauth start to bypass auth")
 	}
 
+	called = false
+	next = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+		w.WriteHeader(http.StatusOK)
+	})
+	middleware = AuthMiddleware(nil, nil)(next)
+	req = httptest.NewRequest(http.MethodPost, "/auth/cli/oauth/google/start", nil)
+	w = httptest.NewRecorder()
+	middleware.ServeHTTP(w, req)
+	if !called {
+		t.Fatal("expected cli oauth start to bypass auth")
+	}
+
 	// GET /auth/me should NOT bypass auth
 	called = false
 	next = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

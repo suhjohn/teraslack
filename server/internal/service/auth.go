@@ -60,6 +60,7 @@ type oauthState struct {
 	WorkspaceID string              `json:"workspace_id"`
 	InviteToken string              `json:"invite_token"`
 	RedirectTo  string              `json:"redirect_to"`
+	CallbackURL string              `json:"callback_url"`
 	Nonce       string              `json:"nonce"`
 }
 
@@ -216,7 +217,7 @@ func (s *AuthService) Verify(ctx context.Context, params domain.VerifyParams) (*
 		return nil, domain.ErrInvalidAuth
 	}
 
-	workspaceID, user, err := s.resolveEmailLogin(ctx, tx, userRepo, workspaceRepo, email)
+	workspaceID, user, err := s.resolveEmailLogin(ctx, tx, userRepo, workspaceRepo, email, strings.TrimSpace(params.Name))
 	if err != nil {
 		return nil, fmt.Errorf("resolve email login: %w", err)
 	}
@@ -243,6 +244,14 @@ func (s *AuthService) Verify(ctx context.Context, params domain.VerifyParams) (*
 }
 
 func (s *AuthService) StartOAuth(ctx context.Context, params domain.StartOAuthParams) (*domain.StartOAuthResult, error) {
+	return s.startOAuth(ctx, params, false)
+}
+
+func (s *AuthService) StartCLIOAuth(ctx context.Context, params domain.StartOAuthParams) (*domain.StartOAuthResult, error) {
+	return s.startOAuth(ctx, params, true)
+}
+
+func (s *AuthService) startOAuth(ctx context.Context, params domain.StartOAuthParams, allowLocalhostCallback bool) (*domain.StartOAuthResult, error) {
 	if err := validateOAuthProvider(params.Provider); err != nil {
 		return nil, err
 	}
@@ -255,6 +264,10 @@ func (s *AuthService) StartOAuth(ctx context.Context, params domain.StartOAuthPa
 		return nil, fmt.Errorf("auth state secret: %w", domain.ErrInvalidArgument)
 	}
 	redirectTo, err := s.resolveRedirectTo(params.RedirectTo)
+	if err != nil {
+		return nil, err
+	}
+	callbackURL, err := s.resolveCallbackURL(params.Provider, params.CallbackURL, allowLocalhostCallback)
 	if err != nil {
 		return nil, err
 	}
@@ -273,6 +286,7 @@ func (s *AuthService) StartOAuth(ctx context.Context, params domain.StartOAuthPa
 		WorkspaceID: params.WorkspaceID,
 		InviteToken: strings.TrimSpace(params.InviteToken),
 		RedirectTo:  redirectTo,
+		CallbackURL: callbackURL,
 		Nonce:       nonce,
 	})
 	if err != nil {
@@ -280,7 +294,7 @@ func (s *AuthService) StartOAuth(ctx context.Context, params domain.StartOAuthPa
 	}
 
 	return &domain.StartOAuthResult{
-		AuthorizationURL: s.authorizationURL(params.Provider, cfg, state),
+		AuthorizationURL: s.authorizationURL(params.Provider, cfg, state, callbackURL),
 		Nonce:            nonce,
 	}, nil
 }
@@ -310,7 +324,12 @@ func (s *AuthService) CompleteOAuth(ctx context.Context, params domain.CompleteO
 		return nil, fmt.Errorf("nonce: %w", domain.ErrInvalidArgument)
 	}
 
-	profile, err := s.exchangeCode(ctx, params.Provider, params.Code)
+	callbackURL := strings.TrimSpace(state.CallbackURL)
+	if callbackURL == "" {
+		callbackURL = s.defaultCallbackURL(params.Provider)
+	}
+
+	profile, err := s.exchangeCode(ctx, params.Provider, params.Code, callbackURL)
 	if err != nil {
 		return nil, fmt.Errorf("exchange oauth code: %w", err)
 	}
@@ -486,6 +505,11 @@ func (s *AuthService) resolveOAuthUser(
 	provider domain.AuthProvider,
 	profile oauthProfile,
 ) (*domain.User, error) {
+	profile, err := normalizeOAuthProfile(profile)
+	if err != nil {
+		return nil, err
+	}
+
 	account, err := authRepo.GetOAuthAccount(ctx, workspaceID, provider, profile.Subject)
 	if err != nil && err != domain.ErrNotFound {
 		return nil, err
@@ -536,6 +560,11 @@ func (s *AuthService) resolveOAuthLogin(
 	provider domain.AuthProvider,
 	profile oauthProfile,
 ) (string, *domain.User, error) {
+	profile, err := normalizeOAuthProfile(profile)
+	if err != nil {
+		return "", nil, err
+	}
+
 	if inviteToken := strings.TrimSpace(state.InviteToken); inviteToken != "" {
 		return s.resolveInviteOAuthLogin(ctx, tx, userRepo, authRepo, inviteRepo, inviteToken, provider, profile)
 	}
@@ -591,6 +620,7 @@ func (s *AuthService) resolveEmailLogin(
 	userRepo repository.UserRepository,
 	workspaceRepo repository.WorkspaceRepository,
 	email string,
+	name string,
 ) (string, *domain.User, error) {
 	users, err := userRepo.ListByEmail(ctx, email)
 	if err != nil {
@@ -609,6 +639,7 @@ func (s *AuthService) resolveEmailLogin(
 	workspace, user, err := s.createPersonalWorkspaceAndUser(ctx, tx, workspaceRepo, userRepo, oauthProfile{
 		Email: email,
 		Login: emailLocalPart(email),
+		Name:  strings.TrimSpace(name),
 	})
 	if err != nil {
 		return "", nil, err
@@ -726,18 +757,18 @@ func (s *AuthService) createPersonalWorkspaceAndUser(
 	return workspace, user, nil
 }
 
-func (s *AuthService) exchangeCode(ctx context.Context, provider domain.AuthProvider, code string) (oauthProfile, error) {
+func (s *AuthService) exchangeCode(ctx context.Context, provider domain.AuthProvider, code, redirectURI string) (oauthProfile, error) {
 	switch provider {
 	case domain.AuthProviderGitHub:
-		return s.exchangeGitHubCode(ctx, code)
+		return s.exchangeGitHubCode(ctx, code, redirectURI)
 	case domain.AuthProviderGoogle:
-		return s.exchangeGoogleCode(ctx, code)
+		return s.exchangeGoogleCode(ctx, code, redirectURI)
 	default:
 		return oauthProfile{}, fmt.Errorf("provider: %w", domain.ErrInvalidArgument)
 	}
 }
 
-func (s *AuthService) exchangeGitHubCode(ctx context.Context, code string) (oauthProfile, error) {
+func (s *AuthService) exchangeGitHubCode(ctx context.Context, code, redirectURI string) (oauthProfile, error) {
 	cfg, err := s.providerConfig(domain.AuthProviderGitHub)
 	if err != nil {
 		return oauthProfile{}, err
@@ -747,7 +778,7 @@ func (s *AuthService) exchangeGitHubCode(ctx context.Context, code string) (oaut
 	tokenReq.Set("client_id", cfg.ClientID)
 	tokenReq.Set("client_secret", cfg.ClientSecret)
 	tokenReq.Set("code", code)
-	tokenReq.Set("redirect_uri", s.callbackURL(domain.AuthProviderGitHub))
+	tokenReq.Set("redirect_uri", redirectURI)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://github.com/login/oauth/access_token", strings.NewReader(tokenReq.Encode()))
 	if err != nil {
@@ -819,7 +850,7 @@ func (s *AuthService) exchangeGitHubCode(ctx context.Context, code string) (oaut
 	}, nil
 }
 
-func (s *AuthService) exchangeGoogleCode(ctx context.Context, code string) (oauthProfile, error) {
+func (s *AuthService) exchangeGoogleCode(ctx context.Context, code, redirectURI string) (oauthProfile, error) {
 	cfg, err := s.providerConfig(domain.AuthProviderGoogle)
 	if err != nil {
 		return oauthProfile{}, err
@@ -830,7 +861,7 @@ func (s *AuthService) exchangeGoogleCode(ctx context.Context, code string) (oaut
 	tokenReq.Set("client_secret", cfg.ClientSecret)
 	tokenReq.Set("code", code)
 	tokenReq.Set("grant_type", "authorization_code")
-	tokenReq.Set("redirect_uri", s.callbackURL(domain.AuthProviderGoogle))
+	tokenReq.Set("redirect_uri", redirectURI)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://oauth2.googleapis.com/token", strings.NewReader(tokenReq.Encode()))
 	if err != nil {
@@ -947,10 +978,10 @@ func (s *AuthService) providerConfig(provider domain.AuthProvider) (oauthProvide
 	}
 }
 
-func (s *AuthService) authorizationURL(provider domain.AuthProvider, cfg oauthProviderConfig, state string) string {
+func (s *AuthService) authorizationURL(provider domain.AuthProvider, cfg oauthProviderConfig, state, callbackURL string) string {
 	values := url.Values{}
 	values.Set("client_id", cfg.ClientID)
-	values.Set("redirect_uri", s.callbackURL(provider))
+	values.Set("redirect_uri", callbackURL)
 	values.Set("state", state)
 
 	switch provider {
@@ -967,8 +998,39 @@ func (s *AuthService) authorizationURL(provider domain.AuthProvider, cfg oauthPr
 	}
 }
 
-func (s *AuthService) callbackURL(provider domain.AuthProvider) string {
+func (s *AuthService) defaultCallbackURL(provider domain.AuthProvider) string {
 	return s.baseURL + "/auth/oauth/" + string(provider) + "/callback"
+}
+
+func (s *AuthService) resolveCallbackURL(provider domain.AuthProvider, raw string, allowLocalhost bool) (string, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return s.defaultCallbackURL(provider), nil
+	}
+
+	callbackURL, err := url.Parse(raw)
+	if err != nil {
+		return "", fmt.Errorf("callback_url: %w", domain.ErrInvalidArgument)
+	}
+	if callbackURL.Fragment != "" || callbackURL.Host == "" {
+		return "", fmt.Errorf("callback_url: %w", domain.ErrInvalidArgument)
+	}
+
+	if allowLocalhost && isLoopbackCallbackURL(callbackURL) {
+		return callbackURL.String(), nil
+	}
+
+	allowedOrigins, err := s.allowedRedirectOrigins()
+	if err != nil {
+		return "", err
+	}
+	for _, origin := range allowedOrigins {
+		if callbackURL.Scheme == origin.Scheme && callbackURL.Host == origin.Host {
+			return callbackURL.String(), nil
+		}
+	}
+
+	return "", fmt.Errorf("callback_url: %w", domain.ErrInvalidArgument)
 }
 
 func (s *AuthService) resolveRedirectTo(raw string) (string, error) {
@@ -992,6 +1054,20 @@ func (s *AuthService) resolveRedirectTo(raw string) (string, error) {
 	}
 
 	return "", fmt.Errorf("redirect_to: %w", domain.ErrInvalidArgument)
+}
+
+func isLoopbackCallbackURL(u *url.URL) bool {
+	if u == nil {
+		return false
+	}
+	if u.Fragment != "" || strings.EqualFold(u.Scheme, "https") {
+		return false
+	}
+	if !strings.EqualFold(u.Scheme, "http") {
+		return false
+	}
+	host := strings.TrimSpace(u.Hostname())
+	return host == "localhost" || host == "127.0.0.1" || host == "[::1]" || host == "::1"
 }
 
 func (s *AuthService) allowedRedirectOrigins() ([]*url.URL, error) {
@@ -1069,6 +1145,20 @@ func normalizeEmailAddress(raw string) (string, error) {
 		return "", fmt.Errorf("email: %w", domain.ErrInvalidArgument)
 	}
 	return email, nil
+}
+
+func normalizeOAuthProfile(profile oauthProfile) (oauthProfile, error) {
+	email, err := normalizeEmailAddress(profile.Email)
+	if err != nil {
+		return oauthProfile{}, err
+	}
+
+	return oauthProfile{
+		Subject: strings.TrimSpace(profile.Subject),
+		Email:   email,
+		Name:    strings.TrimSpace(profile.Name),
+		Login:   strings.TrimSpace(profile.Login),
+	}, nil
 }
 
 func normalizeVerificationCode(raw string) (string, error) {

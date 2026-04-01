@@ -59,8 +59,11 @@ type Parameter struct {
 type stringValues []string
 
 type fileConfig struct {
-	BaseURL string `json:"base_url"`
-	APIKey  string `json:"api_key"`
+	BaseURL      string `json:"base_url"`
+	APIKey       string `json:"api_key,omitempty"`
+	SessionToken string `json:"session_token,omitempty"`
+	WorkspaceID  string `json:"workspace_id,omitempty"`
+	UserID       string `json:"user_id,omitempty"`
 }
 
 func (v *stringValues) String() string {
@@ -128,12 +131,14 @@ func New() (*CLI, error) {
 
 func (c *CLI) Run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	baseURL := strings.TrimSpace(os.Getenv("TERASLACK_BASE_URL"))
+	sessionToken := strings.TrimSpace(os.Getenv("TERASLACK_SESSION_TOKEN"))
 	apiKey := strings.TrimSpace(os.Getenv("TERASLACK_API_KEY"))
 	output := "pretty"
 
 	global := flag.NewFlagSet("teraslack", flag.ContinueOnError)
 	global.SetOutput(stderr)
 	global.StringVar(&baseURL, "base-url", baseURL, "Teraslack API base URL. Defaults to TERASLACK_BASE_URL.")
+	global.StringVar(&sessionToken, "session-token", sessionToken, "Session token. Defaults to TERASLACK_SESSION_TOKEN.")
 	global.StringVar(&apiKey, "api-key", apiKey, "Bearer token. Defaults to TERASLACK_API_KEY.")
 	global.StringVar(&output, "output", output, "Output format: pretty or json.")
 	global.Usage = func() {
@@ -152,11 +157,14 @@ func (c *CLI) Run(ctx context.Context, args []string, stdout, stderr io.Writer) 
 	if rest[0] == "help" {
 		return c.runHelp(rest[1:], stdout, stderr)
 	}
+	if rest[0] == "signin" {
+		return c.runSignIn(ctx, rest[1:], stdout, stderr)
+	}
 	if isLifecycleCommand(rest[0]) {
 		return c.runLifecycle(ctx, rest[0], rest[1:], output, stdout, stderr)
 	}
 
-	if baseURL == "" || apiKey == "" {
+	if baseURL == "" || sessionToken == "" || apiKey == "" {
 		cfg, err := loadFileConfig()
 		if err != nil {
 			fmt.Fprintf(stderr, "load config: %v\n", err)
@@ -165,10 +173,14 @@ func (c *CLI) Run(ctx context.Context, args []string, stdout, stderr io.Writer) 
 		if baseURL == "" {
 			baseURL = cfg.BaseURL
 		}
+		if sessionToken == "" {
+			sessionToken = cfg.SessionToken
+		}
 		if apiKey == "" {
 			apiKey = cfg.APIKey
 		}
 	}
+	authToken := firstNonEmpty(sessionToken, apiKey)
 
 	group := c.groupByName[rest[0]]
 	if group == nil {
@@ -189,12 +201,16 @@ func (c *CLI) Run(ctx context.Context, args []string, stdout, stderr io.Writer) 
 		return 2
 	}
 
-	return c.runOperation(ctx, op, rest[2:], baseURL, apiKey, output, stdout, stderr)
+	return c.runOperation(ctx, op, rest[2:], baseURL, authToken, output, stdout, stderr)
 }
 
 func (c *CLI) runHelp(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
 		c.printRootHelp(stdout)
+		return 0
+	}
+	if args[0] == "signin" {
+		c.printSigninHelp(args[1:], stdout)
 		return 0
 	}
 	if isLifecycleCommand(args[0]) {
@@ -222,7 +238,7 @@ func (c *CLI) runHelp(args []string, stdout, stderr io.Writer) int {
 	return 0
 }
 
-func (c *CLI) runOperation(ctx context.Context, op *Operation, args []string, baseURL, apiKey, output string, stdout, stderr io.Writer) int {
+func (c *CLI) runOperation(ctx context.Context, op *Operation, args []string, baseURL, authToken, output string, stdout, stderr io.Writer) int {
 	var bodyText string
 	var bodyFile string
 	var allPages bool
@@ -257,8 +273,8 @@ func (c *CLI) runOperation(ctx context.Context, op *Operation, args []string, ba
 		fmt.Fprintf(stderr, "invalid --output %q, expected pretty or json\n", output)
 		return 2
 	}
-	if op.RequiresAuth && strings.TrimSpace(apiKey) == "" {
-		fmt.Fprintln(stderr, "missing API key; pass --api-key or set TERASLACK_API_KEY")
+	if op.RequiresAuth && strings.TrimSpace(authToken) == "" {
+		fmt.Fprintln(stderr, "missing authentication token; pass --session-token/--api-key, set TERASLACK_SESSION_TOKEN/TERASLACK_API_KEY, or run `teraslack signin ...`")
 		return 2
 	}
 
@@ -268,7 +284,7 @@ func (c *CLI) runOperation(ctx context.Context, op *Operation, args []string, ba
 		return 2
 	}
 
-	client, err := teraslackmcp.NewClient(baseURL, firstNonEmpty(apiKey, "x"))
+	client, err := teraslackmcp.NewClient(baseURL, firstNonEmpty(authToken, "x"))
 	if err != nil {
 		fmt.Fprintf(stderr, "create client: %v\n", err)
 		return 1
@@ -529,10 +545,13 @@ func (c *CLI) printRootHelp(w io.Writer) {
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "Global flags:")
 	fmt.Fprintln(w, "  --base-url string   Teraslack API base URL")
+	fmt.Fprintln(w, "  --session-token     Session token")
 	fmt.Fprintln(w, "  --api-key string    Bearer token")
 	fmt.Fprintln(w, "  --output string     pretty or json")
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "Built-in commands:")
+	fmt.Fprintln(w, "  signin              Sign in with email, Google, or GitHub")
+	fmt.Fprintln(w, "  signout             Remove the stored session token")
 	fmt.Fprintln(w, "  version             Print the installed CLI version")
 	fmt.Fprintln(w, "  update              Download and install the latest CLI release")
 	fmt.Fprintln(w, "  uninstall           Remove the installed CLI binary")
@@ -988,5 +1007,8 @@ func loadFileConfig() (fileConfig, error) {
 	}
 	cfg.BaseURL = strings.TrimSpace(cfg.BaseURL)
 	cfg.APIKey = strings.TrimSpace(cfg.APIKey)
+	cfg.SessionToken = strings.TrimSpace(cfg.SessionToken)
+	cfg.WorkspaceID = strings.TrimSpace(cfg.WorkspaceID)
+	cfg.UserID = strings.TrimSpace(cfg.UserID)
 	return cfg, nil
 }

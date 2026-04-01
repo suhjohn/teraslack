@@ -37,16 +37,6 @@ type WorkspaceInviteRepository interface {
 	MarkAccepted(ctx context.Context, id, acceptedByUserID string, acceptedAt time.Time) error
 }
 
-type InstallSessionRepository interface {
-	WithTx(tx pgx.Tx) InstallSessionRepository
-	Create(ctx context.Context, params domain.CreateInstallSessionParams) (*domain.InstallSession, string, error)
-	Get(ctx context.Context, id string) (*domain.InstallSession, error)
-	GetByPollTokenHash(ctx context.Context, id, pollTokenHash string) (*domain.InstallSession, error)
-	Approve(ctx context.Context, params domain.ApproveInstallSessionParams) (*domain.InstallSession, error)
-	Consume(ctx context.Context, params domain.ConsumeInstallSessionParams) (*domain.InstallSession, error)
-	ExpirePending(ctx context.Context, now time.Time) error
-}
-
 // UserRepository defines data access operations for users.
 type UserRepository interface {
 	WithTx(tx pgx.Tx) UserRepository

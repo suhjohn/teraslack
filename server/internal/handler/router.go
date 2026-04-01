@@ -34,7 +34,6 @@ func Router(
 	externalAccessH *ExternalPrincipalAccessHandler,
 	eventH *EventHandler,
 	authH *AuthHandler,
-	installH *InstallHandler,
 	searchH *SearchHandler,
 	apiKeyH *APIKeyHandler,
 	conversationReadH *ConversationReadHandler,
@@ -137,17 +136,11 @@ func Router(
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write(data)
 	})
-	root.HandleFunc("POST /cli/install/sessions", func(w http.ResponseWriter, r *http.Request) {
-		installH.CreateSession(w, r)
+	root.HandleFunc("POST /auth/cli/oauth/{provider}/start", func(w http.ResponseWriter, r *http.Request) {
+		authH.StartCLIOAuth(w, r)
 	})
-	root.HandleFunc("GET /cli/install/{id}", func(w http.ResponseWriter, r *http.Request) {
-		installH.ApprovalPage(w, r)
-	})
-	root.HandleFunc("POST /cli/install/{id}", func(w http.ResponseWriter, r *http.Request) {
-		installH.Approve(w, r)
-	})
-	root.HandleFunc("POST /cli/install/{id}/poll", func(w http.ResponseWriter, r *http.Request) {
-		installH.Poll(w, r)
+	root.HandleFunc("POST /auth/cli/oauth/{provider}/complete", func(w http.ResponseWriter, r *http.Request) {
+		authH.CompleteCLIOAuth(w, r)
 	})
 	root.HandleFunc("POST /workspaces/{id}/invites", func(w http.ResponseWriter, r *http.Request) {
 		workspaceInviteH.Create(w, r)

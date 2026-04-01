@@ -42,6 +42,7 @@ type StartOAuthParams struct {
 	WorkspaceID string       `json:"workspace_id"`
 	InviteToken string       `json:"invite_token"`
 	RedirectTo  string       `json:"redirect_to"`
+	CallbackURL string       `json:"callback_url,omitempty"`
 }
 
 type SignupParams struct {
@@ -56,6 +57,7 @@ type SignupResult struct {
 type VerifyParams struct {
 	Email string `json:"email"`
 	Code  string `json:"code"`
+	Name  string `json:"name,omitempty"`
 }
 
 type CompleteOAuthParams struct {
@@ -66,13 +68,13 @@ type CompleteOAuthParams struct {
 }
 
 type StartOAuthResult struct {
-	AuthorizationURL string
-	Nonce            string
+	AuthorizationURL string `json:"authorization_url"`
+	Nonce            string `json:"nonce"`
 }
 
 type CompleteOAuthResult struct {
-	Session    *AuthSession
-	RedirectTo string
+	Session    *AuthSession `json:"session"`
+	RedirectTo string       `json:"redirect_to"`
 }
 
 type OAuthAccount struct {

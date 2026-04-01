@@ -222,7 +222,7 @@ func isProtectedRoute(path string) bool {
 		return false
 	}
 	return !strings.HasPrefix(path, "/auth/oauth/") &&
-		!strings.HasPrefix(path, "/cli/install/")
+		!strings.HasPrefix(path, "/auth/cli/oauth/")
 }
 
 func buildSystemRouteURL(baseURL, path string, fx systemRouteFixtures) string {

@@ -35,76 +35,26 @@ require_command() {
   fi
 }
 
-detect_device_name() {
-  if command -v scutil >/dev/null 2>&1; then
-    name=$(scutil --get ComputerName 2>/dev/null || true)
-    if [ -n "${name:-}" ]; then
-      printf '%s' "$name"
-      return
-    fi
-  fi
-
-  name=$(hostname 2>/dev/null || true)
-  if [ -n "${name:-}" ]; then
-    printf '%s' "$name"
-    return
-  fi
-
-  printf '%s' "local-machine"
-}
-
-open_browser() {
-  url="$1"
-  if command -v open >/dev/null 2>&1; then
-    open "$url" >/dev/null 2>&1 && return 0
-  fi
-  if command -v xdg-open >/dev/null 2>&1; then
-    xdg-open "$url" >/dev/null 2>&1 && return 0
-  fi
-  return 1
-}
-
-json_shell_vars() {
-  json_input=$(cat)
-  if [ -z "$json_input" ]; then
-    fail "installer received an empty response from the API"
-  fi
-  python3 - "$json_input" "$@" <<'PY'
-import json
-import shlex
-import sys
-
-raw = sys.argv[1]
-keys = sys.argv[2:]
-try:
-    data = json.loads(raw)
-except json.JSONDecodeError as exc:
-    raise SystemExit(f"installer expected JSON from the API but got invalid data: {exc}")
-
-for key in keys:
-    value = data.get(key, "")
-    if value is None:
-        value = ""
-    print(f'{key.upper()}={shlex.quote(str(value))}')
-PY
-}
-
 write_config() {
   mkdir -p "$INSTALL_ROOT"
   umask 077
-  python3 - "$CONFIG_FILE" "$BASE_URL" "$WORKSPACE_ID" "$USER_ID" "$API_KEY" <<'PY'
+  python3 - "$CONFIG_FILE" "$API_BASE_URL" <<'PY'
 import json
 import os
 import sys
 from pathlib import Path
 
 path = Path(sys.argv[1])
-payload = {
-    "base_url": sys.argv[2],
-    "workspace_id": sys.argv[3],
-    "user_id": sys.argv[4],
-    "api_key": sys.argv[5],
-}
+base_url = sys.argv[2]
+payload = {}
+
+if path.exists():
+    try:
+        payload = json.loads(path.read_text())
+    except Exception:
+        payload = {}
+
+payload["base_url"] = base_url
 path.write_text(json.dumps(payload, indent=2) + "\n")
 os.chmod(path, 0o600)
 PY
@@ -277,77 +227,9 @@ ensure_path() {
   fi
 }
 
-poll_install_session() {
-  install_id="$1"
-  poll_token="$2"
-  while :; do
-    poll_payload=$(python3 - "$poll_token" <<'PY'
-import json
-import sys
-print(json.dumps({"poll_token": sys.argv[1]}))
-PY
-)
-    poll_response=$(curl -fsSL -X POST "$API_BASE_URL/cli/install/$install_id/poll" \
-      -H "Content-Type: application/json" \
-      -d "$poll_payload")
-
-    eval "$(printf '%s' "$poll_response" | json_shell_vars status base_url workspace_id user_id api_key)"
-
-    case "$STATUS" in
-      pending)
-        sleep 2
-        ;;
-      approved)
-        export BASE_URL WORKSPACE_ID USER_ID API_KEY
-        return 0
-        ;;
-      expired)
-        fail "install session expired before approval completed"
-        ;;
-      cancelled)
-        fail "install session was cancelled"
-        ;;
-      consumed)
-        fail "install credential was already claimed"
-        ;;
-      *)
-        fail "unexpected install session status: $STATUS"
-        ;;
-    esac
-  done
-}
-
 main() {
   require_command curl
   require_command python3
-
-  device_name=$(detect_device_name)
-
-  log "Creating Teraslack install session..."
-  create_payload=$(python3 - "$device_name" <<'PY'
-import json
-import sys
-print(json.dumps({
-    "client_kind": "local_cli",
-    "device_name": sys.argv[1],
-}))
-PY
-)
-
-  create_response=$(curl -fsSL -X POST "$API_BASE_URL/cli/install/sessions" \
-    -H "Content-Type: application/json" \
-    -d "$create_payload")
-
-  eval "$(printf '%s' "$create_response" | json_shell_vars install_id approval_url poll_token expires_at)"
-
-  log "Opening browser for Teraslack login and approval..."
-  if ! open_browser "$APPROVAL_URL"; then
-    log "Open this URL in your browser to continue:"
-    log "  $APPROVAL_URL"
-  fi
-
-  log "Waiting for approval..."
-  poll_install_session "$INSTALL_ID" "$POLL_TOKEN"
 
   write_config
   build_binary
@@ -358,8 +240,10 @@ PY
   log "Config: $CONFIG_FILE"
   log "Binary: $INSTALLED_BINARY_PATH"
   log ""
-  log "Open a new shell and run:"
-  log "  ${INSTALLED_BINARY_NAME} auth get-me"
+  log "Open a new shell and run one of:"
+  log "  teraslack signin email --email you@example.com --name \"Your Name\""
+  log "  teraslack signin google"
+  log "  teraslack signin github"
 }
 
 main "$@"

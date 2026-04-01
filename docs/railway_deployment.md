@@ -90,8 +90,8 @@ For the one-command installer:
 
 1. `frontend/public/install.sh` is emitted into the frontend production build for macOS and Linux and should be reachable at `https://teraslack.ai/install.sh`.
 2. `frontend/public/install.ps1` is emitted into the frontend production build for Windows and should be reachable at `https://teraslack.ai/install.ps1`.
-3. Both installers expect the API install routes on `https://api.teraslack.ai/cli/install/...`.
-4. Both installers expect prebuilt CLI binaries on `https://downloads.teraslack.ai/teraslack/cli/...`.
+3. Both installers expect prebuilt CLI binaries on `https://downloads.teraslack.ai/teraslack/cli/...`.
+4. The installers write local base URL config only; users sign in afterward with `teraslack signin ...`.
 
 Release bundle workflow:
 

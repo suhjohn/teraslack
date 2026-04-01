@@ -91,6 +91,32 @@ func (h *AuthHandler) StartOAuth(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, result.AuthorizationURL, http.StatusFound)
 }
 
+func (h *AuthHandler) StartCLIOAuth(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		WorkspaceID string `json:"workspace_id"`
+		InviteToken string `json:"invite_token"`
+		CallbackURL string `json:"callback_url"`
+	}
+	if err := httputil.DecodeJSON(r, &req); err != nil {
+		httputil.WriteError(w, r, domain.ErrInvalidArgument)
+		return
+	}
+
+	provider := domain.AuthProvider(r.PathValue("provider"))
+	result, err := h.svc.StartCLIOAuth(r.Context(), domain.StartOAuthParams{
+		Provider:    provider,
+		WorkspaceID: req.WorkspaceID,
+		InviteToken: req.InviteToken,
+		CallbackURL: req.CallbackURL,
+	})
+	if err != nil {
+		httputil.WriteError(w, r, err)
+		return
+	}
+
+	httputil.WriteResource(w, http.StatusOK, result)
+}
+
 func (h *AuthHandler) CompleteOAuth(w http.ResponseWriter, r *http.Request) {
 	nonceCookie, err := r.Cookie(oauthNonceCookieName)
 	if err != nil {
@@ -123,6 +149,28 @@ func (h *AuthHandler) CompleteOAuth(w http.ResponseWriter, r *http.Request) {
 
 	if result.RedirectTo != "" {
 		http.Redirect(w, r, result.RedirectTo, http.StatusFound)
+		return
+	}
+
+	httputil.WriteResource(w, http.StatusOK, result.Session)
+}
+
+func (h *AuthHandler) CompleteCLIOAuth(w http.ResponseWriter, r *http.Request) {
+	var req domain.CompleteOAuthParams
+	if err := httputil.DecodeJSON(r, &req); err != nil {
+		httputil.WriteError(w, r, domain.ErrInvalidArgument)
+		return
+	}
+
+	provider := domain.AuthProvider(r.PathValue("provider"))
+	result, err := h.svc.CompleteOAuth(r.Context(), domain.CompleteOAuthParams{
+		Provider: provider,
+		Code:     req.Code,
+		State:    req.State,
+		Nonce:    req.Nonce,
+	})
+	if err != nil {
+		httputil.WriteError(w, r, err)
 		return
 	}
 
@@ -274,7 +322,7 @@ func isAuthBypassRequest(r *http.Request) bool {
 	return r.URL.Path == "/auth/signup" ||
 		r.URL.Path == "/auth/verify" ||
 		strings.HasPrefix(r.URL.Path, "/auth/oauth/") ||
-		strings.HasPrefix(r.URL.Path, "/cli/install/")
+		strings.HasPrefix(r.URL.Path, "/auth/cli/oauth/")
 }
 
 func authCredentialFromRequest(r *http.Request) (token string, isAPIKey bool) {

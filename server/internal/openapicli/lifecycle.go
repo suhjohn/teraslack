@@ -40,7 +40,7 @@ type releaseArtifact struct {
 
 func isLifecycleCommand(name string) bool {
 	switch strings.TrimSpace(name) {
-	case "version", "update", "uninstall":
+	case "version", "update", "uninstall", "signout":
 		return true
 	default:
 		return false
@@ -55,6 +55,8 @@ func (c *CLI) runLifecycle(ctx context.Context, name string, args []string, outp
 		return c.runUpdate(ctx, args, stdout, stderr)
 	case "uninstall":
 		return c.runUninstall(args, stdout, stderr)
+	case "signout":
+		return c.runSignout(args, stdout, stderr)
 	default:
 		fmt.Fprintf(stderr, "unknown command %q\n", name)
 		return 2
@@ -75,6 +77,10 @@ func (c *CLI) printLifecycleHelp(name string, w io.Writer) {
 		fmt.Fprintln(w, "Usage:\n  teraslack uninstall [--keep-config]")
 		fmt.Fprintln(w)
 		fmt.Fprintln(w, "Remove the installed CLI binary. By default this also deletes ~/.teraslack/config.json.")
+	case "signout":
+		fmt.Fprintln(w, "Usage:\n  teraslack signout")
+		fmt.Fprintln(w)
+		fmt.Fprintln(w, "Remove the stored session token while keeping base URL and API key config.")
 	}
 }
 
@@ -240,6 +246,28 @@ func (c *CLI) runUninstall(args []string, stdout, stderr io.Writer) int {
 	removeDirIfEmpty(binDir)
 	removeDirIfEmpty(installRoot)
 	fmt.Fprintln(stdout, "uninstalled teraslack")
+	return 0
+}
+
+func (c *CLI) runSignout(args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("signout", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	fs.Usage = func() {
+		c.printLifecycleHelp("signout", stderr)
+	}
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	if len(fs.Args()) != 0 {
+		fs.Usage()
+		return 2
+	}
+
+	if err := clearSessionFromFileConfig(); err != nil {
+		fmt.Fprintf(stderr, "clear session: %v\n", err)
+		return 1
+	}
+	fmt.Fprintln(stdout, "signed out of teraslack")
 	return 0
 }
 
