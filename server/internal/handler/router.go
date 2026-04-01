@@ -21,7 +21,6 @@ func Router(
 	corsAllowedOrigins []string,
 	authSvc *service.AuthService,
 	apiKeySvc *service.APIKeyService,
-	mcpOAuthSvc *service.MCPOAuthService,
 	workspaceH *WorkspaceHandler,
 	workspaceInviteH *WorkspaceInviteHandler,
 	userH *UserHandler,
@@ -35,7 +34,6 @@ func Router(
 	externalAccessH *ExternalPrincipalAccessHandler,
 	eventH *EventHandler,
 	authH *AuthHandler,
-	mcpOAuthH *MCPOAuthHandler,
 	installH *InstallHandler,
 	searchH *SearchHandler,
 	apiKeyH *APIKeyHandler,
@@ -139,18 +137,6 @@ func Router(
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write(data)
 	})
-	root.HandleFunc("GET /.well-known/oauth-authorization-server", func(w http.ResponseWriter, r *http.Request) {
-		mcpOAuthH.AuthorizationServerMetadata(w, r)
-	})
-	root.HandleFunc("GET /oauth/authorize", func(w http.ResponseWriter, r *http.Request) {
-		mcpOAuthH.Authorize(w, r)
-	})
-	root.HandleFunc("POST /oauth/authorize", func(w http.ResponseWriter, r *http.Request) {
-		mcpOAuthH.Authorize(w, r)
-	})
-	root.HandleFunc("POST /oauth/token", func(w http.ResponseWriter, r *http.Request) {
-		mcpOAuthH.Token(w, r)
-	})
 	root.HandleFunc("POST /cli/install/sessions", func(w http.ResponseWriter, r *http.Request) {
 		installH.CreateSession(w, r)
 	})
@@ -169,7 +155,7 @@ func Router(
 	root.Handle("/", validator(apiHandler))
 
 	var h http.Handler = root
-	h = AuthMiddleware(authSvc, apiKeySvc, mcpOAuthSvc)(h)
+	h = AuthMiddleware(authSvc, apiKeySvc)(h)
 	h = CORS(frontendURL, corsAllowedOrigins)(h)
 	h = Logger(logger)(h)
 	h = Recovery(logger)(h)

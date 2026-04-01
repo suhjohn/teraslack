@@ -19,9 +19,6 @@ case "$role" in
   indexer)
     exec /app/indexer
     ;;
-  mcp-server)
-    exec /app/teraslack-mcp-server
-    ;;
   *)
     echo "unknown APP_ROLE: $role" >&2
     exit 1

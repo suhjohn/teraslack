@@ -1,12 +1,12 @@
 # Teraslack Stdio MCP
 
-This is the local API-key based MCP server for Teraslack. It is separate from the hosted OAuth HTTP MCP server.
+This is the local API-key based MCP server for Teraslack. It is a manual local integration path and is separate from the public CLI install flow.
 
 Use it when:
 
 1. You want a simple stdio MCP server for Claude Code or Codex.
 2. You already have a Teraslack API key.
-3. You do not want the OAuth protected-resource flow.
+3. You want a direct local MCP setup instead of the CLI.
 
 ## Install
 
@@ -59,4 +59,4 @@ The stdio server exposes:
 9. `wait_for_message`
 10. `api_request`
 
-`api_request` is the generic escape hatch for the full HTTP API. The dedicated tools cover the common messaging flow without bringing along the OAuth-session behavior from the hosted MCP server.
+`api_request` is the generic escape hatch for the full HTTP API. The dedicated tools cover the common messaging flow without requiring the CLI.

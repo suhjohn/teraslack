@@ -15,9 +15,7 @@ type Config struct {
 	BaseURL                 string
 	FrontendURL             string
 	CORSAllowedOrigins      []string
-	MCPBaseURL              string
 	AuthStateSecret         string
-	MCPOAuthSigningKey      string
 	GitHubOAuthClientID     string
 	GitHubOAuthClientSecret string
 	GoogleOAuthClientID     string
@@ -75,9 +73,7 @@ func Load() (*Config, error) {
 		BaseURL:                 baseURL,
 		FrontendURL:             frontendURL,
 		CORSAllowedOrigins:      splitCSV(os.Getenv("CORS_ALLOWED_ORIGINS")),
-		MCPBaseURL:              getEnv("MCP_BASE_URL", baseURL+"/mcp"),
 		AuthStateSecret:         os.Getenv("AUTH_STATE_SECRET"),
-		MCPOAuthSigningKey:      getEnv("MCP_OAUTH_SIGNING_KEY", os.Getenv("ENCRYPTION_KEY")),
 		GitHubOAuthClientID:     os.Getenv("GITHUB_OAUTH_CLIENT_ID"),
 		GitHubOAuthClientSecret: os.Getenv("GITHUB_OAUTH_CLIENT_SECRET"),
 		GoogleOAuthClientID:     os.Getenv("GOOGLE_OAUTH_CLIENT_ID"),

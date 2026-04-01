@@ -204,7 +204,7 @@ var authBypassPaths = map[string]bool{
 	"/openapi.yaml": true,
 }
 
-func AuthMiddleware(authSvc *service.AuthService, apiKeySvc *service.APIKeyService, mcpOAuthSvc *service.MCPOAuthService) func(http.Handler) http.Handler {
+func AuthMiddleware(authSvc *service.AuthService, apiKeySvc *service.APIKeyService) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if isAuthBypassRequest(r) {
@@ -238,19 +238,6 @@ func AuthMiddleware(authSvc *service.AuthService, apiKeySvc *service.APIKeyServi
 				ctx = ctxutil.WithPermissions(ctx, validation.Permissions)
 				next.ServeHTTP(w, r.WithContext(ctx))
 				return
-			}
-
-			if mcpOAuthSvc != nil && strings.Count(token, ".") == 2 {
-				auth, err := mcpOAuthSvc.ValidateAPIAccessToken(ctx, token)
-				if err == nil {
-					ctx = context.WithValue(ctx, ctxutil.ContextKeyWorkspaceID, auth.WorkspaceID)
-					ctx = context.WithValue(ctx, ctxutil.ContextKeyUserID, auth.UserID)
-					ctx = ctxutil.WithPrincipal(ctx, auth.PrincipalType, auth.AccountType, auth.IsBot)
-					ctx = ctxutil.WithPermissions(ctx, auth.Permissions)
-					ctx = ctxutil.WithOAuthScopes(ctx, auth.Scopes)
-					next.ServeHTTP(w, r.WithContext(ctx))
-					return
-				}
 			}
 
 			if authSvc == nil {
@@ -287,9 +274,7 @@ func isAuthBypassRequest(r *http.Request) bool {
 	return r.URL.Path == "/auth/signup" ||
 		r.URL.Path == "/auth/verify" ||
 		strings.HasPrefix(r.URL.Path, "/auth/oauth/") ||
-		strings.HasPrefix(r.URL.Path, "/cli/install/") ||
-		strings.HasPrefix(r.URL.Path, "/oauth/") ||
-		strings.HasPrefix(r.URL.Path, "/.well-known/oauth-authorization-server")
+		strings.HasPrefix(r.URL.Path, "/cli/install/")
 }
 
 func authCredentialFromRequest(r *http.Request) (token string, isAPIKey bool) {

@@ -12,7 +12,6 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o /out/external-event-projec
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o /out/webhook-producer ./cmd/webhook-producer
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o /out/webhook-worker ./cmd/webhook-worker
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o /out/indexer ./cmd/indexer
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o /out/teraslack-mcp-server ./cmd/teraslack-mcp-server
 
 FROM debian:bookworm-slim
 
@@ -27,7 +26,6 @@ COPY --from=build /out/external-event-projector /app/external-event-projector
 COPY --from=build /out/webhook-producer /app/webhook-producer
 COPY --from=build /out/webhook-worker /app/webhook-worker
 COPY --from=build /out/indexer /app/indexer
-COPY --from=build /out/teraslack-mcp-server /app/teraslack-mcp-server
 COPY --from=build /src/internal/repository/migrations /app/internal/repository/migrations
 COPY docker/start.sh /app/start
 

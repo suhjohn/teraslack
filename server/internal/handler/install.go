@@ -129,6 +129,23 @@ func (h *InstallHandler) sessionAuth(r *http.Request) (*domain.AuthContext, bool
 	return auth, true
 }
 
+func renderLoginPage(w http.ResponseWriter, redirectTo string) {
+	const tpl = `<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Sign in to Teraslack</title></head>
+<body style="font-family: sans-serif; max-width: 720px; margin: 3rem auto; line-height: 1.5;">
+<h1>Sign in to Teraslack</h1>
+<p>Sign in before approving this CLI install.</p>
+<p><a href="/auth/oauth/github/start?redirect_to={{.RedirectToQuery}}">Continue with GitHub</a></p>
+<p><a href="/auth/oauth/google/start?redirect_to={{.RedirectToQuery}}">Continue with Google</a></p>
+</body>
+</html>`
+	t := template.Must(template.New("login").Parse(tpl))
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.WriteHeader(http.StatusUnauthorized)
+	_ = t.Execute(w, map[string]string{"RedirectToQuery": url.QueryEscape(redirectTo)})
+}
+
 func renderInstallApprovalPage(w http.ResponseWriter, prompt *domain.InstallApprovalPrompt) {
 	const tpl = `<!doctype html>
 <html lang="en">

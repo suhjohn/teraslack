@@ -75,9 +75,9 @@ func TestComposeE2E_SystemAPIKeyCanReachProtectedRoutes(t *testing.T) {
 		"users":       []string{owner.ID, member.ID},
 	})
 	subscription := createEventSubscriptionViaHTTP(t, httpClient, baseURL, ownerToken, map[string]any{
-		"workspace_id": owner.WorkspaceID,
-		"url":          "https://example.com/webhook/system-routes",
-		"type":         domain.EventTypeConversationMessageCreated,
+		"workspace_id":  owner.WorkspaceID,
+		"url":           "https://example.com/webhook/system-routes",
+		"type":          domain.EventTypeConversationMessageCreated,
 		"resource_type": domain.ResourceTypeConversation,
 		"resource_id":   channel.ID,
 		"secret":        "system-route-secret",
@@ -100,22 +100,22 @@ func TestComposeE2E_SystemAPIKeyCanReachProtectedRoutes(t *testing.T) {
 	}
 
 	fixtures := systemRouteFixtures{
-		workspaceID:       owner.WorkspaceID,
-		ownerID:           owner.ID,
-		memberID:          member.ID,
-		agentID:           agent.ID,
-		channelID:         channel.ID,
-		messageTS:         rootMessage.TS,
-		bookmarkID:        bookmark.ID,
-		apiKeyID:          managedKey.ID,
-		usergroupID:       usergroup.ID,
-		subscriptionID:    subscription.ID,
-		externalAccessID:  externalAccess.ID,
-		fakeExternalWSID:  "EW_DOES_NOT_EXIST",
-		fakeFileID:        "F_DOES_NOT_EXIST",
-		fakeUploadFileID:  "F_UPLOAD_DOES_NOT_EXIST",
-		fakeBookmarkID:    "B_DOES_NOT_EXIST",
-		fakeMessageTS:     "9999.999999",
+		workspaceID:        owner.WorkspaceID,
+		ownerID:            owner.ID,
+		memberID:           member.ID,
+		agentID:            agent.ID,
+		channelID:          channel.ID,
+		messageTS:          rootMessage.TS,
+		bookmarkID:         bookmark.ID,
+		apiKeyID:           managedKey.ID,
+		usergroupID:        usergroup.ID,
+		subscriptionID:     subscription.ID,
+		externalAccessID:   externalAccess.ID,
+		fakeExternalWSID:   "EW_DOES_NOT_EXIST",
+		fakeFileID:         "F_DOES_NOT_EXIST",
+		fakeUploadFileID:   "F_UPLOAD_DOES_NOT_EXIST",
+		fakeBookmarkID:     "B_DOES_NOT_EXIST",
+		fakeMessageTS:      "9999.999999",
 		fakeConversationID: "C_DOES_NOT_EXIST",
 	}
 
@@ -222,8 +222,7 @@ func isProtectedRoute(path string) bool {
 		return false
 	}
 	return !strings.HasPrefix(path, "/auth/oauth/") &&
-		!strings.HasPrefix(path, "/oauth/") &&
-		!strings.HasPrefix(path, "/.well-known/oauth-authorization-server")
+		!strings.HasPrefix(path, "/cli/install/")
 }
 
 func buildSystemRouteURL(baseURL, path string, fx systemRouteFixtures) string {
@@ -323,9 +322,9 @@ func buildSystemRouteBody(method, path string, fx systemRouteFixtures) any {
 		return map[string]any{"last_read_ts": fx.messageTS}
 	case http.MethodPost + " /event-subscriptions":
 		return map[string]any{
-			"workspace_id": ownerWorkspace(fx),
-			"url":          "https://example.com/system-route-create",
-			"type":         domain.EventTypeConversationMessageCreated,
+			"workspace_id":  ownerWorkspace(fx),
+			"url":           "https://example.com/system-route-create",
+			"type":          domain.EventTypeConversationMessageCreated,
 			"resource_type": domain.ResourceTypeConversation,
 			"resource_id":   fx.channelID,
 			"secret":        "route-secret",

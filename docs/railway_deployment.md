@@ -34,10 +34,6 @@ Optional workers:
   - root directory: `server`
   - builder: Dockerfile
   - env: `APP_ROLE=indexer`
-- `mcp-server`
-  - root directory: `server`
-  - builder: Dockerfile
-  - env: `APP_ROLE=mcp-server`
 
 ## Recommended Railway services
 
@@ -51,7 +47,6 @@ Add these if you want the corresponding features:
 
 - `webhook-producer` and `webhook-worker` for webhook delivery
 - `indexer` for Turbopuffer-backed search indexing
-- `mcp-server` for hosting the MCP server over HTTP
 
 ## Start commands
 
@@ -62,7 +57,6 @@ Deploy every Go service from the `server/` directory using `server/Dockerfile`, 
 - `webhook-producer`: `APP_ROLE=webhook-producer`
 - `webhook-worker`: `APP_ROLE=webhook-worker`
 - `indexer`: `APP_ROLE=indexer`
-- `mcp-server`: `APP_ROLE=mcp-server`
 
 Deploy `frontend` from the `frontend/` directory. It is a separate TanStack Start app and uses its own `package.json`.
 
@@ -73,48 +67,13 @@ If Railway's default builder does not correctly detect the Bun runtime for `fron
 
 If you prefer, you can switch the `frontend` service to Nixpacks and reuse `frontend/nixpacks.toml`.
 
-## MCP service notes
-
-The `mcp-server` service hosts the Teraslack MCP endpoint over HTTP.
-
-- public endpoint: `https://<your-mcp-domain>/mcp`
-- transport: MCP Streamable HTTP
-- auth: clients authenticate with OAuth access tokens issued by the API service
-- startup env: `TERASLACK_BASE_URL` and `MCP_BASE_URL` are required; `MCP_OAUTH_SIGNING_KEY` is optional if both services share `ENCRYPTION_KEY`
-
-Behavior notes:
-
-- MCP session state such as `register`, default conversation, and conversation subscriptions is scoped to the MCP session, not shared process-wide.
-- Stateful MCP clients should expect standard `Mcp-Session-Id` behavior.
-- The MCP endpoint supports the normal Streamable HTTP request pattern, including `GET`, `POST`, and `DELETE` on `/mcp`.
-- The service also exposes `GET /health`.
-- The service also exposes Protected Resource Metadata on `/.well-known/oauth-protected-resource` and `/.well-known/oauth-protected-resource/mcp`.
-
-## MCP OAuth notes
-
-The API service acts as the OAuth authorization server for MCP.
-
-- authorization server metadata: `https://<your-api-domain>/.well-known/oauth-authorization-server`
-- authorize endpoint: `https://<your-api-domain>/oauth/authorize`
-- token endpoint: `https://<your-api-domain>/oauth/token`
-- issuer: the API `BASE_URL`
-- protected resource: the separate MCP endpoint from `MCP_BASE_URL`
-
-Implementation notes:
-
-- The auth server supports authorization code + PKCE.
-- Client authentication uses public clients with `token_endpoint_auth_method=none`.
-- Client ID metadata documents are supported.
-- Dynamic client registration is not implemented.
-- Access tokens are audience-bound to the MCP endpoint and also accepted by the API service for server-side MCP tool execution.
-
 ## Railway setup steps
 
 1. Create a Railway project and connect this GitHub repo.
 2. Add the `frontend` service with root directory `frontend`.
 3. Add the `server` service with root directory `server`, then set `APP_ROLE=server`.
 4. Add `external-event-projector` with the same root directory `server`, then set `APP_ROLE=external-event-projector`.
-5. Add `webhook-producer`, `webhook-worker`, `indexer`, and `mcp-server` only if you need those features.
+5. Add `webhook-producer`, `webhook-worker`, and `indexer` only if you need those features.
 6. Provision or attach Postgres, then copy its connection strings into the shared env vars.
 7. Generate public domains for `frontend` and `server`.
 8. Map `teraslack.ai` to `frontend` and `api.teraslack.ai` to `server`.
@@ -122,11 +81,8 @@ Implementation notes:
 10. Set `FRONTEND_URL=https://teraslack.ai`.
 11. Set `VITE_API_BASE_URL=https://api.teraslack.ai`.
 12. Set `CORS_ALLOWED_ORIGINS=https://teraslack.ai,https://www.teraslack.ai`.
-13. Set `MCP_BASE_URL` on both the `server` and `mcp-server` services to the public HTTPS URL of the MCP endpoint, for example `https://mcp.example.com/mcp`.
-14. Set `TERASLACK_BASE_URL` on the `mcp-server` service to the public HTTPS URL of `server`.
-15. Set `MCP_OAUTH_SIGNING_KEY` on both `server` and `mcp-server`, or rely on a shared `ENCRYPTION_KEY`.
-16. Set `VITE_TEAM_ID` on the `frontend` service to the workspace ID you want the login page to target.
-17. Redeploy all services after the env vars are in place.
+13. Set `VITE_TEAM_ID` on the `frontend` service to the workspace ID you want the login page to target.
+14. Redeploy all services after the env vars are in place.
 
 ## Install Flow Deployment Notes
 
@@ -195,14 +151,12 @@ GitHub Actions secrets and vars:
 The repo root `Makefile` includes Railway deploy helpers:
 
 - `make railway-status`
-- `make railway-ensure-service SERVICE=mcp-server`
 - `make deploy-frontend`
 - `make deploy-server`
 - `make deploy-external-event-projector`
 - `make deploy-webhook-producer`
 - `make deploy-webhook-worker`
 - `make deploy-indexer`
-- `make deploy-mcp-server`
 - `make deploy-core`
 
 For a generic target, use:
@@ -212,11 +166,11 @@ For a generic target, use:
 Important:
 
 - Backend deploy targets now create the Railway service first if it does not already exist in the linked project:
-  `make deploy-server`, `make deploy-external-event-projector`, `make deploy-webhook-producer`, `make deploy-webhook-worker`, `make deploy-indexer`, and `make deploy-mcp-server`.
+  `make deploy-server`, `make deploy-external-event-projector`, `make deploy-webhook-producer`, `make deploy-webhook-worker`, and `make deploy-indexer`.
 - The auto-created backend services are initialized with the matching `APP_ROLE`.
-- `make deploy-core` deploys the full service set in parallel: `frontend`, `server`, `external-event-projector`, `webhook-producer`, `webhook-worker`, `indexer`, and `mcp-server`.
+- `make deploy-core` deploys the full service set in parallel: `frontend`, `server`, `external-event-projector`, `webhook-producer`, `webhook-worker`, and `indexer`.
 - The generic `make railway-deploy SERVICE=...` target still expects the Railway service to already exist.
-- The `SERVICE=...` value must exactly match the Railway service name, for example `mcp-server`.
+- The `SERVICE=...` value must exactly match the Railway service name, for example `server`.
 
 Optional overrides:
 

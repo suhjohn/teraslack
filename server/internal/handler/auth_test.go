@@ -41,7 +41,7 @@ func TestAuthMiddleware_NoHeader(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	middleware := AuthMiddleware(nil, nil, nil)(next)
+	middleware := AuthMiddleware(nil, nil)(next)
 
 	req := httptest.NewRequest(http.MethodGet, "/test", nil)
 	w := httptest.NewRecorder()
@@ -58,14 +58,14 @@ func TestAuthMiddleware_NoHeader(t *testing.T) {
 
 func TestAuthMiddleware_BypassPaths(t *testing.T) {
 	// Path-only bypasses (any method)
-	for _, path := range []string{"/healthz", "/oauth/authorize", "/oauth/token", "/.well-known/oauth-authorization-server", "/auth/signup", "/auth/verify"} {
+	for _, path := range []string{"/healthz", "/auth/signup", "/auth/verify"} {
 		called := false
 		next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			called = true
 			w.WriteHeader(http.StatusOK)
 		})
 
-		middleware := AuthMiddleware(nil, nil, nil)(next)
+		middleware := AuthMiddleware(nil, nil)(next)
 
 		req := httptest.NewRequest(http.MethodGet, path, nil)
 		w := httptest.NewRecorder()
@@ -86,7 +86,7 @@ func TestAuthMiddleware_BypassPaths(t *testing.T) {
 		called = true
 		w.WriteHeader(http.StatusOK)
 	})
-	middleware := AuthMiddleware(nil, nil, nil)(next)
+	middleware := AuthMiddleware(nil, nil)(next)
 	req := httptest.NewRequest(http.MethodGet, "/auth/oauth/github/start", nil)
 	w := httptest.NewRecorder()
 	middleware.ServeHTTP(w, req)
@@ -100,7 +100,7 @@ func TestAuthMiddleware_BypassPaths(t *testing.T) {
 		called = true
 		w.WriteHeader(http.StatusOK)
 	})
-	middleware = AuthMiddleware(nil, nil, nil)(next)
+	middleware = AuthMiddleware(nil, nil)(next)
 	req = httptest.NewRequest(http.MethodGet, "/auth/me", nil)
 	w = httptest.NewRecorder()
 	middleware.ServeHTTP(w, req)
