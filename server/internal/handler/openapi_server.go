@@ -111,6 +111,14 @@ func (s *openAPIServer) GetAuthMe(w http.ResponseWriter, r *http.Request) {
 	s.authH.Me(w, r)
 }
 
+func (s *openAPIServer) CreateAuthSignup(w http.ResponseWriter, r *http.Request) {
+	s.authH.Signup(w, r)
+}
+
+func (s *openAPIServer) CreateAuthVerify(w http.ResponseWriter, r *http.Request) {
+	s.authH.Verify(w, r)
+}
+
 func (s *openAPIServer) ListConversations(w http.ResponseWriter, r *http.Request, _ openapi.ListConversationsParams) {
 	s.convH.List(w, r)
 }

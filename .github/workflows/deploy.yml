@@ -33,11 +33,11 @@ jobs:
 
       - name: Verify server build
         working-directory: server
-        run: go build ./cmd/server ./cmd/teraslack-stdio-mcp
+        run: go build ./cmd/server ./cmd/teraslack-api
 
       - name: Verify targeted server tests
         working-directory: server
-        run: go test ./internal/service ./internal/handler ./internal/repository/postgres ./internal/teraslackstdio ./cmd/server ./cmd/teraslack-stdio-mcp
+        run: go test ./internal/service ./internal/handler ./internal/repository/postgres ./internal/openapicli ./cmd/server ./cmd/teraslack-api
 
       - name: Install frontend dependencies
         working-directory: frontend

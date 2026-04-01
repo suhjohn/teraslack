@@ -136,7 +136,7 @@ func renderInstallApprovalPage(w http.ResponseWriter, prompt *domain.InstallAppr
 <body style="font-family: sans-serif; max-width: 720px; margin: 3rem auto; line-height: 1.5;">
 <h1>Install Teraslack</h1>
 <p>Signed in as <strong>{{.User.Name}}</strong>{{if .User.Email}} ({{.User.Email}}){{end}}</p>
-<p>This will configure a local Teraslack MCP install for one of your workspaces.</p>
+<p>This will configure the Teraslack CLI for one of your workspaces.</p>
 {{if .Session.DeviceName}}<p><strong>Device:</strong> {{.Session.DeviceName}}</p>{{end}}
 <form method="post" action="{{.ApprovalURL}}">
 <label for="workspace_id"><strong>Workspace</strong></label><br>

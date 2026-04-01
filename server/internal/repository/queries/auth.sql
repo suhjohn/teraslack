@@ -13,6 +13,27 @@ UPDATE auth_sessions
 SET revoked_at = NOW()
 WHERE session_hash = $1 AND revoked_at IS NULL;
 
+-- name: DeletePendingEmailVerificationChallenges :exec
+DELETE FROM email_verification_challenges
+WHERE LOWER(email) = LOWER($1) AND consumed_at IS NULL;
+
+-- name: CreateEmailVerificationChallenge :one
+INSERT INTO email_verification_challenges (id, email, code_hash, expires_at)
+VALUES ($1, $2, $3, $4)
+RETURNING id, email, code_hash, expires_at, consumed_at, created_at;
+
+-- name: GetEmailVerificationChallenge :one
+SELECT id, email, code_hash, expires_at, consumed_at, created_at
+FROM email_verification_challenges
+WHERE LOWER(email) = LOWER($1) AND code_hash = $2
+ORDER BY created_at DESC
+LIMIT 1;
+
+-- name: ConsumeEmailVerificationChallenge :execrows
+UPDATE email_verification_challenges
+SET consumed_at = $2
+WHERE id = $1 AND consumed_at IS NULL;
+
 -- name: GetOAuthAccount :one
 SELECT id, workspace_id, user_id, provider, provider_subject, email, created_at, updated_at
 FROM oauth_accounts

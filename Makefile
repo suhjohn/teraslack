@@ -10,7 +10,7 @@ COMPOSE_DEV := $(COMPOSE) -f docker-compose.yml -f docker-compose.dev.yml
 
 .PHONY: run build test lint migrate-up migrate-down docker-up docker-down integration_test openapi-generate openapi-check permissions-generate permissions-check \
 	dev dev-down dev-reset dev-logs railway-status railway-deploy railway-ensure-service deploy-frontend deploy-server deploy-external-event-projector \
-	deploy-webhook-producer deploy-webhook-worker deploy-indexer deploy-mcp-server deploy-core build-stdio-release upload-stdio-release release-stdio
+	deploy-webhook-producer deploy-webhook-worker deploy-indexer deploy-mcp-server deploy-core build-cli-release upload-cli-release release-cli
 
 run build test lint migrate-up migrate-down openapi-generate openapi-check permissions-generate permissions-check:
 	$(MAKE) -C $(SERVER_DIR) $@
@@ -36,27 +36,27 @@ docker-down:
 integration_test:
 	./integration_test
 
-build-stdio-release:
+build-cli-release:
 	@if [ -z "$(VERSION)" ]; then \
-		echo "VERSION is required. Example: make build-stdio-release VERSION=v0.1.0"; \
+		echo "VERSION is required. Example: make build-cli-release VERSION=v0.1.0"; \
 		exit 1; \
 	fi
-	./scripts/build-stdio-release.sh "$(VERSION)"
+	./scripts/build-cli-release.sh "$(VERSION)"
 
-upload-stdio-release:
+upload-cli-release:
 	@if [ -z "$(VERSION)" ]; then \
-		echo "VERSION is required. Example: make upload-stdio-release VERSION=v0.1.0"; \
+		echo "VERSION is required. Example: make upload-cli-release VERSION=v0.1.0"; \
 		exit 1; \
 	fi
-	./scripts/upload-stdio-release.sh "$(VERSION)"
+	./scripts/upload-cli-release.sh "$(VERSION)"
 
-release-stdio:
+release-cli:
 	@if [ -z "$(VERSION)" ]; then \
-		echo "VERSION is required. Example: make release-stdio VERSION=v0.1.0"; \
+		echo "VERSION is required. Example: make release-cli VERSION=v0.1.0"; \
 		exit 1; \
 	fi
-	$(MAKE) build-stdio-release VERSION="$(VERSION)"
-	$(MAKE) upload-stdio-release VERSION="$(VERSION)"
+	$(MAKE) build-cli-release VERSION="$(VERSION)"
+	$(MAKE) upload-cli-release VERSION="$(VERSION)"
 
 railway-status:
 	$(RAILWAY) status

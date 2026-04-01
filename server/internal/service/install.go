@@ -165,7 +165,7 @@ func (s *InstallService) ApproveSession(ctx context.Context, auth *domain.AuthCo
 	keyCtx = context.WithValue(keyCtx, ctxutil.ContextKeyUserID, targetMembership.user.ID)
 	keyCtx = ctxutil.WithPrincipal(keyCtx, targetMembership.user.PrincipalType, targetMembership.user.EffectiveAccountType(), targetMembership.user.IsBot)
 
-	keyName := "local-mcp"
+	keyName := "local-cli"
 	if session.DeviceName != "" {
 		keyName += " " + session.DeviceName
 	}
@@ -255,7 +255,7 @@ func (s *InstallService) expirePending(ctx context.Context) error {
 func normalizeInstallClientKind(raw string) string {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
-		return "local_mcp"
+		return "local_cli"
 	}
 	return raw
 }

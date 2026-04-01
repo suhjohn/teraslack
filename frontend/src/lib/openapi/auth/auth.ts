@@ -28,6 +28,9 @@ import type {
   ApiErrorResponseResponse,
   AuthMeResponse,
   AuthSession,
+  AuthSignupRequest,
+  AuthSignupResponse,
+  AuthVerifyRequest,
   CompleteOAuthParams,
   NoContentResponse,
   StartOAuthParams,
@@ -67,7 +70,7 @@ export type startOAuthResponseError = (startOAuthResponse302 | startOAuthRespons
 
 export type startOAuthResponse = (startOAuthResponseError)
 
-export const getStartOAuthUrl = (provider: 'github' | 'google',
+export const getStartOAuthUrl = (provider: 'email' | 'github' | 'google',
     params?: StartOAuthParams,) => {
   const normalizedParams = new URLSearchParams();
 
@@ -83,7 +86,7 @@ export const getStartOAuthUrl = (provider: 'github' | 'google',
   return stringifiedParams.length > 0 ? `/auth/oauth/${provider}/start?${stringifiedParams}` : `/auth/oauth/${provider}/start`
 }
 
-export const startOAuth = async (provider: 'github' | 'google',
+export const startOAuth = async (provider: 'email' | 'github' | 'google',
     params?: StartOAuthParams, options?: RequestInit): Promise<startOAuthResponse> => {
 
   return orvalFetch<startOAuthResponse>(getStartOAuthUrl(provider,params),
@@ -99,7 +102,7 @@ export const startOAuth = async (provider: 'github' | 'google',
 
 
 
-export const getStartOAuthQueryKey = (provider: 'github' | 'google',
+export const getStartOAuthQueryKey = (provider: 'email' | 'github' | 'google',
     params?: StartOAuthParams,) => {
     return [
     `/auth/oauth/${provider}/start`, ...(params ? [params] : [])
@@ -107,7 +110,7 @@ export const getStartOAuthQueryKey = (provider: 'github' | 'google',
     }
 
 
-export const getStartOAuthQueryOptions = <TData = Awaited<ReturnType<typeof startOAuth>>, TError = ErrorType<void | ApiErrorResponseResponse>>(provider: 'github' | 'google',
+export const getStartOAuthQueryOptions = <TData = Awaited<ReturnType<typeof startOAuth>>, TError = ErrorType<void | ApiErrorResponseResponse>>(provider: 'email' | 'github' | 'google',
     params?: StartOAuthParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof startOAuth>>, TError, TData>>, request?: SecondParameter<typeof orvalFetch>}
 ) => {
 
@@ -131,7 +134,7 @@ export type StartOAuthQueryError = ErrorType<void | ApiErrorResponseResponse>
 
 
 export function useStartOAuth<TData = Awaited<ReturnType<typeof startOAuth>>, TError = ErrorType<void | ApiErrorResponseResponse>>(
- provider: 'github' | 'google',
+ provider: 'email' | 'github' | 'google',
     params: undefined |  StartOAuthParams, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof startOAuth>>, TError, TData>> & Pick<
         DefinedInitialDataOptions<
           Awaited<ReturnType<typeof startOAuth>>,
@@ -142,7 +145,7 @@ export function useStartOAuth<TData = Awaited<ReturnType<typeof startOAuth>>, TE
  , queryClient?: QueryClient
   ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
 export function useStartOAuth<TData = Awaited<ReturnType<typeof startOAuth>>, TError = ErrorType<void | ApiErrorResponseResponse>>(
- provider: 'github' | 'google',
+ provider: 'email' | 'github' | 'google',
     params?: StartOAuthParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof startOAuth>>, TError, TData>> & Pick<
         UndefinedInitialDataOptions<
           Awaited<ReturnType<typeof startOAuth>>,
@@ -153,13 +156,13 @@ export function useStartOAuth<TData = Awaited<ReturnType<typeof startOAuth>>, TE
  , queryClient?: QueryClient
   ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
 export function useStartOAuth<TData = Awaited<ReturnType<typeof startOAuth>>, TError = ErrorType<void | ApiErrorResponseResponse>>(
- provider: 'github' | 'google',
+ provider: 'email' | 'github' | 'google',
     params?: StartOAuthParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof startOAuth>>, TError, TData>>, request?: SecondParameter<typeof orvalFetch>}
  , queryClient?: QueryClient
   ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
 
 export function useStartOAuth<TData = Awaited<ReturnType<typeof startOAuth>>, TError = ErrorType<void | ApiErrorResponseResponse>>(
- provider: 'github' | 'google',
+ provider: 'email' | 'github' | 'google',
     params?: StartOAuthParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof startOAuth>>, TError, TData>>, request?: SecondParameter<typeof orvalFetch>}
  , queryClient?: QueryClient
  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
@@ -174,7 +177,173 @@ export function useStartOAuth<TData = Awaited<ReturnType<typeof startOAuth>>, TE
 
 
 
-export type completeOAuthResponse200 = {
+export type createAuthSignupResponse202 = {
+  data: AuthSignupResponse
+  status: 202
+}
+
+export type createAuthSignupResponseDefault = {
+  data: ApiErrorResponseResponse
+  status: Exclude<HTTPStatusCodes, 202>
+}
+
+export type createAuthSignupResponseSuccess = (createAuthSignupResponse202) & {
+  headers: Headers;
+};
+export type createAuthSignupResponseError = (createAuthSignupResponseDefault) & {
+  headers: Headers;
+};
+
+export type createAuthSignupResponse = (createAuthSignupResponseSuccess | createAuthSignupResponseError)
+
+export const getCreateAuthSignupUrl = () => {
+
+
+
+
+  return `/auth/signup`
+}
+
+export const createAuthSignup = async (authSignupRequest: AuthSignupRequest, options?: RequestInit): Promise<createAuthSignupResponse> => {
+
+  return orvalFetch<createAuthSignupResponse>(getCreateAuthSignupUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      authSignupRequest,)
+  }
+);}
+
+
+
+
+export const getCreateAuthSignupMutationOptions = <TError = ErrorType<ApiErrorResponseResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createAuthSignup>>, TError,{data: BodyType<AuthSignupRequest>}, TContext>, request?: SecondParameter<typeof orvalFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createAuthSignup>>, TError,{data: BodyType<AuthSignupRequest>}, TContext> => {
+
+const mutationKey = ['createAuthSignup'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createAuthSignup>>, {data: BodyType<AuthSignupRequest>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  createAuthSignup(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreateAuthSignupMutationResult = NonNullable<Awaited<ReturnType<typeof createAuthSignup>>>
+    export type CreateAuthSignupMutationBody = BodyType<AuthSignupRequest>
+    export type CreateAuthSignupMutationError = ErrorType<ApiErrorResponseResponse>
+
+    export const useCreateAuthSignup = <TError = ErrorType<ApiErrorResponseResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createAuthSignup>>, TError,{data: BodyType<AuthSignupRequest>}, TContext>, request?: SecondParameter<typeof orvalFetch>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof createAuthSignup>>,
+        TError,
+        {data: BodyType<AuthSignupRequest>},
+        TContext
+      > => {
+      return useMutation(getCreateAuthSignupMutationOptions(options), queryClient);
+    }
+    export type createAuthVerifyResponse200 = {
+  data: AuthSession
+  status: 200
+}
+
+export type createAuthVerifyResponseDefault = {
+  data: ApiErrorResponseResponse
+  status: Exclude<HTTPStatusCodes, 200>
+}
+
+export type createAuthVerifyResponseSuccess = (createAuthVerifyResponse200) & {
+  headers: Headers;
+};
+export type createAuthVerifyResponseError = (createAuthVerifyResponseDefault) & {
+  headers: Headers;
+};
+
+export type createAuthVerifyResponse = (createAuthVerifyResponseSuccess | createAuthVerifyResponseError)
+
+export const getCreateAuthVerifyUrl = () => {
+
+
+
+
+  return `/auth/verify`
+}
+
+export const createAuthVerify = async (authVerifyRequest: AuthVerifyRequest, options?: RequestInit): Promise<createAuthVerifyResponse> => {
+
+  return orvalFetch<createAuthVerifyResponse>(getCreateAuthVerifyUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      authVerifyRequest,)
+  }
+);}
+
+
+
+
+export const getCreateAuthVerifyMutationOptions = <TError = ErrorType<ApiErrorResponseResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createAuthVerify>>, TError,{data: BodyType<AuthVerifyRequest>}, TContext>, request?: SecondParameter<typeof orvalFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createAuthVerify>>, TError,{data: BodyType<AuthVerifyRequest>}, TContext> => {
+
+const mutationKey = ['createAuthVerify'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createAuthVerify>>, {data: BodyType<AuthVerifyRequest>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  createAuthVerify(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreateAuthVerifyMutationResult = NonNullable<Awaited<ReturnType<typeof createAuthVerify>>>
+    export type CreateAuthVerifyMutationBody = BodyType<AuthVerifyRequest>
+    export type CreateAuthVerifyMutationError = ErrorType<ApiErrorResponseResponse>
+
+    export const useCreateAuthVerify = <TError = ErrorType<ApiErrorResponseResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createAuthVerify>>, TError,{data: BodyType<AuthVerifyRequest>}, TContext>, request?: SecondParameter<typeof orvalFetch>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof createAuthVerify>>,
+        TError,
+        {data: BodyType<AuthVerifyRequest>},
+        TContext
+      > => {
+      return useMutation(getCreateAuthVerifyMutationOptions(options), queryClient);
+    }
+    export type completeOAuthResponse200 = {
   data: AuthSession
   status: 200
 }
@@ -198,7 +367,7 @@ export type completeOAuthResponseError = (completeOAuthResponse302 | completeOAu
 
 export type completeOAuthResponse = (completeOAuthResponseSuccess | completeOAuthResponseError)
 
-export const getCompleteOAuthUrl = (provider: 'github' | 'google',
+export const getCompleteOAuthUrl = (provider: 'email' | 'github' | 'google',
     params: CompleteOAuthParams,) => {
   const normalizedParams = new URLSearchParams();
 
@@ -214,7 +383,7 @@ export const getCompleteOAuthUrl = (provider: 'github' | 'google',
   return stringifiedParams.length > 0 ? `/auth/oauth/${provider}/callback?${stringifiedParams}` : `/auth/oauth/${provider}/callback`
 }
 
-export const completeOAuth = async (provider: 'github' | 'google',
+export const completeOAuth = async (provider: 'email' | 'github' | 'google',
     params: CompleteOAuthParams, options?: RequestInit): Promise<completeOAuthResponse> => {
 
   return orvalFetch<completeOAuthResponse>(getCompleteOAuthUrl(provider,params),
@@ -230,7 +399,7 @@ export const completeOAuth = async (provider: 'github' | 'google',
 
 
 
-export const getCompleteOAuthQueryKey = (provider: 'github' | 'google',
+export const getCompleteOAuthQueryKey = (provider: 'email' | 'github' | 'google',
     params?: CompleteOAuthParams,) => {
     return [
     `/auth/oauth/${provider}/callback`, ...(params ? [params] : [])
@@ -238,7 +407,7 @@ export const getCompleteOAuthQueryKey = (provider: 'github' | 'google',
     }
 
 
-export const getCompleteOAuthQueryOptions = <TData = Awaited<ReturnType<typeof completeOAuth>>, TError = ErrorType<void | ApiErrorResponseResponse>>(provider: 'github' | 'google',
+export const getCompleteOAuthQueryOptions = <TData = Awaited<ReturnType<typeof completeOAuth>>, TError = ErrorType<void | ApiErrorResponseResponse>>(provider: 'email' | 'github' | 'google',
     params: CompleteOAuthParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof completeOAuth>>, TError, TData>>, request?: SecondParameter<typeof orvalFetch>}
 ) => {
 
@@ -262,7 +431,7 @@ export type CompleteOAuthQueryError = ErrorType<void | ApiErrorResponseResponse>
 
 
 export function useCompleteOAuth<TData = Awaited<ReturnType<typeof completeOAuth>>, TError = ErrorType<void | ApiErrorResponseResponse>>(
- provider: 'github' | 'google',
+ provider: 'email' | 'github' | 'google',
     params: CompleteOAuthParams, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof completeOAuth>>, TError, TData>> & Pick<
         DefinedInitialDataOptions<
           Awaited<ReturnType<typeof completeOAuth>>,
@@ -273,7 +442,7 @@ export function useCompleteOAuth<TData = Awaited<ReturnType<typeof completeOAuth
  , queryClient?: QueryClient
   ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
 export function useCompleteOAuth<TData = Awaited<ReturnType<typeof completeOAuth>>, TError = ErrorType<void | ApiErrorResponseResponse>>(
- provider: 'github' | 'google',
+ provider: 'email' | 'github' | 'google',
     params: CompleteOAuthParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof completeOAuth>>, TError, TData>> & Pick<
         UndefinedInitialDataOptions<
           Awaited<ReturnType<typeof completeOAuth>>,
@@ -284,13 +453,13 @@ export function useCompleteOAuth<TData = Awaited<ReturnType<typeof completeOAuth
  , queryClient?: QueryClient
   ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
 export function useCompleteOAuth<TData = Awaited<ReturnType<typeof completeOAuth>>, TError = ErrorType<void | ApiErrorResponseResponse>>(
- provider: 'github' | 'google',
+ provider: 'email' | 'github' | 'google',
     params: CompleteOAuthParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof completeOAuth>>, TError, TData>>, request?: SecondParameter<typeof orvalFetch>}
  , queryClient?: QueryClient
   ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
 
 export function useCompleteOAuth<TData = Awaited<ReturnType<typeof completeOAuth>>, TError = ErrorType<void | ApiErrorResponseResponse>>(
- provider: 'github' | 'google',
+ provider: 'email' | 'github' | 'google',
     params: CompleteOAuthParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof completeOAuth>>, TError, TData>>, request?: SecondParameter<typeof orvalFetch>}
  , queryClient?: QueryClient
  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {

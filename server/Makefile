@@ -9,8 +9,7 @@ build:
 	go build -o bin/webhook-producer ./cmd/webhook-producer
 	go build -o bin/webhook-worker ./cmd/webhook-worker
 	go build -o bin/indexer ./cmd/indexer
-	go build -o bin/teraslack-mcp-server ./cmd/teraslack-mcp-server
-	go build -o bin/teraslack-stdio-mcp ./cmd/teraslack-stdio-mcp
+	go build -o bin/teraslack ./cmd/teraslack-api
 
 test:
 	go test ./... -race -count=1

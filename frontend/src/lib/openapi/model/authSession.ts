@@ -8,7 +8,7 @@
 import type { AuthProvider } from './authProvider';
 
 /**
- * An authenticated session created via OAuth.
+ * An authenticated session created via email auth or OAuth.
  */
 export interface AuthSession {
   /** Unique session identifier. */

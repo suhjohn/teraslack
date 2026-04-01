@@ -3,15 +3,15 @@ set -eu
 
 VERSION="${1:-${VERSION:-}}"
 if [ -z "$VERSION" ]; then
-  echo "usage: VERSION=v0.1.0 scripts/build-stdio-release.sh [version]" >&2
+  echo "usage: VERSION=v0.1.0 scripts/build-cli-release.sh [version]" >&2
   exit 1
 fi
 
 ROOT_DIR=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
 SERVER_DIR="$ROOT_DIR/server"
-OUTPUT_DIR="${OUTPUT_DIR:-$ROOT_DIR/dist/stdio-release}"
-DOWNLOAD_BASE_URL="${DOWNLOAD_BASE_URL:-https://downloads.teraslack.ai/teraslack/stdio-mcp}"
-TMP_DIR=$(mktemp -d "${TMPDIR:-/tmp}/teraslack-stdio-release.XXXXXX")
+OUTPUT_DIR="${OUTPUT_DIR:-$ROOT_DIR/dist/cli-release}"
+DOWNLOAD_BASE_URL="${DOWNLOAD_BASE_URL:-https://downloads.teraslack.ai/teraslack/cli}"
+TMP_DIR=$(mktemp -d "${TMPDIR:-/tmp}/teraslack-cli-release.XXXXXX")
 
 cleanup() {
   rm -rf "$TMP_DIR"
@@ -46,15 +46,34 @@ sha256_file() {
   exit 1
 }
 
+build_zip() {
+  binary_path="$1"
+  archive_path="$2"
+  python3 - "$binary_path" "$archive_path" <<'PY'
+import sys
+import zipfile
+from pathlib import Path
+
+binary = Path(sys.argv[1])
+archive = Path(sys.argv[2])
+archive.parent.mkdir(parents=True, exist_ok=True)
+
+with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+    zf.write(binary, arcname=binary.name)
+PY
+}
+
 require_command go
-require_command tar
 require_command python3
+require_command tar
 
 targets="
 darwin arm64 darwin-arm64
 darwin amd64 darwin-amd64
 linux amd64 linux-amd64
 linux arm64 linux-arm64
+windows amd64 windows-amd64
+windows arm64 windows-arm64
 "
 
 version_dir="$OUTPUT_DIR/$VERSION"
@@ -72,28 +91,42 @@ printf '%s\n' "$targets" | while read -r goos goarch platform; do
   build_dir="$TMP_DIR/$platform"
   mkdir -p "$target_dir" "$build_dir"
 
-  binary_path="$build_dir/teraslack-stdio-mcp-bin"
-  archive_path="$target_dir/teraslack-stdio-mcp.tar.gz"
+  binary_name="teraslack"
+  archive_name="teraslack.tar.gz"
+  if [ "$goos" = "windows" ]; then
+    binary_name="teraslack.exe"
+    archive_name="teraslack.zip"
+  fi
+
+  binary_path="$build_dir/$binary_name"
+  archive_path="$target_dir/$archive_name"
 
   echo "building $platform..."
   (
     cd "$SERVER_DIR"
-    CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch" go build -o "$binary_path" ./cmd/teraslack-stdio-mcp
+    CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch" go build -o "$binary_path" ./cmd/teraslack-api
   )
 
-  tar -czf "$archive_path" -C "$build_dir" teraslack-stdio-mcp-bin
-  sha256=$(sha256_file "$archive_path")
-  printf '%s  %s\n' "$sha256" "$platform/teraslack-stdio-mcp.tar.gz" >> "$sha_file"
+  if [ "$goos" = "windows" ]; then
+    build_zip "$binary_path" "$archive_path"
+  else
+    tar -czf "$archive_path" -C "$build_dir" "$binary_name"
+  fi
 
-  python3 - "$platform" "$DOWNLOAD_BASE_URL" "$VERSION" "$sha256" >> "$manifest_entries" <<'PY'
+  sha256=$(sha256_file "$archive_path")
+  printf '%s  %s\n' "$sha256" "$platform/$archive_name" >> "$sha_file"
+
+  python3 - "$platform" "$DOWNLOAD_BASE_URL" "$VERSION" "$archive_name" "$binary_name" "$sha256" >> "$manifest_entries" <<'PY'
 import json
 import sys
 
-platform, base_url, version, sha256 = sys.argv[1:5]
+platform, base_url, version, archive_name, binary_name, sha256 = sys.argv[1:7]
 print(json.dumps({
     "platform": platform,
-    "url": f"{base_url}/{version}/{platform}/teraslack-stdio-mcp.tar.gz",
+    "url": f"{base_url}/{version}/{platform}/{archive_name}",
     "sha256": sha256,
+    "archive_name": archive_name,
+    "binary_name": binary_name,
 }))
 PY
 done
@@ -115,6 +148,8 @@ for line in entries_path.read_text().splitlines():
     artifacts[entry["platform"]] = {
         "url": entry["url"],
         "sha256": entry["sha256"],
+        "archive_name": entry["archive_name"],
+        "binary_name": entry["binary_name"],
     }
 
 payload = {

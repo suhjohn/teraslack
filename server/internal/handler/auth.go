@@ -25,6 +25,47 @@ func NewAuthHandler(svc *service.AuthService) *AuthHandler {
 	return &AuthHandler{svc: svc}
 }
 
+func (h *AuthHandler) Signup(w http.ResponseWriter, r *http.Request) {
+	var req domain.SignupParams
+	if err := httputil.DecodeJSON(r, &req); err != nil {
+		httputil.WriteError(w, r, domain.ErrInvalidArgument)
+		return
+	}
+
+	result, err := h.svc.Signup(r.Context(), req)
+	if err != nil {
+		httputil.WriteError(w, r, err)
+		return
+	}
+
+	httputil.WriteResource(w, http.StatusAccepted, result)
+}
+
+func (h *AuthHandler) Verify(w http.ResponseWriter, r *http.Request) {
+	var req domain.VerifyParams
+	if err := httputil.DecodeJSON(r, &req); err != nil {
+		httputil.WriteError(w, r, domain.ErrInvalidArgument)
+		return
+	}
+
+	session, err := h.svc.Verify(r.Context(), req)
+	if err != nil {
+		httputil.WriteError(w, r, err)
+		return
+	}
+
+	http.SetCookie(w, &http.Cookie{
+		Name:     sessionCookieName,
+		Value:    session.Token,
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   requestIsSecure(r),
+		SameSite: http.SameSiteLaxMode,
+		Expires:  session.ExpiresAt,
+	})
+	httputil.WriteResource(w, http.StatusOK, session)
+}
+
 func (h *AuthHandler) StartOAuth(w http.ResponseWriter, r *http.Request) {
 	provider := domain.AuthProvider(r.PathValue("provider"))
 	result, err := h.svc.StartOAuth(r.Context(), domain.StartOAuthParams{
@@ -243,7 +284,9 @@ func isAuthBypassRequest(r *http.Request) bool {
 	if authBypassPaths[r.URL.Path] {
 		return true
 	}
-	return strings.HasPrefix(r.URL.Path, "/auth/oauth/") ||
+	return r.URL.Path == "/auth/signup" ||
+		r.URL.Path == "/auth/verify" ||
+		strings.HasPrefix(r.URL.Path, "/auth/oauth/") ||
 		strings.HasPrefix(r.URL.Path, "/cli/install/") ||
 		strings.HasPrefix(r.URL.Path, "/oauth/") ||
 		strings.HasPrefix(r.URL.Path, "/.well-known/oauth-authorization-server")

@@ -132,20 +132,23 @@ Implementation notes:
 
 For the one-command installer:
 
-1. `frontend/public/install.sh` is emitted into the frontend production build and should be reachable at `https://teraslack.ai/install.sh`.
-2. The installer expects the API install routes on `https://api.teraslack.ai/cli/install/...`.
-3. The installer also expects prebuilt stdio MCP binaries on `https://downloads.teraslack.ai/teraslack/stdio-mcp/...`.
+1. `frontend/public/install.sh` is emitted into the frontend production build for macOS and Linux and should be reachable at `https://teraslack.ai/install.sh`.
+2. `frontend/public/install.ps1` is emitted into the frontend production build for Windows and should be reachable at `https://teraslack.ai/install.ps1`.
+3. Both installers expect the API install routes on `https://api.teraslack.ai/cli/install/...`.
+4. Both installers expect prebuilt CLI binaries on `https://downloads.teraslack.ai/teraslack/cli/...`.
 
 Release bundle workflow:
 
-1. Run `make build-stdio-release VERSION=v0.1.0`.
-2. Upload `dist/stdio-release/latest.json`.
-3. Upload `dist/stdio-release/v0.1.0/SHA256SUMS`.
+1. Run `make build-cli-release VERSION=v0.1.0`.
+2. Upload `dist/cli-release/latest.json`.
+3. Upload `dist/cli-release/v0.1.0/SHA256SUMS`.
 4. Upload each platform tarball under:
-   - `teraslack/stdio-mcp/v0.1.0/darwin-arm64/teraslack-stdio-mcp.tar.gz`
-   - `teraslack/stdio-mcp/v0.1.0/darwin-amd64/teraslack-stdio-mcp.tar.gz`
-   - `teraslack/stdio-mcp/v0.1.0/linux-amd64/teraslack-stdio-mcp.tar.gz`
-   - `teraslack/stdio-mcp/v0.1.0/linux-arm64/teraslack-stdio-mcp.tar.gz`
+   - `teraslack/cli/v0.1.0/darwin-arm64/teraslack.tar.gz`
+   - `teraslack/cli/v0.1.0/darwin-amd64/teraslack.tar.gz`
+   - `teraslack/cli/v0.1.0/linux-amd64/teraslack.tar.gz`
+   - `teraslack/cli/v0.1.0/linux-arm64/teraslack.tar.gz`
+   - `teraslack/cli/v0.1.0/windows-amd64/teraslack.zip`
+   - `teraslack/cli/v0.1.0/windows-arm64/teraslack.zip`
 
 Automated downloads upload:
 
@@ -154,9 +157,9 @@ Automated downloads upload:
    - `S3_DOWNLOADS_ACCOUNT_ID=<your_storage_account_id>` or `S3_DOWNLOADS_ENDPOINT=https://<storage-endpoint>`
    - `S3_DOWNLOADS_ACCESS_KEY_ID=<downloads_access_key_id>`
    - `S3_DOWNLOADS_SECRET_ACCESS_KEY=<downloads_secret_access_key>`
-   - optional: `S3_DOWNLOADS_PREFIX=teraslack/stdio-mcp`
-2. Run `make release-stdio VERSION=v0.1.0`.
-3. If the bundle is already built, run `make upload-stdio-release VERSION=v0.1.0`.
+   - optional: `S3_DOWNLOADS_PREFIX=teraslack/cli`
+2. Run `make release-cli VERSION=v0.1.0`.
+3. If the bundle is already built, run `make upload-cli-release VERSION=v0.1.0`.
 
 ## GitHub Actions
 
@@ -166,10 +169,10 @@ This repo includes two workflows:
    - triggers on push to `main`
    - verifies the server build, targeted server tests, and frontend build
    - deploys `frontend` and `server` to Railway
-2. [`release-stdio.yml`](/Users/johnsuh/teraslack/.github/workflows/release-stdio.yml)
-   - triggers on tags like `stdio-v0.1.0`
+2. [`release-cli.yml`](/Users/johnsuh/teraslack/.github/workflows/release-cli.yml)
+   - triggers on tags like `cli-v0.1.0`
    - can also be run manually
-   - builds the stdio MCP release bundle
+   - builds the CLI release bundle
    - uploads artifacts to the downloads bucket
    - creates or updates a GitHub Release
 
@@ -180,12 +183,12 @@ GitHub Actions secrets and vars:
    - secret: `RAILWAY_API_TOKEN` if you are using an account or workspace token
    - secret: `RAILWAY_PROJECT_ID`
    - optional variable: `RAILWAY_ENVIRONMENT` (defaults to `production`)
-2. Stdio release workflow:
+2. CLI release workflow:
    - secret: `S3_DOWNLOADS_BUCKET`
    - secret: `S3_DOWNLOADS_ACCOUNT_ID` or `S3_DOWNLOADS_ENDPOINT`
    - secret: `S3_DOWNLOADS_ACCESS_KEY_ID`
    - secret: `S3_DOWNLOADS_SECRET_ACCESS_KEY`
-   - optional variable: `S3_DOWNLOADS_PREFIX` (defaults to `teraslack/stdio-mcp`)
+   - optional variable: `S3_DOWNLOADS_PREFIX` (defaults to `teraslack/cli`)
 
 ## Make targets
 

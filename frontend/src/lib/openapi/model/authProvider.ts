@@ -7,12 +7,13 @@
  */
 
 /**
- * Supported OAuth provider.
+ * Supported auth provider.
  */
 export type AuthProvider = typeof AuthProvider[keyof typeof AuthProvider];
 
 
 export const AuthProvider = {
+  email: 'email',
   github: 'github',
   google: 'google',
 } as const;

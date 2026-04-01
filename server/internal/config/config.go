@@ -22,6 +22,8 @@ type Config struct {
 	GitHubOAuthClientSecret string
 	GoogleOAuthClientID     string
 	GoogleOAuthClientSecret string
+	ResendAPIKey            string
+	AuthEmailFrom           string
 
 	// S3 configuration
 	S3Bucket    string
@@ -80,6 +82,8 @@ func Load() (*Config, error) {
 		GitHubOAuthClientSecret: os.Getenv("GITHUB_OAUTH_CLIENT_SECRET"),
 		GoogleOAuthClientID:     os.Getenv("GOOGLE_OAUTH_CLIENT_ID"),
 		GoogleOAuthClientSecret: os.Getenv("GOOGLE_OAUTH_CLIENT_SECRET"),
+		ResendAPIKey:            os.Getenv("RESEND_API_KEY"),
+		AuthEmailFrom:           os.Getenv("AUTH_EMAIL_FROM"),
 		S3Bucket:                os.Getenv("S3_BUCKET"),
 		S3Region:                getEnv("S3_REGION", "us-east-1"),
 		S3Endpoint:              os.Getenv("S3_ENDPOINT"),

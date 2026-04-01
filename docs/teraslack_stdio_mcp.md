@@ -8,22 +8,11 @@ Use it when:
 2. You already have a Teraslack API key.
 3. You do not want the OAuth protected-resource flow.
 
-## One-command install
+## Install
 
-For the hosted Teraslack deployment, the intended bootstrap path is:
+The hosted installer at `https://teraslack.ai/install.sh` now installs the `teraslack` CLI, not the stdio MCP server.
 
-```bash
-curl https://teraslack.ai/install.sh | sh
-```
-
-That flow:
-
-1. Opens the browser for Teraslack login and approval.
-2. Lets the user approve the install for a workspace, with the current workspace preselected.
-3. Mints a long-lived local human API key for the selected workspace.
-4. Writes local config to `~/.teraslack/config.json`.
-5. Downloads a prebuilt local stdio MCP binary for the current OS and architecture.
-6. Registers the `teraslack` MCP server with Codex and Claude Code.
+The stdio MCP server is still available for local/manual use, but it is no longer the public one-command install path.
 
 ## Environment
 

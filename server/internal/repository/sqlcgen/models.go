@@ -136,6 +136,15 @@ type ConversationRead struct {
 	LastReadAt     time.Time `json:"last_read_at"`
 }
 
+type EmailVerificationChallenge struct {
+	ID         string     `json:"id"`
+	Email      string     `json:"email"`
+	CodeHash   string     `json:"code_hash"`
+	ExpiresAt  time.Time  `json:"expires_at"`
+	ConsumedAt *time.Time `json:"consumed_at"`
+	CreatedAt  time.Time  `json:"created_at"`
+}
+
 type EventSubscription struct {
 	ID              string    `json:"id"`
 	WorkspaceID     string    `json:"workspace_id"`
@@ -224,6 +233,23 @@ type FileEventFeed struct {
 	CreatedAt       time.Time `json:"created_at"`
 }
 
+type InstallSession struct {
+	ID                     string             `json:"id"`
+	PollTokenHash          string             `json:"poll_token_hash"`
+	Status                 string             `json:"status"`
+	WorkspaceID            string             `json:"workspace_id"`
+	ApprovedByUserID       string             `json:"approved_by_user_id"`
+	CredentialID           string             `json:"credential_id"`
+	RawCredentialEncrypted string             `json:"raw_credential_encrypted"`
+	DeviceName             string             `json:"device_name"`
+	ClientKind             string             `json:"client_kind"`
+	ExpiresAt              pgtype.Timestamptz `json:"expires_at"`
+	ApprovedAt             pgtype.Timestamptz `json:"approved_at"`
+	ConsumedAt             pgtype.Timestamptz `json:"consumed_at"`
+	CreatedAt              pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt              pgtype.Timestamptz `json:"updated_at"`
+}
+
 type InternalEvent struct {
 	ID            int64     `json:"id"`
 	EventType     string    `json:"event_type"`
@@ -267,6 +293,40 @@ type OauthAccount struct {
 	Email           string    `json:"email"`
 	CreatedAt       time.Time `json:"created_at"`
 	UpdatedAt       time.Time `json:"updated_at"`
+}
+
+type OauthAuthorizationCode struct {
+	ID                  string             `json:"id"`
+	CodeHash            string             `json:"code_hash"`
+	ClientID            string             `json:"client_id"`
+	ClientName          string             `json:"client_name"`
+	RedirectUri         string             `json:"redirect_uri"`
+	WorkspaceID         string             `json:"workspace_id"`
+	UserID              string             `json:"user_id"`
+	Scope               []string           `json:"scope"`
+	Resource            string             `json:"resource"`
+	CodeChallenge       string             `json:"code_challenge"`
+	CodeChallengeMethod string             `json:"code_challenge_method"`
+	ExpiresAt           pgtype.Timestamptz `json:"expires_at"`
+	UsedAt              pgtype.Timestamptz `json:"used_at"`
+	CreatedAt           pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt           pgtype.Timestamptz `json:"updated_at"`
+}
+
+type OauthRefreshToken struct {
+	ID          string             `json:"id"`
+	TokenHash   string             `json:"token_hash"`
+	ClientID    string             `json:"client_id"`
+	ClientName  string             `json:"client_name"`
+	WorkspaceID string             `json:"workspace_id"`
+	UserID      string             `json:"user_id"`
+	Scope       []string           `json:"scope"`
+	Resource    string             `json:"resource"`
+	ExpiresAt   pgtype.Timestamptz `json:"expires_at"`
+	RevokedAt   pgtype.Timestamptz `json:"revoked_at"`
+	RotatedToID pgtype.Text        `json:"rotated_to_id"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
 }
 
 type Pin struct {

@@ -167,6 +167,8 @@ func run(logger *slog.Logger) error {
 		GitHubOAuthClientSecret: cfg.GitHubOAuthClientSecret,
 		GoogleOAuthClientID:     cfg.GoogleOAuthClientID,
 		GoogleOAuthClientSecret: cfg.GoogleOAuthClientSecret,
+		ResendAPIKey:            cfg.ResendAPIKey,
+		AuthEmailFrom:           cfg.AuthEmailFrom,
 	})
 	authSvc.SetAuthorizationAuditRepository(auditRepo)
 	mcpOAuthSvc := service.NewMCPOAuthService(mcpOAuthRepo, userRepo, pool, logger, service.MCPOAuthConfig{

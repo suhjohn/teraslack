@@ -5,6 +5,7 @@ import "time"
 type AuthProvider string
 
 const (
+	AuthProviderEmail  AuthProvider = "email"
 	AuthProviderGitHub AuthProvider = "github"
 	AuthProviderGoogle AuthProvider = "google"
 )
@@ -43,6 +44,20 @@ type StartOAuthParams struct {
 	RedirectTo  string       `json:"redirect_to"`
 }
 
+type SignupParams struct {
+	Email string `json:"email"`
+}
+
+type SignupResult struct {
+	Email     string    `json:"email"`
+	ExpiresAt time.Time `json:"expires_at"`
+}
+
+type VerifyParams struct {
+	Email string `json:"email"`
+	Code  string `json:"code"`
+}
+
 type CompleteOAuthParams struct {
 	Provider AuthProvider `json:"provider"`
 	Code     string       `json:"code"`
@@ -76,6 +91,21 @@ type CreateAuthSessionParams struct {
 	UserID      string
 	Provider    AuthProvider
 	ExpiresAt   time.Time
+}
+
+type EmailVerificationChallenge struct {
+	ID         string     `json:"id"`
+	Email      string     `json:"email"`
+	CodeHash   string     `json:"-"`
+	ExpiresAt  time.Time  `json:"expires_at"`
+	ConsumedAt *time.Time `json:"consumed_at,omitempty"`
+	CreatedAt  time.Time  `json:"created_at"`
+}
+
+type CreateEmailVerificationChallengeParams struct {
+	Email     string
+	CodeHash  string
+	ExpiresAt time.Time
 }
 
 type UpsertOAuthAccountParams struct {

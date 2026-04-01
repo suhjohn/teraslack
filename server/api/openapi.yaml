@@ -1353,6 +1353,46 @@ paths:
           description: Redirect to OAuth provider.
         default:
           $ref: "#/components/responses/ApiErrorResponse"
+  /auth/signup:
+    post:
+      tags: [Auth]
+      operationId: createAuthSignup
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AuthSignupRequest"
+      responses:
+        "202":
+          description: Verification email queued.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthSignupResponse"
+        default:
+          $ref: "#/components/responses/ApiErrorResponse"
+  /auth/verify:
+    post:
+      tags: [Auth]
+      operationId: createAuthVerify
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AuthVerifyRequest"
+      responses:
+        "200":
+          description: Session created from a verified email code.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthSession"
+        default:
+          $ref: "#/components/responses/ApiErrorResponse"
   /auth/oauth/{provider}/callback:
     get:
       tags: [Auth]
@@ -1770,8 +1810,8 @@ components:
       enum: [everyone, admins_only, members_with_permission, custom]
     AuthProvider:
       type: string
-      description: Supported OAuth provider.
-      enum: [github, google]
+      description: Supported auth provider.
+      enum: [email, github, google]
     WorkspaceDiscoverability:
       type: string
       description: Whether the workspace can be discovered and joined without an invite.
@@ -2494,7 +2534,7 @@ components:
           description: Event-specific data (e.g. the full message object for a message event).
     AuthSession:
       type: object
-      description: An authenticated session created via OAuth.
+      description: An authenticated session created via email auth or OAuth.
       required: [id, workspace_id, user_id, provider, expires_at, created_at]
       properties:
         id:
@@ -2522,6 +2562,37 @@ components:
         created_at:
           type: string
           format: date-time
+    AuthSignupRequest:
+      type: object
+      required: [email]
+      properties:
+        email:
+          type: string
+          format: email
+          description: Email address that should receive a verification code.
+    AuthSignupResponse:
+      type: object
+      required: [email, expires_at]
+      properties:
+        email:
+          type: string
+          format: email
+          description: Normalized email address the verification code was sent to.
+        expires_at:
+          type: string
+          format: date-time
+          description: When the verification code expires.
+    AuthVerifyRequest:
+      type: object
+      required: [email, code]
+      properties:
+        email:
+          type: string
+          format: email
+          description: Email address that received the verification code.
+        code:
+          type: string
+          description: Six-digit verification code.
     AuthMeResponse:
       type: object
       description: The authenticated identity of the current request.

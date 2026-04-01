@@ -201,6 +201,10 @@ type AuthRepository interface {
 	CreateSession(ctx context.Context, params domain.CreateAuthSessionParams) (*domain.AuthSession, error)
 	GetSessionByHash(ctx context.Context, sessionHash string) (*domain.AuthSession, error)
 	RevokeSessionByHash(ctx context.Context, sessionHash string) error
+	DeletePendingEmailVerificationChallenges(ctx context.Context, email string) error
+	CreateEmailVerificationChallenge(ctx context.Context, params domain.CreateEmailVerificationChallengeParams) (*domain.EmailVerificationChallenge, error)
+	GetEmailVerificationChallenge(ctx context.Context, email, codeHash string) (*domain.EmailVerificationChallenge, error)
+	ConsumeEmailVerificationChallenge(ctx context.Context, id string, consumedAt time.Time) error
 	GetOAuthAccount(ctx context.Context, workspaceID string, provider domain.AuthProvider, providerSubject string) (*domain.OAuthAccount, error)
 	ListOAuthAccountsBySubject(ctx context.Context, provider domain.AuthProvider, providerSubject string) ([]domain.OAuthAccount, error)
 	UpsertOAuthAccount(ctx context.Context, params domain.UpsertOAuthAccountParams) (*domain.OAuthAccount, error)

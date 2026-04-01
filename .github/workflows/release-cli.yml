@@ -1,9 +1,9 @@
-name: Release Stdio MCP
+name: Release CLI
 
 on:
   push:
     tags:
-      - stdio-v*
+      - cli-v*
   workflow_dispatch:
     inputs:
       version:
@@ -20,7 +20,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: release-stdio-${{ github.ref_name || github.run_id }}
+  group: release-cli-${{ github.ref_name || github.run_id }}
   cancel-in-progress: false
 
 jobs:
@@ -36,11 +36,11 @@ jobs:
         run: |
           if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
             version="${{ inputs.version }}"
-            tag="stdio-${version}"
+            tag="cli-${version}"
             create_release="${{ inputs.create_github_release }}"
           else
             tag="${GITHUB_REF_NAME}"
-            version="${tag#stdio-}"
+            version="${tag#cli-}"
             create_release="true"
           fi
 
@@ -57,8 +57,8 @@ jobs:
         with:
           go-version-file: server/go.mod
 
-      - name: Build stdio release bundle
-        run: make build-stdio-release VERSION="${{ steps.version.outputs.version }}"
+      - name: Build CLI release bundle
+        run: make build-cli-release VERSION="${{ steps.version.outputs.version }}"
 
       - name: Upload to downloads bucket
         env:
@@ -67,8 +67,8 @@ jobs:
           S3_DOWNLOADS_ENDPOINT: ${{ secrets.S3_DOWNLOADS_ENDPOINT }}
           S3_DOWNLOADS_ACCESS_KEY_ID: ${{ secrets.S3_DOWNLOADS_ACCESS_KEY_ID }}
           S3_DOWNLOADS_SECRET_ACCESS_KEY: ${{ secrets.S3_DOWNLOADS_SECRET_ACCESS_KEY }}
-          S3_DOWNLOADS_PREFIX: ${{ vars.S3_DOWNLOADS_PREFIX || 'teraslack/stdio-mcp' }}
-        run: make upload-stdio-release VERSION="${{ steps.version.outputs.version }}"
+          S3_DOWNLOADS_PREFIX: ${{ vars.S3_DOWNLOADS_PREFIX || 'teraslack/cli' }}
+        run: make upload-cli-release VERSION="${{ steps.version.outputs.version }}"
 
       - name: Create or update GitHub release
         if: steps.version.outputs.create_release == 'true'
@@ -78,17 +78,37 @@ jobs:
           TAG_NAME: ${{ steps.version.outputs.tag }}
         shell: bash
         run: |
+          asset_dir="$(mktemp -d)"
+          trap 'rm -rf "$asset_dir"' EXIT
+
+          cp "dist/cli-release/latest.json" "$asset_dir/latest.json"
+          cp "dist/cli-release/${VERSION}/SHA256SUMS" "$asset_dir/SHA256SUMS"
+          cp "dist/cli-release/${VERSION}/darwin-arm64/teraslack.tar.gz" \
+            "$asset_dir/teraslack-${VERSION}-darwin-arm64.tar.gz"
+          cp "dist/cli-release/${VERSION}/darwin-amd64/teraslack.tar.gz" \
+            "$asset_dir/teraslack-${VERSION}-darwin-amd64.tar.gz"
+          cp "dist/cli-release/${VERSION}/linux-amd64/teraslack.tar.gz" \
+            "$asset_dir/teraslack-${VERSION}-linux-amd64.tar.gz"
+          cp "dist/cli-release/${VERSION}/linux-arm64/teraslack.tar.gz" \
+            "$asset_dir/teraslack-${VERSION}-linux-arm64.tar.gz"
+          cp "dist/cli-release/${VERSION}/windows-amd64/teraslack.zip" \
+            "$asset_dir/teraslack-${VERSION}-windows-amd64.zip"
+          cp "dist/cli-release/${VERSION}/windows-arm64/teraslack.zip" \
+            "$asset_dir/teraslack-${VERSION}-windows-arm64.zip"
+
           files=(
-            "dist/stdio-release/latest.json"
-            "dist/stdio-release/${VERSION}/SHA256SUMS"
-            "dist/stdio-release/${VERSION}/darwin-arm64/teraslack-stdio-mcp.tar.gz"
-            "dist/stdio-release/${VERSION}/darwin-amd64/teraslack-stdio-mcp.tar.gz"
-            "dist/stdio-release/${VERSION}/linux-amd64/teraslack-stdio-mcp.tar.gz"
-            "dist/stdio-release/${VERSION}/linux-arm64/teraslack-stdio-mcp.tar.gz"
+            "$asset_dir/latest.json"
+            "$asset_dir/SHA256SUMS"
+            "$asset_dir/teraslack-${VERSION}-darwin-arm64.tar.gz"
+            "$asset_dir/teraslack-${VERSION}-darwin-amd64.tar.gz"
+            "$asset_dir/teraslack-${VERSION}-linux-amd64.tar.gz"
+            "$asset_dir/teraslack-${VERSION}-linux-arm64.tar.gz"
+            "$asset_dir/teraslack-${VERSION}-windows-amd64.zip"
+            "$asset_dir/teraslack-${VERSION}-windows-arm64.zip"
           )
 
           notes=$(cat <<EOF
-          Published stdio MCP binaries for ${VERSION}.
+          Published Teraslack CLI binaries for ${VERSION}.
 
           Files are also uploaded to downloads.teraslack.ai via the release workflow.
           EOF
@@ -98,6 +118,6 @@ jobs:
             gh release upload "$TAG_NAME" "${files[@]}" --clobber
           else
             gh release create "$TAG_NAME" "${files[@]}" \
-              --title "Stdio MCP ${VERSION}" \
+              --title "Teraslack CLI ${VERSION}" \
               --notes "$notes"
           fi

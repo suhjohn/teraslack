@@ -3,16 +3,16 @@ set -eu
 
 VERSION="${1:-${VERSION:-}}"
 if [ -z "$VERSION" ]; then
-  echo "usage: VERSION=v0.1.0 scripts/upload-stdio-release.sh [version]" >&2
+  echo "usage: VERSION=v0.1.0 scripts/upload-cli-release.sh [version]" >&2
   exit 1
 fi
 
 ROOT_DIR=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
-OUTPUT_DIR="${OUTPUT_DIR:-$ROOT_DIR/dist/stdio-release}"
+OUTPUT_DIR="${OUTPUT_DIR:-$ROOT_DIR/dist/cli-release}"
 VERSION_DIR="$OUTPUT_DIR/$VERSION"
 LATEST_FILE="$OUTPUT_DIR/latest.json"
 S3_DOWNLOADS_BUCKET="${S3_DOWNLOADS_BUCKET:-}"
-S3_DOWNLOADS_PREFIX="${S3_DOWNLOADS_PREFIX:-teraslack/stdio-mcp}"
+S3_DOWNLOADS_PREFIX="${S3_DOWNLOADS_PREFIX:-teraslack/cli}"
 S3_DOWNLOADS_ACCOUNT_ID="${S3_DOWNLOADS_ACCOUNT_ID:-}"
 S3_DOWNLOADS_ENDPOINT="${S3_DOWNLOADS_ENDPOINT:-}"
 S3_DOWNLOADS_ACCESS_KEY_ID="${S3_DOWNLOADS_ACCESS_KEY_ID:-${AWS_ACCESS_KEY_ID:-}}"
@@ -47,13 +47,13 @@ require_env S3_DOWNLOADS_SECRET_ACCESS_KEY "$S3_DOWNLOADS_SECRET_ACCESS_KEY"
 
 [ -d "$VERSION_DIR" ] || {
   echo "missing release directory: $VERSION_DIR" >&2
-  echo "run: make build-stdio-release VERSION=$VERSION" >&2
+  echo "run: make build-cli-release VERSION=$VERSION" >&2
   exit 1
 }
 
 [ -f "$LATEST_FILE" ] || {
   echo "missing latest manifest: $LATEST_FILE" >&2
-  echo "run: make build-stdio-release VERSION=$VERSION" >&2
+  echo "run: make build-cli-release VERSION=$VERSION" >&2
   exit 1
 }
 
@@ -90,14 +90,25 @@ aws_s3_cp \
 for platform_dir in "$VERSION_DIR"/*; do
   [ -d "$platform_dir" ] || continue
   platform=$(basename "$platform_dir")
-  archive="$platform_dir/teraslack-stdio-mcp.tar.gz"
-  [ -f "$archive" ] || continue
 
-  echo "uploading $platform archive to s3://$S3_DOWNLOADS_BUCKET/$S3_DOWNLOADS_PREFIX/$VERSION/$platform/teraslack-stdio-mcp.tar.gz"
+  archive=""
+  content_type=""
+  if [ -f "$platform_dir/teraslack.tar.gz" ]; then
+    archive="$platform_dir/teraslack.tar.gz"
+    content_type="application/gzip"
+  elif [ -f "$platform_dir/teraslack.zip" ]; then
+    archive="$platform_dir/teraslack.zip"
+    content_type="application/zip"
+  else
+    continue
+  fi
+
+  archive_name=$(basename "$archive")
+  echo "uploading $platform archive to s3://$S3_DOWNLOADS_BUCKET/$S3_DOWNLOADS_PREFIX/$VERSION/$platform/$archive_name"
   aws_s3_cp \
     "$archive" \
-    "s3://$S3_DOWNLOADS_BUCKET/$S3_DOWNLOADS_PREFIX/$VERSION/$platform/teraslack-stdio-mcp.tar.gz" \
-    "application/gzip" \
+    "s3://$S3_DOWNLOADS_BUCKET/$S3_DOWNLOADS_PREFIX/$VERSION/$platform/$archive_name" \
+    "$content_type" \
     "public, max-age=31536000, immutable"
 done
 

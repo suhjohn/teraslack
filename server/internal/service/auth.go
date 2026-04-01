@@ -11,7 +11,9 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"math/big"
 	"net/http"
+	"net/mail"
 	"net/url"
 	"strings"
 	"time"
@@ -23,7 +25,14 @@ import (
 	"github.com/suhjohn/teraslack/internal/repository"
 )
 
-const authSessionTTL = 30 * 24 * time.Hour
+const (
+	authSessionTTL      = 30 * 24 * time.Hour
+	emailCodeTTLDefault = 10 * time.Minute
+)
+
+type AuthEmailSender interface {
+	SendVerificationCode(ctx context.Context, email, code string, expiresAt time.Time) error
+}
 
 type AuthConfig struct {
 	BaseURL                 string
@@ -33,6 +42,11 @@ type AuthConfig struct {
 	GitHubOAuthClientSecret string
 	GoogleOAuthClientID     string
 	GoogleOAuthClientSecret string
+	ResendAPIKey            string
+	AuthEmailFrom           string
+	ResendBaseURL           string
+	EmailCodeTTL            time.Duration
+	EmailSender             AuthEmailSender
 	HTTPClient              *http.Client
 }
 
@@ -71,6 +85,8 @@ type AuthService struct {
 	stateSecret   []byte
 	github        oauthProviderConfig
 	google        oauthProviderConfig
+	emailSender   AuthEmailSender
+	emailCodeTTL  time.Duration
 }
 
 func NewAuthService(repo repository.AuthRepository, userRepo repository.UserRepository, workspaceRepo repository.WorkspaceRepository, inviteRepo repository.WorkspaceInviteRepository, recorder EventRecorder, db repository.TxBeginner, logger *slog.Logger, cfg AuthConfig) *AuthService {
@@ -80,6 +96,18 @@ func NewAuthService(repo repository.AuthRepository, userRepo repository.UserRepo
 	httpClient := cfg.HTTPClient
 	if httpClient == nil {
 		httpClient = &http.Client{Timeout: 10 * time.Second}
+	}
+	emailCodeTTL := cfg.EmailCodeTTL
+	if emailCodeTTL <= 0 {
+		emailCodeTTL = emailCodeTTLDefault
+	}
+	emailSender := cfg.EmailSender
+	if emailSender == nil && cfg.ResendAPIKey != "" && cfg.AuthEmailFrom != "" {
+		emailSender = NewResendAuthEmailSender(httpClient, logger, ResendAuthEmailSenderConfig{
+			APIKey:  cfg.ResendAPIKey,
+			From:    cfg.AuthEmailFrom,
+			BaseURL: cfg.ResendBaseURL,
+		})
 	}
 	return &AuthService{
 		repo:          repo,
@@ -101,6 +129,8 @@ func NewAuthService(repo repository.AuthRepository, userRepo repository.UserRepo
 			ClientID:     cfg.GoogleOAuthClientID,
 			ClientSecret: cfg.GoogleOAuthClientSecret,
 		},
+		emailSender:  emailSender,
+		emailCodeTTL: emailCodeTTL,
 	}
 }
 
@@ -108,8 +138,112 @@ func (s *AuthService) SetAuthorizationAuditRepository(repo repository.Authorizat
 	s.auditRepo = repo
 }
 
+func (s *AuthService) Signup(ctx context.Context, params domain.SignupParams) (*domain.SignupResult, error) {
+	email, err := normalizeEmailAddress(params.Email)
+	if err != nil {
+		return nil, err
+	}
+	if s.emailSender == nil {
+		return nil, fmt.Errorf("email auth is not configured")
+	}
+
+	code, err := randomNumericCode(6)
+	if err != nil {
+		return nil, fmt.Errorf("generate verification code: %w", err)
+	}
+	expiresAt := time.Now().UTC().Add(s.emailCodeTTL)
+
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	authRepo := s.repo.WithTx(tx)
+	if err := authRepo.DeletePendingEmailVerificationChallenges(ctx, email); err != nil {
+		return nil, fmt.Errorf("delete pending email verification challenges: %w", err)
+	}
+	challenge, err := authRepo.CreateEmailVerificationChallenge(ctx, domain.CreateEmailVerificationChallengeParams{
+		Email:     email,
+		CodeHash:  crypto.HashToken(code),
+		ExpiresAt: expiresAt,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("create email verification challenge: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("commit tx: %w", err)
+	}
+
+	if err := s.emailSender.SendVerificationCode(ctx, email, code, expiresAt); err != nil {
+		return nil, fmt.Errorf("send verification email: %w", err)
+	}
+
+	return &domain.SignupResult{
+		Email:     challenge.Email,
+		ExpiresAt: challenge.ExpiresAt,
+	}, nil
+}
+
+func (s *AuthService) Verify(ctx context.Context, params domain.VerifyParams) (*domain.AuthSession, error) {
+	email, err := normalizeEmailAddress(params.Email)
+	if err != nil {
+		return nil, err
+	}
+	code, err := normalizeVerificationCode(params.Code)
+	if err != nil {
+		return nil, err
+	}
+
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	authRepo := s.repo.WithTx(tx)
+	userRepo := s.userRepo.WithTx(tx)
+	workspaceRepo := s.workspaceRepo
+	if workspaceRepo != nil {
+		workspaceRepo = workspaceRepo.WithTx(tx)
+	}
+
+	challenge, err := authRepo.GetEmailVerificationChallenge(ctx, email, crypto.HashToken(code))
+	if err != nil {
+		return nil, err
+	}
+	if challenge.ConsumedAt != nil || challenge.ExpiresAt.Before(time.Now().UTC()) {
+		return nil, domain.ErrInvalidAuth
+	}
+
+	workspaceID, user, err := s.resolveEmailLogin(ctx, tx, userRepo, workspaceRepo, email)
+	if err != nil {
+		return nil, fmt.Errorf("resolve email login: %w", err)
+	}
+
+	consumedAt := time.Now().UTC()
+	if err := authRepo.ConsumeEmailVerificationChallenge(ctx, challenge.ID, consumedAt); err != nil {
+		return nil, err
+	}
+
+	session, err := authRepo.CreateSession(ctx, domain.CreateAuthSessionParams{
+		WorkspaceID: workspaceID,
+		UserID:      user.ID,
+		Provider:    domain.AuthProviderEmail,
+		ExpiresAt:   time.Now().UTC().Add(authSessionTTL),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("create email auth session: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("commit tx: %w", err)
+	}
+	return session, nil
+}
+
 func (s *AuthService) StartOAuth(ctx context.Context, params domain.StartOAuthParams) (*domain.StartOAuthResult, error) {
-	if err := validateAuthProvider(params.Provider); err != nil {
+	if err := validateOAuthProvider(params.Provider); err != nil {
 		return nil, err
 	}
 	workspaceID, err := resolveOptionalWorkspaceID(ctx, params.WorkspaceID)
@@ -152,7 +286,7 @@ func (s *AuthService) StartOAuth(ctx context.Context, params domain.StartOAuthPa
 }
 
 func (s *AuthService) CompleteOAuth(ctx context.Context, params domain.CompleteOAuthParams) (*domain.CompleteOAuthResult, error) {
-	if err := validateAuthProvider(params.Provider); err != nil {
+	if err := validateOAuthProvider(params.Provider); err != nil {
 		return nil, err
 	}
 	if params.Code == "" {
@@ -446,6 +580,37 @@ func (s *AuthService) resolveOAuthLogin(
 		ProviderSubject: profile.Subject,
 		Email:           profile.Email,
 	}); err != nil {
+		return "", nil, err
+	}
+	return workspace.ID, user, nil
+}
+
+func (s *AuthService) resolveEmailLogin(
+	ctx context.Context,
+	tx pgx.Tx,
+	userRepo repository.UserRepository,
+	workspaceRepo repository.WorkspaceRepository,
+	email string,
+) (string, *domain.User, error) {
+	users, err := userRepo.ListByEmail(ctx, email)
+	if err != nil {
+		return "", nil, err
+	}
+	for i := range users {
+		if users[i].WorkspaceID == "" || users[i].Deleted || users[i].PrincipalType != domain.PrincipalTypeHuman {
+			continue
+		}
+		return users[i].WorkspaceID, &users[i], nil
+	}
+
+	if workspaceRepo == nil {
+		return "", nil, fmt.Errorf("workspace repo: %w", domain.ErrInvalidArgument)
+	}
+	workspace, user, err := s.createPersonalWorkspaceAndUser(ctx, tx, workspaceRepo, userRepo, oauthProfile{
+		Email: email,
+		Login: emailLocalPart(email),
+	})
+	if err != nil {
 		return "", nil, err
 	}
 	return workspace.ID, user, nil
@@ -885,13 +1050,38 @@ func (s *AuthService) decodeState(raw string) (oauthState, error) {
 	return state, nil
 }
 
-func validateAuthProvider(provider domain.AuthProvider) error {
+func validateOAuthProvider(provider domain.AuthProvider) error {
 	switch provider {
 	case domain.AuthProviderGitHub, domain.AuthProviderGoogle:
 		return nil
 	default:
 		return fmt.Errorf("provider: %w", domain.ErrInvalidArgument)
 	}
+}
+
+func normalizeEmailAddress(raw string) (string, error) {
+	address, err := mail.ParseAddress(strings.TrimSpace(raw))
+	if err != nil {
+		return "", fmt.Errorf("email: %w", domain.ErrInvalidArgument)
+	}
+	email := strings.ToLower(strings.TrimSpace(address.Address))
+	if email == "" {
+		return "", fmt.Errorf("email: %w", domain.ErrInvalidArgument)
+	}
+	return email, nil
+}
+
+func normalizeVerificationCode(raw string) (string, error) {
+	code := strings.TrimSpace(raw)
+	if len(code) != 6 {
+		return "", fmt.Errorf("code: %w", domain.ErrInvalidArgument)
+	}
+	for _, ch := range code {
+		if ch < '0' || ch > '9' {
+			return "", fmt.Errorf("code: %w", domain.ErrInvalidArgument)
+		}
+	}
+	return code, nil
 }
 
 func resolveOptionalWorkspaceID(ctx context.Context, requested string) (string, error) {
@@ -955,4 +1145,16 @@ func randomHex(size int) (string, error) {
 		return "", err
 	}
 	return hex.EncodeToString(buf), nil
+}
+
+func randomNumericCode(length int) (string, error) {
+	if length <= 0 {
+		return "", fmt.Errorf("length: %w", domain.ErrInvalidArgument)
+	}
+	max := new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(length)), nil)
+	n, err := rand.Int(rand.Reader, max)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("%0*d", length, n.Int64()), nil
 }

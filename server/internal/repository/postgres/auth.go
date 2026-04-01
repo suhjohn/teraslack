@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/suhjohn/teraslack/internal/crypto"
@@ -37,7 +38,7 @@ func (r *AuthRepo) CreateSession(ctx context.Context, params domain.CreateAuthSe
 
 	row, err := r.q.CreateAuthSession(ctx, sqlcgen.CreateAuthSessionParams{
 		ID:          id,
-		WorkspaceID:      params.WorkspaceID,
+		WorkspaceID: params.WorkspaceID,
 		UserID:      params.UserID,
 		SessionHash: crypto.HashToken(raw),
 		Provider:    string(params.Provider),
@@ -67,9 +68,54 @@ func (r *AuthRepo) RevokeSessionByHash(ctx context.Context, sessionHash string) 
 	return r.q.RevokeAuthSessionByHash(ctx, sessionHash)
 }
 
+func (r *AuthRepo) DeletePendingEmailVerificationChallenges(ctx context.Context, email string) error {
+	return r.q.DeletePendingEmailVerificationChallenges(ctx, email)
+}
+
+func (r *AuthRepo) CreateEmailVerificationChallenge(ctx context.Context, params domain.CreateEmailVerificationChallengeParams) (*domain.EmailVerificationChallenge, error) {
+	row, err := r.q.CreateEmailVerificationChallenge(ctx, sqlcgen.CreateEmailVerificationChallengeParams{
+		ID:        generateID("EV"),
+		Email:     params.Email,
+		CodeHash:  params.CodeHash,
+		ExpiresAt: params.ExpiresAt,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("create email verification challenge: %w", err)
+	}
+	return emailVerificationChallengeToDomain(row), nil
+}
+
+func (r *AuthRepo) GetEmailVerificationChallenge(ctx context.Context, email, codeHash string) (*domain.EmailVerificationChallenge, error) {
+	row, err := r.q.GetEmailVerificationChallenge(ctx, sqlcgen.GetEmailVerificationChallengeParams{
+		Lower:    email,
+		CodeHash: codeHash,
+	})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, domain.ErrInvalidAuth
+		}
+		return nil, fmt.Errorf("get email verification challenge: %w", err)
+	}
+	return emailVerificationChallengeToDomain(row), nil
+}
+
+func (r *AuthRepo) ConsumeEmailVerificationChallenge(ctx context.Context, id string, consumedAt time.Time) error {
+	rows, err := r.q.ConsumeEmailVerificationChallenge(ctx, sqlcgen.ConsumeEmailVerificationChallengeParams{
+		ID:         id,
+		ConsumedAt: &consumedAt,
+	})
+	if err != nil {
+		return fmt.Errorf("consume email verification challenge: %w", err)
+	}
+	if rows == 0 {
+		return domain.ErrInvalidAuth
+	}
+	return nil
+}
+
 func (r *AuthRepo) GetOAuthAccount(ctx context.Context, workspaceID string, provider domain.AuthProvider, providerSubject string) (*domain.OAuthAccount, error) {
 	row, err := r.q.GetOAuthAccount(ctx, sqlcgen.GetOAuthAccountParams{
-		WorkspaceID:          workspaceID,
+		WorkspaceID:     workspaceID,
 		Provider:        string(provider),
 		ProviderSubject: providerSubject,
 	})
@@ -110,7 +156,7 @@ func (r *AuthRepo) ListOAuthAccountsBySubject(ctx context.Context, provider doma
 func (r *AuthRepo) UpsertOAuthAccount(ctx context.Context, params domain.UpsertOAuthAccountParams) (*domain.OAuthAccount, error) {
 	row, err := r.q.UpsertOAuthAccount(ctx, sqlcgen.UpsertOAuthAccountParams{
 		ID:              generateID("OA"),
-		WorkspaceID:          params.WorkspaceID,
+		WorkspaceID:     params.WorkspaceID,
 		UserID:          params.UserID,
 		Provider:        string(params.Provider),
 		ProviderSubject: params.ProviderSubject,
@@ -128,4 +174,15 @@ func randomSessionToken() (string, error) {
 		return "", fmt.Errorf("generate session token: %w", err)
 	}
 	return "sess_" + hex.EncodeToString(buf), nil
+}
+
+func emailVerificationChallengeToDomain(row sqlcgen.EmailVerificationChallenge) *domain.EmailVerificationChallenge {
+	return &domain.EmailVerificationChallenge{
+		ID:         row.ID,
+		Email:      row.Email,
+		CodeHash:   row.CodeHash,
+		ExpiresAt:  row.ExpiresAt,
+		ConsumedAt: row.ConsumedAt,
+		CreatedAt:  row.CreatedAt,
+	}
 }

@@ -58,7 +58,7 @@ func TestAuthMiddleware_NoHeader(t *testing.T) {
 
 func TestAuthMiddleware_BypassPaths(t *testing.T) {
 	// Path-only bypasses (any method)
-	for _, path := range []string{"/healthz", "/oauth/authorize", "/oauth/token", "/.well-known/oauth-authorization-server"} {
+	for _, path := range []string{"/healthz", "/oauth/authorize", "/oauth/token", "/.well-known/oauth-authorization-server", "/auth/signup", "/auth/verify"} {
 		called := false
 		next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			called = true

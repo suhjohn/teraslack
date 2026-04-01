@@ -10,6 +10,25 @@ import (
 	"time"
 )
 
+const consumeEmailVerificationChallenge = `-- name: ConsumeEmailVerificationChallenge :execrows
+UPDATE email_verification_challenges
+SET consumed_at = $2
+WHERE id = $1 AND consumed_at IS NULL
+`
+
+type ConsumeEmailVerificationChallengeParams struct {
+	ID         string     `json:"id"`
+	ConsumedAt *time.Time `json:"consumed_at"`
+}
+
+func (q *Queries) ConsumeEmailVerificationChallenge(ctx context.Context, arg ConsumeEmailVerificationChallengeParams) (int64, error) {
+	result, err := q.db.Exec(ctx, consumeEmailVerificationChallenge, arg.ID, arg.ConsumedAt)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const createAuthSession = `-- name: CreateAuthSession :one
 INSERT INTO auth_sessions (id, workspace_id, user_id, session_hash, provider, expires_at)
 VALUES ($1, $2, $3, $4, $5, $6)
@@ -48,6 +67,48 @@ func (q *Queries) CreateAuthSession(ctx context.Context, arg CreateAuthSessionPa
 	return i, err
 }
 
+const createEmailVerificationChallenge = `-- name: CreateEmailVerificationChallenge :one
+INSERT INTO email_verification_challenges (id, email, code_hash, expires_at)
+VALUES ($1, $2, $3, $4)
+RETURNING id, email, code_hash, expires_at, consumed_at, created_at
+`
+
+type CreateEmailVerificationChallengeParams struct {
+	ID        string    `json:"id"`
+	Email     string    `json:"email"`
+	CodeHash  string    `json:"code_hash"`
+	ExpiresAt time.Time `json:"expires_at"`
+}
+
+func (q *Queries) CreateEmailVerificationChallenge(ctx context.Context, arg CreateEmailVerificationChallengeParams) (EmailVerificationChallenge, error) {
+	row := q.db.QueryRow(ctx, createEmailVerificationChallenge,
+		arg.ID,
+		arg.Email,
+		arg.CodeHash,
+		arg.ExpiresAt,
+	)
+	var i EmailVerificationChallenge
+	err := row.Scan(
+		&i.ID,
+		&i.Email,
+		&i.CodeHash,
+		&i.ExpiresAt,
+		&i.ConsumedAt,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const deletePendingEmailVerificationChallenges = `-- name: DeletePendingEmailVerificationChallenges :exec
+DELETE FROM email_verification_challenges
+WHERE LOWER(email) = LOWER($1) AND consumed_at IS NULL
+`
+
+func (q *Queries) DeletePendingEmailVerificationChallenges(ctx context.Context, lower string) error {
+	_, err := q.db.Exec(ctx, deletePendingEmailVerificationChallenges, lower)
+	return err
+}
+
 const getAuthSessionByHash = `-- name: GetAuthSessionByHash :one
 SELECT id, workspace_id, user_id, session_hash, provider, expires_at, revoked_at, created_at
 FROM auth_sessions
@@ -65,6 +126,33 @@ func (q *Queries) GetAuthSessionByHash(ctx context.Context, sessionHash string) 
 		&i.Provider,
 		&i.ExpiresAt,
 		&i.RevokedAt,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const getEmailVerificationChallenge = `-- name: GetEmailVerificationChallenge :one
+SELECT id, email, code_hash, expires_at, consumed_at, created_at
+FROM email_verification_challenges
+WHERE LOWER(email) = LOWER($1) AND code_hash = $2
+ORDER BY created_at DESC
+LIMIT 1
+`
+
+type GetEmailVerificationChallengeParams struct {
+	Lower    string `json:"lower"`
+	CodeHash string `json:"code_hash"`
+}
+
+func (q *Queries) GetEmailVerificationChallenge(ctx context.Context, arg GetEmailVerificationChallengeParams) (EmailVerificationChallenge, error) {
+	row := q.db.QueryRow(ctx, getEmailVerificationChallenge, arg.Lower, arg.CodeHash)
+	var i EmailVerificationChallenge
+	err := row.Scan(
+		&i.ID,
+		&i.Email,
+		&i.CodeHash,
+		&i.ExpiresAt,
+		&i.ConsumedAt,
 		&i.CreatedAt,
 	)
 	return i, err
