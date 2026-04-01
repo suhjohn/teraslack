@@ -46,6 +46,7 @@ type Operation struct {
 	Summary          string
 	Description      string
 	Parameters       []Parameter
+	BodyFields       []BodyField
 	RequestBody      *openapi3.SchemaRef
 	RequiresAuth     bool
 	CursorField      string
@@ -56,6 +57,14 @@ type Parameter struct {
 	Name        string
 	FlagName    string
 	In          string
+	Description string
+	Required    bool
+	Schema      *openapi3.SchemaRef
+}
+
+type BodyField struct {
+	Path        []string
+	FlagName    string
 	Description string
 	Required    bool
 	Schema      *openapi3.SchemaRef
@@ -285,6 +294,12 @@ func (c *CLI) runOperation(ctx context.Context, op *Operation, args []string, ba
 		values[param.FlagName] = &value
 		fs.StringVar(&value, param.FlagName, "", flagUsage(param))
 	}
+	bodyValues := map[string]*string{}
+	for _, field := range op.BodyFields {
+		value := ""
+		bodyValues[field.FlagName] = &value
+		fs.StringVar(&value, field.FlagName, "", bodyFieldUsage(field))
+	}
 
 	fs.Usage = func() {
 		c.printOperationHelp(op, stderr)
@@ -306,7 +321,7 @@ func (c *CLI) runOperation(ctx context.Context, op *Operation, args []string, ba
 		return 2
 	}
 
-	path, query, body, err := buildRequest(op, values, bodyText, bodyFile, setFlags)
+	path, query, body, err := buildRequest(op, values, bodyValues, bodyText, bodyFile, setFlags)
 	if err != nil {
 		fmt.Fprintf(stderr, "%v\n", err)
 		return 2
@@ -371,6 +386,7 @@ func buildOperation(path, method string, pathItem *openapi3.PathItem, operation 
 	if operation.RequestBody != nil && operation.RequestBody.Value != nil {
 		if mediaType, ok := operation.RequestBody.Value.Content["application/json"]; ok && mediaType != nil {
 			op.RequestBody = mediaType.Schema
+			op.BodyFields = collectBodyFields(mediaType.Schema, op.Parameters)
 			if bodyHasCursor(mediaType.Schema) {
 				op.CursorField = "cursor"
 				op.CursorLocation = "body"
@@ -414,7 +430,7 @@ func mergeParameters(pathParams, operationParams openapi3.Parameters) openapi3.P
 	return merged
 }
 
-func buildRequest(op *Operation, values map[string]*string, bodyText, bodyFile string, setFlags []string) (string, map[string]any, any, error) {
+func buildRequest(op *Operation, values, bodyValues map[string]*string, bodyText, bodyFile string, setFlags []string) (string, map[string]any, any, error) {
 	path := op.Path
 	query := map[string]any{}
 	var body any
@@ -468,14 +484,36 @@ func buildRequest(op *Operation, values map[string]*string, bodyText, bodyFile s
 		}
 	}
 
-	if len(setFlags) > 0 {
-		objectBody, ok := body.(map[string]any)
-		if body == nil {
-			objectBody = map[string]any{}
-			ok = true
+	if len(op.BodyFields) > 0 {
+		bodyObject, err := ensureObjectBody(body, bodyValues)
+		if err != nil {
+			return "", nil, nil, err
 		}
-		if !ok {
-			return "", nil, nil, fmt.Errorf("--set requires an object body")
+		appliedBodyFields := false
+		for _, field := range op.BodyFields {
+			raw := ""
+			if ref := bodyValues[field.FlagName]; ref != nil {
+				raw = strings.TrimSpace(*ref)
+			}
+			if raw == "" {
+				continue
+			}
+			value, err := convertStringValue(raw, field.Schema)
+			if err != nil {
+				return "", nil, nil, fmt.Errorf("parse --%s: %w", field.FlagName, err)
+			}
+			applySet(bodyObject, strings.Join(field.Path, "."), value)
+			appliedBodyFields = true
+		}
+		if appliedBodyFields || body != nil {
+			body = bodyObject
+		}
+	}
+
+	if len(setFlags) > 0 {
+		objectBody, err := ensureObjectBody(body, map[string]*string{"set": stringPtr("present")})
+		if err != nil {
+			return "", nil, nil, err
 		}
 		for _, entry := range setFlags {
 			key, value, found := strings.Cut(entry, "=")
@@ -485,6 +523,10 @@ func buildRequest(op *Operation, values map[string]*string, bodyText, bodyFile s
 			applySet(objectBody, strings.TrimSpace(key), parseLooseValue(strings.TrimSpace(value)))
 		}
 		body = objectBody
+	}
+
+	if err := validateRequiredBodyFields(body, op.BodyFields); err != nil {
+		return "", nil, nil, err
 	}
 
 	return path, query, body, nil
@@ -639,6 +681,18 @@ func (c *CLI) printOperationHelp(op *Operation, w io.Writer) {
 			fmt.Fprintf(w, "  --%-24s %s%s\n", param.FlagName, oneLine(param.Description), required)
 		}
 	}
+	if len(op.BodyFields) > 0 {
+		if len(op.Parameters) == 0 {
+			fmt.Fprintln(w, "Flags:")
+		}
+		for _, field := range op.BodyFields {
+			required := ""
+			if field.Required {
+				required = " required."
+			}
+			fmt.Fprintf(w, "  --%-24s %s%s\n", field.FlagName, oneLine(field.Description), required)
+		}
+	}
 	if op.RequestBody != nil {
 		fmt.Fprintln(w, "  --body                    JSON request body.")
 		fmt.Fprintln(w, "  --body-file               Read a JSON request body from a file.")
@@ -660,6 +714,17 @@ func flagUsage(param Parameter) string {
 	return usage
 }
 
+func bodyFieldUsage(field BodyField) string {
+	usage := oneLine(field.Description)
+	if usage == "" {
+		usage = fmt.Sprintf("%s body field.", strings.Join(field.Path, "."))
+	}
+	if field.Required {
+		usage += " Required."
+	}
+	return usage
+}
+
 func requiresAuth(operation *openapi3.Operation) bool {
 	if operation.Security == nil {
 		return true
@@ -676,43 +741,112 @@ func bodyHasCursor(schemaRef *openapi3.SchemaRef) bool {
 	return ok
 }
 
+func collectBodyFields(schemaRef *openapi3.SchemaRef, params []Parameter) []BodyField {
+	schema := derefSchema(schemaRef)
+	if schema == nil || schema.Type == nil || !schema.Type.Is("object") {
+		return nil
+	}
+
+	var fields []BodyField
+	collectBodyFieldsInto(&fields, schemaRef, nil, true)
+
+	reserved := map[string]struct{}{}
+	for _, name := range []string{"body", "body-file", "set", "all"} {
+		reserved[name] = struct{}{}
+	}
+	for _, param := range params {
+		reserved[param.FlagName] = struct{}{}
+	}
+	for i := range fields {
+		base := slugify(strings.Join(fields[i].Path, "-"))
+		if base == "" {
+			base = "body"
+		}
+		name := base
+		for idx := 2; ; idx++ {
+			if _, exists := reserved[name]; !exists {
+				break
+			}
+			name = fmt.Sprintf("%s-%d", base, idx)
+		}
+		fields[i].FlagName = name
+		reserved[name] = struct{}{}
+	}
+
+	return fields
+}
+
+func collectBodyFieldsInto(fields *[]BodyField, schemaRef *openapi3.SchemaRef, path []string, ancestorsRequired bool) {
+	schema := derefSchema(schemaRef)
+	if schema == nil {
+		return
+	}
+	if schema.Type == nil || !schema.Type.Is("object") || len(schema.Properties) == 0 {
+		if len(path) == 0 {
+			return
+		}
+		*fields = append(*fields, BodyField{
+			Path:        append([]string(nil), path...),
+			Description: strings.TrimSpace(schema.Description),
+			Required:    ancestorsRequired,
+			Schema:      schemaRef,
+		})
+		return
+	}
+
+	required := map[string]bool{}
+	for _, name := range schema.Required {
+		required[name] = true
+	}
+	names := make([]string, 0, len(schema.Properties))
+	for name := range schema.Properties {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
+	for _, name := range names {
+		childPath := append(append([]string(nil), path...), name)
+		collectBodyFieldsInto(fields, schema.Properties[name], childPath, ancestorsRequired && required[name])
+	}
+}
+
 var commandNameOverrides = map[string]string{
-	"GET /auth/me":                                      "me",
-	"POST /auth/signup":                                 "signup",
-	"POST /auth/verify":                                 "verify",
-	"DELETE /auth/sessions/current":                     "signout",
-	"POST /auth/sessions/current/workspace":             "switch-workspace",
-	"GET /auth/oauth/{provider}/start":                  "oauth-start",
-	"GET /auth/oauth/{provider}/callback":               "oauth-complete",
-	"POST /api-keys/{id}/rotations":                     "rotate",
-	"GET /healthz":                                      "get",
-	"POST /search":                                      "run",
-	"POST /messages":                                    "send",
-	"POST /file-uploads":                                "start-upload",
-	"POST /file-uploads/{id}/complete":                  "complete-upload",
-	"POST /files/{id}/shares":                           "share",
-	"POST /workspaces/{id}/primary-admin":               "transfer-primary-admin",
-	"GET /users/{id}/roles":                             "roles",
-	"PUT /users/{id}/roles":                             "set-roles",
-	"GET /usergroups/{id}/members":                      "members",
-	"PUT /usergroups/{id}/members":                      "set-members",
-	"GET /conversations/{id}/members":                   "members",
-	"POST /conversations/{id}/members":                  "add-members",
-	"DELETE /conversations/{id}/members/{user_id}":      "remove-member",
-	"GET /conversations/{id}/bookmarks":                 "bookmarks",
-	"POST /conversations/{id}/bookmarks":                "bookmark",
-	"PATCH /conversations/{conversation_id}/bookmarks/{bookmark_id}": "update-bookmark",
-	"DELETE /conversations/{conversation_id}/bookmarks/{bookmark_id}": "delete-bookmark",
-	"GET /conversations/{id}/pins":                      "pins",
-	"POST /conversations/{id}/pins":                     "pin",
-	"DELETE /conversations/{id}/pins/{message_ts}":      "unpin",
-	"GET /conversations/{id}/managers":                  "managers",
-	"PUT /conversations/{id}/managers":                  "set-managers",
-	"GET /conversations/{id}/posting-policy":            "posting-policy",
-	"PUT /conversations/{id}/posting-policy":            "set-posting-policy",
-	"PUT /conversations/{id}/read-state":                "mark-read",
-	"GET /messages/{conversation_id}/{message_ts}/reactions": "reactions",
-	"POST /messages/{conversation_id}/{message_ts}/reactions": "react",
+	"GET /auth/me":                                                              "me",
+	"POST /auth/signup":                                                         "signup",
+	"POST /auth/verify":                                                         "verify",
+	"DELETE /auth/sessions/current":                                             "signout",
+	"POST /auth/sessions/current/workspace":                                     "switch-workspace",
+	"GET /auth/oauth/{provider}/start":                                          "oauth-start",
+	"GET /auth/oauth/{provider}/callback":                                       "oauth-complete",
+	"POST /api-keys/{id}/rotations":                                             "rotate",
+	"GET /healthz":                                                              "get",
+	"POST /search":                                                              "run",
+	"POST /messages":                                                            "send",
+	"POST /file-uploads":                                                        "start-upload",
+	"POST /file-uploads/{id}/complete":                                          "complete-upload",
+	"POST /files/{id}/shares":                                                   "share",
+	"POST /workspaces/{id}/primary-admin":                                       "transfer-primary-admin",
+	"GET /users/{id}/roles":                                                     "roles",
+	"PUT /users/{id}/roles":                                                     "set-roles",
+	"GET /usergroups/{id}/members":                                              "members",
+	"PUT /usergroups/{id}/members":                                              "set-members",
+	"GET /conversations/{id}/members":                                           "members",
+	"POST /conversations/{id}/members":                                          "add-members",
+	"DELETE /conversations/{id}/members/{user_id}":                              "remove-member",
+	"GET /conversations/{id}/bookmarks":                                         "bookmarks",
+	"POST /conversations/{id}/bookmarks":                                        "bookmark",
+	"PATCH /conversations/{conversation_id}/bookmarks/{bookmark_id}":            "update-bookmark",
+	"DELETE /conversations/{conversation_id}/bookmarks/{bookmark_id}":           "delete-bookmark",
+	"GET /conversations/{id}/pins":                                              "pins",
+	"POST /conversations/{id}/pins":                                             "pin",
+	"DELETE /conversations/{id}/pins/{message_ts}":                              "unpin",
+	"GET /conversations/{id}/managers":                                          "managers",
+	"PUT /conversations/{id}/managers":                                          "set-managers",
+	"GET /conversations/{id}/posting-policy":                                    "posting-policy",
+	"PUT /conversations/{id}/posting-policy":                                    "set-posting-policy",
+	"PUT /conversations/{id}/read-state":                                        "mark-read",
+	"GET /messages/{conversation_id}/{message_ts}/reactions":                    "reactions",
+	"POST /messages/{conversation_id}/{message_ts}/reactions":                   "react",
 	"DELETE /messages/{conversation_id}/{message_ts}/reactions/{reaction_name}": "unreact",
 }
 
@@ -968,6 +1102,13 @@ func convertStringValue(raw string, schemaRef *openapi3.SchemaRef) (any, error) 
 		}
 		return value, nil
 	case schema.Type.Is("array"):
+		trimmed := strings.TrimSpace(raw)
+		if strings.HasPrefix(trimmed, "[") {
+			var value []any
+			if err := json.Unmarshal([]byte(trimmed), &value); err == nil {
+				return value, nil
+			}
+		}
 		parts := splitCSV(raw)
 		items := make([]any, 0, len(parts))
 		for _, part := range parts {
@@ -978,9 +1119,83 @@ func convertStringValue(raw string, schemaRef *openapi3.SchemaRef) (any, error) 
 			items = append(items, value)
 		}
 		return items, nil
+	case schema.Type.Is("object"):
+		var value map[string]any
+		if err := json.Unmarshal([]byte(raw), &value); err != nil {
+			return nil, fmt.Errorf("expected JSON object")
+		}
+		return value, nil
 	default:
 		return raw, nil
 	}
+}
+
+func ensureObjectBody(body any, values map[string]*string) (map[string]any, error) {
+	objectBody, ok := body.(map[string]any)
+	if body == nil {
+		return map[string]any{}, nil
+	}
+	if ok {
+		return objectBody, nil
+	}
+	for _, ref := range values {
+		if ref != nil && strings.TrimSpace(*ref) != "" {
+			return nil, fmt.Errorf("body flags require a JSON object body")
+		}
+	}
+	return nil, nil
+}
+
+func validateRequiredBodyFields(body any, fields []BodyField) error {
+	if len(fields) == 0 {
+		return nil
+	}
+	if body == nil {
+		for _, field := range fields {
+			if field.Required {
+				return fmt.Errorf("missing required flag --%s", field.FlagName)
+			}
+		}
+		return nil
+	}
+	objectBody, ok := body.(map[string]any)
+	if !ok {
+		for _, field := range fields {
+			if field.Required {
+				return fmt.Errorf("request body must be a JSON object")
+			}
+		}
+		return nil
+	}
+	for _, field := range fields {
+		if field.Required && !hasPathValue(objectBody, field.Path) {
+			return fmt.Errorf("missing required flag --%s", field.FlagName)
+		}
+	}
+	return nil
+}
+
+func hasPathValue(root map[string]any, path []string) bool {
+	current := root
+	for idx, part := range path {
+		value, ok := current[part]
+		if !ok {
+			return false
+		}
+		if idx == len(path)-1 {
+			return true
+		}
+		next, ok := value.(map[string]any)
+		if !ok {
+			return false
+		}
+		current = next
+	}
+	return false
+}
+
+func stringPtr(value string) *string {
+	return &value
 }
 
 func splitCSV(raw string) []string {

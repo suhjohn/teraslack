@@ -3,6 +3,7 @@ package openapicli
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -17,8 +18,8 @@ func TestNewBuildsCommandSurface(t *testing.T) {
 		t.Fatalf("New() error = %v", err)
 	}
 
-	if cli.operationCnt != 87 {
-		t.Fatalf("operationCnt = %d, want 87", cli.operationCnt)
+	if cli.operationCnt != 89 {
+		t.Fatalf("operationCnt = %d, want 89", cli.operationCnt)
 	}
 
 	assertCommandExists(t, cli, "workspaces", "list")
@@ -30,8 +31,16 @@ func TestNewBuildsCommandSurface(t *testing.T) {
 	assertCommandExists(t, cli, "health", "get")
 	assertCommandExists(t, cli, "search", "run")
 	assertCommandExists(t, cli, "files", "start-upload")
+	assertCommandExists(t, cli, "invites", "accept")
 	assertCommandExists(t, cli, "conversations", "members")
 	assertCommandExists(t, cli, "conversations", "mark-read")
+	assertCommandExists(t, cli, "workspaces", "invite")
+
+	inviteOp := mustOperation(t, cli, "workspaces", "invite")
+	assertBodyFieldExists(t, inviteOp, "email")
+
+	acceptOp := mustOperation(t, cli, "invites", "accept")
+	assertBodyFieldExists(t, acceptOp, "code")
 }
 
 func TestBuildRequestBuildsPathQueryAndBody(t *testing.T) {
@@ -49,7 +58,7 @@ func TestBuildRequestBuildsPathQueryAndBody(t *testing.T) {
 		"exclude-archived": stringRef("true"),
 	}
 
-	path, query, body, err := buildRequest(conversations, values, "", "", nil)
+	path, query, body, err := buildRequest(conversations, values, nil, "", "", nil)
 	if err != nil {
 		t.Fatalf("buildRequest(conversations) error = %v", err)
 	}
@@ -70,11 +79,19 @@ func TestBuildRequestBuildsPathQueryAndBody(t *testing.T) {
 	}
 
 	workspaces := mustOperation(t, cli, "workspaces", "create")
-	bodyPath, _, bodyValue, err := buildRequest(workspaces, map[string]*string{}, "", "", []string{
-		"name=Acme",
-		"billing.plan=pro",
-		"default_channels=[\"C1\",\"C2\"]",
-	})
+	bodyPath, _, bodyValue, err := buildRequest(workspaces, map[string]*string{}, map[string]*string{
+		"name":             stringRef("Acme"),
+		"domain":           stringRef("acme"),
+		"email-domain":     stringRef("acme.com"),
+		"description":      stringRef("Company workspace"),
+		"icon":             stringRef("https://example.com/icon.png"),
+		"discoverability":  stringRef("invite_only"),
+		"default-channels": stringRef("C1,C2"),
+		"preferences":      stringRef("{\"theme\":\"light\"}"),
+		"profile-fields":   stringRef("[]"),
+		"billing-plan":     stringRef("pro"),
+		"billing-status":   stringRef("active"),
+	}, "", "", nil)
 	if err != nil {
 		t.Fatalf("buildRequest(workspaces) error = %v", err)
 	}
@@ -89,6 +106,12 @@ func TestBuildRequestBuildsPathQueryAndBody(t *testing.T) {
 	if got, want := objectBody["name"], "Acme"; got != want {
 		t.Fatalf("body name = %#v, want %q", got, want)
 	}
+	if got, want := objectBody["default_channels"], []any{"C1", "C2"}; !equalJSONValue(got, want) {
+		t.Fatalf("default_channels = %#v, want %#v", got, want)
+	}
+	if got, want := objectBody["preferences"], map[string]any{"theme": "light"}; !equalJSONValue(got, want) {
+		t.Fatalf("preferences = %#v, want %#v", got, want)
+	}
 
 	billing, ok := objectBody["billing"].(map[string]any)
 	if !ok {
@@ -96,6 +119,88 @@ func TestBuildRequestBuildsPathQueryAndBody(t *testing.T) {
 	}
 	if got, want := billing["plan"], "pro"; got != want {
 		t.Fatalf("billing.plan = %#v, want %q", got, want)
+	}
+	if got, want := billing["status"], "active"; got != want {
+		t.Fatalf("billing.status = %#v, want %q", got, want)
+	}
+}
+
+func TestBuildRequestBodyFlagsOverlayBodyJSON(t *testing.T) {
+	t.Parallel()
+
+	cli, err := New()
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	accept := mustOperation(t, cli, "invites", "accept")
+	_, _, bodyValue, err := buildRequest(accept, nil, map[string]*string{
+		"code": stringRef("invite_override"),
+	}, `{"code":"invite_base"}`, "", nil)
+	if err != nil {
+		t.Fatalf("buildRequest(accept) error = %v", err)
+	}
+
+	objectBody, ok := bodyValue.(map[string]any)
+	if !ok {
+		t.Fatalf("bodyValue type = %T, want map[string]any", bodyValue)
+	}
+	if got, want := objectBody["code"], "invite_override"; got != want {
+		t.Fatalf("body code = %#v, want %q", got, want)
+	}
+}
+
+func TestBuildRequestRejectsMissingRequiredBodyFlags(t *testing.T) {
+	t.Parallel()
+
+	cli, err := New()
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	accept := mustOperation(t, cli, "invites", "accept")
+	_, _, _, err = buildRequest(accept, nil, nil, "", "", nil)
+	if err == nil || !strings.Contains(err.Error(), "missing required flag --code") {
+		t.Fatalf("buildRequest(accept) error = %v, want missing required --code", err)
+	}
+}
+
+func TestBuildRequestLeavesOptionalObjectBodyNilWithoutFlags(t *testing.T) {
+	t.Parallel()
+
+	cli, err := New()
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	updateWorkspace := mustOperation(t, cli, "workspaces", "update")
+	_, _, bodyValue, err := buildRequest(updateWorkspace, map[string]*string{
+		"id": stringRef("W123"),
+	}, nil, "", "", nil)
+	if err != nil {
+		t.Fatalf("buildRequest(updateWorkspace) error = %v", err)
+	}
+	if bodyValue != nil {
+		t.Fatalf("bodyValue = %#v, want nil", bodyValue)
+	}
+}
+
+func TestOperationHelpIncludesBodyFieldFlags(t *testing.T) {
+	t.Parallel()
+
+	cli, err := New()
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	var output bytes.Buffer
+	cli.printOperationHelp(mustOperation(t, cli, "workspaces", "invite"), &output)
+	text := output.String()
+	if !strings.Contains(text, "--email") {
+		t.Fatalf("operation help missing --email: %s", text)
+	}
+	if !strings.Contains(text, "--body") {
+		t.Fatalf("operation help missing --body: %s", text)
 	}
 }
 
@@ -242,6 +347,17 @@ func assertCommandExists(t *testing.T, cli *CLI, groupName, commandName string) 
 	}
 }
 
+func assertBodyFieldExists(t *testing.T, op *Operation, flagName string) {
+	t.Helper()
+
+	for _, field := range op.BodyFields {
+		if field.FlagName == flagName {
+			return
+		}
+	}
+	t.Fatalf("missing body field %q on operation %s %s", flagName, op.GroupName, op.Name)
+}
+
 func mustOperation(t *testing.T, cli *CLI, groupName, commandName string) *Operation {
 	t.Helper()
 
@@ -254,6 +370,18 @@ func mustOperation(t *testing.T, cli *CLI, groupName, commandName string) *Opera
 		t.Fatalf("missing command %q in group %q", commandName, groupName)
 	}
 	return op
+}
+
+func equalJSONValue(got, want any) bool {
+	gotJSON, err := json.Marshal(got)
+	if err != nil {
+		return false
+	}
+	wantJSON, err := json.Marshal(want)
+	if err != nil {
+		return false
+	}
+	return bytes.Equal(gotJSON, wantJSON)
 }
 
 func stringRef(value string) *string {

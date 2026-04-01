@@ -36,3 +36,22 @@ func (h *WorkspaceInviteHandler) Create(w http.ResponseWriter, r *http.Request) 
 	}
 	httputil.WriteCreated(w, "/workspaces/"+r.PathValue("id")+"/invites/"+result.Invite.ID, result)
 }
+
+func (h *WorkspaceInviteHandler) Accept(w http.ResponseWriter, r *http.Request) {
+	if h.svc == nil {
+		httputil.WriteInternalError(w, r)
+		return
+	}
+	var req domain.AcceptWorkspaceInviteParams
+	if err := httputil.DecodeJSON(r, &req); err != nil {
+		httputil.WriteError(w, r, domain.ErrInvalidArgument)
+		return
+	}
+
+	result, err := h.svc.Accept(r.Context(), req.Code)
+	if err != nil {
+		httputil.WriteError(w, r, err)
+		return
+	}
+	httputil.WriteResource(w, http.StatusOK, result)
+}

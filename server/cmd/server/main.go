@@ -193,7 +193,8 @@ func run(logger *slog.Logger) error {
 	}
 	searchSvc := service.NewSearchService(tpClient)
 	searchSvc.SetExternalAccessRepository(externalAccessRepo)
-	workspaceInviteSvc := service.NewWorkspaceInviteService(workspaceInviteRepo, userRepo, cfg.FrontendURL)
+	workspaceInviteSvc := service.NewWorkspaceInviteService(workspaceInviteRepo, userRepo, recorder, pool, cfg.FrontendURL)
+	workspaceInviteSvc.SetAuthorizationAuditRepository(auditRepo)
 	// Initialize handlers
 	workspaceHandler := handler.NewWorkspaceHandler(workspaceSvc)
 	workspaceInviteHandler := handler.NewWorkspaceInviteHandler(workspaceInviteSvc)

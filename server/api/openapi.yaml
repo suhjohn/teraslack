@@ -8,6 +8,7 @@ security:
 tags:
   - name: Health
   - name: Workspaces
+  - name: Invites
   - name: Users
   - name: Access
   - name: Conversations
@@ -287,6 +288,49 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/WorkspaceProfileFieldsCollection"
+        default:
+          $ref: "#/components/responses/ApiErrorResponse"
+  /workspaces/{id}/invites:
+    post:
+      tags: [Workspaces]
+      operationId: createWorkspaceInvite
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceIDPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateWorkspaceInviteRequest"
+      responses:
+        "201":
+          description: Workspace invite created.
+          headers:
+            Location:
+              $ref: "#/components/headers/Location"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreateWorkspaceInviteResponse"
+        default:
+          $ref: "#/components/responses/ApiErrorResponse"
+  /invites/accept:
+    post:
+      tags: [Invites]
+      operationId: acceptInvite
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AcceptWorkspaceInviteRequest"
+      responses:
+        "200":
+          description: Workspace invite accepted.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AcceptWorkspaceInviteResponse"
         default:
           $ref: "#/components/responses/ApiErrorResponse"
   /users:
@@ -2562,6 +2606,76 @@ components:
         created_at:
           type: string
           format: date-time
+    WorkspaceInvite:
+      type: object
+      description: A single-use workspace invite scoped to one email address.
+      required: [id, workspace_id, email, invited_by, expires_at, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          description: Unique invite identifier.
+        workspace_id:
+          type: string
+          description: Workspace this invite grants access to.
+        email:
+          type: string
+          format: email
+          description: Email address allowed to accept the invite.
+        invited_by:
+          type: string
+          description: User who created the invite.
+        accepted_by_user_id:
+          type: string
+          description: Workspace user that accepted the invite.
+        expires_at:
+          type: string
+          format: date-time
+          description: When the invite expires.
+        accepted_at:
+          type: string
+          format: date-time
+          description: When the invite was accepted.
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    CreateWorkspaceInviteRequest:
+      type: object
+      required: [email]
+      properties:
+        email:
+          type: string
+          format: email
+          description: Email address that may consume the invite.
+    CreateWorkspaceInviteResponse:
+      type: object
+      required: [invite, code, invite_url]
+      properties:
+        invite:
+          $ref: "#/components/schemas/WorkspaceInvite"
+        code:
+          type: string
+          description: Raw invite code that can be accepted through the API.
+        invite_url:
+          type: string
+          description: Legacy login URL carrying the invite code.
+    AcceptWorkspaceInviteRequest:
+      type: object
+      required: [code]
+      properties:
+        code:
+          type: string
+          description: Raw invite code returned when the invite was created.
+    AcceptWorkspaceInviteResponse:
+      type: object
+      required: [invite, user]
+      properties:
+        invite:
+          $ref: "#/components/schemas/WorkspaceInvite"
+        user:
+          $ref: "#/components/schemas/User"
     AuthSignupRequest:
       type: object
       required: [email]

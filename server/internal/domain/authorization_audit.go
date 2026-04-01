@@ -6,32 +6,32 @@ import (
 )
 
 type AuthorizationAuditLog struct {
-	ID         string          `json:"id"`
-	WorkspaceID     string          `json:"workspace_id"`
-	ActorID    string          `json:"actor_id,omitempty"`
-	APIKeyID   string          `json:"api_key_id,omitempty"`
-	OnBehalfOf string          `json:"on_behalf_of,omitempty"`
-	Action     string          `json:"action"`
-	Resource   string          `json:"resource"`
-	ResourceID string          `json:"resource_id"`
-	Metadata   json.RawMessage `json:"metadata,omitempty"`
-	CreatedAt  time.Time       `json:"created_at"`
+	ID          string          `json:"id"`
+	WorkspaceID string          `json:"workspace_id"`
+	ActorID     string          `json:"actor_id,omitempty"`
+	APIKeyID    string          `json:"api_key_id,omitempty"`
+	OnBehalfOf  string          `json:"on_behalf_of,omitempty"`
+	Action      string          `json:"action"`
+	Resource    string          `json:"resource"`
+	ResourceID  string          `json:"resource_id"`
+	Metadata    json.RawMessage `json:"metadata,omitempty"`
+	CreatedAt   time.Time       `json:"created_at"`
 }
 
 type CreateAuthorizationAuditLogParams struct {
-	WorkspaceID     string
-	ActorID    string
-	APIKeyID   string
-	OnBehalfOf string
-	Action     string
-	Resource   string
-	ResourceID string
-	Metadata   json.RawMessage
+	WorkspaceID string
+	ActorID     string
+	APIKeyID    string
+	OnBehalfOf  string
+	Action      string
+	Resource    string
+	ResourceID  string
+	Metadata    json.RawMessage
 }
 
 type ListAuthorizationAuditLogsParams struct {
 	WorkspaceID string
-	Limit  int
+	Limit       int
 }
 
 const (
@@ -44,6 +44,7 @@ const (
 	AuditActionConversationManagersUpdated    = "conversation_managers.updated"
 	AuditActionPostingPolicyUpdated           = "conversation_posting_policy.updated"
 	AuditActionSessionRevoked                 = "session.revoked"
+	AuditActionWorkspaceInviteAccepted        = "workspace_invite.accepted"
 	AuditActionAPIKeyCreated                  = "api_key.created"
 	AuditActionAPIKeyUpdated                  = "api_key.updated"
 	AuditActionAPIKeyRevoked                  = "api_key.revoked"

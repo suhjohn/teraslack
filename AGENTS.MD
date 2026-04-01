@@ -28,6 +28,17 @@ Compilation of all important info
 - When exported function signatures or behavior change in any file under `agent-manager/src/services/*.ts`, update that README in the same change.
 - Keep function names, input parameter types, and return/output types in sync with code.
 
+# Server OpenAPI Sync Rule
+
+- Canonical HTTP API contract: `server/api/openapi.yaml`
+- For product API routes, update `server/api/openapi.yaml` first and regenerate `server/internal/api/openapi.gen.go` in the same change.
+- Keep these in sync:
+  - documented paths, request bodies, response schemas, and auth requirements in `server/api/openapi.yaml`
+  - generated server bindings in `server/internal/api/openapi.gen.go`
+  - handwritten adapter methods in `server/internal/handler/openapi_server.go`
+  - CLI-discoverable API surface in `server/internal/openapicli/cli.go`
+- Treat `server/internal/handler/router.go` manual route registration as an exception path for non-OpenAPI endpoints only, such as helper/auth bootstrap routes that are intentionally outside the public API contract.
+
 # Client Tool Catalog Sync Rule
 
 - Canonical server-owned client-tool catalog file: `agent-go/internal/server/client_tools.go`

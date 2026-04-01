@@ -9,6 +9,7 @@ import (
 
 type openAPIServer struct {
 	workspaceH        *WorkspaceHandler
+	workspaceInviteH  *WorkspaceInviteHandler
 	userH             *UserHandler
 	convH             *ConversationHandler
 	msgH              *MessageHandler
@@ -29,6 +30,7 @@ var _ openapi.ServerInterface = (*openAPIServer)(nil)
 
 func newOpenAPIServer(
 	workspaceH *WorkspaceHandler,
+	workspaceInviteH *WorkspaceInviteHandler,
 	userH *UserHandler,
 	convH *ConversationHandler,
 	msgH *MessageHandler,
@@ -46,6 +48,7 @@ func newOpenAPIServer(
 ) *openAPIServer {
 	return &openAPIServer{
 		workspaceH:        workspaceH,
+		workspaceInviteH:  workspaceInviteH,
 		userH:             userH,
 		convH:             convH,
 		msgH:              msgH,
@@ -65,6 +68,10 @@ func newOpenAPIServer(
 
 func (s *openAPIServer) ListApiKeys(w http.ResponseWriter, r *http.Request, _ openapi.ListApiKeysParams) {
 	s.apiKeyH.List(w, r)
+}
+
+func (s *openAPIServer) AcceptInvite(w http.ResponseWriter, r *http.Request) {
+	s.workspaceInviteH.Accept(w, r)
 }
 
 func (s *openAPIServer) ListExternalPrincipalAccess(w http.ResponseWriter, r *http.Request, _ openapi.ListExternalPrincipalAccessParams) {
@@ -345,6 +352,10 @@ func (s *openAPIServer) GetWorkspacePreferences(w http.ResponseWriter, r *http.R
 
 func (s *openAPIServer) ListWorkspaceProfileFields(w http.ResponseWriter, r *http.Request, _ openapi.WorkspaceIDPath) {
 	s.workspaceH.ProfileFields(w, r)
+}
+
+func (s *openAPIServer) CreateWorkspaceInvite(w http.ResponseWriter, r *http.Request, _ openapi.WorkspaceIDPath) {
+	s.workspaceInviteH.Create(w, r)
 }
 
 func (s *openAPIServer) CompleteOAuth(w http.ResponseWriter, r *http.Request, provider openapi.AuthProviderPath, _ openapi.CompleteOAuthParams) {

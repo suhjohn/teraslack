@@ -46,6 +46,7 @@ func Router(
 	apiMux := http.NewServeMux()
 	apiServer := newOpenAPIServer(
 		workspaceH,
+		workspaceInviteH,
 		userH,
 		convH,
 		msgH,
@@ -141,9 +142,6 @@ func Router(
 	})
 	root.HandleFunc("POST /auth/cli/oauth/{provider}/complete", func(w http.ResponseWriter, r *http.Request) {
 		authH.CompleteCLIOAuth(w, r)
-	})
-	root.HandleFunc("POST /workspaces/{id}/invites", func(w http.ResponseWriter, r *http.Request) {
-		workspaceInviteH.Create(w, r)
 	})
 	root.Handle("/", validator(apiHandler))
 
