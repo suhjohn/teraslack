@@ -117,13 +117,46 @@ Implementation notes:
 5. Add `webhook-producer`, `webhook-worker`, `indexer`, and `mcp-server` only if you need those features.
 6. Provision or attach Postgres, then copy its connection strings into the shared env vars.
 7. Generate public domains for `frontend` and `server`.
-8. Set `BASE_URL` to the public HTTPS URL of `server`.
-9. Set `FRONTEND_URL` and `VITE_API_BASE_URL` to the public HTTPS URLs of `frontend` and `server`.
-10. Set `MCP_BASE_URL` on both the `server` and `mcp-server` services to the public HTTPS URL of the MCP endpoint, for example `https://mcp.example.com/mcp`.
-11. Set `TERASLACK_BASE_URL` on the `mcp-server` service to the public HTTPS URL of `server`.
-12. Set `MCP_OAUTH_SIGNING_KEY` on both `server` and `mcp-server`, or rely on a shared `ENCRYPTION_KEY`.
-13. Set `VITE_TEAM_ID` on the `frontend` service to the workspace ID you want the login page to target.
-14. Redeploy all services after the env vars are in place.
+8. Map `teraslack.ai` to `frontend` and `api.teraslack.ai` to `server`.
+9. Set `BASE_URL=https://api.teraslack.ai`.
+10. Set `FRONTEND_URL=https://teraslack.ai`.
+11. Set `VITE_API_BASE_URL=https://api.teraslack.ai`.
+12. Set `CORS_ALLOWED_ORIGINS=https://teraslack.ai,https://www.teraslack.ai`.
+13. Set `MCP_BASE_URL` on both the `server` and `mcp-server` services to the public HTTPS URL of the MCP endpoint, for example `https://mcp.example.com/mcp`.
+14. Set `TERASLACK_BASE_URL` on the `mcp-server` service to the public HTTPS URL of `server`.
+15. Set `MCP_OAUTH_SIGNING_KEY` on both `server` and `mcp-server`, or rely on a shared `ENCRYPTION_KEY`.
+16. Set `VITE_TEAM_ID` on the `frontend` service to the workspace ID you want the login page to target.
+17. Redeploy all services after the env vars are in place.
+
+## Install Flow Deployment Notes
+
+For the one-command installer:
+
+1. `frontend/public/install.sh` is emitted into the frontend production build and should be reachable at `https://teraslack.ai/install.sh`.
+2. The installer expects the API install routes on `https://api.teraslack.ai/cli/install/...`.
+3. The installer also expects prebuilt stdio MCP binaries on `https://downloads.teraslack.ai/teraslack/stdio-mcp/...`.
+
+Release bundle workflow:
+
+1. Run `make build-stdio-release VERSION=v0.1.0`.
+2. Upload `dist/stdio-release/latest.json`.
+3. Upload `dist/stdio-release/v0.1.0/SHA256SUMS`.
+4. Upload each platform tarball under:
+   - `teraslack/stdio-mcp/v0.1.0/darwin-arm64/teraslack-stdio-mcp.tar.gz`
+   - `teraslack/stdio-mcp/v0.1.0/darwin-amd64/teraslack-stdio-mcp.tar.gz`
+   - `teraslack/stdio-mcp/v0.1.0/linux-amd64/teraslack-stdio-mcp.tar.gz`
+   - `teraslack/stdio-mcp/v0.1.0/linux-arm64/teraslack-stdio-mcp.tar.gz`
+
+Automated downloads upload:
+
+1. Set:
+   - `S3_DOWNLOADS_BUCKET=teraslack-downloads`
+   - `S3_DOWNLOADS_ACCOUNT_ID=<your_storage_account_id>` or `S3_DOWNLOADS_ENDPOINT=https://<storage-endpoint>`
+   - `S3_DOWNLOADS_ACCESS_KEY_ID=<downloads_access_key_id>`
+   - `S3_DOWNLOADS_SECRET_ACCESS_KEY=<downloads_secret_access_key>`
+   - optional: `S3_DOWNLOADS_PREFIX=teraslack/stdio-mcp`
+2. Run `make release-stdio VERSION=v0.1.0`.
+3. If the bundle is already built, run `make upload-stdio-release VERSION=v0.1.0`.
 
 ## Make targets
 

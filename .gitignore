@@ -6,3 +6,4 @@ server/bin/
 vendor/
 tmp/
 .env*
+dist/

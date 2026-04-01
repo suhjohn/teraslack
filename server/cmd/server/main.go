@@ -129,6 +129,7 @@ func run(logger *slog.Logger) error {
 	apiKeyRepo := pgRepo.NewAPIKeyRepo(pool)
 	auditRepo := pgRepo.NewAuthorizationAuditRepo(pool)
 	workspaceInviteRepo := pgRepo.NewWorkspaceInviteRepo(pool)
+	installSessionRepo := pgRepo.NewInstallSessionRepo(pool)
 
 	// Initialize EventRecorder
 	recorder := service.NewEventRecorder(eventStoreRepo)
@@ -176,6 +177,9 @@ func run(logger *slog.Logger) error {
 	apiKeySvc := service.NewAPIKeyService(apiKeyRepo, userRepo, recorder, pool, logger)
 	apiKeySvc.SetExternalAccessRepository(externalAccessRepo)
 	apiKeySvc.SetAuthorizationAuditRepository(auditRepo)
+	installSvc := service.NewInstallService(installSessionRepo, userRepo, workspaceRepo, apiKeySvc, encryptor, logger, service.InstallConfig{
+		BaseURL: cfg.BaseURL,
+	})
 	externalAccessSvc := service.NewExternalPrincipalAccessService(externalAccessRepo, userRepo, convRepo, recorder, pool, logger)
 	externalAccessSvc.SetAuthorizationAuditRepository(auditRepo)
 	// Initialize TurbopufferClient (optional — nil means search is disabled)
@@ -211,6 +215,7 @@ func run(logger *slog.Logger) error {
 	authHandler := handler.NewAuthHandler(authSvc)
 	mcpOAuthHandler := handler.NewMCPOAuthHandler(authSvc, mcpOAuthSvc, logger)
 	apiKeyHandler := handler.NewAPIKeyHandler(apiKeySvc)
+	installHandler := handler.NewInstallHandler(authSvc, installSvc)
 	searchHandler := handler.NewSearchHandler(searchSvc)
 	conversationReadHandler := handler.NewConversationReadHandler(conversationReadSvc)
 
@@ -236,6 +241,7 @@ func run(logger *slog.Logger) error {
 		eventHandler,
 		authHandler,
 		mcpOAuthHandler,
+		installHandler,
 		searchHandler,
 		apiKeyHandler,
 		conversationReadHandler,

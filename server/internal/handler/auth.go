@@ -244,6 +244,7 @@ func isAuthBypassRequest(r *http.Request) bool {
 		return true
 	}
 	return strings.HasPrefix(r.URL.Path, "/auth/oauth/") ||
+		strings.HasPrefix(r.URL.Path, "/cli/install/") ||
 		strings.HasPrefix(r.URL.Path, "/oauth/") ||
 		strings.HasPrefix(r.URL.Path, "/.well-known/oauth-authorization-server")
 }

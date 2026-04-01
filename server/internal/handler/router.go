@@ -36,6 +36,7 @@ func Router(
 	eventH *EventHandler,
 	authH *AuthHandler,
 	mcpOAuthH *MCPOAuthHandler,
+	installH *InstallHandler,
 	searchH *SearchHandler,
 	apiKeyH *APIKeyHandler,
 	conversationReadH *ConversationReadHandler,
@@ -149,6 +150,18 @@ func Router(
 	})
 	root.HandleFunc("POST /oauth/token", func(w http.ResponseWriter, r *http.Request) {
 		mcpOAuthH.Token(w, r)
+	})
+	root.HandleFunc("POST /cli/install/sessions", func(w http.ResponseWriter, r *http.Request) {
+		installH.CreateSession(w, r)
+	})
+	root.HandleFunc("GET /cli/install/{id}", func(w http.ResponseWriter, r *http.Request) {
+		installH.ApprovalPage(w, r)
+	})
+	root.HandleFunc("POST /cli/install/{id}", func(w http.ResponseWriter, r *http.Request) {
+		installH.Approve(w, r)
+	})
+	root.HandleFunc("POST /cli/install/{id}/poll", func(w http.ResponseWriter, r *http.Request) {
+		installH.Poll(w, r)
 	})
 	root.HandleFunc("POST /workspaces/{id}/invites", func(w http.ResponseWriter, r *http.Request) {
 		workspaceInviteH.Create(w, r)
