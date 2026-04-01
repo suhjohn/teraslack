@@ -16,7 +16,6 @@ import { Route as DocsRouteImport } from './routes/docs'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as WorkspaceIndexRouteImport } from './routes/workspace/index'
 import { Route as WorkspaceUsersRouteImport } from './routes/workspace/users'
-import { Route as WorkspaceUsergroupsRouteImport } from './routes/workspace/usergroups'
 import { Route as WorkspaceSettingsRouteImport } from './routes/workspace/settings'
 import { Route as WorkspaceExternalAccessRouteImport } from './routes/workspace/external-access'
 import { Route as WorkspaceEventsRouteImport } from './routes/workspace/events'
@@ -57,11 +56,6 @@ const WorkspaceIndexRoute = WorkspaceIndexRouteImport.update({
 const WorkspaceUsersRoute = WorkspaceUsersRouteImport.update({
   id: '/users',
   path: '/users',
-  getParentRoute: () => WorkspaceRoute,
-} as any)
-const WorkspaceUsergroupsRoute = WorkspaceUsergroupsRouteImport.update({
-  id: '/usergroups',
-  path: '/usergroups',
   getParentRoute: () => WorkspaceRoute,
 } as any)
 const WorkspaceSettingsRoute = WorkspaceSettingsRouteImport.update({
@@ -107,7 +101,6 @@ export interface FileRoutesByFullPath {
   '/workspace/events': typeof WorkspaceEventsRoute
   '/workspace/external-access': typeof WorkspaceExternalAccessRoute
   '/workspace/settings': typeof WorkspaceSettingsRoute
-  '/workspace/usergroups': typeof WorkspaceUsergroupsRoute
   '/workspace/users': typeof WorkspaceUsersRoute
   '/workspace/': typeof WorkspaceIndexRoute
 }
@@ -122,7 +115,6 @@ export interface FileRoutesByTo {
   '/workspace/events': typeof WorkspaceEventsRoute
   '/workspace/external-access': typeof WorkspaceExternalAccessRoute
   '/workspace/settings': typeof WorkspaceSettingsRoute
-  '/workspace/usergroups': typeof WorkspaceUsergroupsRoute
   '/workspace/users': typeof WorkspaceUsersRoute
   '/workspace': typeof WorkspaceIndexRoute
 }
@@ -139,7 +131,6 @@ export interface FileRoutesById {
   '/workspace/events': typeof WorkspaceEventsRoute
   '/workspace/external-access': typeof WorkspaceExternalAccessRoute
   '/workspace/settings': typeof WorkspaceSettingsRoute
-  '/workspace/usergroups': typeof WorkspaceUsergroupsRoute
   '/workspace/users': typeof WorkspaceUsersRoute
   '/workspace/': typeof WorkspaceIndexRoute
 }
@@ -157,7 +148,6 @@ export interface FileRouteTypes {
     | '/workspace/events'
     | '/workspace/external-access'
     | '/workspace/settings'
-    | '/workspace/usergroups'
     | '/workspace/users'
     | '/workspace/'
   fileRoutesByTo: FileRoutesByTo
@@ -172,7 +162,6 @@ export interface FileRouteTypes {
     | '/workspace/events'
     | '/workspace/external-access'
     | '/workspace/settings'
-    | '/workspace/usergroups'
     | '/workspace/users'
     | '/workspace'
   id:
@@ -188,7 +177,6 @@ export interface FileRouteTypes {
     | '/workspace/events'
     | '/workspace/external-access'
     | '/workspace/settings'
-    | '/workspace/usergroups'
     | '/workspace/users'
     | '/workspace/'
   fileRoutesById: FileRoutesById
@@ -252,13 +240,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof WorkspaceUsersRouteImport
       parentRoute: typeof WorkspaceRoute
     }
-    '/workspace/usergroups': {
-      id: '/workspace/usergroups'
-      path: '/usergroups'
-      fullPath: '/workspace/usergroups'
-      preLoaderRoute: typeof WorkspaceUsergroupsRouteImport
-      parentRoute: typeof WorkspaceRoute
-    }
     '/workspace/settings': {
       id: '/workspace/settings'
       path: '/settings'
@@ -311,7 +292,6 @@ interface WorkspaceRouteChildren {
   WorkspaceEventsRoute: typeof WorkspaceEventsRoute
   WorkspaceExternalAccessRoute: typeof WorkspaceExternalAccessRoute
   WorkspaceSettingsRoute: typeof WorkspaceSettingsRoute
-  WorkspaceUsergroupsRoute: typeof WorkspaceUsergroupsRoute
   WorkspaceUsersRoute: typeof WorkspaceUsersRoute
   WorkspaceIndexRoute: typeof WorkspaceIndexRoute
 }
@@ -323,7 +303,6 @@ const WorkspaceRouteChildren: WorkspaceRouteChildren = {
   WorkspaceEventsRoute: WorkspaceEventsRoute,
   WorkspaceExternalAccessRoute: WorkspaceExternalAccessRoute,
   WorkspaceSettingsRoute: WorkspaceSettingsRoute,
-  WorkspaceUsergroupsRoute: WorkspaceUsergroupsRoute,
   WorkspaceUsersRoute: WorkspaceUsersRoute,
   WorkspaceIndexRoute: WorkspaceIndexRoute,
 }

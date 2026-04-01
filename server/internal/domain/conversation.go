@@ -67,7 +67,6 @@ type ConversationPostingPolicy struct {
 	AllowedAccountTypes   []AccountType                 `json:"allowed_account_types,omitempty"`
 	AllowedDelegatedRoles []DelegatedRole               `json:"allowed_delegated_roles,omitempty"`
 	AllowedUserIDs        []string                      `json:"allowed_user_ids,omitempty"`
-	AllowedUsergroupIDs   []string                      `json:"allowed_usergroup_ids,omitempty"`
 	UpdatedBy             string                        `json:"updated_by,omitempty"`
 	UpdatedAt             time.Time                     `json:"updated_at"`
 }

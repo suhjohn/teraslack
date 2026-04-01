@@ -1023,113 +1023,6 @@ paths:
           $ref: "#/components/responses/NoContent"
         default:
           $ref: "#/components/responses/ApiErrorResponse"
-  /usergroups:
-    get:
-      tags: [Usergroups]
-      operationId: listUsergroups
-      parameters:
-        - $ref: "#/components/parameters/WorkspaceIDQuery"
-        - name: include_disabled
-          in: query
-          description: When true, include disabled usergroups in results.
-          schema:
-            type: boolean
-      responses:
-        "200":
-          description: Usergroups.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/UsergroupsCollection"
-        default:
-          $ref: "#/components/responses/ApiErrorResponse"
-    post:
-      tags: [Usergroups]
-      operationId: createUsergroup
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/CreateUsergroupRequest"
-      responses:
-        "201":
-          description: Usergroup created.
-          headers:
-            Location:
-              $ref: "#/components/headers/Location"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Usergroup"
-        default:
-          $ref: "#/components/responses/ApiErrorResponse"
-  /usergroups/{id}:
-    get:
-      tags: [Usergroups]
-      operationId: getUsergroup
-      parameters:
-        - $ref: "#/components/parameters/UsergroupIDPath"
-      responses:
-        "200":
-          description: Usergroup.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Usergroup"
-        default:
-          $ref: "#/components/responses/ApiErrorResponse"
-    patch:
-      tags: [Usergroups]
-      operationId: updateUsergroup
-      parameters:
-        - $ref: "#/components/parameters/UsergroupIDPath"
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/UsergroupUpdateRequest"
-      responses:
-        "200":
-          description: Usergroup updated.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Usergroup"
-        default:
-          $ref: "#/components/responses/ApiErrorResponse"
-  /usergroups/{id}/members:
-    get:
-      tags: [Usergroups]
-      operationId: listUsergroupMembers
-      parameters:
-        - $ref: "#/components/parameters/UsergroupIDPath"
-      responses:
-        "200":
-          description: Usergroup members.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/UsersCollection"
-        default:
-          $ref: "#/components/responses/ApiErrorResponse"
-    put:
-      tags: [Usergroups]
-      operationId: replaceUsergroupMembers
-      parameters:
-        - $ref: "#/components/parameters/UsergroupIDPath"
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/UsergroupMembersUpdateRequest"
-      responses:
-        "204":
-          $ref: "#/components/responses/NoContent"
-        default:
-          $ref: "#/components/responses/ApiErrorResponse"
   /file-uploads:
     post:
       tags: [Files]
@@ -1364,7 +1257,7 @@ paths:
           description: Filter by the type of resource that produced the event.
           schema:
             type: string
-            enum: [workspace, user, conversation, file, usergroup]
+            enum: [workspace, user, conversation, file]
         - name: resource_id
           in: query
           description: Filter by the specific resource that produced the event.
@@ -1744,13 +1637,6 @@ components:
       description: Emoji reaction name (e.g. "thumbsup").
       schema:
         type: string
-    UsergroupIDPath:
-      name: id
-      in: path
-      required: true
-      description: Usergroup identifier.
-      schema:
-        type: string
     FileIDPath:
       name: id
       in: path
@@ -1843,7 +1729,7 @@ components:
     DelegatedRole:
       type: string
       description: Fine-grained administrative role that can be granted to a user.
-      enum: [channels_admin, roles_admin, security_admin, integrations_admin, usergroups_admin, support_readonly]
+      enum: [channels_admin, roles_admin, security_admin, integrations_admin, support_readonly]
     ExternalPrincipalAccessMode:
       type: string
       description: Level of access granted to an external principal.
@@ -2389,60 +2275,6 @@ components:
         updated_at:
           type: string
           format: date-time
-    Usergroup:
-      type: object
-      description: A named group of users that can be @-mentioned together.
-      required:
-        - id
-        - workspace_id
-        - name
-        - handle
-        - description
-        - is_external
-        - enabled
-        - user_count
-        - created_by
-        - updated_by
-        - created_at
-        - updated_at
-      properties:
-        id:
-          type: string
-          description: Unique usergroup identifier.
-        workspace_id:
-          type: string
-          description: Workspace this usergroup belongs to.
-        name:
-          type: string
-          description: Display name of the usergroup.
-        handle:
-          type: string
-          description: Short handle used for @-mentions (e.g. "engineering").
-        description:
-          type: string
-          description: Description of the usergroup's purpose.
-        is_external:
-          type: boolean
-          description: Whether this usergroup includes external members.
-        enabled:
-          type: boolean
-          description: Whether this usergroup is active.
-        user_count:
-          type: integer
-          format: int32
-          description: Number of members in the usergroup.
-        created_by:
-          type: string
-          description: User who created the usergroup.
-        updated_by:
-          type: string
-          description: User who last updated the usergroup.
-        created_at:
-          type: string
-          format: date-time
-        updated_at:
-          type: string
-          format: date-time
     File:
       type: object
       description: An uploaded or external file.
@@ -2533,7 +2365,7 @@ components:
         resource_type:
           type: string
           description: Filter events to a specific resource type.
-          enum: [workspace, user, conversation, file, usergroup]
+          enum: [workspace, user, conversation, file]
         resource_id:
           type: string
           description: Filter events to a specific resource instance.
@@ -2564,7 +2396,7 @@ components:
         resource_type:
           type: string
           description: Type of resource that produced the event.
-          enum: [workspace, user, conversation, file, usergroup]
+          enum: [workspace, user, conversation, file]
         resource_id:
           type: string
           description: Identifier of the resource that produced the event.
@@ -3146,10 +2978,6 @@ components:
           type: array
           items:
             type: string
-        allowed_usergroup_ids:
-          type: array
-          items:
-            type: string
         updated_by:
           type: string
         updated_at:
@@ -3170,10 +2998,6 @@ components:
           items:
             $ref: "#/components/schemas/DelegatedRole"
         allowed_user_ids:
-          type: array
-          items:
-            type: string
-        allowed_usergroup_ids:
           type: array
           items:
             type: string
@@ -3278,57 +3102,6 @@ components:
         user_id:
           type: string
           description: User adding the reaction. Defaults to the authenticated user.
-    CreateUsergroupRequest:
-      type: object
-      required: [workspace_id, name, handle, description]
-      properties:
-        workspace_id:
-          type: string
-          description: Workspace to create the usergroup in.
-        name:
-          type: string
-          description: Display name.
-        handle:
-          type: string
-          description: Short handle for @-mentions (e.g. "engineering").
-        description:
-          type: string
-          description: Description of the group's purpose.
-        created_by:
-          type: string
-          description: User creating the group. Defaults to the authenticated user.
-        users:
-          type: array
-          description: Initial member user IDs.
-          items:
-            type: string
-    UsergroupUpdateRequest:
-      type: object
-      properties:
-        name:
-          type: string
-          description: New display name.
-        handle:
-          type: string
-          description: New @-mention handle.
-        description:
-          type: string
-          description: New description.
-        enabled:
-          type: boolean
-          description: Set to false to disable the usergroup.
-        updated_by:
-          type: string
-          description: User making the update.
-    UsergroupMembersUpdateRequest:
-      type: object
-      required: [users]
-      properties:
-        users:
-          type: array
-          description: Complete list of user IDs (replaces all existing members).
-          items:
-            type: string
     GetUploadURLRequest:
       type: object
       required: [filename, length]
@@ -3409,7 +3182,7 @@ components:
         resource_type:
           type: string
           description: Filter events to a specific resource type.
-          enum: [workspace, user, conversation, file, usergroup]
+          enum: [workspace, user, conversation, file]
         resource_id:
           type: string
           description: Filter events to a specific resource instance.
@@ -3428,7 +3201,7 @@ components:
         resource_type:
           type: string
           description: New resource type filter.
-          enum: [workspace, user, conversation, file, usergroup]
+          enum: [workspace, user, conversation, file]
         resource_id:
           type: string
           description: New resource ID filter.
@@ -3592,16 +3365,6 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/Message"
-        next_cursor:
-          type: string
-    UsergroupsCollection:
-      type: object
-      required: [items]
-      properties:
-        items:
-          type: array
-          items:
-            $ref: "#/components/schemas/Usergroup"
         next_cursor:
           type: string
     FilesCollection:

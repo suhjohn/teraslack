@@ -19,7 +19,6 @@ const (
 	DelegatedRoleRolesAdmin        DelegatedRole = "roles_admin"
 	DelegatedRoleSecurityAdmin     DelegatedRole = "security_admin"
 	DelegatedRoleIntegrationsAdmin DelegatedRole = "integrations_admin"
-	DelegatedRoleUsergroupsAdmin   DelegatedRole = "usergroups_admin"
 	DelegatedRoleSupportReadonly   DelegatedRole = "support_readonly"
 )
 
@@ -29,7 +28,6 @@ func IsValidDelegatedRole(role DelegatedRole) bool {
 		DelegatedRoleRolesAdmin,
 		DelegatedRoleSecurityAdmin,
 		DelegatedRoleIntegrationsAdmin,
-		DelegatedRoleUsergroupsAdmin,
 		DelegatedRoleSupportReadonly:
 		return true
 	default:

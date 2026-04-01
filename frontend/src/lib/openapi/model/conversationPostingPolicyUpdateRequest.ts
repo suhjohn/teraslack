@@ -14,5 +14,4 @@ export interface ConversationPostingPolicyUpdateRequest {
   allowed_account_types?: AccountType[];
   allowed_delegated_roles?: DelegatedRole[];
   allowed_user_ids?: string[];
-  allowed_usergroup_ids?: string[];
 }

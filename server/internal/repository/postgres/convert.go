@@ -307,23 +307,6 @@ func msgToDomain(m sqlcgen.Message) *domain.Message {
 	}
 }
 
-func usergroupToDomain(ug sqlcgen.Usergroup) *domain.Usergroup {
-	return &domain.Usergroup{
-		ID:          ug.ID,
-		WorkspaceID: ug.WorkspaceID,
-		Name:        ug.Name,
-		Handle:      ug.Handle,
-		Description: ug.Description,
-		IsExternal:  ug.IsExternal,
-		Enabled:     ug.Enabled,
-		UserCount:   int(ug.UserCount),
-		CreatedBy:   ug.CreatedBy,
-		UpdatedBy:   ug.UpdatedBy,
-		CreatedAt:   tsToTime(ug.CreatedAt),
-		UpdatedAt:   tsToTime(ug.UpdatedAt),
-	}
-}
-
 func pinToDomain(p sqlcgen.Pin) *domain.Pin {
 	return &domain.Pin{
 		ChannelID: p.ChannelID,

@@ -17,6 +17,5 @@ export const DelegatedRole = {
   roles_admin: 'roles_admin',
   security_admin: 'security_admin',
   integrations_admin: 'integrations_admin',
-  usergroups_admin: 'usergroups_admin',
   support_readonly: 'support_readonly',
 } as const;

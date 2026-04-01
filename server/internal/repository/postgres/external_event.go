@@ -209,10 +209,6 @@ func (r *ExternalEventRepo) insertFeedRow(ctx context.Context, event domain.Exte
 		if err := r.q.InsertUserEventFeed(ctx, sqlcgen.InsertUserEventFeedParams{UserID: event.ResourceID, ExternalEventID: event.ID}); err != nil {
 			return fmt.Errorf("insert %s feed row: %w", event.ResourceType, err)
 		}
-	case domain.ResourceTypeUsergroup:
-		if err := r.q.InsertUsergroupEventFeed(ctx, sqlcgen.InsertUsergroupEventFeedParams{UsergroupID: event.ResourceID, ExternalEventID: event.ID}); err != nil {
-			return fmt.Errorf("insert %s feed row: %w", event.ResourceType, err)
-		}
 	default:
 		return fmt.Errorf("unknown resource_type %q: %w", event.ResourceType, domain.ErrInvalidArgument)
 	}
@@ -240,7 +236,7 @@ func principalCanReadExternalResourceType(principal repository.ExternalEventPrin
 	case domain.ResourceTypeFile:
 		return hasPermission(principal.Permissions, domain.PermissionFilesRead) ||
 			hasPermission(principal.Permissions, domain.PermissionFilesWrite)
-	case domain.ResourceTypeWorkspace, domain.ResourceTypeUser, domain.ResourceTypeUsergroup:
+	case domain.ResourceTypeWorkspace, domain.ResourceTypeUser:
 		return true
 	default:
 		return false
@@ -327,7 +323,7 @@ func (r *ExternalEventRepo) listVisibleExternalAccessEvents(ctx context.Context,
 			return nil, fmt.Errorf("list visible file external events: %w", err)
 		}
 		return rows, nil
-	case "", domain.ResourceTypeWorkspace, domain.ResourceTypeUser, domain.ResourceTypeUsergroup:
+	case "", domain.ResourceTypeWorkspace, domain.ResourceTypeUser:
 		resourceTypes := externalAccessResourceTypes(access)
 		if len(resourceTypes) == 0 {
 			return []sqlcgen.ExternalEvent{}, nil
@@ -350,7 +346,7 @@ func (r *ExternalEventRepo) listVisibleExternalAccessEvents(ctx context.Context,
 }
 
 func allowedResourceTypes(principal repository.ExternalEventPrincipal) []string {
-	resourceTypes := []string{domain.ResourceTypeWorkspace, domain.ResourceTypeUser, domain.ResourceTypeUsergroup}
+	resourceTypes := []string{domain.ResourceTypeWorkspace, domain.ResourceTypeUser}
 	if principalCanReadExternalResourceType(principal, domain.ResourceTypeConversation) {
 		resourceTypes = append(resourceTypes, domain.ResourceTypeConversation)
 	}

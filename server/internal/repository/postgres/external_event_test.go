@@ -46,7 +46,6 @@ func TestExternalEventRepoInsertFeedRow_RoutesByResourceType(t *testing.T) {
 		{name: "conversation", resourceType: domain.ResourceTypeConversation, wantTable: "conversation_event_feed"},
 		{name: "file", resourceType: domain.ResourceTypeFile, wantTable: "file_event_feed"},
 		{name: "user", resourceType: domain.ResourceTypeUser, wantTable: "user_event_feed"},
-		{name: "usergroup", resourceType: domain.ResourceTypeUsergroup, wantTable: "usergroup_event_feed"},
 	}
 
 	for _, tt := range tests {

@@ -81,11 +81,6 @@ const (
 	EventTypeConversationBookmarkCreated      = "conversation.bookmark.created"
 	EventTypeConversationBookmarkUpdated      = "conversation.bookmark.updated"
 	EventTypeConversationBookmarkDeleted      = "conversation.bookmark.deleted"
-	EventTypeUsergroupCreated                 = "usergroup.created"
-	EventTypeUsergroupUpdated                 = "usergroup.updated"
-	EventTypeUsergroupEnabled                 = "usergroup.enabled"
-	EventTypeUsergroupDisabled                = "usergroup.disabled"
-	EventTypeUsergroupMembersUpdated          = "usergroup.members.updated"
 	EventTypeFileCreated                      = "file.created"
 	EventTypeFileUpdated                      = "file.updated"
 	EventTypeFileDeleted                      = "file.deleted"
@@ -151,16 +146,6 @@ func IsSupportedSubscriptionEventType(eventType string) bool {
 	case EventTypeConversationBookmarkUpdated:
 		return true
 	case EventTypeConversationBookmarkDeleted:
-		return true
-	case EventTypeUsergroupCreated:
-		return true
-	case EventTypeUsergroupUpdated:
-		return true
-	case EventTypeUsergroupEnabled:
-		return true
-	case EventTypeUsergroupDisabled:
-		return true
-	case EventTypeUsergroupMembersUpdated:
 		return true
 	case EventTypeFileCreated:
 		return true

@@ -167,7 +167,7 @@ func TestAuthService_ValidateSession(t *testing.T) {
 	}
 	repo.sessions[crypto.HashToken(session.Token)] = session
 
-	svc := NewAuthService(repo, &mockUserRepoForUG{}, nil, nil, nil, mockTxBeginner{}, nil, AuthConfig{})
+	svc := NewAuthService(repo, &mockUserRepoDefault{}, nil, nil, nil, mockTxBeginner{}, nil, AuthConfig{})
 	auth, err := svc.ValidateSession(context.Background(), "Bearer "+session.Token)
 	if err != nil {
 		t.Fatalf("ValidateSession() error = %v", err)
@@ -194,7 +194,7 @@ func TestAuthService_ValidateSession_RejectsRevokedSession(t *testing.T) {
 		CreatedAt:   now,
 	}
 
-	svc := NewAuthService(repo, &mockUserRepoForUG{}, nil, nil, nil, mockTxBeginner{}, nil, AuthConfig{})
+	svc := NewAuthService(repo, &mockUserRepoDefault{}, nil, nil, nil, mockTxBeginner{}, nil, AuthConfig{})
 	_, err := svc.ValidateSession(context.Background(), "Bearer "+raw)
 	if !errors.Is(err, domain.ErrSessionRevoked) {
 		t.Fatalf("ValidateSession() error = %v", err)
@@ -215,7 +215,7 @@ func TestAuthService_RevokeSession(t *testing.T) {
 	hash := crypto.HashToken(session.Token)
 	repo.sessions[hash] = session
 
-	svc := NewAuthService(repo, &mockUserRepoForUG{}, nil, nil, nil, mockTxBeginner{}, nil, AuthConfig{})
+	svc := NewAuthService(repo, &mockUserRepoDefault{}, nil, nil, nil, mockTxBeginner{}, nil, AuthConfig{})
 	if err := svc.RevokeSession(context.Background(), session.Token); err != nil {
 		t.Fatalf("RevokeSession() error = %v", err)
 	}
@@ -267,7 +267,7 @@ func TestAuthService_SwitchWorkspace(t *testing.T) {
 }
 
 func TestAuthService_StartOAuth_AllowsFrontendRedirect(t *testing.T) {
-	svc := NewAuthService(newMockAuthRepo(), &mockUserRepoForUG{}, nil, nil, nil, mockTxBeginner{}, nil, AuthConfig{
+	svc := NewAuthService(newMockAuthRepo(), &mockUserRepoDefault{}, nil, nil, nil, mockTxBeginner{}, nil, AuthConfig{
 		BaseURL:                 "https://api.teraslack.ai",
 		FrontendURL:             "https://teraslack.ai",
 		StateSecret:             "test-secret",
@@ -289,7 +289,7 @@ func TestAuthService_StartOAuth_AllowsFrontendRedirect(t *testing.T) {
 }
 
 func TestAuthService_StartCLIOAuth_AllowsLocalhostCallback(t *testing.T) {
-	svc := NewAuthService(newMockAuthRepo(), &mockUserRepoForUG{}, nil, nil, nil, mockTxBeginner{}, nil, AuthConfig{
+	svc := NewAuthService(newMockAuthRepo(), &mockUserRepoDefault{}, nil, nil, nil, mockTxBeginner{}, nil, AuthConfig{
 		BaseURL:                 "https://api.teraslack.ai",
 		FrontendURL:             "https://teraslack.ai",
 		StateSecret:             "test-secret",
@@ -315,7 +315,7 @@ func TestAuthService_StartCLIOAuth_AllowsLocalhostCallback(t *testing.T) {
 }
 
 func TestAuthService_StartOAuth_RejectsUnknownRedirectHost(t *testing.T) {
-	svc := NewAuthService(newMockAuthRepo(), &mockUserRepoForUG{}, nil, nil, nil, mockTxBeginner{}, nil, AuthConfig{
+	svc := NewAuthService(newMockAuthRepo(), &mockUserRepoDefault{}, nil, nil, nil, mockTxBeginner{}, nil, AuthConfig{
 		BaseURL:                 "https://api.teraslack.ai",
 		FrontendURL:             "https://teraslack.ai",
 		StateSecret:             "test-secret",
@@ -343,7 +343,7 @@ func TestAuthService_doJSON_MapsOAuthProviderErrorsToInvalidAuth(t *testing.T) {
 	}))
 	defer provider.Close()
 
-	svc := NewAuthService(newMockAuthRepo(), &mockUserRepoForUG{}, nil, nil, nil, mockTxBeginner{}, nil, AuthConfig{
+	svc := NewAuthService(newMockAuthRepo(), &mockUserRepoDefault{}, nil, nil, nil, mockTxBeginner{}, nil, AuthConfig{
 		HTTPClient: provider.Client(),
 	})
 
@@ -362,7 +362,7 @@ func TestAuthService_doJSON_MapsOAuthProviderErrorsToInvalidAuth(t *testing.T) {
 func TestAuthService_SignupStoresChallengeAndSendsEmail(t *testing.T) {
 	repo := newMockAuthRepo()
 	sender := &mockAuthEmailSender{}
-	svc := NewAuthService(repo, &mockUserRepoForUG{}, nil, nil, nil, mockTxBeginner{}, nil, AuthConfig{
+	svc := NewAuthService(repo, &mockUserRepoDefault{}, nil, nil, nil, mockTxBeginner{}, nil, AuthConfig{
 		EmailSender:  sender,
 		EmailCodeTTL: time.Minute,
 	})
@@ -397,7 +397,7 @@ func TestAuthService_SignupStoresChallengeAndSendsEmail(t *testing.T) {
 }
 
 func TestAuthService_SignupRequiresConfiguredEmailSender(t *testing.T) {
-	svc := NewAuthService(newMockAuthRepo(), &mockUserRepoForUG{}, nil, nil, nil, mockTxBeginner{}, nil, AuthConfig{})
+	svc := NewAuthService(newMockAuthRepo(), &mockUserRepoDefault{}, nil, nil, nil, mockTxBeginner{}, nil, AuthConfig{})
 
 	_, err := svc.Signup(context.Background(), domain.SignupParams{Email: "alice@example.com"})
 	if !errors.Is(err, domain.ErrEmailAuthDisabled) {

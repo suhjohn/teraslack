@@ -16,7 +16,6 @@ type conversationPostingPolicyDocument struct {
 	AllowedAccountTypes   []domain.AccountType   `json:"allowed_account_types,omitempty"`
 	AllowedDelegatedRoles []domain.DelegatedRole `json:"allowed_delegated_roles,omitempty"`
 	AllowedUserIDs        []string               `json:"allowed_user_ids,omitempty"`
-	AllowedUsergroupIDs   []string               `json:"allowed_usergroup_ids,omitempty"`
 }
 
 type ConversationAccessRepo struct {
@@ -125,7 +124,6 @@ func (r *ConversationAccessRepo) GetPostingPolicy(ctx context.Context, conversat
 		AllowedAccountTypes:   doc.AllowedAccountTypes,
 		AllowedDelegatedRoles: doc.AllowedDelegatedRoles,
 		AllowedUserIDs:        doc.AllowedUserIDs,
-		AllowedUsergroupIDs:   doc.AllowedUsergroupIDs,
 		UpdatedBy:             updatedBy,
 		UpdatedAt:             updatedAt,
 	}, nil
@@ -136,7 +134,6 @@ func (r *ConversationAccessRepo) UpsertPostingPolicy(ctx context.Context, policy
 		AllowedAccountTypes:   policy.AllowedAccountTypes,
 		AllowedDelegatedRoles: policy.AllowedDelegatedRoles,
 		AllowedUserIDs:        policy.AllowedUserIDs,
-		AllowedUsergroupIDs:   policy.AllowedUsergroupIDs,
 	}
 	policyJSON, err := json.Marshal(doc)
 	if err != nil {

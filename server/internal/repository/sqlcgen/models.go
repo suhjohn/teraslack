@@ -392,34 +392,6 @@ type UserRoleAssignment struct {
 	CreatedAt   pgtype.Timestamptz `json:"created_at"`
 }
 
-type Usergroup struct {
-	ID          string    `json:"id"`
-	WorkspaceID string    `json:"workspace_id"`
-	Name        string    `json:"name"`
-	Handle      string    `json:"handle"`
-	Description string    `json:"description"`
-	IsExternal  bool      `json:"is_external"`
-	Enabled     bool      `json:"enabled"`
-	UserCount   int32     `json:"user_count"`
-	CreatedBy   string    `json:"created_by"`
-	UpdatedBy   string    `json:"updated_by"`
-	CreatedAt   time.Time `json:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
-}
-
-type UsergroupEventFeed struct {
-	FeedID          int64     `json:"feed_id"`
-	UsergroupID     string    `json:"usergroup_id"`
-	ExternalEventID int64     `json:"external_event_id"`
-	CreatedAt       time.Time `json:"created_at"`
-}
-
-type UsergroupMember struct {
-	UsergroupID string    `json:"usergroup_id"`
-	UserID      string    `json:"user_id"`
-	AddedAt     time.Time `json:"added_at"`
-}
-
 type Workspace struct {
 	ID                string    `json:"id"`
 	Name              string    `json:"name"`

@@ -230,16 +230,6 @@ func projectExternalEvents(internalEvent domain.InternalEvent) ([]domain.Externa
 		return projectBookmarkSnapshot(internalEvent, domain.EventTypeConversationBookmarkUpdated)
 	case domain.EventBookmarkDeleted:
 		return projectBookmarkDeleted(internalEvent)
-	case domain.EventUsergroupCreated:
-		return singleExternalEvent(internalEvent, domain.EventTypeUsergroupCreated, domain.ResourceTypeUsergroup, internalEvent.AggregateID, safeUsergroupPayload)
-	case domain.EventUsergroupUpdated:
-		return singleExternalEvent(internalEvent, domain.EventTypeUsergroupUpdated, domain.ResourceTypeUsergroup, internalEvent.AggregateID, safeUsergroupPayload)
-	case domain.EventUsergroupEnabled:
-		return singleExternalEvent(internalEvent, domain.EventTypeUsergroupEnabled, domain.ResourceTypeUsergroup, internalEvent.AggregateID, safeUsergroupPayload)
-	case domain.EventUsergroupDisabled:
-		return singleExternalEvent(internalEvent, domain.EventTypeUsergroupDisabled, domain.ResourceTypeUsergroup, internalEvent.AggregateID, safeUsergroupPayload)
-	case domain.EventUsergroupUserSet:
-		return singleExternalEvent(internalEvent, domain.EventTypeUsergroupMembersUpdated, domain.ResourceTypeUsergroup, internalEvent.AggregateID, usergroupMembersPayload)
 	case domain.EventFileCreated:
 		return singleExternalEvent(internalEvent, domain.EventTypeFileCreated, domain.ResourceTypeFile, internalEvent.AggregateID, safeFilePayload)
 	case domain.EventFileUpdated:
@@ -550,29 +540,6 @@ func messageDeletePayload(internalEvent domain.InternalEvent) (json.RawMessage, 
 	return marshalJSON(map[string]any{
 		"channel_id": msg.ChannelID,
 		"ts":         msg.TS,
-	})
-}
-
-func safeUsergroupPayload(internalEvent domain.InternalEvent) (json.RawMessage, error) {
-	var usergroup domain.Usergroup
-	if err := json.Unmarshal(internalEvent.Payload, &usergroup); err != nil {
-		return nil, fmt.Errorf("decode usergroup payload: %w", err)
-	}
-	return marshalJSON(usergroup)
-}
-
-func usergroupMembersPayload(internalEvent domain.InternalEvent) (json.RawMessage, error) {
-	var payload struct {
-		UserIDs   []string          `json:"user_ids"`
-		Usergroup *domain.Usergroup `json:"usergroup"`
-	}
-	if err := json.Unmarshal(internalEvent.Payload, &payload); err != nil {
-		return nil, fmt.Errorf("decode usergroup members payload: %w", err)
-	}
-	return marshalJSON(map[string]any{
-		"usergroup_id": payload.Usergroup.ID,
-		"user_ids":     payload.UserIDs,
-		"usergroup":    payload.Usergroup,
 	})
 }
 

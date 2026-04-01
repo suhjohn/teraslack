@@ -27,6 +27,8 @@ import type {
 import type {
   ApiErrorResponseResponse,
   AuthorizationAuditLogsCollection,
+  CreateWorkspaceInviteRequest,
+  CreateWorkspaceInviteResponse,
   CreateWorkspaceRequest,
   ExternalWorkspacesCollection,
   FreeFormObject,
@@ -1775,3 +1777,87 @@ export function useListWorkspaceProfileFields<TData = Awaited<ReturnType<typeof 
 
 
 
+export type createWorkspaceInviteResponse201 = {
+  data: CreateWorkspaceInviteResponse
+  status: 201
+}
+
+export type createWorkspaceInviteResponseDefault = {
+  data: ApiErrorResponseResponse
+  status: Exclude<HTTPStatusCodes, 201>
+}
+
+export type createWorkspaceInviteResponseSuccess = (createWorkspaceInviteResponse201) & {
+  headers: Headers;
+};
+export type createWorkspaceInviteResponseError = (createWorkspaceInviteResponseDefault) & {
+  headers: Headers;
+};
+
+export type createWorkspaceInviteResponse = (createWorkspaceInviteResponseSuccess | createWorkspaceInviteResponseError)
+
+export const getCreateWorkspaceInviteUrl = (id: string,) => {
+
+
+
+
+  return `/workspaces/${id}/invites`
+}
+
+export const createWorkspaceInvite = async (id: string,
+    createWorkspaceInviteRequest: CreateWorkspaceInviteRequest, options?: RequestInit): Promise<createWorkspaceInviteResponse> => {
+
+  return orvalFetch<createWorkspaceInviteResponse>(getCreateWorkspaceInviteUrl(id),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      createWorkspaceInviteRequest,)
+  }
+);}
+
+
+
+
+export const getCreateWorkspaceInviteMutationOptions = <TError = ErrorType<ApiErrorResponseResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createWorkspaceInvite>>, TError,{id: string;data: BodyType<CreateWorkspaceInviteRequest>}, TContext>, request?: SecondParameter<typeof orvalFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createWorkspaceInvite>>, TError,{id: string;data: BodyType<CreateWorkspaceInviteRequest>}, TContext> => {
+
+const mutationKey = ['createWorkspaceInvite'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createWorkspaceInvite>>, {id: string;data: BodyType<CreateWorkspaceInviteRequest>}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  createWorkspaceInvite(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreateWorkspaceInviteMutationResult = NonNullable<Awaited<ReturnType<typeof createWorkspaceInvite>>>
+    export type CreateWorkspaceInviteMutationBody = BodyType<CreateWorkspaceInviteRequest>
+    export type CreateWorkspaceInviteMutationError = ErrorType<ApiErrorResponseResponse>
+
+    export const useCreateWorkspaceInvite = <TError = ErrorType<ApiErrorResponseResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createWorkspaceInvite>>, TError,{id: string;data: BodyType<CreateWorkspaceInviteRequest>}, TContext>, request?: SecondParameter<typeof orvalFetch>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof createWorkspaceInvite>>,
+        TError,
+        {id: string;data: BodyType<CreateWorkspaceInviteRequest>},
+        TContext
+      > => {
+      return useMutation(getCreateWorkspaceInviteMutationOptions(options), queryClient);
+    }

@@ -17,5 +17,4 @@ export const CreateEventSubscriptionRequestResourceType = {
   user: 'user',
   conversation: 'conversation',
   file: 'file',
-  usergroup: 'usergroup',
 } as const;

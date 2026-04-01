@@ -80,7 +80,7 @@ func (m *mockConversationRepoTenant) WithTx(_ pgx.Tx) repository.ConversationRep
 func TestConversationService_TenantAccessDenied(t *testing.T) {
 	repo := newMockConversationRepoTenant()
 	repo.conversations["C123"] = &domain.Conversation{ID: "C123", WorkspaceID: "T999", Name: "general"}
-	svc := NewConversationService(repo, &mockUserRepoForUG{}, nil, mockTxBeginner{}, nil)
+	svc := NewConversationService(repo, &mockUserRepoDefault{}, nil, mockTxBeginner{}, nil)
 
 	ctx := context.WithValue(context.Background(), ctxutil.ContextKeyWorkspaceID, "T123")
 
@@ -153,7 +153,7 @@ func TestConversationService_Create_ReusesCanonicalDMWithoutCreateEvent(t *testi
 	recorder := &captureEventRecorder{}
 	svc := NewConversationService(
 		repo,
-		&mockUserRepoForUGRoles{
+		&mockUserRepoMap{
 			users: map[string]*domain.User{
 				"U1": {ID: "U1", WorkspaceID: "T123", PrincipalType: domain.PrincipalTypeHuman, AccountType: domain.AccountTypeMember},
 				"U2": {ID: "U2", WorkspaceID: "T123", PrincipalType: domain.PrincipalTypeHuman, AccountType: domain.AccountTypeMember},
@@ -188,7 +188,7 @@ func TestConversationService_Create_ReusesCanonicalDMWithoutCreateEvent(t *testi
 
 func TestConversationService_List_UsesActingUserID(t *testing.T) {
 	repo := &canonicalDMRepoStub{}
-	svc := NewConversationService(repo, &mockUserRepoForUG{}, nil, mockTxBeginner{}, nil)
+	svc := NewConversationService(repo, &mockUserRepoDefault{}, nil, mockTxBeginner{}, nil)
 
 	ctx := ctxutil.WithUser(context.Background(), "U_KEY", "T123")
 	ctx = ctxutil.WithDelegation(ctx, "U_ACTOR", "")

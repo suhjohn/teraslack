@@ -116,7 +116,6 @@ func run(logger *slog.Logger) error {
 	externalAccessRepo := pgRepo.NewExternalPrincipalAccessRepo(pool)
 	msgRepo := pgRepo.NewMessageRepo(pool)
 	conversationReadRepo := pgRepo.NewConversationReadRepo(pool)
-	ugRepo := pgRepo.NewUsergroupRepo(pool)
 	pinRepo := pgRepo.NewPinRepo(pool)
 	bookmarkRepo := pgRepo.NewBookmarkRepo(pool)
 	fileRepo := pgRepo.NewFileRepo(pool)
@@ -143,7 +142,7 @@ func run(logger *slog.Logger) error {
 	roleSvc.SetRecorder(recorder, pool, logger)
 	roleSvc.SetAuthorizationAuditRepository(auditRepo)
 	convSvc := service.NewConversationService(convRepo, userRepo, recorder, pool, logger)
-	convAccessSvc := service.NewConversationAccessService(convAccessRepo, convRepo, userRepo, roleRepo, ugRepo, recorder, pool, logger)
+	convAccessSvc := service.NewConversationAccessService(convAccessRepo, convRepo, userRepo, roleRepo, recorder, pool, logger)
 	convAccessSvc.SetAuthorizationAuditRepository(auditRepo)
 	convSvc.SetAccessService(convAccessSvc)
 	convSvc.SetExternalAccessRepository(externalAccessRepo)
@@ -152,7 +151,6 @@ func run(logger *slog.Logger) error {
 	msgSvc.SetExternalAccessRepository(externalAccessRepo)
 	externalEventSvc := service.NewExternalEventService(externalEventRepo)
 	conversationReadSvc := service.NewConversationReadService(conversationReadRepo, convRepo)
-	ugSvc := service.NewUsergroupService(ugRepo, userRepo, recorder, pool, logger)
 	pinSvc := service.NewPinService(pinRepo, convRepo, msgRepo, recorder, pool, logger)
 	bookmarkSvc := service.NewBookmarkService(bookmarkRepo, convRepo, recorder, pool, logger)
 	fileSvc := service.NewFileService(fileRepo, s3, cfg.S3KeyPrefix, cfg.BaseURL, recorder, pool, logger)
@@ -201,7 +199,6 @@ func run(logger *slog.Logger) error {
 	userHandler := handler.NewUserHandler(userSvc, roleSvc)
 	convHandler := handler.NewConversationHandler(convSvc, convAccessSvc)
 	msgHandler := handler.NewMessageHandler(msgSvc)
-	ugHandler := handler.NewUsergroupHandler(ugSvc)
 	pinHandler := handler.NewPinHandler(pinSvc)
 	bookmarkHandler := handler.NewBookmarkHandler(bookmarkSvc)
 	fileHandler := handler.NewFileHandler(fileSvc)
@@ -225,7 +222,6 @@ func run(logger *slog.Logger) error {
 		userHandler,
 		convHandler,
 		msgHandler,
-		ugHandler,
 		pinHandler,
 		bookmarkHandler,
 		fileHandler,

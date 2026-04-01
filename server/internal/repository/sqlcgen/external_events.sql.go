@@ -159,22 +159,6 @@ func (q *Queries) InsertUserEventFeed(ctx context.Context, arg InsertUserEventFe
 	return err
 }
 
-const insertUsergroupEventFeed = `-- name: InsertUsergroupEventFeed :exec
-INSERT INTO usergroup_event_feed (usergroup_id, external_event_id)
-VALUES ($1, $2)
-ON CONFLICT DO NOTHING
-`
-
-type InsertUsergroupEventFeedParams struct {
-	UsergroupID     string `json:"usergroup_id"`
-	ExternalEventID int64  `json:"external_event_id"`
-}
-
-func (q *Queries) InsertUsergroupEventFeed(ctx context.Context, arg InsertUsergroupEventFeedParams) error {
-	_, err := q.db.Exec(ctx, insertUsergroupEventFeed, arg.UsergroupID, arg.ExternalEventID)
-	return err
-}
-
 const insertWorkspaceEventFeed = `-- name: InsertWorkspaceEventFeed :exec
 INSERT INTO workspace_event_feed (workspace_id, external_event_id)
 VALUES ($1, $2)
@@ -510,7 +494,7 @@ func (q *Queries) RecordExternalEventProjectionFailure(ctx context.Context, arg 
 }
 
 const truncateExternalEventFeeds = `-- name: TruncateExternalEventFeeds :exec
-TRUNCATE usergroup_event_feed, user_event_feed, file_event_feed,
+TRUNCATE user_event_feed, file_event_feed,
          conversation_event_feed, workspace_event_feed RESTART IDENTITY
 `
 
@@ -520,7 +504,7 @@ func (q *Queries) TruncateExternalEventFeeds(ctx context.Context) error {
 }
 
 const truncateExternalEventsAndFeeds = `-- name: TruncateExternalEventsAndFeeds :exec
-TRUNCATE usergroup_event_feed, user_event_feed, file_event_feed,
+TRUNCATE user_event_feed, file_event_feed,
          conversation_event_feed, workspace_event_feed, external_events
          RESTART IDENTITY CASCADE
 `

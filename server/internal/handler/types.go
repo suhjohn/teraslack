@@ -53,7 +53,6 @@ type ConversationPostingPolicyResponse struct {
 	AllowedAccountTypes   []domain.AccountType                 `json:"allowed_account_types,omitempty"`
 	AllowedDelegatedRoles []domain.DelegatedRole               `json:"allowed_delegated_roles,omitempty"`
 	AllowedUserIDs        []string                             `json:"allowed_user_ids,omitempty"`
-	AllowedUsergroupIDs   []string                             `json:"allowed_usergroup_ids,omitempty"`
 	UpdatedBy             string                               `json:"updated_by,omitempty"`
 	UpdatedAt             *time.Time                           `json:"updated_at,omitempty"`
 }
@@ -63,7 +62,6 @@ type ConversationPostingPolicyUpdateRequest struct {
 	AllowedAccountTypes   []domain.AccountType                 `json:"allowed_account_types,omitempty"`
 	AllowedDelegatedRoles []domain.DelegatedRole               `json:"allowed_delegated_roles,omitempty"`
 	AllowedUserIDs        []string                             `json:"allowed_user_ids,omitempty"`
-	AllowedUsergroupIDs   []string                             `json:"allowed_usergroup_ids,omitempty"`
 }
 
 type MessageReactionRequest struct {
@@ -85,18 +83,6 @@ type PinCreateRequest struct {
 
 type ConversationReadUpdateRequest struct {
 	LastReadTS string `json:"last_read_ts"`
-}
-
-type UsergroupUpdateRequest struct {
-	Name        *string `json:"name,omitempty"`
-	Handle      *string `json:"handle,omitempty"`
-	Description *string `json:"description,omitempty"`
-	Enabled     *bool   `json:"enabled,omitempty"`
-	UpdatedBy   string  `json:"updated_by"`
-}
-
-type UsergroupMembersUpdateRequest struct {
-	Users []string `json:"users"`
 }
 
 type EventSubscriptionUpdateRequest struct {

@@ -127,15 +127,6 @@ func (q *Queries) ProjectorDeleteUserRoleAssignments(ctx context.Context, arg Pr
 	return err
 }
 
-const projectorDeleteUsergroupMembers = `-- name: ProjectorDeleteUsergroupMembers :exec
-DELETE FROM usergroup_members WHERE usergroup_id = $1
-`
-
-func (q *Queries) ProjectorDeleteUsergroupMembers(ctx context.Context, usergroupID string) error {
-	_, err := q.db.Exec(ctx, projectorDeleteUsergroupMembers, usergroupID)
-	return err
-}
-
 const projectorGetInternalEventsByAggregateType = `-- name: ProjectorGetInternalEventsByAggregateType :many
 SELECT id, event_type, aggregate_type, aggregate_id, workspace_id, actor_id, payload, metadata, created_at
 FROM internal_events
@@ -416,15 +407,6 @@ TRUNCATE external_principal_conversation_assignments, external_principal_access,
 
 func (q *Queries) ProjectorTruncateUserProjection(ctx context.Context) error {
 	_, err := q.db.Exec(ctx, projectorTruncateUserProjection)
-	return err
-}
-
-const projectorTruncateUsergroupProjection = `-- name: ProjectorTruncateUsergroupProjection :exec
-TRUNCATE usergroup_members, usergroups CASCADE
-`
-
-func (q *Queries) ProjectorTruncateUsergroupProjection(ctx context.Context) error {
-	_, err := q.db.Exec(ctx, projectorTruncateUsergroupProjection)
 	return err
 }
 
@@ -972,65 +954,5 @@ func (q *Queries) ProjectorUpsertUser(ctx context.Context, arg ProjectorUpsertUs
 		arg.CreatedAt,
 		arg.UpdatedAt,
 	)
-	return err
-}
-
-const projectorUpsertUsergroup = `-- name: ProjectorUpsertUsergroup :exec
-INSERT INTO usergroups (id, workspace_id, name, handle, description, is_external, enabled, user_count, created_by, updated_by, created_at, updated_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-ON CONFLICT (id) DO UPDATE SET
-    workspace_id = EXCLUDED.workspace_id, name = EXCLUDED.name, handle = EXCLUDED.handle,
-    description = EXCLUDED.description, is_external = EXCLUDED.is_external,
-    enabled = EXCLUDED.enabled, user_count = EXCLUDED.user_count,
-    updated_by = EXCLUDED.updated_by, updated_at = EXCLUDED.updated_at
-`
-
-type ProjectorUpsertUsergroupParams struct {
-	ID          string    `json:"id"`
-	WorkspaceID string    `json:"workspace_id"`
-	Name        string    `json:"name"`
-	Handle      string    `json:"handle"`
-	Description string    `json:"description"`
-	IsExternal  bool      `json:"is_external"`
-	Enabled     bool      `json:"enabled"`
-	UserCount   int32     `json:"user_count"`
-	CreatedBy   string    `json:"created_by"`
-	UpdatedBy   string    `json:"updated_by"`
-	CreatedAt   time.Time `json:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
-}
-
-func (q *Queries) ProjectorUpsertUsergroup(ctx context.Context, arg ProjectorUpsertUsergroupParams) error {
-	_, err := q.db.Exec(ctx, projectorUpsertUsergroup,
-		arg.ID,
-		arg.WorkspaceID,
-		arg.Name,
-		arg.Handle,
-		arg.Description,
-		arg.IsExternal,
-		arg.Enabled,
-		arg.UserCount,
-		arg.CreatedBy,
-		arg.UpdatedBy,
-		arg.CreatedAt,
-		arg.UpdatedAt,
-	)
-	return err
-}
-
-const projectorUpsertUsergroupMember = `-- name: ProjectorUpsertUsergroupMember :exec
-INSERT INTO usergroup_members (usergroup_id, user_id, added_at)
-VALUES ($1, $2, $3)
-ON CONFLICT (usergroup_id, user_id) DO NOTHING
-`
-
-type ProjectorUpsertUsergroupMemberParams struct {
-	UsergroupID string    `json:"usergroup_id"`
-	UserID      string    `json:"user_id"`
-	AddedAt     time.Time `json:"added_at"`
-}
-
-func (q *Queries) ProjectorUpsertUsergroupMember(ctx context.Context, arg ProjectorUpsertUsergroupMemberParams) error {
-	_, err := q.db.Exec(ctx, projectorUpsertUsergroupMember, arg.UsergroupID, arg.UserID, arg.AddedAt)
 	return err
 }

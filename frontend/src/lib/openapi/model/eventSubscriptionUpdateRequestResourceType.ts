@@ -17,5 +17,4 @@ export const EventSubscriptionUpdateRequestResourceType = {
   user: 'user',
   conversation: 'conversation',
   file: 'file',
-  usergroup: 'usergroup',
 } as const;

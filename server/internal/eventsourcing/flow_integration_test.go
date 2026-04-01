@@ -30,7 +30,6 @@ type testEnv struct {
 	msgSvc      *service.MessageService
 	pinSvc      *service.PinService
 	bookmarkSvc *service.BookmarkService
-	ugSvc       *service.UsergroupService
 	fileSvc     *service.FileService
 	authSvc     *service.AuthService
 	eventSvc    *service.EventService
@@ -55,7 +54,6 @@ func setupAllServices(t *testing.T) *testEnv {
 	msgRepo := pgRepo.NewMessageRepo(pool)
 	pinRepo := pgRepo.NewPinRepo(pool)
 	bookmarkRepo := pgRepo.NewBookmarkRepo(pool)
-	usergroupRepo := pgRepo.NewUsergroupRepo(pool)
 	fileRepo := pgRepo.NewFileRepo(pool)
 	authRepo := pgRepo.NewAuthRepo(pool)
 	workspaceRepo := pgRepo.NewWorkspaceRepo(pool)
@@ -73,7 +71,6 @@ func setupAllServices(t *testing.T) *testEnv {
 		msgSvc:      service.NewMessageService(msgRepo, convRepo, recorder, pool, logger),
 		pinSvc:      service.NewPinService(pinRepo, convRepo, msgRepo, recorder, pool, logger),
 		bookmarkSvc: service.NewBookmarkService(bookmarkRepo, convRepo, recorder, pool, logger),
-		ugSvc:       service.NewUsergroupService(usergroupRepo, userRepo, recorder, pool, logger),
 		fileSvc:     service.NewFileService(fileRepo, nil, "", "http://localhost:8080", recorder, pool, logger),
 		authSvc: service.NewAuthService(authRepo, userRepo, workspaceRepo, workspaceInviteRepo, recorder, pool, logger, service.AuthConfig{
 			BaseURL:     "http://localhost:8080",
@@ -1036,135 +1033,6 @@ func TestFlow_MessageThreading(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Flow 6: Usergroups & Membership Management
-// ---------------------------------------------------------------------------
-//
-// Scenario: A usergroup is created, populated, renamed, disabled, re-enabled,
-//
-//	and its membership is updated — covering the full CRUD lifecycle.
-//
-// Steps:
-//  1. Create 3 users (admin, u1, u2).
-//  2. Create usergroup "Engineers" with handle "engineers".
-//  3. Set members to [u1, u2] — verify count=2.
-//  4. Update name to "Senior Engineers" — verify.
-//  5. Disable the usergroup — verify enabled=false.
-//  6. List with include_disabled=true — verify count=1.
-//  7. List with include_disabled=false — verify count=0.
-//  8. Re-enable the usergroup.
-//  9. Update membership to [u1] only — verify count=1.
-//  10. Verify usergroup event count = 6:
-//     [created, users_set, updated, disabled, enabled, users_set]
-func TestFlow_Usergroups(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping integration test")
-	}
-	env := setupAllServices(t)
-	ctx := context.Background()
-	workspaceID := "T-ug"
-
-	admin, err := env.userSvc.Create(ctx, domain.CreateUserParams{
-		WorkspaceID: workspaceID, Name: "ug-admin", Email: "ugadmin@example.com",
-		PrincipalType: domain.PrincipalTypeHuman,
-	})
-	if err != nil {
-		t.Fatalf("create admin: %v", err)
-	}
-	u1, err := env.userSvc.Create(ctx, domain.CreateUserParams{
-		WorkspaceID: workspaceID, Name: "m1", Email: "m1@example.com",
-		PrincipalType: domain.PrincipalTypeHuman,
-	})
-	if err != nil {
-		t.Fatalf("create u1: %v", err)
-	}
-	u2, err := env.userSvc.Create(ctx, domain.CreateUserParams{
-		WorkspaceID: workspaceID, Name: "m2", Email: "m2@example.com",
-		PrincipalType: domain.PrincipalTypeHuman,
-	})
-	if err != nil {
-		t.Fatalf("create u2: %v", err)
-	}
-
-	// Create usergroup
-	ug, err := env.ugSvc.Create(ctx, domain.CreateUsergroupParams{
-		WorkspaceID: workspaceID, Name: "Engineers", Handle: "engineers",
-		Description: "Eng workspace", CreatedBy: admin.ID,
-	})
-	if err != nil {
-		t.Fatalf("create ug: %v", err)
-	}
-
-	// Set users
-	if err := env.ugSvc.SetUsers(ctx, ug.ID, []string{u1.ID, u2.ID}); err != nil {
-		t.Fatalf("set users: %v", err)
-	}
-	users, _ := env.ugSvc.ListUsers(ctx, ug.ID)
-	if len(users) != 2 {
-		t.Errorf("users = %d, want 2", len(users))
-	}
-
-	// Update name
-	newName := "Senior Engineers"
-	if _, err := env.ugSvc.Update(ctx, ug.ID, domain.UpdateUsergroupParams{
-		Name: &newName, UpdatedBy: admin.ID,
-	}); err != nil {
-		t.Fatalf("update: %v", err)
-	}
-	got, _ := env.ugSvc.Get(ctx, ug.ID)
-	if got.Name != "Senior Engineers" {
-		t.Errorf("name = %q", got.Name)
-	}
-
-	// Disable
-	if err := env.ugSvc.Disable(ctx, ug.ID); err != nil {
-		t.Fatalf("disable: %v", err)
-	}
-	got, _ = env.ugSvc.Get(ctx, ug.ID)
-	if got.Enabled {
-		t.Error("should be disabled")
-	}
-
-	// List with disabled
-	ugs, _ := env.ugSvc.List(ctx, domain.ListUsergroupsParams{WorkspaceID: workspaceID, IncludeDisabled: true})
-	if len(ugs) != 1 {
-		t.Errorf("with disabled = %d", len(ugs))
-	}
-
-	// List without disabled
-	ugs, _ = env.ugSvc.List(ctx, domain.ListUsergroupsParams{WorkspaceID: workspaceID, IncludeDisabled: false})
-	if len(ugs) != 0 {
-		t.Errorf("without disabled = %d", len(ugs))
-	}
-
-	// Re-enable
-	if err := env.ugSvc.Enable(ctx, ug.ID); err != nil {
-		t.Fatalf("enable: %v", err)
-	}
-
-	// Update membership
-	if err := env.ugSvc.SetUsers(ctx, ug.ID, []string{u1.ID}); err != nil {
-		t.Fatalf("set users 2: %v", err)
-	}
-	users, _ = env.ugSvc.ListUsers(ctx, ug.ID)
-	if len(users) != 1 {
-		t.Errorf("users after update = %d", len(users))
-	}
-
-	// Verify events
-	events := queryEventTypes(t, env, workspaceID)
-	ugEvents := 0
-	for _, e := range events {
-		if strings.HasPrefix(e, "usergroup.") {
-			ugEvents++
-		}
-	}
-	// created + users_set + updated + disabled + enabled + users_set = 6
-	if ugEvents != 6 {
-		t.Errorf("ug events = %d, want 6", ugEvents)
-	}
-}
-
-// ---------------------------------------------------------------------------
 // Flow 7: File Lifecycle (Remote Files)
 // ---------------------------------------------------------------------------
 //
@@ -1620,15 +1488,14 @@ func TestFlow_AuthSessionLifecycle(t *testing.T) {
 //  5. Add a reaction.
 //  6. Pin the message.
 //  7. Create a bookmark.
-//  8. Create a usergroup.
-//  9. Create an API key.
-//  10. Create a webhook subscription.
-//  11. Verify exactly 9 new events were recorded.
-//  13. Verify each aggregate type (user, conversation, message, pin,
-//     bookmark, usergroup, api_key, subscription) has >= 1 event.
-//  14. Perform full projection rebuild (TRUNCATE + replay).
-//  15. Verify user, conversation, bookmark, and usergroup
-//     all survive the rebuild with correct state.
+//  8. Create an API key.
+//  9. Create a webhook subscription.
+//  10. Verify exactly 8 new events were recorded.
+//  11. Verify each aggregate type (user, conversation, message, pin,
+//     bookmark, api_key, subscription) has >= 1 event.
+//  12. Perform full projection rebuild (TRUNCATE + replay).
+//  13. Verify user, conversation, and bookmark all survive the rebuild
+//     with correct state.
 func TestFlow_CrossCuttingConsistency(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test")
@@ -1682,13 +1549,6 @@ func TestFlow_CrossCuttingConsistency(t *testing.T) {
 		t.Fatalf("bookmark: %v", err)
 	}
 
-	ug, err := env.ugSvc.Create(ctx, domain.CreateUsergroupParams{
-		WorkspaceID: workspaceID, Name: "Workspace", Handle: "workspace", CreatedBy: user.ID,
-	})
-	if err != nil {
-		t.Fatalf("usergroup: %v", err)
-	}
-
 	_, _, err = env.apiKeySvc.Create(ctx, domain.CreateAPIKeyParams{
 		Name: "cc-key", WorkspaceID: workspaceID, UserID: user.ID,
 	})
@@ -1703,16 +1563,16 @@ func TestFlow_CrossCuttingConsistency(t *testing.T) {
 		t.Fatalf("subscription: %v", err)
 	}
 
-	// 9 events: user + conv + msg + reaction + pin + bookmark + ug + api_key + sub
+	// 8 events: user + conv + msg + reaction + pin + bookmark + api_key + sub
 	after := countEvents(t, env)
-	if after-before != 9 {
-		t.Errorf("new events = %d, want 9", after-before)
+	if after-before != 8 {
+		t.Errorf("new events = %d, want 8", after-before)
 	}
 
 	// Each aggregate type has events (some services record empty workspace_id, so don't filter by it)
 	for _, agg := range []string{
 		domain.AggregateUser, domain.AggregateConversation, domain.AggregateMessage,
-		domain.AggregatePin, domain.AggregateBookmark, domain.AggregateUsergroup,
+		domain.AggregatePin, domain.AggregateBookmark,
 		domain.AggregateAPIKey, domain.AggregateSubscription,
 	} {
 		var c int
@@ -1738,10 +1598,6 @@ func TestFlow_CrossCuttingConsistency(t *testing.T) {
 	bms, _ := env.bookmarkSvc.List(ctx, ch.ID)
 	if len(bms) != 1 || bms[0].ID != bm.ID {
 		t.Error("bookmark lost after rebuild")
-	}
-	ugGot, _ := env.ugSvc.Get(ctx, ug.ID)
-	if ugGot.Name != "Workspace" {
-		t.Errorf("ug after rebuild = %q", ugGot.Name)
 	}
 }
 
@@ -3860,27 +3716,24 @@ func TestFlow_SubscriptionEventTypeMatching(t *testing.T) {
 //  4. Add a :star: reaction to the parent.
 //  5. Pin the parent message.
 //  6. Create a bookmark in the channel.
-//  7. Create a usergroup and set members to [admin, agent].
-//  8. Add a remote file.
-//  9. Create an auth token.
-//
-// 10. Create an API key.
-// 11. Create a webhook subscription.
-// 12. Count events before rebuild — verify >= 15.
-// 13. Perform full RebuildAll().
-// 14. Verify event count is unchanged after rebuild.
-// 15. Verify admin user: name, account_type, principal_type.
-// 16. Verify agent user: principal_type, owner_id.
-// 17. Verify channel: topic, purpose, num_members=2.
-// 18. Verify message text.
-// 19. Verify reactions on the message.
-// 20. Verify pins list.
-// 21. Verify bookmarks list.
-// 22. Verify usergroup membership.
-// 23. Verify file still accessible.
-// 24. Verify auth token validates successfully.
-// 25. Verify API key validates successfully.
-// 26. Verify subscription URL and enabled state.
+//  7. Add a remote file.
+//  8. Create an auth token.
+//  9. Create an API key.
+//  10. Create a webhook subscription.
+//  11. Count events before rebuild — verify >= 13.
+//  12. Perform full RebuildAll().
+//  13. Verify event count is unchanged after rebuild.
+//  14. Verify admin user: name, account_type, principal_type.
+//  15. Verify agent user: principal_type, owner_id.
+//  16. Verify channel: topic, purpose, num_members=2.
+//  17. Verify message text.
+//  18. Verify reactions on the message.
+//  19. Verify pins list.
+//  20. Verify bookmarks list.
+//  21. Verify file still accessible.
+//  22. Verify auth token validates successfully.
+//  23. Verify API key validates successfully.
+//  24. Verify subscription URL and enabled state.
 func TestFlow_ComplexProjectionRebuild(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test")
@@ -3947,12 +3800,6 @@ func TestFlow_ComplexProjectionRebuild(t *testing.T) {
 		Link: "https://wiki.rebuild.com", CreatedBy: admin.ID,
 	})
 
-	// Usergroup
-	ug, _ := env.ugSvc.Create(ctx, domain.CreateUsergroupParams{
-		WorkspaceID: workspaceID, Name: "Rebuilders", Handle: "rebuilders", CreatedBy: admin.ID,
-	})
-	env.ugSvc.SetUsers(ctx, ug.ID, []string{admin.ID, agent.ID})
-
 	// File
 	f, _ := env.fileSvc.AddRemoteFile(ctx, domain.AddRemoteFileParams{
 		Title: "Rebuild Doc", ExternalURL: "https://rebuild.com/doc",
@@ -3971,10 +3818,10 @@ func TestFlow_ComplexProjectionRebuild(t *testing.T) {
 		Type: domain.EventTypeConversationMessageCreated, Secret: "rebuild-secret",
 	})
 
-	// Count events before rebuild
+	// Count events before rebuild.
 	eventsBefore := countEvents(t, env)
-	if eventsBefore < 15 {
-		t.Errorf("events before rebuild = %d, want >= 15", eventsBefore)
+	if eventsBefore < 14 {
+		t.Errorf("events before rebuild = %d, want >= 14", eventsBefore)
 	}
 
 	// Perform full rebuild
@@ -4046,16 +3893,6 @@ func TestFlow_ComplexProjectionRebuild(t *testing.T) {
 	bms, _ := env.bookmarkSvc.List(ctx, ch.ID)
 	if len(bms) != 1 || bms[0].ID != bm.ID {
 		t.Error("bookmark lost after rebuild")
-	}
-
-	// Verify usergroup + members
-	gotUG, _ := env.ugSvc.Get(ctx, ug.ID)
-	if gotUG.Name != "Rebuilders" {
-		t.Errorf("ug name = %q", gotUG.Name)
-	}
-	ugUsers, _ := env.ugSvc.ListUsers(ctx, ug.ID)
-	if len(ugUsers) != 2 {
-		t.Errorf("ug users = %d, want 2", len(ugUsers))
 	}
 
 	// Verify file
@@ -4404,206 +4241,5 @@ func TestFlow_ConversationCreationWithTopicPurpose(t *testing.T) {
 	}
 	if ch.NumMembers != 4 {
 		t.Errorf("members after rebuild = %d", ch.NumMembers)
-	}
-}
-
-// ---------------------------------------------------------------------------
-// Flow 25: Usergroup Full Lifecycle — handle updates, description, membership churn
-// ---------------------------------------------------------------------------
-//
-// Scenario: A usergroup goes through its full lifecycle — creation, metadata
-//
-//	updates (name, handle, description), membership churn, disable/
-//	re-enable, a second group for cross-membership, and rebuild.
-//
-// Steps:
-//  1. Create 5 users (A, B, C, D, E).
-//  2. Create usergroup "Frontend Workspace" with handle="frontend".
-//  3. Set initial members to [A, B, C] — verify count=3.
-//  4. Update name to "Frontend & Mobile Workspace".
-//  5. Update handle to "frontend-mobile".
-//  6. Update description to "Frontend and Mobile developers".
-//  7. Verify all 3 fields via Get.
-//  8. Change membership: remove B, add D and E → [A, C, D, E] — verify count=4.
-//  9. Verify B is NOT in the group; D and E ARE.
-//
-// 10. Disable the usergroup.
-// 11. List with include_disabled=false — verify count=0.
-// 12. List with include_disabled=true — verify count=1.
-// 13. Re-enable the usergroup.
-// 14. Create a second usergroup "Backend Workspace" with members [B, C].
-// 15. List all groups — verify count=2.
-// 16. Verify user C is in BOTH groups.
-// 17. Perform projection rebuild — verify name and handle survive.
-func TestFlow_UsergroupFullLifecycle(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping integration test")
-	}
-	env := setupAllServices(t)
-	ctx := context.Background()
-	workspaceID := "T-ugfull"
-
-	// Create 5 users
-	users := make([]*domain.User, 5)
-	for i := 0; i < 5; i++ {
-		u, err := env.userSvc.Create(ctx, domain.CreateUserParams{
-			WorkspaceID: workspaceID, Name: "ug-user-" + string(rune('A'+i)),
-			Email:         "ug" + string(rune('a'+i)) + "@example.com",
-			PrincipalType: domain.PrincipalTypeHuman,
-		})
-		if err != nil {
-			t.Fatalf("create user %d: %v", i, err)
-		}
-		users[i] = u
-	}
-
-	// Create usergroup with initial users
-	ug, err := env.ugSvc.Create(ctx, domain.CreateUsergroupParams{
-		WorkspaceID: workspaceID,
-		Name:        "Frontend Workspace",
-		Handle:      "frontend",
-		Description: "Frontend developers",
-		CreatedBy:   users[0].ID,
-	})
-	if err != nil {
-		t.Fatalf("create ug: %v", err)
-	}
-
-	// Set initial members (A, B, C)
-	if err := env.ugSvc.SetUsers(ctx, ug.ID, []string{users[0].ID, users[1].ID, users[2].ID}); err != nil {
-		t.Fatalf("set users: %v", err)
-	}
-	members, _ := env.ugSvc.ListUsers(ctx, ug.ID)
-	if len(members) != 3 {
-		t.Errorf("initial members = %d, want 3", len(members))
-	}
-
-	// Update name
-	newName := "Frontend & Mobile Workspace"
-	if _, err := env.ugSvc.Update(ctx, ug.ID, domain.UpdateUsergroupParams{
-		Name: &newName, UpdatedBy: users[0].ID,
-	}); err != nil {
-		t.Fatalf("update name: %v", err)
-	}
-
-	// Update handle
-	newHandle := "frontend-mobile"
-	if _, err := env.ugSvc.Update(ctx, ug.ID, domain.UpdateUsergroupParams{
-		Handle: &newHandle, UpdatedBy: users[0].ID,
-	}); err != nil {
-		t.Fatalf("update handle: %v", err)
-	}
-
-	// Update description
-	newDesc := "Frontend and Mobile developers"
-	if _, err := env.ugSvc.Update(ctx, ug.ID, domain.UpdateUsergroupParams{
-		Description: &newDesc, UpdatedBy: users[0].ID,
-	}); err != nil {
-		t.Fatalf("update desc: %v", err)
-	}
-
-	// Verify updates
-	got, _ := env.ugSvc.Get(ctx, ug.ID)
-	if got.Name != "Frontend & Mobile Workspace" {
-		t.Errorf("name = %q", got.Name)
-	}
-	if got.Handle != "frontend-mobile" {
-		t.Errorf("handle = %q", got.Handle)
-	}
-	if got.Description != "Frontend and Mobile developers" {
-		t.Errorf("desc = %q", got.Description)
-	}
-
-	// Change membership: remove B, add D and E
-	if err := env.ugSvc.SetUsers(ctx, ug.ID, []string{users[0].ID, users[2].ID, users[3].ID, users[4].ID}); err != nil {
-		t.Fatalf("update members: %v", err)
-	}
-	members, _ = env.ugSvc.ListUsers(ctx, ug.ID)
-	if len(members) != 4 {
-		t.Errorf("updated members = %d, want 4", len(members))
-	}
-
-	// Verify B is not in the group
-	memberIDs := map[string]bool{}
-	for _, m := range members {
-		memberIDs[m] = true
-	}
-	if memberIDs[users[1].ID] {
-		t.Error("B should not be in group")
-	}
-	if !memberIDs[users[3].ID] || !memberIDs[users[4].ID] {
-		t.Error("D and E should be in group")
-	}
-
-	// Disable
-	if err := env.ugSvc.Disable(ctx, ug.ID); err != nil {
-		t.Fatalf("disable: %v", err)
-	}
-
-	// List without disabled
-	ugs, _ := env.ugSvc.List(ctx, domain.ListUsergroupsParams{WorkspaceID: workspaceID, IncludeDisabled: false})
-	if len(ugs) != 0 {
-		t.Errorf("active groups = %d, want 0", len(ugs))
-	}
-
-	// List with disabled
-	ugs, _ = env.ugSvc.List(ctx, domain.ListUsergroupsParams{WorkspaceID: workspaceID, IncludeDisabled: true})
-	if len(ugs) != 1 {
-		t.Errorf("all groups = %d, want 1", len(ugs))
-	}
-
-	// Re-enable
-	if err := env.ugSvc.Enable(ctx, ug.ID); err != nil {
-		t.Fatalf("enable: %v", err)
-	}
-
-	// Create second usergroup
-	ug2, err := env.ugSvc.Create(ctx, domain.CreateUsergroupParams{
-		WorkspaceID: workspaceID,
-		Name:        "Backend Workspace",
-		Handle:      "backend",
-		CreatedBy:   users[0].ID,
-	})
-	if err != nil {
-		t.Fatalf("create ug2: %v", err)
-	}
-	env.ugSvc.SetUsers(ctx, ug2.ID, []string{users[1].ID, users[2].ID})
-
-	// List all — should be 2
-	ugs, _ = env.ugSvc.List(ctx, domain.ListUsergroupsParams{WorkspaceID: workspaceID, IncludeDisabled: true})
-	if len(ugs) != 2 {
-		t.Errorf("total groups = %d, want 2", len(ugs))
-	}
-
-	// User C is in both groups
-	ug1Members, _ := env.ugSvc.ListUsers(ctx, ug.ID)
-	ug2Members, _ := env.ugSvc.ListUsers(ctx, ug2.ID)
-	ug1Has := false
-	ug2Has := false
-	for _, m := range ug1Members {
-		if m == users[2].ID {
-			ug1Has = true
-		}
-	}
-	for _, m := range ug2Members {
-		if m == users[2].ID {
-			ug2Has = true
-		}
-	}
-	if !ug1Has || !ug2Has {
-		t.Error("user C should be in both groups")
-	}
-
-	// Rebuild and verify
-	if err := env.projector.RebuildAll(ctx); err != nil {
-		t.Fatalf("rebuild: %v", err)
-	}
-	got, _ = env.ugSvc.Get(ctx, ug.ID)
-	if got.Name != "Frontend & Mobile Workspace" || got.Handle != "frontend-mobile" {
-		t.Errorf("ug after rebuild: name=%q handle=%q", got.Name, got.Handle)
-	}
-	members, _ = env.ugSvc.ListUsers(ctx, ug.ID)
-	if len(members) != 4 {
-		t.Errorf("members after rebuild = %d, want 4", len(members))
 	}
 }

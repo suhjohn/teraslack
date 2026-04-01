@@ -10,23 +10,16 @@ import { Select } from '../../components/ui/select'
 import { formatDate, getErrorMessage, useAdmin } from '../../lib/admin'
 import {
   getListExternalPrincipalAccessQueryKey,
-  getListUsergroupMembersQueryKey,
-  getListUsergroupsQueryKey,
   getListUsersQueryKey,
   useCreateExternalPrincipalAccess,
   useDeleteExternalPrincipalAccess,
   useListExternalPrincipalAccess,
-  useListUsergroupMembers,
-  useListUsergroups,
   useListUsers,
-  useReplaceUsergroupMembers,
   useUpdateUser,
 } from '../../lib/openapi'
 import type {
   ExternalPrincipalAccessCollection,
   User,
-  Usergroup,
-  UsergroupsCollection,
   UsersCollection,
 } from '../../lib/openapi'
 
@@ -68,10 +61,6 @@ function UsersPage() {
     workspaceID ? { workspace_id: workspaceID, limit: 200 } : undefined,
     { query: { enabled: !!workspaceID, retry: false } },
   )
-  const usergroupsQuery = useListUsergroups<UsergroupsCollection>(
-    workspaceID ? { workspace_id: workspaceID } : undefined,
-    { query: { enabled: !!workspaceID, retry: false } },
-  )
   const users = usersQuery.data?.items ?? []
   const selectedUserIsBot =
     users.find((u) => u.id === selectedUserID)?.is_bot ?? false
@@ -85,7 +74,6 @@ function UsersPage() {
         },
       },
     )
-  const usergroups = usergroupsQuery.data?.items ?? []
   const principalAccessRules = principalAccessQuery.data?.items ?? []
 
   const filteredUsers = useMemo(() => {
@@ -192,8 +180,6 @@ function UsersPage() {
             key={selectedUser.id}
             workspaceID={workspaceID}
             user={selectedUser}
-            usergroups={usergroups}
-            usergroupsLoading={usergroupsQuery.isFetching}
             principalAccessRules={selectedUserRules}
             principalAccessLoading={principalAccessQuery.isFetching}
           />
@@ -214,15 +200,11 @@ function UsersPage() {
 function UserDetail({
   workspaceID,
   user,
-  usergroups,
-  usergroupsLoading,
   principalAccessRules,
   principalAccessLoading,
 }: {
   workspaceID: string
   user: User
-  usergroups: Usergroup[]
-  usergroupsLoading: boolean
   principalAccessRules: ExternalPrincipalAccessCollection['items']
   principalAccessLoading: boolean
 }) {
@@ -269,31 +251,6 @@ function UserDetail({
       {/* Account type */}
       <Section label="Account type" description="Workspace-level administrative access.">
         <AccountTypeForm user={user} workspaceID={workspaceID} />
-      </Section>
-
-      {/* Usergroups */}
-      <Section
-        label="Usergroups"
-        description="Group membership for this user."
-      >
-        {usergroupsLoading && !usergroups.length ? (
-          <LoaderCircle className="h-4 w-4 animate-spin text-[var(--ink-soft)]" />
-        ) : !usergroups.length ? (
-          <p className="text-xs text-[var(--ink-soft)]">
-            No usergroups configured for this workspace.
-          </p>
-        ) : (
-          <div className="space-y-0.5">
-            {usergroups.map((group) => (
-              <UsergroupRow
-                key={group.id}
-                group={group}
-                workspaceID={workspaceID}
-                userID={user.id}
-              />
-            ))}
-          </div>
-        )}
       </Section>
 
       {/* External access — agents only */}
@@ -363,81 +320,6 @@ function AccountTypeForm({ user, workspaceID }: { user: User; workspaceID: strin
           {updateUser.isPending ? 'Saving…' : 'Save'}
         </Button>
       </div>
-    </div>
-  )
-}
-
-function UsergroupRow({
-  group,
-  workspaceID,
-  userID,
-}: {
-  group: Usergroup
-  workspaceID: string
-  userID: string
-}) {
-  const queryClient = useQueryClient()
-  const [error, setError] = useState('')
-  const membersQuery = useListUsergroupMembers<UsersCollection>(group.id, {
-    query: { retry: false },
-  })
-  const replaceMembers = useReplaceUsergroupMembers()
-
-  const members = membersQuery.data?.items ?? []
-  const isMember = members.some((m) => m.id === userID)
-
-  async function toggle() {
-    if (!membersQuery.data) return
-    setError('')
-    const nextUsers = isMember
-      ? members.filter((m) => m.id !== userID).map((m) => m.id)
-      : [...members.map((m) => m.id), userID]
-    try {
-      await replaceMembers.mutateAsync({ id: group.id, data: { users: nextUsers } })
-      await queryClient.invalidateQueries({
-        queryKey: getListUsergroupMembersQueryKey(group.id),
-      })
-      await queryClient.invalidateQueries({
-        queryKey: getListUsergroupsQueryKey({ workspace_id: workspaceID }),
-      })
-    } catch (err) {
-      setError(getErrorMessage(err, 'Failed to update usergroup membership.'))
-    }
-  }
-
-  return (
-    <div>
-      <div className="group flex items-center gap-3 rounded-sm px-2 py-1.5 hover:bg-[var(--accent-faint)]">
-        <div className="min-w-0 flex-1">
-          <span className="text-[13px] font-medium text-[var(--ink)]">
-            {group.name}
-          </span>
-          <span className="ml-2 text-[11px] text-[var(--ink-soft)]">
-            @{group.handle}
-          </span>
-        </div>
-        {membersQuery.isFetching ? (
-          <LoaderCircle className="h-3.5 w-3.5 animate-spin text-[var(--ink-soft)]" />
-        ) : (
-          <>
-            <span
-              className={`text-[11px] font-medium ${isMember ? 'text-[var(--ink)]' : 'text-[var(--ink-soft)]'}`}
-            >
-              {isMember ? 'member' : 'not in group'}
-            </span>
-            <Button
-              variant={isMember ? 'outline' : 'ghost'}
-              size="sm"
-              className="h-6 px-2 text-xs opacity-0 group-hover:opacity-100"
-              onClick={() => void toggle()}
-              disabled={replaceMembers.isPending}
-            >
-              {replaceMembers.isPending ? '…' : isMember ? 'Remove' : 'Add'}
-            </Button>
-          </>
-        )}
-      </div>
-      {error ? <Alert className="mt-1 text-xs">{error}</Alert> : null}
     </div>
   )
 }

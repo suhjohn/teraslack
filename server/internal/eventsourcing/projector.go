@@ -62,7 +62,6 @@ func (p *Projector) RebuildAll(ctx context.Context) error {
 		domain.AggregateUser,
 		domain.AggregateConversation,
 		domain.AggregateMessage,
-		domain.AggregateUsergroup,
 		domain.AggregatePin,
 		domain.AggregateBookmark,
 		domain.AggregateFile,
@@ -187,8 +186,6 @@ func (p *Projector) truncateProjection(ctx context.Context, q *sqlcgen.Queries, 
 		return q.ProjectorTruncateConversationProjection(ctx)
 	case domain.AggregateMessage:
 		return q.ProjectorTruncateMessageProjection(ctx)
-	case domain.AggregateUsergroup:
-		return q.ProjectorTruncateUsergroupProjection(ctx)
 	case domain.AggregatePin:
 		return q.ProjectorTruncatePinProjection(ctx)
 	case domain.AggregateBookmark:
@@ -239,13 +236,6 @@ func (p *Projector) applyEvent(ctx context.Context, q *sqlcgen.Queries, entry do
 		return p.applyReactionAdded(ctx, q, entry)
 	case domain.EventReactionRemoved:
 		return p.applyReactionRemoved(ctx, q, entry)
-
-	// Usergroup events
-	case domain.EventUsergroupCreated, domain.EventUsergroupUpdated,
-		domain.EventUsergroupEnabled, domain.EventUsergroupDisabled:
-		return p.applyUsergroupUpsert(ctx, q, entry)
-	case domain.EventUsergroupUserSet:
-		return p.applyUsergroupUsersSet(ctx, q, entry)
 
 	// Pin events
 	case domain.EventPinAdded:
@@ -568,63 +558,6 @@ func (p *Projector) applyReactionRemoved(ctx context.Context, q *sqlcgen.Queries
 		UserID:    data.Reaction.UserID,
 		Emoji:     data.Reaction.Emoji,
 	})
-}
-
-// --- Usergroup projections ---
-
-func (p *Projector) applyUsergroupUpsert(ctx context.Context, q *sqlcgen.Queries, entry domain.InternalEvent) error {
-	var ug domain.Usergroup
-	if err := json.Unmarshal(entry.Payload, &ug); err != nil {
-		return fmt.Errorf("unmarshal usergroup: %w", err)
-	}
-
-	return q.ProjectorUpsertUsergroup(ctx, sqlcgen.ProjectorUpsertUsergroupParams{
-		ID:          ug.ID,
-		WorkspaceID:      ug.WorkspaceID,
-		Name:        ug.Name,
-		Handle:      ug.Handle,
-		Description: ug.Description,
-		IsExternal:  ug.IsExternal,
-		Enabled:     ug.Enabled,
-		UserCount:   int32(ug.UserCount),
-		CreatedBy:   ug.CreatedBy,
-		UpdatedBy:   ug.UpdatedBy,
-		CreatedAt:   timeToTs(ug.CreatedAt),
-		UpdatedAt:   timeToTs(ug.UpdatedAt),
-	})
-}
-
-func (p *Projector) applyUsergroupUsersSet(ctx context.Context, q *sqlcgen.Queries, entry domain.InternalEvent) error {
-	var data struct {
-		UserIDs   []string          `json:"user_ids"`
-		Usergroup *domain.Usergroup `json:"usergroup"`
-	}
-	if err := json.Unmarshal(entry.Payload, &data); err != nil {
-		return fmt.Errorf("unmarshal usergroup users set: %w", err)
-	}
-
-	if data.Usergroup != nil {
-		ugEntry := entry
-		ugData, _ := json.Marshal(data.Usergroup)
-		ugEntry.Payload = ugData
-		if err := p.applyUsergroupUpsert(ctx, q, ugEntry); err != nil {
-			return err
-		}
-	}
-
-	if err := q.ProjectorDeleteUsergroupMembers(ctx, entry.AggregateID); err != nil {
-		return err
-	}
-	for _, uid := range data.UserIDs {
-		if err := q.ProjectorUpsertUsergroupMember(ctx, sqlcgen.ProjectorUpsertUsergroupMemberParams{
-			UsergroupID: entry.AggregateID,
-			UserID:      uid,
-			AddedAt:     timeToTs(entry.CreatedAt),
-		}); err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 // --- Pin projections ---

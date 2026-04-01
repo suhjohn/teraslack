@@ -112,7 +112,7 @@ func decodeExternalEventCursor(raw string) (externalEventCursor, error) {
 
 func validateExternalResourceType(resourceType string) error {
 	switch resourceType {
-	case "", domain.ResourceTypeWorkspace, domain.ResourceTypeConversation, domain.ResourceTypeFile, domain.ResourceTypeUser, domain.ResourceTypeUsergroup:
+	case "", domain.ResourceTypeWorkspace, domain.ResourceTypeConversation, domain.ResourceTypeFile, domain.ResourceTypeUser:
 		return nil
 	default:
 		return fmt.Errorf("resource_type: %w", domain.ErrInvalidArgument)

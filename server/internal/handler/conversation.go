@@ -314,7 +314,6 @@ func (h *ConversationHandler) GetPostingPolicy(w http.ResponseWriter, r *http.Re
 		AllowedAccountTypes:   policy.AllowedAccountTypes,
 		AllowedDelegatedRoles: policy.AllowedDelegatedRoles,
 		AllowedUserIDs:        policy.AllowedUserIDs,
-		AllowedUsergroupIDs:   policy.AllowedUsergroupIDs,
 		UpdatedBy:             policy.UpdatedBy,
 	}
 	if !policy.UpdatedAt.IsZero() {
@@ -346,7 +345,6 @@ func (h *ConversationHandler) SetPostingPolicy(w http.ResponseWriter, r *http.Re
 		AllowedAccountTypes:   req.AllowedAccountTypes,
 		AllowedDelegatedRoles: req.AllowedDelegatedRoles,
 		AllowedUserIDs:        req.AllowedUserIDs,
-		AllowedUsergroupIDs:   req.AllowedUsergroupIDs,
 	})
 	if err != nil {
 		httputil.WriteError(w, r, err)
@@ -359,7 +357,6 @@ func (h *ConversationHandler) SetPostingPolicy(w http.ResponseWriter, r *http.Re
 		AllowedAccountTypes:   policy.AllowedAccountTypes,
 		AllowedDelegatedRoles: policy.AllowedDelegatedRoles,
 		AllowedUserIDs:        policy.AllowedUserIDs,
-		AllowedUsergroupIDs:   policy.AllowedUsergroupIDs,
 		UpdatedBy:             policy.UpdatedBy,
 		UpdatedAt:             &policy.UpdatedAt,
 	})

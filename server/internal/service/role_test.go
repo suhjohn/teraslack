@@ -66,11 +66,11 @@ func TestRoleService_AdminWithRolesAdminCanSetManageableUserRoles(t *testing.T) 
 	svc := NewRoleService(roleRepo, userRepo)
 
 	ctx := ctxutil.WithUser(context.Background(), "U_ADMIN", "T123")
-	roles, err := svc.SetUserRoles(ctx, "U_TARGET", []domain.DelegatedRole{domain.DelegatedRoleUsergroupsAdmin})
+	roles, err := svc.SetUserRoles(ctx, "U_TARGET", []domain.DelegatedRole{domain.DelegatedRoleIntegrationsAdmin})
 	if err != nil {
 		t.Fatalf("roles_admin set roles: %v", err)
 	}
-	if len(roles) != 1 || roles[0] != domain.DelegatedRoleUsergroupsAdmin {
+	if len(roles) != 1 || roles[0] != domain.DelegatedRoleIntegrationsAdmin {
 		t.Fatalf("unexpected roles: %+v", roles)
 	}
 }

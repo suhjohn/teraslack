@@ -139,7 +139,7 @@ func TestMCPOAuthService_AuthorizeAndExchangeCode(t *testing.T) {
 	clientID = clientMeta.URL + "/client.json"
 
 	repo := newMockMCPOAuthRepo()
-	svc := NewMCPOAuthService(repo, &mockUserRepoForUG{}, mockTxBeginner{}, nil, MCPOAuthConfig{
+	svc := NewMCPOAuthService(repo, &mockUserRepoDefault{}, mockTxBeginner{}, nil, MCPOAuthConfig{
 		Issuer:     "https://api.teraslack.ai",
 		MCPBaseURL: "https://mcp.teraslack.ai/mcp",
 		SigningKey: "test-signing-key",
@@ -229,7 +229,7 @@ func TestMCPOAuthService_BuildAuthorizePrompt_AllowsLoopbackRedirectPortForClien
 	defer clientMeta.Close()
 	clientID = clientMeta.URL + "/client.json"
 
-	svc := NewMCPOAuthService(newMockMCPOAuthRepo(), &mockUserRepoForUG{}, mockTxBeginner{}, nil, MCPOAuthConfig{
+	svc := NewMCPOAuthService(newMockMCPOAuthRepo(), &mockUserRepoDefault{}, mockTxBeginner{}, nil, MCPOAuthConfig{
 		Issuer:     "https://api.teraslack.ai",
 		MCPBaseURL: "https://mcp.teraslack.ai/mcp",
 		SigningKey: "test-signing-key",
@@ -271,7 +271,7 @@ func TestMCPOAuthService_BuildAuthorizePrompt_RejectsMismatchedLoopbackRedirectP
 	defer clientMeta.Close()
 	clientID = clientMeta.URL + "/client.json"
 
-	svc := NewMCPOAuthService(newMockMCPOAuthRepo(), &mockUserRepoForUG{}, mockTxBeginner{}, nil, MCPOAuthConfig{
+	svc := NewMCPOAuthService(newMockMCPOAuthRepo(), &mockUserRepoDefault{}, mockTxBeginner{}, nil, MCPOAuthConfig{
 		Issuer:     "https://api.teraslack.ai",
 		MCPBaseURL: "https://mcp.teraslack.ai/mcp",
 		SigningKey: "test-signing-key",

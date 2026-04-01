@@ -534,68 +534,6 @@ ALTER SEQUENCE public.user_event_feed_feed_id_seq OWNED BY public.user_event_fee
 
 
 --
--- Name: usergroup_event_feed; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.usergroup_event_feed (
-    feed_id bigint NOT NULL,
-    usergroup_id text NOT NULL,
-    external_event_id bigint NOT NULL,
-    created_at timestamp with time zone DEFAULT now() NOT NULL
-);
-
-
---
--- Name: usergroup_event_feed_feed_id_seq; Type: SEQUENCE; Schema: public; Owner: -
---
-
-CREATE SEQUENCE public.usergroup_event_feed_feed_id_seq
-    START WITH 1
-    INCREMENT BY 1
-    NO MINVALUE
-    NO MAXVALUE
-    CACHE 1;
-
-
---
--- Name: usergroup_event_feed_feed_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
---
-
-ALTER SEQUENCE public.usergroup_event_feed_feed_id_seq OWNED BY public.usergroup_event_feed.feed_id;
-
-
---
--- Name: usergroup_members; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.usergroup_members (
-    usergroup_id text NOT NULL,
-    user_id text NOT NULL,
-    added_at timestamp with time zone DEFAULT now() NOT NULL
-);
-
-
---
--- Name: usergroups; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.usergroups (
-    id text NOT NULL,
-    workspace_id text NOT NULL,
-    name text NOT NULL,
-    handle text NOT NULL,
-    description text DEFAULT ''::text NOT NULL,
-    is_external boolean DEFAULT false NOT NULL,
-    enabled boolean DEFAULT true NOT NULL,
-    user_count integer DEFAULT 0 NOT NULL,
-    created_by text NOT NULL,
-    updated_by text DEFAULT ''::text NOT NULL,
-    created_at timestamp with time zone DEFAULT now() NOT NULL,
-    updated_at timestamp with time zone DEFAULT now() NOT NULL
-);
-
-
---
 -- Name: users; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -713,13 +651,6 @@ ALTER TABLE ONLY public.workspace_event_feed ALTER COLUMN feed_id SET DEFAULT ne
 --
 
 ALTER TABLE ONLY public.user_event_feed ALTER COLUMN feed_id SET DEFAULT nextval('public.user_event_feed_feed_id_seq'::regclass);
-
-
---
--- Name: usergroup_event_feed feed_id; Type: DEFAULT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.usergroup_event_feed ALTER COLUMN feed_id SET DEFAULT nextval('public.usergroup_event_feed_feed_id_seq'::regclass);
 
 
 --
@@ -952,38 +883,6 @@ ALTER TABLE ONLY public.user_event_feed
 
 ALTER TABLE ONLY public.user_event_feed
     ADD CONSTRAINT user_event_feed_user_id_external_event_id_key UNIQUE (user_id, external_event_id);
-
-
---
--- Name: usergroup_event_feed usergroup_event_feed_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.usergroup_event_feed
-    ADD CONSTRAINT usergroup_event_feed_pkey PRIMARY KEY (feed_id);
-
-
---
--- Name: usergroup_event_feed usergroup_event_feed_usergroup_id_external_event_id_key; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.usergroup_event_feed
-    ADD CONSTRAINT usergroup_event_feed_usergroup_id_external_event_id_key UNIQUE (usergroup_id, external_event_id);
-
-
---
--- Name: usergroup_members usergroup_members_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.usergroup_members
-    ADD CONSTRAINT usergroup_members_pkey PRIMARY KEY (usergroup_id, user_id);
-
-
---
--- Name: usergroups usergroups_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.usergroups
-    ADD CONSTRAINT usergroups_pkey PRIMARY KEY (id);
 
 
 --
@@ -1285,34 +1184,6 @@ CREATE INDEX idx_user_event_feed_user_id_external_event_id ON public.user_event_
 
 
 --
--- Name: idx_usergroup_event_feed_external_event_id; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX idx_usergroup_event_feed_external_event_id ON public.usergroup_event_feed USING btree (external_event_id);
-
-
---
--- Name: idx_usergroup_event_feed_usergroup_id_external_event_id; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX idx_usergroup_event_feed_usergroup_id_external_event_id ON public.usergroup_event_feed USING btree (usergroup_id, external_event_id);
-
-
---
--- Name: idx_usergroups_team_handle; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE UNIQUE INDEX idx_usergroups_team_handle ON public.usergroups USING btree (workspace_id, handle);
-
-
---
--- Name: idx_usergroups_workspace_id; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX idx_usergroups_workspace_id ON public.usergroups USING btree (workspace_id);
-
-
---
 -- Name: idx_users_email; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -1422,13 +1293,6 @@ CREATE TRIGGER trg_messages_updated_at BEFORE UPDATE ON public.messages FOR EACH
 --
 
 CREATE TRIGGER trg_oauth_accounts_updated_at BEFORE UPDATE ON public.oauth_accounts FOR EACH ROW EXECUTE FUNCTION public.update_updated_at();
-
-
---
--- Name: usergroups trg_usergroups_updated_at; Type: TRIGGER; Schema: public; Owner: -
---
-
-CREATE TRIGGER trg_usergroups_updated_at BEFORE UPDATE ON public.usergroups FOR EACH ROW EXECUTE FUNCTION public.update_updated_at();
 
 
 --
@@ -1667,46 +1531,6 @@ ALTER TABLE ONLY public.user_event_feed
 
 ALTER TABLE ONLY public.user_event_feed
     ADD CONSTRAINT user_event_feed_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id) ON DELETE CASCADE;
-
-
---
--- Name: usergroup_event_feed usergroup_event_feed_external_event_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.usergroup_event_feed
-    ADD CONSTRAINT usergroup_event_feed_external_event_id_fkey FOREIGN KEY (external_event_id) REFERENCES public.external_events(id) ON DELETE CASCADE;
-
-
---
--- Name: usergroup_event_feed usergroup_event_feed_usergroup_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.usergroup_event_feed
-    ADD CONSTRAINT usergroup_event_feed_usergroup_id_fkey FOREIGN KEY (usergroup_id) REFERENCES public.usergroups(id) ON DELETE CASCADE;
-
-
---
--- Name: usergroup_members usergroup_members_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.usergroup_members
-    ADD CONSTRAINT usergroup_members_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id) ON DELETE CASCADE;
-
-
---
--- Name: usergroup_members usergroup_members_usergroup_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.usergroup_members
-    ADD CONSTRAINT usergroup_members_usergroup_id_fkey FOREIGN KEY (usergroup_id) REFERENCES public.usergroups(id) ON DELETE CASCADE;
-
-
---
--- Name: usergroups usergroups_created_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.usergroups
-    ADD CONSTRAINT usergroups_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.users(id);
 
 
 --

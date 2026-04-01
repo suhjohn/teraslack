@@ -6,6 +6,8 @@
  * OpenAPI spec version: 1.0.0
  */
 
+export * from './acceptWorkspaceInviteRequest';
+export * from './acceptWorkspaceInviteResponse';
 export * from './accountType';
 export * from './addRemoteFileRequest';
 export * from './aPIError';
@@ -43,8 +45,9 @@ export * from './createConversationRequest';
 export * from './createEventSubscriptionRequest';
 export * from './createEventSubscriptionRequestResourceType';
 export * from './createExternalPrincipalAccessRequest';
-export * from './createUsergroupRequest';
 export * from './createUserRequest';
+export * from './createWorkspaceInviteRequest';
+export * from './createWorkspaceInviteResponse';
 export * from './createWorkspaceRequest';
 export * from './cursorQueryParameter';
 export * from './delegatedRole';
@@ -81,7 +84,6 @@ export * from './listEventSubscriptionsParams';
 export * from './listExternalPrincipalAccessParams';
 export * from './listFilesParams';
 export * from './listMessagesParams';
-export * from './listUsergroupsParams';
 export * from './listUsersParams';
 export * from './listWorkspaceAccessLogsParams';
 export * from './listWorkspaceAuthorizationAuditLogsParams';
@@ -113,10 +115,6 @@ export * from './updateUserRequest';
 export * from './updateUserRolesRequest';
 export * from './updateWorkspaceRequest';
 export * from './user';
-export * from './usergroup';
-export * from './usergroupMembersUpdateRequest';
-export * from './usergroupsCollection';
-export * from './usergroupUpdateRequest';
 export * from './userProfile';
 export * from './userProfileFields';
 export * from './userProfileFieldValue';
@@ -133,6 +131,7 @@ export * from './workspaceIcon';
 export * from './workspaceIDQueryParameter';
 export * from './workspaceIntegrationLog';
 export * from './workspaceIntegrationLogsCollection';
+export * from './workspaceInvite';
 export * from './workspaceProfileField';
 export * from './workspaceProfileFieldsCollection';
 export * from './workspacesCollection';

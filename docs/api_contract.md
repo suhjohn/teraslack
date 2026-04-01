@@ -143,15 +143,6 @@ Validation failures may include field-level details:
 - `POST /messages/{conversation_id}/{message_ts}/reactions`
 - `DELETE /messages/{conversation_id}/{message_ts}/reactions/{reaction_name}`
 
-### Usergroups
-
-- `GET /usergroups`
-- `POST /usergroups`
-- `GET /usergroups/{id}`
-- `PATCH /usergroups/{id}`
-- `GET /usergroups/{id}/members`
-- `PUT /usergroups/{id}/members`
-
 ### Files
 
 - `POST /file-uploads`

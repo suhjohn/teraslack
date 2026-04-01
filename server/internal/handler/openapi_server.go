@@ -13,7 +13,6 @@ type openAPIServer struct {
 	userH             *UserHandler
 	convH             *ConversationHandler
 	msgH              *MessageHandler
-	ugH               *UsergroupHandler
 	pinH              *PinHandler
 	bookmarkH         *BookmarkHandler
 	fileH             *FileHandler
@@ -34,7 +33,6 @@ func newOpenAPIServer(
 	userH *UserHandler,
 	convH *ConversationHandler,
 	msgH *MessageHandler,
-	ugH *UsergroupHandler,
 	pinH *PinHandler,
 	bookmarkH *BookmarkHandler,
 	fileH *FileHandler,
@@ -52,7 +50,6 @@ func newOpenAPIServer(
 		userH:             userH,
 		convH:             convH,
 		msgH:              msgH,
-		ugH:               ugH,
 		pinH:              pinH,
 		bookmarkH:         bookmarkH,
 		fileH:             fileH,
@@ -374,30 +371,6 @@ func (s *openAPIServer) DeleteCurrentSession(w http.ResponseWriter, r *http.Requ
 
 func (s *openAPIServer) SwitchCurrentSessionWorkspace(w http.ResponseWriter, r *http.Request) {
 	s.authH.SwitchCurrentSessionWorkspace(w, r)
-}
-
-func (s *openAPIServer) ListUsergroups(w http.ResponseWriter, r *http.Request, _ openapi.ListUsergroupsParams) {
-	s.ugH.List(w, r)
-}
-
-func (s *openAPIServer) CreateUsergroup(w http.ResponseWriter, r *http.Request) {
-	s.ugH.Create(w, r)
-}
-
-func (s *openAPIServer) GetUsergroup(w http.ResponseWriter, r *http.Request, _ openapi.UsergroupIDPath) {
-	s.ugH.Info(w, r)
-}
-
-func (s *openAPIServer) UpdateUsergroup(w http.ResponseWriter, r *http.Request, _ openapi.UsergroupIDPath) {
-	s.ugH.Update(w, r)
-}
-
-func (s *openAPIServer) ListUsergroupMembers(w http.ResponseWriter, r *http.Request, _ openapi.UsergroupIDPath) {
-	s.ugH.ListUsers(w, r)
-}
-
-func (s *openAPIServer) ReplaceUsergroupMembers(w http.ResponseWriter, r *http.Request, _ openapi.UsergroupIDPath) {
-	s.ugH.SetUsers(w, r)
 }
 
 func (s *openAPIServer) ListUsers(w http.ResponseWriter, r *http.Request, _ openapi.ListUsersParams) {

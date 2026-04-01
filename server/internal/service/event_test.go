@@ -66,7 +66,7 @@ func (m *mockEventRepoTenant) WithTx(_ pgx.Tx) repository.EventRepository { retu
 func TestEventService_TenantAccessDenied(t *testing.T) {
 	repo := newMockEventRepoTenant()
 	repo.subs["ES123"] = &domain.EventSubscription{ID: "ES123", WorkspaceID: "T999", URL: "https://example.com", Type: domain.EventTypeConversationMessageCreated}
-	svc := NewEventService(repo, &mockUserRepoForUG{}, nil, mockTxBeginner{}, nil)
+	svc := NewEventService(repo, &mockUserRepoDefault{}, nil, mockTxBeginner{}, nil)
 
 	ctx := context.WithValue(context.Background(), ctxutil.ContextKeyWorkspaceID, "T123")
 
@@ -83,7 +83,7 @@ func TestEventService_TenantAccessDenied(t *testing.T) {
 
 func TestEventService_CreateSubscription_RejectsLegacyEventType(t *testing.T) {
 	repo := newMockEventRepoTenant()
-	svc := NewEventService(repo, &mockUserRepoForUG{}, nil, mockTxBeginner{}, nil)
+	svc := NewEventService(repo, &mockUserRepoDefault{}, nil, mockTxBeginner{}, nil)
 
 	ctx := ctxutil.WithUser(context.Background(), "U123", "T123")
 	_, err := svc.CreateSubscription(ctx, domain.CreateEventSubscriptionParams{
@@ -104,7 +104,7 @@ func TestEventService_UpdateSubscription_RejectsLegacyEventType(t *testing.T) {
 		URL:    "https://example.com",
 		Type:   domain.EventTypeConversationMessageCreated,
 	}
-	svc := NewEventService(repo, &mockUserRepoForUG{}, nil, mockTxBeginner{}, nil)
+	svc := NewEventService(repo, &mockUserRepoDefault{}, nil, mockTxBeginner{}, nil)
 
 	ctx := ctxutil.WithUser(context.Background(), "U123", "T123")
 	legacyType := "channel.created"
@@ -124,7 +124,7 @@ func TestEventService_SubscriptionMutationsRequireWorkspaceAdmin(t *testing.T) {
 		URL:    "https://example.com",
 		Type:   domain.EventTypeConversationMessageCreated,
 	}
-	userRepo := &mockUserRepoForUGRoles{
+	userRepo := &mockUserRepoMap{
 		users: map[string]*domain.User{
 			"U123": {ID: "U123", WorkspaceID: "T123", PrincipalType: domain.PrincipalTypeHuman, AccountType: domain.AccountTypeMember},
 			"U999": {ID: "U999", WorkspaceID: "T123", PrincipalType: domain.PrincipalTypeHuman, AccountType: domain.AccountTypeAdmin},

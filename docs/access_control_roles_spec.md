@@ -102,7 +102,7 @@ Meeting these targets requires query-time, index-backed visibility checks and fo
     - one `external_events` row
     - one resource-feed row
   - file-scoped event: at most 2 durable writes in the visibility path
-  - user-, usergroup-, and workspace-scoped event: at most 2 durable writes in the visibility path
+  - user- and workspace-scoped event: at most 2 durable writes in the visibility path
 - Granting external shared access to one agent for one conversation must be `O(1)`.
 - Granting one agent access to `N` conversations may be `O(N)` in number of granted conversations only.
 - No event or auth path may be `O(workspace_users)`, `O(workspace_conversations)`, or `O(conversation_members)` for a single read/write decision.
@@ -121,7 +121,7 @@ Hard prohibitions:
 - no per-user copies of conversation events
 - no per-user file-visibility rows derived from channel membership
 - no synchronous fanout loops over all conversation members during message post
-- no synchronous fanout loops over all workspace users during channel, file, or usergroup events
+- no synchronous fanout loops over all workspace users during channel or file events
 
 ## Non-Goals
 
@@ -292,7 +292,6 @@ Define these built-in delegated roles:
 - `roles_admin`
 - `security_admin`
 - `integrations_admin`
-- `usergroups_admin`
 - `support_readonly`
 
 Optional per-conversation role:
@@ -370,11 +369,6 @@ Visibility is the first hard gate for reads.
 - Presigned download URLs must only be issued after this check.
 - External shared agents inherit file visibility only from explicitly shared conversations, never from workspace-wide file listing rights.
 
-### Usergroups
-
-- Full members can list and view usergroups.
-- Mention expansion only resolves to users visible to the caller.
-
 ### Event Subscriptions And Events
 
 - Event subscription CRUD is admin-only by default.
@@ -394,7 +388,6 @@ This matrix defines the default power for each account type before additive role
 | Start MPIMs | yes | yes | yes |
 | Post messages | yes | yes | yes |
 | Upload/share files | yes | yes | yes |
-| Create usergroups | yes | yes | no |
 | Create API keys for self | yes | yes | yes |
 | Create event subscriptions | yes | yes | no |
 | Manage members | yes | yes with rank limits | no |
@@ -450,11 +443,6 @@ Rules:
 - create/update/delete event subscriptions
 - create/update/revoke API keys for service principals
 - approve future app/integration installs
-
-### usergroups_admin
-
-- create/update/disable usergroups
-- manage usergroup members
 
 ### support_readonly
 
@@ -521,7 +509,6 @@ Custom policy may reference:
 - account types
 - delegated roles
 - explicit user IDs
-- usergroup IDs
 
 This is the Slack-inspired equivalent of restricted posting permissions.
 
@@ -579,12 +566,6 @@ These become the canonical permission names for both human authz and API-key sco
 - `files.share`
 - `files.delete.own`
 - `files.delete.any`
-
-### Usergroups
-
-- `usergroups.read`
-- `usergroups.write`
-- `usergroups.members.write`
 
 ### Integrations
 
@@ -847,11 +828,6 @@ Examples:
 - external shared agents inherit visibility only from explicitly shared conversations
 - external shared agents cannot perform standalone workspace-wide file listing unless every returned file is reachable from a shared conversation
 
-### `/usergroups`
-
-- write paths require `usergroups.write`
-- external shared agents have no usergroup access in v1
-
 ### `/event-subscriptions`
 
 - read/write require `event_subscriptions.read` or `event_subscriptions.write`
@@ -913,7 +889,7 @@ Minimum audited actions:
 - Add rank-aware mutation rules for `primary_admin`, `admin`, and `member`.
 - Add explicit transfer logic for the single `primary_admin`.
 - Prevent removal or downgrade of the final `primary_admin` without a replacement.
-- Define the built-in delegated roles `channels_admin`, `roles_admin`, `security_admin`, `integrations_admin`, `usergroups_admin`, `support_readonly`, and `channel_manager` as canonical constants.
+- Define the built-in delegated roles `channels_admin`, `roles_admin`, `security_admin`, `integrations_admin`, `support_readonly`, and `channel_manager` as canonical constants.
 - Define the canonical capability catalog in code and make it the single source of truth for both human authorization and API-key scopes.
 - Expand OpenAPI schemas and request/response types to expose `account_type`, delegated roles, external principal access, conversation managers, and posting policies.
 - Add new endpoints for roles, external principal access, conversation managers, and posting policies.
@@ -933,14 +909,13 @@ Minimum audited actions:
 - Enforce file visibility from uploader ownership and shared-conversation visibility.
 - Gate presigned file download URL issuance on the authorizer.
 - Enforce file deletion rules for uploader vs privileged operator.
-- Enforce usergroup visibility and delegated-role rules on usergroup read and write operations.
 - Restrict event subscription CRUD to `primary_admin`, `admin`, or `integrations_admin` unless future policy explicitly expands it.
 - Enforce event-stream visibility from resource visibility plus capability scopes.
 - Enforce search result visibility with the same authorizer used by direct resource reads.
 - Add external shared-agent authorization rules for conversations, messages, files, events, and search.
 - Ensure external shared agents never appear as full workspace members in directory or membership APIs.
 - Ensure external shared agents cannot access IMs or MPIMs in v1.
-- Ensure external shared agents cannot manage workspace membership, roles, settings, usergroups, or event subscriptions in v1.
+- Ensure external shared agents cannot manage workspace membership, roles, settings, or event subscriptions in v1.
 - Ensure external shared-agent keys cannot exceed the sharing grant or resource assignments.
 - Preserve the current non-fanout event architecture in [external_event.go](/Users/johnsuh/teraslack/internal/repository/postgres/external_event.go) and reject any implementation that creates per-user event copies.
 - Add indexes needed for new authorization queries, especially rank lookups, external principal access lookups, posting policy lookups, and conversation manager lookups.
@@ -971,7 +946,6 @@ The spec is intentionally aligned with current Teraslack resources:
 - conversations
 - messages
 - files
-- usergroups
 - API keys
 - event subscriptions
 - external event stream

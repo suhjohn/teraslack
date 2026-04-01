@@ -87,23 +87,6 @@ ON CONFLICT (channel_id, message_ts, user_id, emoji) DO NOTHING;
 -- name: ProjectorDeleteReaction :exec
 DELETE FROM reactions WHERE channel_id = $1 AND message_ts = $2 AND user_id = $3 AND emoji = $4;
 
--- name: ProjectorUpsertUsergroup :exec
-INSERT INTO usergroups (id, workspace_id, name, handle, description, is_external, enabled, user_count, created_by, updated_by, created_at, updated_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-ON CONFLICT (id) DO UPDATE SET
-    workspace_id = EXCLUDED.workspace_id, name = EXCLUDED.name, handle = EXCLUDED.handle,
-    description = EXCLUDED.description, is_external = EXCLUDED.is_external,
-    enabled = EXCLUDED.enabled, user_count = EXCLUDED.user_count,
-    updated_by = EXCLUDED.updated_by, updated_at = EXCLUDED.updated_at;
-
--- name: ProjectorDeleteUsergroupMembers :exec
-DELETE FROM usergroup_members WHERE usergroup_id = $1;
-
--- name: ProjectorUpsertUsergroupMember :exec
-INSERT INTO usergroup_members (usergroup_id, user_id, added_at)
-VALUES ($1, $2, $3)
-ON CONFLICT (usergroup_id, user_id) DO NOTHING;
-
 -- name: ProjectorUpsertPin :exec
 INSERT INTO pins (channel_id, message_ts, pinned_by, pinned_at)
 VALUES ($1, $2, $3, $4)
@@ -223,9 +206,6 @@ TRUNCATE conversation_posting_policies, conversation_manager_assignments, conver
 
 -- name: ProjectorTruncateMessageProjection :exec
 TRUNCATE reactions, messages CASCADE;
-
--- name: ProjectorTruncateUsergroupProjection :exec
-TRUNCATE usergroup_members, usergroups CASCADE;
 
 -- name: ProjectorTruncatePinProjection :exec
 TRUNCATE pins CASCADE;

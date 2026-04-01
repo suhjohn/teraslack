@@ -68,12 +68,6 @@ func TestComposeE2E_SystemAPIKeyCanReachProtectedRoutes(t *testing.T) {
 		CreatedBy: owner.ID,
 	})
 
-	usergroup := createUsergroupViaHTTP(t, httpClient, baseURL, ownerToken, map[string]any{
-		"name":        uniqueName("system-ug"),
-		"handle":      uniqueName("system-ug"),
-		"description": "system route coverage",
-		"users":       []string{owner.ID, member.ID},
-	})
 	subscription := createEventSubscriptionViaHTTP(t, httpClient, baseURL, ownerToken, map[string]any{
 		"workspace_id":  owner.WorkspaceID,
 		"url":           "https://example.com/webhook/system-routes",
@@ -108,7 +102,6 @@ func TestComposeE2E_SystemAPIKeyCanReachProtectedRoutes(t *testing.T) {
 		messageTS:          rootMessage.TS,
 		bookmarkID:         bookmark.ID,
 		apiKeyID:           managedKey.ID,
-		usergroupID:        usergroup.ID,
 		subscriptionID:     subscription.ID,
 		externalAccessID:   externalAccess.ID,
 		fakeExternalWSID:   "EW_DOES_NOT_EXIST",
@@ -139,7 +132,6 @@ type systemRouteFixtures struct {
 	messageTS          string
 	bookmarkID         string
 	apiKeyID           string
-	usergroupID        string
 	subscriptionID     string
 	externalAccessID   string
 	fakeExternalWSID   string
@@ -232,8 +224,6 @@ func buildSystemRouteURL(baseURL, path string, fx systemRouteFixtures) string {
 		urlPath = strings.ReplaceAll(urlPath, "{id}", fx.workspaceID)
 	case strings.HasPrefix(path, "/users/{id}"):
 		urlPath = strings.ReplaceAll(urlPath, "{id}", fx.memberID)
-	case strings.HasPrefix(path, "/usergroups/{id}"):
-		urlPath = strings.ReplaceAll(urlPath, "{id}", fx.usergroupID)
 	case strings.HasPrefix(path, "/api-keys/{id}"):
 		urlPath = strings.ReplaceAll(urlPath, "{id}", fx.apiKeyID)
 	case strings.HasPrefix(path, "/event-subscriptions/{id}"):
@@ -369,18 +359,6 @@ func buildSystemRouteBody(method, path string, fx systemRouteFixtures) any {
 		return map[string]any{"name": "eyes"}
 	case http.MethodPost + " /search":
 		return map[string]any{"workspace_id": fx.workspaceID, "query": "route"}
-	case http.MethodPost + " /usergroups":
-		return map[string]any{
-			"workspace_id": fx.workspaceID,
-			"name":         uniqueName("route-usergroup"),
-			"handle":       uniqueName("route-usergroup"),
-			"description":  "route usergroup",
-			"users":        []string{fx.ownerID, fx.memberID},
-		}
-	case http.MethodPatch + " /usergroups/{id}":
-		return map[string]any{"name": "route-usergroup-updated"}
-	case http.MethodPut + " /usergroups/{id}/members":
-		return map[string]any{"users": []string{fx.ownerID, fx.memberID}}
 	case http.MethodPost + " /users":
 		return map[string]any{
 			"workspace_id":   fx.workspaceID,
@@ -407,16 +385,6 @@ func buildSystemRouteBody(method, path string, fx systemRouteFixtures) any {
 		return map[string]any{}
 	}
 	return nil
-}
-
-func createUsergroupViaHTTP(t *testing.T, httpClient *http.Client, baseURL, auth string, body map[string]any) domain.Usergroup {
-	t.Helper()
-	var resp domain.Usergroup
-	doJSON(t, httpClient, http.MethodPost, baseURL+"/usergroups", auth, body, &resp)
-	if resp.ID == "" {
-		t.Fatalf("create usergroup response = %+v", resp)
-	}
-	return resp
 }
 
 func createExternalAccessViaHTTP(t *testing.T, httpClient *http.Client, baseURL, auth string, body map[string]any) domain.ExternalPrincipalAccess {

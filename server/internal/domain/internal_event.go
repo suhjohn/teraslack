@@ -28,7 +28,6 @@ const (
 	AggregateUser         = "user"
 	AggregateConversation = "conversation"
 	AggregateMessage      = "message"
-	AggregateUsergroup    = "usergroup"
 	AggregatePin          = "pin"
 	AggregateBookmark     = "bookmark"
 	AggregateFile         = "file"
@@ -64,12 +63,6 @@ const (
 
 	EventReactionAdded   = "reaction.added"
 	EventReactionRemoved = "reaction.removed"
-
-	EventUsergroupCreated  = "usergroup.created"
-	EventUsergroupUpdated  = "usergroup.updated"
-	EventUsergroupEnabled  = "usergroup.enabled"
-	EventUsergroupDisabled = "usergroup.disabled"
-	EventUsergroupUserSet  = "usergroup.users_set"
 
 	EventPinAdded   = "pin.added"
 	EventPinRemoved = "pin.removed"

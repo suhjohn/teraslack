@@ -10,7 +10,6 @@ const (
 	ResourceTypeUser         = "user"
 	ResourceTypeConversation = "conversation"
 	ResourceTypeFile         = "file"
-	ResourceTypeUsergroup    = "usergroup"
 )
 
 // ExternalEvent is the canonical public event envelope exposed by /events and webhooks.

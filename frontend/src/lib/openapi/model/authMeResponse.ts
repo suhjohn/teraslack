@@ -7,6 +7,7 @@
  */
 import type { AccountType } from './accountType';
 import type { PrincipalType } from './principalType';
+import type { User } from './user';
 
 /**
  * The authenticated identity of the current request.
@@ -20,4 +21,9 @@ export interface AuthMeResponse {
   account_type?: AccountType;
   /** Whether the caller is a bot/agent. */
   is_bot: boolean;
+  /** Effective permissions granted to the caller for this request context. */
+  permissions?: string[];
+  /** OAuth scopes associated with the current request when applicable. */
+  scopes?: string[];
+  user?: User;
 }

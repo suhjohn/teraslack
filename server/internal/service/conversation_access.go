@@ -17,7 +17,6 @@ type ConversationAccessService struct {
 	convRepo      repository.ConversationRepository
 	userRepo      repository.UserRepository
 	roleRepo      repository.RoleAssignmentRepository
-	usergroupRepo repository.UsergroupRepository
 	auditRepo     repository.AuthorizationAuditRepository
 	recorder      EventRecorder
 	db            repository.TxBeginner
@@ -29,7 +28,6 @@ func NewConversationAccessService(
 	convRepo repository.ConversationRepository,
 	userRepo repository.UserRepository,
 	roleRepo repository.RoleAssignmentRepository,
-	usergroupRepo repository.UsergroupRepository,
 	recorder EventRecorder,
 	db repository.TxBeginner,
 	logger *slog.Logger,
@@ -42,7 +40,6 @@ func NewConversationAccessService(
 		convRepo:      convRepo,
 		userRepo:      userRepo,
 		roleRepo:      roleRepo,
-		usergroupRepo: usergroupRepo,
 		recorder:      recorder,
 		db:            db,
 		logger:        logger,
@@ -468,7 +465,6 @@ func (s *ConversationAccessService) validatePostingPolicy(ctx context.Context, w
 	policy.AllowedAccountTypes = dedupeAccountTypes(policy.AllowedAccountTypes)
 	policy.AllowedDelegatedRoles = dedupeDelegatedRoles(policy.AllowedDelegatedRoles)
 	policy.AllowedUserIDs = dedupeStrings(policy.AllowedUserIDs)
-	policy.AllowedUsergroupIDs = dedupeStrings(policy.AllowedUsergroupIDs)
 
 	for _, accountType := range policy.AllowedAccountTypes {
 		switch accountType {
@@ -489,18 +485,6 @@ func (s *ConversationAccessService) validatePostingPolicy(ctx context.Context, w
 		}
 		if user.WorkspaceID != workspaceID {
 			return fmt.Errorf("allowed_user_ids: %w", domain.ErrInvalidArgument)
-		}
-	}
-	for _, usergroupID := range policy.AllowedUsergroupIDs {
-		if s.usergroupRepo == nil {
-			return fmt.Errorf("allowed_usergroup_ids: %w", domain.ErrInvalidArgument)
-		}
-		usergroup, err := s.usergroupRepo.Get(ctx, usergroupID)
-		if err != nil {
-			return fmt.Errorf("allowed_usergroup_ids: %w", err)
-		}
-		if usergroup.WorkspaceID != workspaceID {
-			return fmt.Errorf("allowed_usergroup_ids: %w", domain.ErrInvalidArgument)
 		}
 	}
 	return nil
@@ -527,17 +511,6 @@ func (s *ConversationAccessService) actorMatchesCustomPostingPolicy(ctx context.
 				if containsDelegatedRole(policy.AllowedDelegatedRoles, role) {
 					return true, nil
 				}
-			}
-		}
-	}
-	if s.usergroupRepo != nil {
-		for _, usergroupID := range policy.AllowedUsergroupIDs {
-			userIDs, err := s.usergroupRepo.ListUsers(ctx, usergroupID)
-			if err != nil {
-				return false, err
-			}
-			if containsString(userIDs, actorID) {
-				return true, nil
 			}
 		}
 	}

@@ -131,20 +131,6 @@ type ProjectorCheckpointRepository interface {
 	Set(ctx context.Context, name string, lastEventID int64) error
 }
 
-// UsergroupRepository defines data access operations for usergroups.
-type UsergroupRepository interface {
-	WithTx(tx pgx.Tx) UsergroupRepository
-	Create(ctx context.Context, params domain.CreateUsergroupParams) (*domain.Usergroup, error)
-	Get(ctx context.Context, id string) (*domain.Usergroup, error)
-	Update(ctx context.Context, id string, params domain.UpdateUsergroupParams) (*domain.Usergroup, error)
-	List(ctx context.Context, params domain.ListUsergroupsParams) ([]domain.Usergroup, error)
-	Enable(ctx context.Context, id string) error
-	Disable(ctx context.Context, id string) error
-	AddUser(ctx context.Context, usergroupID, userID string) error
-	ListUsers(ctx context.Context, usergroupID string) ([]string, error)
-	SetUsers(ctx context.Context, usergroupID string, userIDs []string) error
-}
-
 // PinRepository defines data access operations for pins.
 type PinRepository interface {
 	WithTx(tx pgx.Tx) PinRepository
