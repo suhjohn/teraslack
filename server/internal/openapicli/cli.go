@@ -142,6 +142,20 @@ func (c *CLI) Run(ctx context.Context, args []string, stdout, stderr io.Writer) 
 	if err := global.Parse(args); err != nil {
 		return 2
 	}
+
+	rest := global.Args()
+	if len(rest) == 0 {
+		c.printRootHelp(stdout)
+		return 0
+	}
+
+	if rest[0] == "help" {
+		return c.runHelp(rest[1:], stdout, stderr)
+	}
+	if isLifecycleCommand(rest[0]) {
+		return c.runLifecycle(ctx, rest[0], rest[1:], output, stdout, stderr)
+	}
+
 	if baseURL == "" || apiKey == "" {
 		cfg, err := loadFileConfig()
 		if err != nil {
@@ -154,16 +168,6 @@ func (c *CLI) Run(ctx context.Context, args []string, stdout, stderr io.Writer) 
 		if apiKey == "" {
 			apiKey = cfg.APIKey
 		}
-	}
-
-	rest := global.Args()
-	if len(rest) == 0 {
-		c.printRootHelp(stdout)
-		return 0
-	}
-
-	if rest[0] == "help" {
-		return c.runHelp(rest[1:], stdout, stderr)
 	}
 
 	group := c.groupByName[rest[0]]
@@ -191,6 +195,10 @@ func (c *CLI) Run(ctx context.Context, args []string, stdout, stderr io.Writer) 
 func (c *CLI) runHelp(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
 		c.printRootHelp(stdout)
+		return 0
+	}
+	if isLifecycleCommand(args[0]) {
+		c.printLifecycleHelp(args[0], stdout)
 		return 0
 	}
 
@@ -523,6 +531,11 @@ func (c *CLI) printRootHelp(w io.Writer) {
 	fmt.Fprintln(w, "  --base-url string   Teraslack API base URL")
 	fmt.Fprintln(w, "  --api-key string    Bearer token")
 	fmt.Fprintln(w, "  --output string     pretty or json")
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, "Built-in commands:")
+	fmt.Fprintln(w, "  version             Print the installed CLI version")
+	fmt.Fprintln(w, "  update              Download and install the latest CLI release")
+	fmt.Fprintln(w, "  uninstall           Remove the installed CLI binary")
 	fmt.Fprintln(w)
 	fmt.Fprintf(w, "Groups (%d operations):\n", c.operationCnt)
 	for _, group := range c.groups {

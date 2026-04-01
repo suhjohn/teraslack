@@ -1,8 +1,11 @@
 package openapicli
 
 import (
+	"bytes"
+	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -137,6 +140,53 @@ func TestLoadFileConfig(t *testing.T) {
 	}
 	if got, want := cfg.APIKey, "sk_test"; got != want {
 		t.Fatalf("APIKey = %q, want %q", got, want)
+	}
+}
+
+func TestRunVersionCommand(t *testing.T) {
+	oldVersion := Version
+	Version = "v9.9.9-test"
+	t.Cleanup(func() {
+		Version = oldVersion
+	})
+
+	cli, err := New()
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	exitCode := cli.Run(context.Background(), []string{"version"}, &stdout, &stderr)
+	if exitCode != 0 {
+		t.Fatalf("Run(version) exitCode = %d, stderr = %s", exitCode, stderr.String())
+	}
+	if got := strings.TrimSpace(stdout.String()); got != "teraslack v9.9.9-test" {
+		t.Fatalf("stdout = %q, want %q", got, "teraslack v9.9.9-test")
+	}
+}
+
+func TestRootHelpIncludesLifecycleCommands(t *testing.T) {
+	cli, err := New()
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	var output bytes.Buffer
+	cli.printRootHelp(&output)
+	text := output.String()
+	for _, token := range []string{"version", "update", "uninstall"} {
+		if !strings.Contains(text, token) {
+			t.Fatalf("root help missing %q: %s", token, text)
+		}
+	}
+}
+
+func TestStripInstallerPathBlock(t *testing.T) {
+	content := "\n# Added by Teraslack installer\nexport PATH=\"/Users/test/.teraslack/bin:$PATH\"\n"
+	got := stripInstallerPathBlock(content, "/Users/test/.teraslack/bin")
+	if strings.Contains(got, ".teraslack/bin") {
+		t.Fatalf("stripInstallerPathBlock() = %q, want path entry removed", got)
 	}
 }
 

@@ -104,7 +104,9 @@ printf '%s\n' "$targets" | while read -r goos goarch platform; do
   echo "building $platform..."
   (
     cd "$SERVER_DIR"
-    CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch" go build -o "$binary_path" ./cmd/teraslack-api
+    CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch" go build \
+      -ldflags "-X github.com/suhjohn/teraslack/internal/openapicli.Version=$VERSION" \
+      -o "$binary_path" ./cmd/teraslack-api
   )
 
   if [ "$goos" = "windows" ]; then
