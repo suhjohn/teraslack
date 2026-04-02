@@ -38,7 +38,7 @@ func IsValidDelegatedRole(role DelegatedRole) bool {
 // User represents a workspace principal (human, agent, or system).
 type User struct {
 	ID            string        `json:"id"`
-	WorkspaceID        string        `json:"workspace_id"`
+	WorkspaceID   string        `json:"workspace_id"`
 	Name          string        `json:"name"`
 	RealName      string        `json:"real_name"`
 	DisplayName   string        `json:"display_name"`
@@ -55,28 +55,21 @@ type User struct {
 
 // UserProfile contains display and contact information for a user.
 type UserProfile struct {
-	Title            string                 `json:"title"`
-	Phone            string                 `json:"phone"`
-	StatusText       string                 `json:"status_text"`
-	StatusEmoji      string                 `json:"status_emoji"`
-	StatusExpiration int64                  `json:"status_expiration"`
-	AvatarHash       string                 `json:"avatar_hash"`
-	ImageOriginal    string                 `json:"image_original"`
-	Image48          string                 `json:"image_48"`
-	Image192         string                 `json:"image_192"`
-	Image512         string                 `json:"image_512"`
-	Fields           map[string]CustomField `json:"fields,omitempty"`
-}
-
-// CustomField is a workspace-defined custom profile field.
-type CustomField struct {
-	Value string `json:"value"`
-	Alt   string `json:"alt"`
+	Title            string `json:"title"`
+	Phone            string `json:"phone"`
+	StatusText       string `json:"status_text"`
+	StatusEmoji      string `json:"status_emoji"`
+	StatusExpiration int64  `json:"status_expiration"`
+	AvatarHash       string `json:"avatar_hash"`
+	ImageOriginal    string `json:"image_original"`
+	Image48          string `json:"image_48"`
+	Image192         string `json:"image_192"`
+	Image512         string `json:"image_512"`
 }
 
 // CreateUserParams holds the parameters for creating a new user.
 type CreateUserParams struct {
-	WorkspaceID        string        `json:"workspace_id"`
+	WorkspaceID   string        `json:"workspace_id"`
 	Name          string        `json:"name"`
 	RealName      string        `json:"real_name"`
 	DisplayName   string        `json:"display_name"`
@@ -101,8 +94,8 @@ type UpdateUserParams struct {
 // ListUsersParams holds pagination and filter options.
 type ListUsersParams struct {
 	WorkspaceID string `json:"workspace_id"`
-	Cursor string `json:"cursor"`
-	Limit  int    `json:"limit"`
+	Cursor      string `json:"cursor"`
+	Limit       int    `json:"limit"`
 }
 
 // EffectiveAccountType derives the canonical account type.

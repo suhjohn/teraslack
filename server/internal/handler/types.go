@@ -17,7 +17,7 @@ type APIKeySecretResponse struct {
 
 type EventSubscriptionResponse struct {
 	ID           string    `json:"id"`
-	WorkspaceID       string    `json:"workspace_id"`
+	WorkspaceID  string    `json:"workspace_id"`
 	URL          string    `json:"url"`
 	Type         string    `json:"type,omitempty"`
 	ResourceType string    `json:"resource_type,omitempty"`
@@ -67,18 +67,6 @@ type ConversationPostingPolicyUpdateRequest struct {
 type MessageReactionRequest struct {
 	Name   string `json:"name"`
 	UserID string `json:"user_id,omitempty"`
-}
-
-type BookmarkUpdateRequest struct {
-	Title     *string `json:"title,omitempty"`
-	Link      *string `json:"link,omitempty"`
-	Emoji     *string `json:"emoji,omitempty"`
-	UpdatedBy string  `json:"updated_by"`
-}
-
-type PinCreateRequest struct {
-	MessageTS string `json:"message_ts"`
-	UserID    string `json:"user_id,omitempty"`
 }
 
 type ConversationReadUpdateRequest struct {

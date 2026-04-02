@@ -16,13 +16,13 @@ const createWorkspace = `-- name: CreateWorkspace :one
 INSERT INTO workspaces (
     id, name, domain, email_domain, description,
     icon_image_original, icon_image_34, icon_image_44,
-    discoverability, default_channels, preferences, profile_fields,
+    discoverability, default_channels, preferences,
     billing_plan, billing_status, billing_email
 )
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
 RETURNING id, name, domain, email_domain, description,
           icon_image_original, icon_image_34, icon_image_44,
-          discoverability, default_channels, preferences, profile_fields,
+          discoverability, default_channels, preferences,
           billing_plan, billing_status, billing_email, created_at, updated_at
 `
 
@@ -38,7 +38,6 @@ type CreateWorkspaceParams struct {
 	Discoverability   string   `json:"discoverability"`
 	DefaultChannels   []string `json:"default_channels"`
 	Preferences       []byte   `json:"preferences"`
-	ProfileFields     []byte   `json:"profile_fields"`
 	BillingPlan       string   `json:"billing_plan"`
 	BillingStatus     string   `json:"billing_status"`
 	BillingEmail      string   `json:"billing_email"`
@@ -57,7 +56,6 @@ func (q *Queries) CreateWorkspace(ctx context.Context, arg CreateWorkspaceParams
 		arg.Discoverability,
 		arg.DefaultChannels,
 		arg.Preferences,
-		arg.ProfileFields,
 		arg.BillingPlan,
 		arg.BillingStatus,
 		arg.BillingEmail,
@@ -75,12 +73,65 @@ func (q *Queries) CreateWorkspace(ctx context.Context, arg CreateWorkspaceParams
 		&i.Discoverability,
 		&i.DefaultChannels,
 		&i.Preferences,
-		&i.ProfileFields,
 		&i.BillingPlan,
 		&i.BillingStatus,
 		&i.BillingEmail,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const createWorkspaceExternalWorkspace = `-- name: CreateWorkspaceExternalWorkspace :one
+INSERT INTO workspace_external_workspaces (
+    id, workspace_id, external_workspace_id, external_workspace_name, connection_type,
+    connected, disconnected_at
+)
+VALUES ($1, $2, $3, $4, $5, TRUE, NULL)
+ON CONFLICT (workspace_id, external_workspace_id) DO UPDATE SET
+    external_workspace_name = EXCLUDED.external_workspace_name,
+    connection_type = EXCLUDED.connection_type,
+    connected = TRUE,
+    disconnected_at = NULL
+RETURNING id, external_workspace_id, external_workspace_name, connection_type,
+          connected, created_at, disconnected_at
+`
+
+type CreateWorkspaceExternalWorkspaceParams struct {
+	ID                    string `json:"id"`
+	WorkspaceID           string `json:"workspace_id"`
+	ExternalWorkspaceID   string `json:"external_workspace_id"`
+	ExternalWorkspaceName string `json:"external_workspace_name"`
+	ConnectionType        string `json:"connection_type"`
+}
+
+type CreateWorkspaceExternalWorkspaceRow struct {
+	ID                    string     `json:"id"`
+	ExternalWorkspaceID   string     `json:"external_workspace_id"`
+	ExternalWorkspaceName string     `json:"external_workspace_name"`
+	ConnectionType        string     `json:"connection_type"`
+	Connected             bool       `json:"connected"`
+	CreatedAt             time.Time  `json:"created_at"`
+	DisconnectedAt        *time.Time `json:"disconnected_at"`
+}
+
+func (q *Queries) CreateWorkspaceExternalWorkspace(ctx context.Context, arg CreateWorkspaceExternalWorkspaceParams) (CreateWorkspaceExternalWorkspaceRow, error) {
+	row := q.db.QueryRow(ctx, createWorkspaceExternalWorkspace,
+		arg.ID,
+		arg.WorkspaceID,
+		arg.ExternalWorkspaceID,
+		arg.ExternalWorkspaceName,
+		arg.ConnectionType,
+	)
+	var i CreateWorkspaceExternalWorkspaceRow
+	err := row.Scan(
+		&i.ID,
+		&i.ExternalWorkspaceID,
+		&i.ExternalWorkspaceName,
+		&i.ConnectionType,
+		&i.Connected,
+		&i.CreatedAt,
+		&i.DisconnectedAt,
 	)
 	return i, err
 }
@@ -107,7 +158,7 @@ func (q *Queries) DisconnectWorkspaceExternalWorkspace(ctx context.Context, arg 
 const getWorkspace = `-- name: GetWorkspace :one
 SELECT id, name, domain, email_domain, description,
        icon_image_original, icon_image_34, icon_image_44,
-       discoverability, default_channels, preferences, profile_fields,
+       discoverability, default_channels, preferences,
        billing_plan, billing_status, billing_email, created_at, updated_at
 FROM workspaces
 WHERE id = $1
@@ -128,12 +179,48 @@ func (q *Queries) GetWorkspace(ctx context.Context, id string) (Workspace, error
 		&i.Discoverability,
 		&i.DefaultChannels,
 		&i.Preferences,
-		&i.ProfileFields,
 		&i.BillingPlan,
 		&i.BillingStatus,
 		&i.BillingEmail,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const getWorkspaceExternalWorkspace = `-- name: GetWorkspaceExternalWorkspace :one
+SELECT id, external_workspace_id, external_workspace_name, connection_type,
+       connected, created_at, disconnected_at
+FROM workspace_external_workspaces
+WHERE workspace_id = $1 AND external_workspace_id = $2
+`
+
+type GetWorkspaceExternalWorkspaceParams struct {
+	WorkspaceID         string `json:"workspace_id"`
+	ExternalWorkspaceID string `json:"external_workspace_id"`
+}
+
+type GetWorkspaceExternalWorkspaceRow struct {
+	ID                    string     `json:"id"`
+	ExternalWorkspaceID   string     `json:"external_workspace_id"`
+	ExternalWorkspaceName string     `json:"external_workspace_name"`
+	ConnectionType        string     `json:"connection_type"`
+	Connected             bool       `json:"connected"`
+	CreatedAt             time.Time  `json:"created_at"`
+	DisconnectedAt        *time.Time `json:"disconnected_at"`
+}
+
+func (q *Queries) GetWorkspaceExternalWorkspace(ctx context.Context, arg GetWorkspaceExternalWorkspaceParams) (GetWorkspaceExternalWorkspaceRow, error) {
+	row := q.db.QueryRow(ctx, getWorkspaceExternalWorkspace, arg.WorkspaceID, arg.ExternalWorkspaceID)
+	var i GetWorkspaceExternalWorkspaceRow
+	err := row.Scan(
+		&i.ID,
+		&i.ExternalWorkspaceID,
+		&i.ExternalWorkspaceName,
+		&i.ConnectionType,
+		&i.Connected,
+		&i.CreatedAt,
+		&i.DisconnectedAt,
 	)
 	return i, err
 }
@@ -461,7 +548,7 @@ func (q *Queries) ListWorkspaceOwners(ctx context.Context, workspaceID string) (
 const listWorkspaces = `-- name: ListWorkspaces :many
 SELECT id, name, domain, email_domain, description,
        icon_image_original, icon_image_34, icon_image_44,
-       discoverability, default_channels, preferences, profile_fields,
+       discoverability, default_channels, preferences,
        billing_plan, billing_status, billing_email, created_at, updated_at
 FROM workspaces
 ORDER BY created_at ASC, id ASC
@@ -488,7 +575,6 @@ func (q *Queries) ListWorkspaces(ctx context.Context) ([]Workspace, error) {
 			&i.Discoverability,
 			&i.DefaultChannels,
 			&i.Preferences,
-			&i.ProfileFields,
 			&i.BillingPlan,
 			&i.BillingStatus,
 			&i.BillingEmail,
@@ -517,14 +603,13 @@ SET name = $2,
     discoverability = $9,
     default_channels = $10,
     preferences = $11,
-    profile_fields = $12,
-    billing_plan = $13,
-    billing_status = $14,
-    billing_email = $15
+    billing_plan = $12,
+    billing_status = $13,
+    billing_email = $14
 WHERE id = $1
 RETURNING id, name, domain, email_domain, description,
           icon_image_original, icon_image_34, icon_image_44,
-          discoverability, default_channels, preferences, profile_fields,
+          discoverability, default_channels, preferences,
           billing_plan, billing_status, billing_email, created_at, updated_at
 `
 
@@ -540,7 +625,6 @@ type UpdateWorkspaceParams struct {
 	Discoverability   string   `json:"discoverability"`
 	DefaultChannels   []string `json:"default_channels"`
 	Preferences       []byte   `json:"preferences"`
-	ProfileFields     []byte   `json:"profile_fields"`
 	BillingPlan       string   `json:"billing_plan"`
 	BillingStatus     string   `json:"billing_status"`
 	BillingEmail      string   `json:"billing_email"`
@@ -559,7 +643,6 @@ func (q *Queries) UpdateWorkspace(ctx context.Context, arg UpdateWorkspaceParams
 		arg.Discoverability,
 		arg.DefaultChannels,
 		arg.Preferences,
-		arg.ProfileFields,
 		arg.BillingPlan,
 		arg.BillingStatus,
 		arg.BillingEmail,
@@ -577,7 +660,6 @@ func (q *Queries) UpdateWorkspace(ctx context.Context, arg UpdateWorkspaceParams
 		&i.Discoverability,
 		&i.DefaultChannels,
 		&i.Preferences,
-		&i.ProfileFields,
 		&i.BillingPlan,
 		&i.BillingStatus,
 		&i.BillingEmail,

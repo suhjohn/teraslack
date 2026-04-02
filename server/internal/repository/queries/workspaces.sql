@@ -2,19 +2,19 @@
 INSERT INTO workspaces (
     id, name, domain, email_domain, description,
     icon_image_original, icon_image_34, icon_image_44,
-    discoverability, default_channels, preferences, profile_fields,
+    discoverability, default_channels, preferences,
     billing_plan, billing_status, billing_email
 )
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
 RETURNING id, name, domain, email_domain, description,
           icon_image_original, icon_image_34, icon_image_44,
-          discoverability, default_channels, preferences, profile_fields,
+          discoverability, default_channels, preferences,
           billing_plan, billing_status, billing_email, created_at, updated_at;
 
 -- name: GetWorkspace :one
 SELECT id, name, domain, email_domain, description,
        icon_image_original, icon_image_34, icon_image_44,
-       discoverability, default_channels, preferences, profile_fields,
+       discoverability, default_channels, preferences,
        billing_plan, billing_status, billing_email, created_at, updated_at
 FROM workspaces
 WHERE id = $1;
@@ -22,7 +22,7 @@ WHERE id = $1;
 -- name: ListWorkspaces :many
 SELECT id, name, domain, email_domain, description,
        icon_image_original, icon_image_34, icon_image_44,
-       discoverability, default_channels, preferences, profile_fields,
+       discoverability, default_channels, preferences,
        billing_plan, billing_status, billing_email, created_at, updated_at
 FROM workspaces
 ORDER BY created_at ASC, id ASC;
@@ -39,14 +39,13 @@ SET name = $2,
     discoverability = $9,
     default_channels = $10,
     preferences = $11,
-    profile_fields = $12,
-    billing_plan = $13,
-    billing_status = $14,
-    billing_email = $15
+    billing_plan = $12,
+    billing_status = $13,
+    billing_email = $14
 WHERE id = $1
 RETURNING id, name, domain, email_domain, description,
           icon_image_original, icon_image_34, icon_image_44,
-          discoverability, default_channels, preferences, profile_fields,
+          discoverability, default_channels, preferences,
           billing_plan, billing_status, billing_email, created_at, updated_at;
 
 -- name: ListWorkspaceAdmins :many
@@ -113,6 +112,26 @@ SELECT id, external_workspace_id, external_workspace_name, connection_type,
 FROM workspace_external_workspaces
 WHERE workspace_id = $1
 ORDER BY created_at ASC, id ASC;
+
+-- name: CreateWorkspaceExternalWorkspace :one
+INSERT INTO workspace_external_workspaces (
+    id, workspace_id, external_workspace_id, external_workspace_name, connection_type,
+    connected, disconnected_at
+)
+VALUES ($1, $2, $3, $4, $5, TRUE, NULL)
+ON CONFLICT (workspace_id, external_workspace_id) DO UPDATE SET
+    external_workspace_name = EXCLUDED.external_workspace_name,
+    connection_type = EXCLUDED.connection_type,
+    connected = TRUE,
+    disconnected_at = NULL
+RETURNING id, external_workspace_id, external_workspace_name, connection_type,
+          connected, created_at, disconnected_at;
+
+-- name: GetWorkspaceExternalWorkspace :one
+SELECT id, external_workspace_id, external_workspace_name, connection_type,
+       connected, created_at, disconnected_at
+FROM workspace_external_workspaces
+WHERE workspace_id = $1 AND external_workspace_id = $2;
 
 -- name: DisconnectWorkspaceExternalWorkspace :execrows
 UPDATE workspace_external_workspaces

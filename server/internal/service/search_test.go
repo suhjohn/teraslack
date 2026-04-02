@@ -25,7 +25,7 @@ func TestSearchService_Search_NoTurbopuffer(t *testing.T) {
 
 	results, err := svc.Search(context.Background(), domain.SearchParams{
 		WorkspaceID: "T123",
-		Query:  "hello",
+		Query:       "hello",
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -41,8 +41,8 @@ func TestSearchService_Search_WithTypes(t *testing.T) {
 	// With type filter, still returns empty when no Turbopuffer configured
 	results, err := svc.Search(context.Background(), domain.SearchParams{
 		WorkspaceID: "T123",
-		Query:  "alice",
-		Types:  []string{"user", "conversation"},
+		Query:       "alice",
+		Types:       []string{"user", "conversation"},
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -73,7 +73,7 @@ func TestSearchService_Search_RejectsCrossTeamBodyOverride(t *testing.T) {
 	ctx := ctxutil.WithUser(context.Background(), "U123", "Tctx")
 	_, err := svc.Search(ctx, domain.SearchParams{
 		WorkspaceID: "Tother",
-		Query:  "alice",
+		Query:       "alice",
 	})
 	if err == nil {
 		t.Fatal("expected error for mismatched workspace_id")
@@ -111,18 +111,18 @@ func TestSearchService_Search_NormalizesData(t *testing.T) {
 					ID:    "user:U123",
 					Score: 0.99,
 					Metadata: map[string]any{
-						"type":    "user",
+						"type":         "user",
 						"workspace_id": "T123",
-						"data":    `{"id":"U123","name":"alice"}`,
+						"data":         `{"id":"U123","name":"alice"}`,
 					},
 				},
 				{
 					ID:    "message:C123:123.456",
 					Score: 0.98,
 					Metadata: map[string]any{
-						"type":    "message",
+						"type":         "message",
 						"workspace_id": "T123",
-						"data":    json.RawMessage(`{"channel_id":"C123","ts":"123.456"}`),
+						"data":         json.RawMessage(`{"channel_id":"C123","ts":"123.456"}`),
 					},
 				},
 			},
@@ -131,8 +131,8 @@ func TestSearchService_Search_NormalizesData(t *testing.T) {
 
 	results, err := svc.Search(context.Background(), domain.SearchParams{
 		WorkspaceID: "T123",
-		Query:  "alice",
-		Limit:  2,
+		Query:       "alice",
+		Limit:       2,
 	})
 	if err != nil {
 		t.Fatalf("Search() error = %v", err)
@@ -169,4 +169,77 @@ func (s *searchClientStub) Query(ctx context.Context, namespace string, embeddin
 
 func (s *searchClientStub) GetEmbedding(ctx context.Context, text string) ([]float32, error) {
 	return []float32{1, 0, 0}, nil
+}
+
+func TestSearchService_Search_AllowsExternalMemberSharedWorkspace(t *testing.T) {
+	svc := NewSearchService(&searchClientStub{
+		resultsByNamespace: map[string][]VectorResult{
+			"00": {
+				{
+					ID:    "conversation:C123",
+					Score: 0.99,
+					Metadata: map[string]any{
+						"type":         "conversation",
+						"workspace_id": "T123",
+						"data":         map[string]any{"id": "C123", "name": "shared"},
+					},
+				},
+				{
+					ID:    "conversation:C999",
+					Score: 0.98,
+					Metadata: map[string]any{
+						"type":         "conversation",
+						"workspace_id": "T123",
+						"data":         map[string]any{"id": "C999", "name": "other"},
+					},
+				},
+				{
+					ID:    "message:C123:123.456",
+					Score: 0.97,
+					Metadata: map[string]any{
+						"type":         "message",
+						"workspace_id": "T123",
+						"data":         map[string]any{"channel_id": "C123", "ts": "123.456"},
+					},
+				},
+				{
+					ID:    "user:U123",
+					Score: 0.96,
+					Metadata: map[string]any{
+						"type":         "user",
+						"workspace_id": "T123",
+						"data":         map[string]any{"id": "U123"},
+					},
+				},
+			},
+		},
+	})
+	svc.SetExternalMemberRepository(&externalMemberRepoStub{
+		byConversationAccount: map[string]*domain.ExternalMember{
+			"C123|A123": {
+				ConversationID:      "C123",
+				HostWorkspaceID:     "T123",
+				ExternalWorkspaceID: "T999",
+				AccountID:           "A123",
+				AccessMode:          domain.ExternalPrincipalAccessModeShared,
+				AllowedCapabilities: []string{domain.PermissionMessagesRead, domain.PermissionFilesRead},
+			},
+		},
+	})
+
+	ctx := ctxutil.WithIdentity(ctxutil.WithUser(context.Background(), "U_EXT", "T999"), "A123", "")
+	results, err := svc.Search(ctx, domain.SearchParams{
+		WorkspaceID: "T123",
+		Query:       "shared",
+		Limit:       10,
+	})
+	if err != nil {
+		t.Fatalf("Search() error = %v", err)
+	}
+	if len(results) != 2 {
+		t.Fatalf("len(results) = %d, want 2", len(results))
+	}
+	if results[0].Type != "conversation" || results[1].Type != "message" {
+		t.Fatalf("unexpected result types: %#v", results)
+	}
 }

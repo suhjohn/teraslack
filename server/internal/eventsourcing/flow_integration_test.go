@@ -28,8 +28,6 @@ type testEnv struct {
 	convSvc     *service.ConversationService
 	convReadSvc *service.ConversationReadService
 	msgSvc      *service.MessageService
-	pinSvc      *service.PinService
-	bookmarkSvc *service.BookmarkService
 	fileSvc     *service.FileService
 	authSvc     *service.AuthService
 	eventSvc    *service.EventService
@@ -52,8 +50,6 @@ func setupAllServices(t *testing.T) *testEnv {
 	convRepo := pgRepo.NewConversationRepo(pool)
 	convReadRepo := pgRepo.NewConversationReadRepo(pool)
 	msgRepo := pgRepo.NewMessageRepo(pool)
-	pinRepo := pgRepo.NewPinRepo(pool)
-	bookmarkRepo := pgRepo.NewBookmarkRepo(pool)
 	fileRepo := pgRepo.NewFileRepo(pool)
 	authRepo := pgRepo.NewAuthRepo(pool)
 	workspaceRepo := pgRepo.NewWorkspaceRepo(pool)
@@ -69,8 +65,6 @@ func setupAllServices(t *testing.T) *testEnv {
 		convSvc:     service.NewConversationService(convRepo, userRepo, recorder, pool, logger),
 		convReadSvc: service.NewConversationReadService(convReadRepo, convRepo),
 		msgSvc:      service.NewMessageService(msgRepo, convRepo, recorder, pool, logger),
-		pinSvc:      service.NewPinService(pinRepo, convRepo, msgRepo, recorder, pool, logger),
-		bookmarkSvc: service.NewBookmarkService(bookmarkRepo, convRepo, recorder, pool, logger),
 		fileSvc:     service.NewFileService(fileRepo, nil, "", "http://localhost:8080", recorder, pool, logger),
 		authSvc: service.NewAuthService(authRepo, userRepo, workspaceRepo, workspaceInviteRepo, recorder, pool, logger, service.AuthConfig{
 			BaseURL:     "http://localhost:8080",
@@ -224,18 +218,14 @@ func boolPtr(b bool) *bool { return &b }
 //  5. Admin posts a message in general.
 //  6. Alice replies in a thread — verify thread_ts references parent.
 //  7. Alice adds a :thumbsup: reaction to admin's message.
-//  8. Admin pins the message.
-//  9. Admin creates a bookmark (link type) in general.
-//  10. List channel members — verify 2 members.
-//  11. Verify the full event sequence in internal_events:
+//  8. List channel members — verify 2 members.
+//  9. Verify the full event sequence in internal_events:
 //     [user.created x2, conversation.created, member.joined,
-//     message.posted x2, reaction.added, pin.added, bookmark.created]
-//  12. (Unhappy) Duplicate reaction → expect silent upsert or ErrAlreadyReacted.
-//  13. (Unhappy) Duplicate invite → expect ErrAlreadyInChannel.
-//  14. (Unhappy) Duplicate pin → expect error.
-//  15. (Unhappy) Post to nonexistent channel → expect error.
-//  16. (Unhappy) Create user with empty workspace_id → expect ErrInvalidArgument.
-//  17. Verify bookmark list returns the created bookmark.
+//     message.posted x2, reaction.added]
+//  10. (Unhappy) Duplicate reaction → expect silent upsert or ErrAlreadyReacted.
+//  11. (Unhappy) Duplicate invite → expect ErrAlreadyInChannel.
+//  12. (Unhappy) Post to nonexistent channel → expect error.
+//  13. (Unhappy) Create user with empty workspace_id → expect ErrInvalidArgument.
 func TestFlow_WorkspaceBootstrap(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test")
@@ -312,23 +302,7 @@ func TestFlow_WorkspaceBootstrap(t *testing.T) {
 		t.Fatalf("reaction: %v", err)
 	}
 
-	// Step 8: Pin message
-	if _, err := env.pinSvc.Add(ctx, domain.PinParams{
-		ChannelID: general.ID, MessageTS: msg.TS, UserID: admin.ID,
-	}); err != nil {
-		t.Fatalf("pin: %v", err)
-	}
-
-	// Step 9: Add bookmark
-	bm, err := env.bookmarkSvc.Create(ctx, domain.CreateBookmarkParams{
-		ChannelID: general.ID, Title: "Wiki", Type: "link",
-		Link: "https://wiki.example.com", CreatedBy: admin.ID,
-	})
-	if err != nil {
-		t.Fatalf("bookmark: %v", err)
-	}
-
-	// Step 10: List members
+	// Step 8: List members
 	members, err := env.convSvc.ListMembers(ctx, general.ID, "", 100)
 	if err != nil {
 		t.Fatalf("list members: %v", err)
@@ -337,7 +311,7 @@ func TestFlow_WorkspaceBootstrap(t *testing.T) {
 		t.Errorf("member count = %d, want 2", len(members.Items))
 	}
 
-	// Verify event sequence — some events (reaction, bookmark) have empty workspace_id,
+	// Verify event sequence — some events (reaction) have empty workspace_id,
 	// so query all events in the DB, not just by workspace
 	var allEvents []string
 	eRows, _ := env.pool.Query(ctx, "SELECT event_type FROM internal_events ORDER BY id ASC")
@@ -351,7 +325,7 @@ func TestFlow_WorkspaceBootstrap(t *testing.T) {
 		domain.EventUserCreated, domain.EventUserCreated,
 		domain.EventConversationCreated, domain.EventMemberJoined,
 		domain.EventMessagePosted, domain.EventMessagePosted,
-		domain.EventReactionAdded, domain.EventPinAdded, domain.EventBookmarkCreated,
+		domain.EventReactionAdded,
 	}
 	if len(allEvents) != len(expected) {
 		t.Errorf("event count = %d, want %d; got %v", len(allEvents), len(expected), allEvents)
@@ -378,14 +352,6 @@ func TestFlow_WorkspaceBootstrap(t *testing.T) {
 		t.Errorf("dup invite: got %v, want ErrAlreadyInChannel", err)
 	}
 
-	// Duplicate pin — should error (already pinned)
-	_, err = env.pinSvc.Add(ctx, domain.PinParams{
-		ChannelID: general.ID, MessageTS: msg.TS, UserID: admin.ID,
-	})
-	if err == nil {
-		t.Error("dup pin: expected error")
-	}
-
 	// Post to nonexistent channel
 	_, err = env.msgSvc.PostMessage(ctx, domain.PostMessageParams{
 		ChannelID: "nonexistent", UserID: admin.ID, Text: "x",
@@ -398,12 +364,6 @@ func TestFlow_WorkspaceBootstrap(t *testing.T) {
 	_, err = env.userSvc.Create(ctx, domain.CreateUserParams{Name: "bad", Email: "bad@x.com"})
 	if !errors.Is(err, domain.ErrInvalidArgument) {
 		t.Errorf("empty workspace_id: got %v, want ErrInvalidArgument", err)
-	}
-
-	// Verify bookmark list
-	bookmarks, _ := env.bookmarkSvc.List(ctx, general.ID)
-	if len(bookmarks) != 1 || bookmarks[0].ID != bm.ID {
-		t.Errorf("bookmark mismatch")
 	}
 }
 
@@ -1486,15 +1446,13 @@ func TestFlow_AuthSessionLifecycle(t *testing.T) {
 //  3. Create a public channel.
 //  4. Post a message.
 //  5. Add a reaction.
-//  6. Pin the message.
-//  7. Create a bookmark.
-//  8. Create an API key.
-//  9. Create a webhook subscription.
-//  10. Verify exactly 8 new events were recorded.
-//  11. Verify each aggregate type (user, conversation, message, pin,
-//     bookmark, api_key, subscription) has >= 1 event.
-//  12. Perform full projection rebuild (TRUNCATE + replay).
-//  13. Verify user, conversation, and bookmark all survive the rebuild
+//  6. Create an API key.
+//  7. Create a webhook subscription.
+//  8. Verify exactly 6 new events were recorded.
+//  9. Verify each aggregate type (user, conversation, message, reaction,
+//     api_key, subscription) has >= 1 event.
+//  10. Perform full projection rebuild (TRUNCATE + replay).
+//  11. Verify user and conversation survive the rebuild
 //     with correct state.
 func TestFlow_CrossCuttingConsistency(t *testing.T) {
 	if testing.Short() {
@@ -1535,20 +1493,6 @@ func TestFlow_CrossCuttingConsistency(t *testing.T) {
 		t.Fatalf("react: %v", err)
 	}
 
-	if _, err := env.pinSvc.Add(ctx, domain.PinParams{
-		ChannelID: ch.ID, MessageTS: msg.TS, UserID: user.ID,
-	}); err != nil {
-		t.Fatalf("pin: %v", err)
-	}
-
-	bm, err := env.bookmarkSvc.Create(ctx, domain.CreateBookmarkParams{
-		ChannelID: ch.ID, Title: "Ref", Type: "link",
-		Link: "https://ref.com", CreatedBy: user.ID,
-	})
-	if err != nil {
-		t.Fatalf("bookmark: %v", err)
-	}
-
 	_, _, err = env.apiKeySvc.Create(ctx, domain.CreateAPIKeyParams{
 		Name: "cc-key", WorkspaceID: workspaceID, UserID: user.ID,
 	})
@@ -1563,16 +1507,15 @@ func TestFlow_CrossCuttingConsistency(t *testing.T) {
 		t.Fatalf("subscription: %v", err)
 	}
 
-	// 8 events: user + conv + msg + reaction + pin + bookmark + api_key + sub
+	// 6 events: user + conv + msg + reaction + api_key + sub
 	after := countEvents(t, env)
-	if after-before != 8 {
-		t.Errorf("new events = %d, want 8", after-before)
+	if after-before != 6 {
+		t.Errorf("new events = %d, want 6", after-before)
 	}
 
 	// Each aggregate type has events (some services record empty workspace_id, so don't filter by it)
 	for _, agg := range []string{
 		domain.AggregateUser, domain.AggregateConversation, domain.AggregateMessage,
-		domain.AggregatePin, domain.AggregateBookmark,
 		domain.AggregateAPIKey, domain.AggregateSubscription,
 	} {
 		var c int
@@ -1594,10 +1537,6 @@ func TestFlow_CrossCuttingConsistency(t *testing.T) {
 	c, _ := env.convSvc.Get(ctx, ch.ID)
 	if c.Name != "crosscut" {
 		t.Errorf("conv after rebuild = %q", c.Name)
-	}
-	bms, _ := env.bookmarkSvc.List(ctx, ch.ID)
-	if len(bms) != 1 || bms[0].ID != bm.ID {
-		t.Error("bookmark lost after rebuild")
 	}
 }
 
@@ -2273,20 +2212,6 @@ func TestFlow_ConcurrentEdgeCases(t *testing.T) {
 		t.Errorf("real_name = %q", byEmail.RealName)
 	}
 
-	// Rapid pin + unpin
-	env.pinSvc.Add(ctx, domain.PinParams{
-		ChannelID: ch.ID, MessageTS: msgTSes[1], UserID: user.ID,
-	})
-	env.pinSvc.Remove(ctx, domain.PinParams{
-		ChannelID: ch.ID, MessageTS: msgTSes[1], UserID: user.ID,
-	})
-	pins, _ := env.pinSvc.List(ctx, ch.ID)
-	for _, p := range pins {
-		if p.MessageTS == msgTSes[1] {
-			t.Error("pin should be removed")
-		}
-	}
-
 	// Total event consistency
 	total := countEvents(t, env)
 	if total < 20 {
@@ -2913,315 +2838,6 @@ func TestFlow_DeepThreading(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Flow 17: Bookmark Full CRUD — multiple bookmarks, updates, emojis
-// ---------------------------------------------------------------------------
-//
-// Scenario: Multiple bookmarks are created with emojis, updated (title, link,
-//
-//	emoji), deleted, and verified to be scoped per-channel.
-//
-// Steps:
-//  1. Create 2 users and a public channel.
-//  2. Create 3 bookmarks with emojis (:book:, :art:, none) — verify emoji on bm1.
-//  3. List bookmarks — verify count=3.
-//  4. Update bm1 title and link (by user2) — verify title, link, and updated_by.
-//  5. Update bm2 emoji to :paintbrush: — verify.
-//  6. Delete bm3 — verify list count=2 and bm3 ID is absent.
-//  7. Create a second channel and add a bookmark to it.
-//  8. Verify bookmarks are scoped: ch1 has 2, ch2 has 1.
-//  9. Verify bookmark event count = 7:
-//     [3 created + 2 updated + 1 deleted + 1 created]
-func TestFlow_BookmarkFullCRUD(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping integration test")
-	}
-	env := setupAllServices(t)
-	ctx := context.Background()
-	workspaceID := "T-bookmarks"
-
-	user, err := env.userSvc.Create(ctx, domain.CreateUserParams{
-		WorkspaceID: workspaceID, Name: "bookmarker", Email: "bm@example.com",
-		PrincipalType: domain.PrincipalTypeHuman,
-	})
-	if err != nil {
-		t.Fatalf("create user: %v", err)
-	}
-	user2, err := env.userSvc.Create(ctx, domain.CreateUserParams{
-		WorkspaceID: workspaceID, Name: "bookmarker2", Email: "bm2@example.com",
-		PrincipalType: domain.PrincipalTypeHuman,
-	})
-	if err != nil {
-		t.Fatalf("create user2: %v", err)
-	}
-
-	ch, err := env.convSvc.Create(ctx, domain.CreateConversationParams{
-		WorkspaceID: workspaceID, Name: "bookmarks-ch",
-		Type: domain.ConversationTypePublicChannel, CreatorID: user.ID,
-	})
-	if err != nil {
-		t.Fatalf("create channel: %v", err)
-	}
-
-	// Create 3 bookmarks
-	bm1, err := env.bookmarkSvc.Create(ctx, domain.CreateBookmarkParams{
-		ChannelID: ch.ID, Title: "Wiki", Type: "link",
-		Link: "https://wiki.example.com", Emoji: ":book:", CreatedBy: user.ID,
-	})
-	if err != nil {
-		t.Fatalf("create bm1: %v", err)
-	}
-	if bm1.Emoji != ":book:" {
-		t.Errorf("emoji = %q", bm1.Emoji)
-	}
-
-	bm2, err := env.bookmarkSvc.Create(ctx, domain.CreateBookmarkParams{
-		ChannelID: ch.ID, Title: "Figma Design", Type: "link",
-		Link: "https://figma.com/design", Emoji: ":art:", CreatedBy: user.ID,
-	})
-	if err != nil {
-		t.Fatalf("create bm2: %v", err)
-	}
-
-	bm3, err := env.bookmarkSvc.Create(ctx, domain.CreateBookmarkParams{
-		ChannelID: ch.ID, Title: "Runbook", Type: "link",
-		Link: "https://runbook.example.com", CreatedBy: user2.ID,
-	})
-	if err != nil {
-		t.Fatalf("create bm3: %v", err)
-	}
-
-	// List — should have 3
-	bookmarks, err := env.bookmarkSvc.List(ctx, ch.ID)
-	if err != nil {
-		t.Fatalf("list: %v", err)
-	}
-	if len(bookmarks) != 3 {
-		t.Errorf("bookmark count = %d, want 3", len(bookmarks))
-	}
-
-	// Update title + link on bm1
-	newTitle := "Internal Wiki (Updated)"
-	newLink := "https://wiki.example.com/v2"
-	updatedBm, err := env.bookmarkSvc.Update(ctx, bm1.ID, domain.UpdateBookmarkParams{
-		Title: &newTitle, Link: &newLink, UpdatedBy: user2.ID,
-	})
-	if err != nil {
-		t.Fatalf("update bm1: %v", err)
-	}
-	if updatedBm.Title != "Internal Wiki (Updated)" {
-		t.Errorf("title = %q", updatedBm.Title)
-	}
-	if updatedBm.Link != "https://wiki.example.com/v2" {
-		t.Errorf("link = %q", updatedBm.Link)
-	}
-	if updatedBm.UpdatedBy != user2.ID {
-		t.Errorf("updated_by = %q", updatedBm.UpdatedBy)
-	}
-
-	// Update emoji on bm2
-	newEmoji := ":paintbrush:"
-	updatedBm2, err := env.bookmarkSvc.Update(ctx, bm2.ID, domain.UpdateBookmarkParams{
-		Emoji: &newEmoji, UpdatedBy: user.ID,
-	})
-	if err != nil {
-		t.Fatalf("update bm2 emoji: %v", err)
-	}
-	if updatedBm2.Emoji != ":paintbrush:" {
-		t.Errorf("emoji = %q", updatedBm2.Emoji)
-	}
-
-	// Delete bm3
-	if err := env.bookmarkSvc.Delete(ctx, bm3.ID); err != nil {
-		t.Fatalf("delete bm3: %v", err)
-	}
-
-	// List — should have 2
-	bookmarks, _ = env.bookmarkSvc.List(ctx, ch.ID)
-	if len(bookmarks) != 2 {
-		t.Errorf("after delete = %d, want 2", len(bookmarks))
-	}
-
-	// Verify deleted bookmark IDs
-	for _, bm := range bookmarks {
-		if bm.ID == bm3.ID {
-			t.Error("bm3 should be deleted")
-		}
-	}
-
-	// Create bookmark in second channel
-	ch2, err := env.convSvc.Create(ctx, domain.CreateConversationParams{
-		WorkspaceID: workspaceID, Name: "other-ch",
-		Type: domain.ConversationTypePublicChannel, CreatorID: user.ID,
-	})
-	if err != nil {
-		t.Fatalf("create ch2: %v", err)
-	}
-	_, err = env.bookmarkSvc.Create(ctx, domain.CreateBookmarkParams{
-		ChannelID: ch2.ID, Title: "Ch2 Wiki", Type: "link",
-		Link: "https://ch2wiki.com", CreatedBy: user.ID,
-	})
-	if err != nil {
-		t.Fatalf("create bm in ch2: %v", err)
-	}
-
-	// Bookmarks are scoped to channel
-	ch1Bookmarks, _ := env.bookmarkSvc.List(ctx, ch.ID)
-	ch2Bookmarks, _ := env.bookmarkSvc.List(ctx, ch2.ID)
-	if len(ch1Bookmarks) != 2 {
-		t.Errorf("ch1 bookmarks = %d", len(ch1Bookmarks))
-	}
-	if len(ch2Bookmarks) != 1 {
-		t.Errorf("ch2 bookmarks = %d", len(ch2Bookmarks))
-	}
-
-	// Verify events
-	var bmEvents int
-	env.pool.QueryRow(ctx, "SELECT COUNT(*) FROM internal_events WHERE aggregate_type = $1",
-		domain.AggregateBookmark).Scan(&bmEvents)
-	// 3 created + 2 updated + 1 deleted + 1 created = 7
-	if bmEvents != 7 {
-		t.Errorf("bookmark events = %d, want 7", bmEvents)
-	}
-}
-
-// ---------------------------------------------------------------------------
-// Flow 18: Pin Lifecycle — pin multiple, list, unpin, re-pin
-// ---------------------------------------------------------------------------
-//
-// Scenario: Messages are pinned, unpinned, re-pinned, and bulk-unpinned,
-//
-//	verifying the pin list at each step and the final event count.
-//
-// Steps:
-//  1. Create a user and a public channel.
-//  2. Post 4 messages (A, B, C, D).
-//  3. Pin messages A, B, C — verify pin list count=3.
-//  4. Unpin message B — verify count=2 and B is absent.
-//  5. Re-pin message B — verify count=3.
-//  6. Pin message D — verify count=4.
-//  7. Unpin all 4 messages — verify count=0.
-//  8. Verify pin event count = 10:
-//     [3 add + 1 remove + 1 re-add + 1 add + 4 remove]
-func TestFlow_PinLifecycle(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping integration test")
-	}
-	env := setupAllServices(t)
-	ctx := context.Background()
-	workspaceID := "T-pins"
-
-	user, err := env.userSvc.Create(ctx, domain.CreateUserParams{
-		WorkspaceID: workspaceID, Name: "pinner", Email: "pinner@example.com",
-		PrincipalType: domain.PrincipalTypeHuman,
-	})
-	if err != nil {
-		t.Fatalf("create user: %v", err)
-	}
-
-	ch, err := env.convSvc.Create(ctx, domain.CreateConversationParams{
-		WorkspaceID: workspaceID, Name: "pinboard",
-		Type: domain.ConversationTypePublicChannel, CreatorID: user.ID,
-	})
-	if err != nil {
-		t.Fatalf("create channel: %v", err)
-	}
-
-	// Post 4 messages
-	var msgs []*domain.Message
-	for i := 0; i < 4; i++ {
-		time.Sleep(2 * time.Millisecond)
-		m, err := env.msgSvc.PostMessage(ctx, domain.PostMessageParams{
-			ChannelID: ch.ID, UserID: user.ID, Text: "pin candidate " + string(rune('A'+i)),
-		})
-		if err != nil {
-			t.Fatalf("post %d: %v", i, err)
-		}
-		msgs = append(msgs, m)
-	}
-
-	// Pin first 3
-	for i := 0; i < 3; i++ {
-		if _, err := env.pinSvc.Add(ctx, domain.PinParams{
-			ChannelID: ch.ID, MessageTS: msgs[i].TS, UserID: user.ID,
-		}); err != nil {
-			t.Fatalf("pin %d: %v", i, err)
-		}
-	}
-
-	// List pins — should have 3
-	pins, err := env.pinSvc.List(ctx, ch.ID)
-	if err != nil {
-		t.Fatalf("list: %v", err)
-	}
-	if len(pins) != 3 {
-		t.Errorf("pin count = %d, want 3", len(pins))
-	}
-
-	// Unpin second message
-	if err := env.pinSvc.Remove(ctx, domain.PinParams{
-		ChannelID: ch.ID, MessageTS: msgs[1].TS, UserID: user.ID,
-	}); err != nil {
-		t.Fatalf("unpin: %v", err)
-	}
-
-	// List pins — should have 2
-	pins, _ = env.pinSvc.List(ctx, ch.ID)
-	if len(pins) != 2 {
-		t.Errorf("after unpin = %d, want 2", len(pins))
-	}
-
-	// Verify unpinned message is not in list
-	for _, p := range pins {
-		if p.MessageTS == msgs[1].TS {
-			t.Error("unpinned message should not be in list")
-		}
-	}
-
-	// Re-pin the message
-	if _, err := env.pinSvc.Add(ctx, domain.PinParams{
-		ChannelID: ch.ID, MessageTS: msgs[1].TS, UserID: user.ID,
-	}); err != nil {
-		t.Fatalf("re-pin: %v", err)
-	}
-	pins, _ = env.pinSvc.List(ctx, ch.ID)
-	if len(pins) != 3 {
-		t.Errorf("after re-pin = %d, want 3", len(pins))
-	}
-
-	// Pin 4th message
-	if _, err := env.pinSvc.Add(ctx, domain.PinParams{
-		ChannelID: ch.ID, MessageTS: msgs[3].TS, UserID: user.ID,
-	}); err != nil {
-		t.Fatalf("pin 4th: %v", err)
-	}
-	pins, _ = env.pinSvc.List(ctx, ch.ID)
-	if len(pins) != 4 {
-		t.Errorf("all pinned = %d, want 4", len(pins))
-	}
-
-	// Unpin all
-	for _, m := range msgs {
-		env.pinSvc.Remove(ctx, domain.PinParams{
-			ChannelID: ch.ID, MessageTS: m.TS, UserID: user.ID,
-		})
-	}
-	pins, _ = env.pinSvc.List(ctx, ch.ID)
-	if len(pins) != 0 {
-		t.Errorf("after unpin all = %d, want 0", len(pins))
-	}
-
-	// Verify events
-	var pinEvents int
-	env.pool.QueryRow(ctx, "SELECT COUNT(*) FROM internal_events WHERE aggregate_type = $1",
-		domain.AggregatePin).Scan(&pinEvents)
-	// 3 add + 1 remove + 1 re-add + 1 add + 4 remove = 10
-	if pinEvents != 10 {
-		t.Errorf("pin events = %d, want 10", pinEvents)
-	}
-}
-
-// ---------------------------------------------------------------------------
 // Flow 19: File Sharing Across Channels
 // ---------------------------------------------------------------------------
 //
@@ -3714,26 +3330,22 @@ func TestFlow_SubscriptionEventTypeMatching(t *testing.T) {
 //  2. Create a public channel with topic and purpose; invite the agent.
 //  3. Post a parent message and a threaded reply.
 //  4. Add a :star: reaction to the parent.
-//  5. Pin the parent message.
-//  6. Create a bookmark in the channel.
-//  7. Add a remote file.
-//  8. Create an auth token.
-//  9. Create an API key.
-//  10. Create a webhook subscription.
-//  11. Count events before rebuild — verify >= 13.
-//  12. Perform full RebuildAll().
-//  13. Verify event count is unchanged after rebuild.
-//  14. Verify admin user: name, account_type, principal_type.
-//  15. Verify agent user: principal_type, owner_id.
-//  16. Verify channel: topic, purpose, num_members=2.
-//  17. Verify message text.
-//  18. Verify reactions on the message.
-//  19. Verify pins list.
-//  20. Verify bookmarks list.
-//  21. Verify file still accessible.
-//  22. Verify auth token validates successfully.
-//  23. Verify API key validates successfully.
-//  24. Verify subscription URL and enabled state.
+//  5. Add a remote file.
+//  6. Create an auth token.
+//  7. Create an API key.
+//  8. Create a webhook subscription.
+//  9. Count events before rebuild — verify >= 11.
+//  10. Perform full RebuildAll().
+//  11. Verify event count is unchanged after rebuild.
+//  12. Verify admin user: name, account_type, principal_type.
+//  13. Verify agent user: principal_type, owner_id.
+//  14. Verify channel: topic, purpose, num_members=2.
+//  15. Verify message text.
+//  16. Verify reactions on the message.
+//  17. Verify file still accessible.
+//  18. Verify auth token validates successfully.
+//  19. Verify API key validates successfully.
+//  20. Verify subscription URL and enabled state.
 func TestFlow_ComplexProjectionRebuild(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test")
@@ -3787,17 +3399,6 @@ func TestFlow_ComplexProjectionRebuild(t *testing.T) {
 	// Reactions
 	env.msgSvc.AddReaction(ctx, domain.AddReactionParams{
 		ChannelID: ch.ID, MessageTS: msg.TS, UserID: admin.ID, Emoji: "star",
-	})
-
-	// Pin
-	env.pinSvc.Add(ctx, domain.PinParams{
-		ChannelID: ch.ID, MessageTS: msg.TS, UserID: admin.ID,
-	})
-
-	// Bookmark
-	bm, _ := env.bookmarkSvc.Create(ctx, domain.CreateBookmarkParams{
-		ChannelID: ch.ID, Title: "Rebuild Wiki", Type: "link",
-		Link: "https://wiki.rebuild.com", CreatedBy: admin.ID,
 	})
 
 	// File
@@ -3881,18 +3482,6 @@ func TestFlow_ComplexProjectionRebuild(t *testing.T) {
 	reactions, _ := env.msgSvc.GetReactions(ctx, ch.ID, msg.TS)
 	if len(reactions) == 0 {
 		t.Error("reactions lost after rebuild")
-	}
-
-	// Verify pin
-	pins, _ := env.pinSvc.List(ctx, ch.ID)
-	if len(pins) != 1 || pins[0].MessageTS != msg.TS {
-		t.Errorf("pins lost after rebuild: %d", len(pins))
-	}
-
-	// Verify bookmark
-	bms, _ := env.bookmarkSvc.List(ctx, ch.ID)
-	if len(bms) != 1 || bms[0].ID != bm.ID {
-		t.Error("bookmark lost after rebuild")
 	}
 
 	// Verify file

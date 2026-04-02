@@ -10,6 +10,20 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+type Account struct {
+	ID            string    `json:"id"`
+	PrincipalType string    `json:"principal_type"`
+	Name          string    `json:"name"`
+	RealName      string    `json:"real_name"`
+	DisplayName   string    `json:"display_name"`
+	Email         string    `json:"email"`
+	IsBot         bool      `json:"is_bot"`
+	Deleted       bool      `json:"deleted"`
+	Profile       []byte    `json:"profile"`
+	CreatedAt     time.Time `json:"created_at"`
+	UpdatedAt     time.Time `json:"updated_at"`
+}
+
 type ApiKey struct {
 	ID                string      `json:"id"`
 	Name              string      `json:"name"`
@@ -36,14 +50,16 @@ type ApiKey struct {
 }
 
 type AuthSession struct {
-	ID          string     `json:"id"`
-	WorkspaceID string     `json:"workspace_id"`
-	UserID      string     `json:"user_id"`
-	SessionHash string     `json:"session_hash"`
-	Provider    string     `json:"provider"`
-	ExpiresAt   time.Time  `json:"expires_at"`
-	RevokedAt   *time.Time `json:"revoked_at"`
-	CreatedAt   time.Time  `json:"created_at"`
+	ID           string      `json:"id"`
+	WorkspaceID  string      `json:"workspace_id"`
+	UserID       pgtype.Text `json:"user_id"`
+	SessionHash  string      `json:"session_hash"`
+	Provider     string      `json:"provider"`
+	ExpiresAt    time.Time   `json:"expires_at"`
+	RevokedAt    *time.Time  `json:"revoked_at"`
+	CreatedAt    time.Time   `json:"created_at"`
+	AccountID    pgtype.Text `json:"account_id"`
+	MembershipID pgtype.Text `json:"membership_id"`
 }
 
 type AuthorizationAuditLog struct {
@@ -179,25 +195,18 @@ type ExternalEventProjectionFailure struct {
 	CreatedAt       time.Time `json:"created_at"`
 }
 
-type ExternalPrincipalAccess struct {
-	ID                  string             `json:"id"`
-	HostWorkspaceID     string             `json:"host_workspace_id"`
-	PrincipalID         string             `json:"principal_id"`
-	PrincipalType       string             `json:"principal_type"`
-	HomeWorkspaceID     string             `json:"home_workspace_id"`
-	AccessMode          string             `json:"access_mode"`
-	AllowedCapabilities []byte             `json:"allowed_capabilities"`
-	GrantedBy           string             `json:"granted_by"`
-	CreatedAt           pgtype.Timestamptz `json:"created_at"`
-	ExpiresAt           pgtype.Timestamptz `json:"expires_at"`
-	RevokedAt           pgtype.Timestamptz `json:"revoked_at"`
-}
-
-type ExternalPrincipalConversationAssignment struct {
-	AccessID       string             `json:"access_id"`
-	ConversationID string             `json:"conversation_id"`
-	GrantedBy      string             `json:"granted_by"`
-	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+type ExternalMember struct {
+	ID                  string     `json:"id"`
+	ConversationID      string     `json:"conversation_id"`
+	HostWorkspaceID     string     `json:"host_workspace_id"`
+	ExternalWorkspaceID string     `json:"external_workspace_id"`
+	AccountID           string     `json:"account_id"`
+	AccessMode          string     `json:"access_mode"`
+	AllowedCapabilities []byte     `json:"allowed_capabilities"`
+	InvitedBy           string     `json:"invited_by"`
+	CreatedAt           time.Time  `json:"created_at"`
+	ExpiresAt           *time.Time `json:"expires_at"`
+	RevokedAt           *time.Time `json:"revoked_at"`
 }
 
 type File struct {
@@ -285,14 +294,16 @@ type Message struct {
 }
 
 type OauthAccount struct {
-	ID              string    `json:"id"`
-	WorkspaceID     string    `json:"workspace_id"`
-	UserID          string    `json:"user_id"`
-	Provider        string    `json:"provider"`
-	ProviderSubject string    `json:"provider_subject"`
-	Email           string    `json:"email"`
-	CreatedAt       time.Time `json:"created_at"`
-	UpdatedAt       time.Time `json:"updated_at"`
+	ID              string      `json:"id"`
+	WorkspaceID     string      `json:"workspace_id"`
+	UserID          pgtype.Text `json:"user_id"`
+	Provider        string      `json:"provider"`
+	ProviderSubject string      `json:"provider_subject"`
+	Email           string      `json:"email"`
+	CreatedAt       time.Time   `json:"created_at"`
+	UpdatedAt       time.Time   `json:"updated_at"`
+	AccountID       pgtype.Text `json:"account_id"`
+	MembershipID    pgtype.Text `json:"membership_id"`
 }
 
 type OauthAuthorizationCode struct {
@@ -404,7 +415,6 @@ type Workspace struct {
 	Discoverability   string    `json:"discoverability"`
 	DefaultChannels   []string  `json:"default_channels"`
 	Preferences       []byte    `json:"preferences"`
-	ProfileFields     []byte    `json:"profile_fields"`
 	BillingPlan       string    `json:"billing_plan"`
 	BillingStatus     string    `json:"billing_status"`
 	BillingEmail      string    `json:"billing_email"`
@@ -431,14 +441,26 @@ type WorkspaceExternalWorkspace struct {
 }
 
 type WorkspaceInvite struct {
-	ID               string      `json:"id"`
-	WorkspaceID      string      `json:"workspace_id"`
-	Email            string      `json:"email"`
-	InvitedBy        string      `json:"invited_by"`
-	TokenHash        string      `json:"token_hash"`
-	AcceptedByUserID pgtype.Text `json:"accepted_by_user_id"`
-	ExpiresAt        time.Time   `json:"expires_at"`
-	AcceptedAt       *time.Time  `json:"accepted_at"`
-	CreatedAt        time.Time   `json:"created_at"`
-	UpdatedAt        time.Time   `json:"updated_at"`
+	ID                     string      `json:"id"`
+	WorkspaceID            string      `json:"workspace_id"`
+	Email                  string      `json:"email"`
+	InvitedBy              string      `json:"invited_by"`
+	TokenHash              string      `json:"token_hash"`
+	AcceptedByUserID       pgtype.Text `json:"accepted_by_user_id"`
+	ExpiresAt              time.Time   `json:"expires_at"`
+	AcceptedAt             *time.Time  `json:"accepted_at"`
+	CreatedAt              time.Time   `json:"created_at"`
+	UpdatedAt              time.Time   `json:"updated_at"`
+	AcceptedByAccountID    pgtype.Text `json:"accepted_by_account_id"`
+	AcceptedByMembershipID pgtype.Text `json:"accepted_by_membership_id"`
+}
+
+type WorkspaceMembership struct {
+	ID          string      `json:"id"`
+	AccountID   string      `json:"account_id"`
+	WorkspaceID string      `json:"workspace_id"`
+	UserID      pgtype.Text `json:"user_id"`
+	AccountType string      `json:"account_type"`
+	CreatedAt   time.Time   `json:"created_at"`
+	UpdatedAt   time.Time   `json:"updated_at"`
 }

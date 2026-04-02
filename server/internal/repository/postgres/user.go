@@ -72,52 +72,6 @@ func (r *UserRepo) Get(ctx context.Context, id string) (*domain.User, error) {
 	return userFieldsToDomain(getUserRowToFields(row))
 }
 
-func (r *UserRepo) GetByTeamEmail(ctx context.Context, workspaceID, email string) (*domain.User, error) {
-	row, err := r.q.GetUserByWorkspaceEmail(ctx, sqlcgen.GetUserByWorkspaceEmailParams{
-		WorkspaceID: workspaceID,
-		Email:  email,
-	})
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, domain.ErrNotFound
-		}
-		return nil, fmt.Errorf("get user by workspace email: %w", err)
-	}
-	return userFieldsToDomain(getUserByTeamEmailRowToFields(row))
-}
-
-func (r *UserRepo) ListByEmail(ctx context.Context, email string) ([]domain.User, error) {
-	rows, err := r.q.ListUsersByEmail(ctx, email)
-	if err != nil {
-		return nil, fmt.Errorf("list users by email: %w", err)
-	}
-
-	users := make([]domain.User, 0)
-	for _, row := range rows {
-		user, err := userFieldsToDomain(userFields{
-			ID:            row.ID,
-			WorkspaceID:   row.WorkspaceID,
-			Name:          row.Name,
-			RealName:      row.RealName,
-			DisplayName:   row.DisplayName,
-			Email:         row.Email,
-			PrincipalType: row.PrincipalType,
-			OwnerID:       row.OwnerID,
-			AccountType:   row.AccountType,
-			IsBot:         row.IsBot,
-			Deleted:       row.Deleted,
-			Profile:       row.Profile,
-			CreatedAt:     row.CreatedAt,
-			UpdatedAt:     row.UpdatedAt,
-		})
-		if err != nil {
-			return nil, fmt.Errorf("convert user by email: %w", err)
-		}
-		users = append(users, *user)
-	}
-	return users, nil
-}
-
 func (r *UserRepo) Update(ctx context.Context, id string, params domain.UpdateUserParams) (*domain.User, error) {
 	existing, err := r.Get(ctx, id)
 	if err != nil {

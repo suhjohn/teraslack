@@ -220,16 +220,6 @@ func projectExternalEvents(internalEvent domain.InternalEvent) ([]domain.Externa
 		return projectReactionChange(internalEvent, domain.EventTypeConversationReactionAdded)
 	case domain.EventReactionRemoved:
 		return projectReactionChange(internalEvent, domain.EventTypeConversationReactionRemoved)
-	case domain.EventPinAdded:
-		return projectPinChange(internalEvent, domain.EventTypeConversationPinAdded)
-	case domain.EventPinRemoved:
-		return projectPinChange(internalEvent, domain.EventTypeConversationPinRemoved)
-	case domain.EventBookmarkCreated:
-		return projectBookmarkSnapshot(internalEvent, domain.EventTypeConversationBookmarkCreated)
-	case domain.EventBookmarkUpdated:
-		return projectBookmarkSnapshot(internalEvent, domain.EventTypeConversationBookmarkUpdated)
-	case domain.EventBookmarkDeleted:
-		return projectBookmarkDeleted(internalEvent)
 	case domain.EventFileCreated:
 		return singleExternalEvent(internalEvent, domain.EventTypeFileCreated, domain.ResourceTypeFile, internalEvent.AggregateID, safeFilePayload)
 	case domain.EventFileUpdated:
@@ -244,12 +234,6 @@ func projectExternalEvents(internalEvent domain.InternalEvent) ([]domain.Externa
 		return singleExternalEvent(internalEvent, domain.EventTypeEventSubscriptionUpdated, domain.ResourceTypeWorkspace, internalEvent.WorkspaceID, safeEventSubscriptionPayload)
 	case domain.EventSubscriptionDeleted:
 		return singleExternalEvent(internalEvent, domain.EventTypeEventSubscriptionDeleted, domain.ResourceTypeWorkspace, internalEvent.WorkspaceID, eventSubscriptionDeletePayload)
-	case domain.EventExternalPrincipalAccessGranted:
-		return singleExternalEvent(internalEvent, domain.EventTypeExternalPrincipalAccessGranted, domain.ResourceTypeWorkspace, internalEvent.WorkspaceID, safeExternalPrincipalAccessPayload)
-	case domain.EventExternalPrincipalAccessUpdated:
-		return singleExternalEvent(internalEvent, domain.EventTypeExternalPrincipalAccessUpdated, domain.ResourceTypeWorkspace, internalEvent.WorkspaceID, safeExternalPrincipalAccessPayload)
-	case domain.EventExternalPrincipalAccessRevoked:
-		return singleExternalEvent(internalEvent, domain.EventTypeExternalPrincipalAccessRevoked, domain.ResourceTypeWorkspace, internalEvent.WorkspaceID, safeExternalPrincipalAccessPayload)
 	default:
 		return nil, nil
 	}
@@ -265,7 +249,7 @@ func singleExternalEvent(
 		return nil, err
 	}
 	return []domain.ExternalEvent{{
-		WorkspaceID:                 internalEvent.WorkspaceID,
+		WorkspaceID:            internalEvent.WorkspaceID,
 		Type:                   eventType,
 		ResourceType:           resourceType,
 		ResourceID:             resourceID,
@@ -298,7 +282,7 @@ func projectMessageSnapshot(internalEvent domain.InternalEvent, eventType string
 		return nil, err
 	}
 	return []domain.ExternalEvent{{
-		WorkspaceID:                 internalEvent.WorkspaceID,
+		WorkspaceID:            internalEvent.WorkspaceID,
 		Type:                   eventType,
 		ResourceType:           domain.ResourceTypeConversation,
 		ResourceID:             msg.ChannelID,
@@ -327,86 +311,10 @@ func projectReactionChange(internalEvent domain.InternalEvent, eventType string)
 		return nil, err
 	}
 	return []domain.ExternalEvent{{
-		WorkspaceID:                 internalEvent.WorkspaceID,
+		WorkspaceID:            internalEvent.WorkspaceID,
 		Type:                   eventType,
 		ResourceType:           domain.ResourceTypeConversation,
 		ResourceID:             payload.Reaction.ChannelID,
-		OccurredAt:             internalEvent.CreatedAt,
-		Payload:                body,
-		SourceInternalEventID:  int64Ptr(internalEvent.ID),
-		SourceInternalEventIDs: []int64{internalEvent.ID},
-		DedupeKey:              fmt.Sprintf("internal:%d:0", internalEvent.ID),
-	}}, nil
-}
-
-func projectPinChange(internalEvent domain.InternalEvent, eventType string) ([]domain.ExternalEvent, error) {
-	body, channelID, err := pinPayloadAndChannel(internalEvent)
-	if err != nil {
-		return nil, err
-	}
-	return []domain.ExternalEvent{{
-		WorkspaceID:                 internalEvent.WorkspaceID,
-		Type:                   eventType,
-		ResourceType:           domain.ResourceTypeConversation,
-		ResourceID:             channelID,
-		OccurredAt:             internalEvent.CreatedAt,
-		Payload:                body,
-		SourceInternalEventID:  int64Ptr(internalEvent.ID),
-		SourceInternalEventIDs: []int64{internalEvent.ID},
-		DedupeKey:              fmt.Sprintf("internal:%d:0", internalEvent.ID),
-	}}, nil
-}
-
-func projectBookmarkSnapshot(internalEvent domain.InternalEvent, eventType string) ([]domain.ExternalEvent, error) {
-	var bookmark domain.Bookmark
-	if err := json.Unmarshal(internalEvent.Payload, &bookmark); err != nil {
-		return nil, fmt.Errorf("decode bookmark payload: %w", err)
-	}
-	payload, err := marshalJSON(map[string]any{
-		"id":         bookmark.ID,
-		"channel_id": bookmark.ChannelID,
-		"title":      bookmark.Title,
-		"type":       bookmark.Type,
-		"link":       bookmark.Link,
-		"emoji":      bookmark.Emoji,
-		"created_by": bookmark.CreatedBy,
-		"updated_by": bookmark.UpdatedBy,
-		"created_at": bookmark.CreatedAt,
-		"updated_at": bookmark.UpdatedAt,
-	})
-	if err != nil {
-		return nil, err
-	}
-	return []domain.ExternalEvent{{
-		WorkspaceID:                 internalEvent.WorkspaceID,
-		Type:                   eventType,
-		ResourceType:           domain.ResourceTypeConversation,
-		ResourceID:             bookmark.ChannelID,
-		OccurredAt:             internalEvent.CreatedAt,
-		Payload:                payload,
-		SourceInternalEventID:  int64Ptr(internalEvent.ID),
-		SourceInternalEventIDs: []int64{internalEvent.ID},
-		DedupeKey:              fmt.Sprintf("internal:%d:0", internalEvent.ID),
-	}}, nil
-}
-
-func projectBookmarkDeleted(internalEvent domain.InternalEvent) ([]domain.ExternalEvent, error) {
-	var payload struct {
-		ID        string `json:"id"`
-		ChannelID string `json:"channel_id"`
-	}
-	if err := json.Unmarshal(internalEvent.Payload, &payload); err != nil {
-		return nil, fmt.Errorf("decode bookmark deleted payload: %w", err)
-	}
-	body, err := marshalJSON(map[string]any{"id": payload.ID})
-	if err != nil {
-		return nil, err
-	}
-	return []domain.ExternalEvent{{
-		WorkspaceID:                 internalEvent.WorkspaceID,
-		Type:                   domain.EventTypeConversationBookmarkDeleted,
-		ResourceType:           domain.ResourceTypeConversation,
-		ResourceID:             payload.ChannelID,
 		OccurredAt:             internalEvent.CreatedAt,
 		Payload:                body,
 		SourceInternalEventID:  int64Ptr(internalEvent.ID),
@@ -431,7 +339,7 @@ func projectFileShared(internalEvent domain.InternalEvent) ([]domain.ExternalEve
 		return nil, err
 	}
 	return []domain.ExternalEvent{{
-		WorkspaceID:                 internalEvent.WorkspaceID,
+		WorkspaceID:            internalEvent.WorkspaceID,
 		Type:                   domain.EventTypeFileShared,
 		ResourceType:           domain.ResourceTypeFile,
 		ResourceID:             payload.FileID,
@@ -550,7 +458,7 @@ func safeFilePayload(internalEvent domain.InternalEvent) (json.RawMessage, error
 	}
 	return marshalJSON(map[string]any{
 		"id":           file.ID,
-		"workspace_id":      file.WorkspaceID,
+		"workspace_id": file.WorkspaceID,
 		"name":         file.Name,
 		"title":        file.Title,
 		"mimetype":     file.Mimetype,
@@ -581,7 +489,7 @@ func safeEventSubscriptionPayload(internalEvent domain.InternalEvent) (json.RawM
 	}
 	return marshalJSON(map[string]any{
 		"id":            sub.ID,
-		"workspace_id":       sub.WorkspaceID,
+		"workspace_id":  sub.WorkspaceID,
 		"url":           sub.URL,
 		"type":          sub.Type,
 		"resource_type": sub.ResourceType,
@@ -600,36 +508,6 @@ func eventSubscriptionDeletePayload(internalEvent domain.InternalEvent) (json.Ra
 		return nil, fmt.Errorf("decode event subscription delete payload: %w", err)
 	}
 	return marshalJSON(map[string]any{"id": payload.ID})
-}
-
-func safeExternalPrincipalAccessPayload(internalEvent domain.InternalEvent) (json.RawMessage, error) {
-	var access domain.ExternalPrincipalAccess
-	if err := json.Unmarshal(internalEvent.Payload, &access); err != nil {
-		return nil, fmt.Errorf("decode external principal access payload: %w", err)
-	}
-	return marshalJSON(access)
-}
-
-func pinPayloadAndChannel(internalEvent domain.InternalEvent) (json.RawMessage, string, error) {
-	var payload struct {
-		ChannelID string `json:"channel_id"`
-		MessageTS string `json:"message_ts"`
-		PinnedBy  string `json:"pinned_by,omitempty"`
-		UserID    string `json:"user_id,omitempty"`
-		PinnedAt  any    `json:"pinned_at,omitempty"`
-	}
-	if err := json.Unmarshal(internalEvent.Payload, &payload); err != nil {
-		return nil, "", fmt.Errorf("decode pin payload: %w", err)
-	}
-	body, err := marshalJSON(map[string]any{
-		"channel_id": payload.ChannelID,
-		"message_ts": payload.MessageTS,
-		"user_id":    firstNonEmpty(payload.PinnedBy, payload.UserID, internalEvent.ActorID),
-	})
-	if err != nil {
-		return nil, "", err
-	}
-	return body, payload.ChannelID, nil
 }
 
 func conversationResourceIDFromDeletedMessage(internalEvent domain.InternalEvent) string {

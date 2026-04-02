@@ -15,7 +15,7 @@ import (
 const createWorkspaceInvite = `-- name: CreateWorkspaceInvite :one
 INSERT INTO workspace_invites (id, workspace_id, email, invited_by, token_hash, expires_at)
 VALUES ($1, $2, $3, $4, $5, $6)
-RETURNING id, workspace_id, email, invited_by, accepted_by_user_id, expires_at, accepted_at, created_at, updated_at
+RETURNING id, workspace_id, email, invited_by, accepted_by_account_id, accepted_by_membership_id, expires_at, accepted_at, created_at, updated_at
 `
 
 type CreateWorkspaceInviteParams struct {
@@ -28,15 +28,16 @@ type CreateWorkspaceInviteParams struct {
 }
 
 type CreateWorkspaceInviteRow struct {
-	ID               string      `json:"id"`
-	WorkspaceID      string      `json:"workspace_id"`
-	Email            string      `json:"email"`
-	InvitedBy        string      `json:"invited_by"`
-	AcceptedByUserID pgtype.Text `json:"accepted_by_user_id"`
-	ExpiresAt        time.Time   `json:"expires_at"`
-	AcceptedAt       *time.Time  `json:"accepted_at"`
-	CreatedAt        time.Time   `json:"created_at"`
-	UpdatedAt        time.Time   `json:"updated_at"`
+	ID                     string      `json:"id"`
+	WorkspaceID            string      `json:"workspace_id"`
+	Email                  string      `json:"email"`
+	InvitedBy              string      `json:"invited_by"`
+	AcceptedByAccountID    pgtype.Text `json:"accepted_by_account_id"`
+	AcceptedByMembershipID pgtype.Text `json:"accepted_by_membership_id"`
+	ExpiresAt              time.Time   `json:"expires_at"`
+	AcceptedAt             *time.Time  `json:"accepted_at"`
+	CreatedAt              time.Time   `json:"created_at"`
+	UpdatedAt              time.Time   `json:"updated_at"`
 }
 
 func (q *Queries) CreateWorkspaceInvite(ctx context.Context, arg CreateWorkspaceInviteParams) (CreateWorkspaceInviteRow, error) {
@@ -54,7 +55,8 @@ func (q *Queries) CreateWorkspaceInvite(ctx context.Context, arg CreateWorkspace
 		&i.WorkspaceID,
 		&i.Email,
 		&i.InvitedBy,
-		&i.AcceptedByUserID,
+		&i.AcceptedByAccountID,
+		&i.AcceptedByMembershipID,
 		&i.ExpiresAt,
 		&i.AcceptedAt,
 		&i.CreatedAt,
@@ -64,21 +66,22 @@ func (q *Queries) CreateWorkspaceInvite(ctx context.Context, arg CreateWorkspace
 }
 
 const getWorkspaceInviteByTokenHash = `-- name: GetWorkspaceInviteByTokenHash :one
-SELECT id, workspace_id, email, invited_by, accepted_by_user_id, expires_at, accepted_at, created_at, updated_at
+SELECT id, workspace_id, email, invited_by, accepted_by_account_id, accepted_by_membership_id, expires_at, accepted_at, created_at, updated_at
 FROM workspace_invites
 WHERE token_hash = $1
 `
 
 type GetWorkspaceInviteByTokenHashRow struct {
-	ID               string      `json:"id"`
-	WorkspaceID      string      `json:"workspace_id"`
-	Email            string      `json:"email"`
-	InvitedBy        string      `json:"invited_by"`
-	AcceptedByUserID pgtype.Text `json:"accepted_by_user_id"`
-	ExpiresAt        time.Time   `json:"expires_at"`
-	AcceptedAt       *time.Time  `json:"accepted_at"`
-	CreatedAt        time.Time   `json:"created_at"`
-	UpdatedAt        time.Time   `json:"updated_at"`
+	ID                     string      `json:"id"`
+	WorkspaceID            string      `json:"workspace_id"`
+	Email                  string      `json:"email"`
+	InvitedBy              string      `json:"invited_by"`
+	AcceptedByAccountID    pgtype.Text `json:"accepted_by_account_id"`
+	AcceptedByMembershipID pgtype.Text `json:"accepted_by_membership_id"`
+	ExpiresAt              time.Time   `json:"expires_at"`
+	AcceptedAt             *time.Time  `json:"accepted_at"`
+	CreatedAt              time.Time   `json:"created_at"`
+	UpdatedAt              time.Time   `json:"updated_at"`
 }
 
 func (q *Queries) GetWorkspaceInviteByTokenHash(ctx context.Context, tokenHash string) (GetWorkspaceInviteByTokenHashRow, error) {
@@ -89,7 +92,8 @@ func (q *Queries) GetWorkspaceInviteByTokenHash(ctx context.Context, tokenHash s
 		&i.WorkspaceID,
 		&i.Email,
 		&i.InvitedBy,
-		&i.AcceptedByUserID,
+		&i.AcceptedByAccountID,
+		&i.AcceptedByMembershipID,
 		&i.ExpiresAt,
 		&i.AcceptedAt,
 		&i.CreatedAt,
@@ -100,19 +104,26 @@ func (q *Queries) GetWorkspaceInviteByTokenHash(ctx context.Context, tokenHash s
 
 const markWorkspaceInviteAccepted = `-- name: MarkWorkspaceInviteAccepted :execrows
 UPDATE workspace_invites
-SET accepted_by_user_id = $2,
-    accepted_at = $3
+SET accepted_by_account_id = $2,
+    accepted_by_membership_id = $3,
+    accepted_at = $4
 WHERE id = $1
 `
 
 type MarkWorkspaceInviteAcceptedParams struct {
-	ID               string      `json:"id"`
-	AcceptedByUserID pgtype.Text `json:"accepted_by_user_id"`
-	AcceptedAt       *time.Time  `json:"accepted_at"`
+	ID                     string      `json:"id"`
+	AcceptedByAccountID    pgtype.Text `json:"accepted_by_account_id"`
+	AcceptedByMembershipID pgtype.Text `json:"accepted_by_membership_id"`
+	AcceptedAt             *time.Time  `json:"accepted_at"`
 }
 
 func (q *Queries) MarkWorkspaceInviteAccepted(ctx context.Context, arg MarkWorkspaceInviteAcceptedParams) (int64, error) {
-	result, err := q.db.Exec(ctx, markWorkspaceInviteAccepted, arg.ID, arg.AcceptedByUserID, arg.AcceptedAt)
+	result, err := q.db.Exec(ctx, markWorkspaceInviteAccepted,
+		arg.ID,
+		arg.AcceptedByAccountID,
+		arg.AcceptedByMembershipID,
+		arg.AcceptedAt,
+	)
 	if err != nil {
 		return 0, err
 	}

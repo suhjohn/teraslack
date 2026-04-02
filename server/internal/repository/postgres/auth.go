@@ -37,12 +37,14 @@ func (r *AuthRepo) CreateSession(ctx context.Context, params domain.CreateAuthSe
 	}
 
 	row, err := r.q.CreateAuthSession(ctx, sqlcgen.CreateAuthSessionParams{
-		ID:          id,
-		WorkspaceID: params.WorkspaceID,
-		UserID:      params.UserID,
-		SessionHash: crypto.HashToken(raw),
-		Provider:    string(params.Provider),
-		ExpiresAt:   params.ExpiresAt,
+		ID:           id,
+		WorkspaceID:  params.WorkspaceID,
+		AccountID:    stringToText(params.AccountID),
+		MembershipID: stringToText(params.MembershipID),
+		UserID:       stringToText(params.UserID),
+		SessionHash:  crypto.HashToken(raw),
+		Provider:     string(params.Provider),
+		ExpiresAt:    params.ExpiresAt,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("insert auth session: %w", err)
@@ -139,16 +141,7 @@ func (r *AuthRepo) ListOAuthAccountsBySubject(ctx context.Context, provider doma
 
 	accounts := make([]domain.OAuthAccount, 0)
 	for _, row := range rows {
-		accounts = append(accounts, domain.OAuthAccount{
-			ID:              row.ID,
-			WorkspaceID:     row.WorkspaceID,
-			UserID:          row.UserID,
-			Provider:        domain.AuthProvider(row.Provider),
-			ProviderSubject: row.ProviderSubject,
-			Email:           row.Email,
-			CreatedAt:       row.CreatedAt,
-			UpdatedAt:       row.UpdatedAt,
-		})
+		accounts = append(accounts, *oauthAccountToDomain(row))
 	}
 	return accounts, nil
 }
@@ -157,7 +150,9 @@ func (r *AuthRepo) UpsertOAuthAccount(ctx context.Context, params domain.UpsertO
 	row, err := r.q.UpsertOAuthAccount(ctx, sqlcgen.UpsertOAuthAccountParams{
 		ID:              generateID("OA"),
 		WorkspaceID:     params.WorkspaceID,
-		UserID:          params.UserID,
+		AccountID:       stringToText(params.AccountID),
+		MembershipID:    stringToText(params.MembershipID),
+		UserID:          stringToText(params.UserID),
 		Provider:        string(params.Provider),
 		ProviderSubject: params.ProviderSubject,
 		Email:           params.Email,

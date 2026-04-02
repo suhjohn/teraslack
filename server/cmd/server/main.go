@@ -111,13 +111,13 @@ func run(logger *slog.Logger) error {
 	// Initialize repositories
 	workspaceRepo := pgRepo.NewWorkspaceRepo(pool)
 	userRepo := pgRepo.NewUserRepo(pool)
+	accountRepo := pgRepo.NewAccountRepo(pool)
+	workspaceMembershipRepo := pgRepo.NewWorkspaceMembershipRepo(pool)
 	convRepo := pgRepo.NewConversationRepo(pool)
 	convAccessRepo := pgRepo.NewConversationAccessRepo(pool)
-	externalAccessRepo := pgRepo.NewExternalPrincipalAccessRepo(pool)
+	externalMemberRepo := pgRepo.NewExternalMemberRepo(pool)
 	msgRepo := pgRepo.NewMessageRepo(pool)
 	conversationReadRepo := pgRepo.NewConversationReadRepo(pool)
-	pinRepo := pgRepo.NewPinRepo(pool)
-	bookmarkRepo := pgRepo.NewBookmarkRepo(pool)
 	fileRepo := pgRepo.NewFileRepo(pool)
 	eventRepo := pgRepo.NewEventRepo(pool, encryptor)
 	roleRepo := pgRepo.NewRoleAssignmentRepo(pool)
@@ -134,27 +134,31 @@ func run(logger *slog.Logger) error {
 	// Initialize services
 	workspaceSvc := service.NewWorkspaceService(workspaceRepo, userRepo, recorder, pool, logger)
 	workspaceSvc.SetAuthorizationAuditRepository(auditRepo)
+	workspaceSvc.SetExternalMemberRepository(externalMemberRepo)
+	workspaceSvc.SetIdentityRepositories(accountRepo, workspaceMembershipRepo)
 	eventSvc := service.NewEventService(eventRepo, userRepo, recorder, pool, logger)
 	userSvc := service.NewUserService(userRepo, recorder, pool, logger)
-	userSvc.SetExternalAccessRepository(externalAccessRepo)
+	userSvc.SetIdentityRepositories(accountRepo, workspaceMembershipRepo)
 	userSvc.SetAuthorizationAuditRepository(auditRepo)
 	roleSvc := service.NewRoleService(roleRepo, userRepo)
 	roleSvc.SetRecorder(recorder, pool, logger)
+	roleSvc.SetIdentityRepositories(workspaceMembershipRepo)
 	roleSvc.SetAuthorizationAuditRepository(auditRepo)
 	convSvc := service.NewConversationService(convRepo, userRepo, recorder, pool, logger)
+	convSvc.SetIdentityRepositories(workspaceMembershipRepo)
+	convSvc.SetExternalMemberRepository(externalMemberRepo)
 	convAccessSvc := service.NewConversationAccessService(convAccessRepo, convRepo, userRepo, roleRepo, recorder, pool, logger)
+	convAccessSvc.SetIdentityRepositories(workspaceMembershipRepo)
 	convAccessSvc.SetAuthorizationAuditRepository(auditRepo)
 	convSvc.SetAccessService(convAccessSvc)
-	convSvc.SetExternalAccessRepository(externalAccessRepo)
 	msgSvc := service.NewMessageService(msgRepo, convRepo, recorder, pool, logger)
 	msgSvc.SetAccessService(convAccessSvc)
-	msgSvc.SetExternalAccessRepository(externalAccessRepo)
+	msgSvc.SetExternalMemberRepository(externalMemberRepo)
 	externalEventSvc := service.NewExternalEventService(externalEventRepo)
+	externalEventSvc.SetExternalMemberRepository(externalMemberRepo)
 	conversationReadSvc := service.NewConversationReadService(conversationReadRepo, convRepo)
-	pinSvc := service.NewPinService(pinRepo, convRepo, msgRepo, recorder, pool, logger)
-	bookmarkSvc := service.NewBookmarkService(bookmarkRepo, convRepo, recorder, pool, logger)
 	fileSvc := service.NewFileService(fileRepo, s3, cfg.S3KeyPrefix, cfg.BaseURL, recorder, pool, logger)
-	fileSvc.SetExternalAccessRepository(externalAccessRepo)
+	fileSvc.SetExternalMemberRepository(externalMemberRepo)
 	authSvc := service.NewAuthService(authRepo, userRepo, workspaceRepo, workspaceInviteRepo, recorder, pool, logger, service.AuthConfig{
 		BaseURL:                 cfg.BaseURL,
 		FrontendURL:             cfg.FrontendURL,
@@ -166,15 +170,17 @@ func run(logger *slog.Logger) error {
 		ResendAPIKey:            cfg.ResendAPIKey,
 		AuthEmailFrom:           cfg.AuthEmailFrom,
 	})
+	authSvc.SetIdentityRepositories(accountRepo, workspaceMembershipRepo)
 	if cfg.ResendAPIKey == "" || cfg.AuthEmailFrom == "" {
 		logger.Warn("email sign-in is disabled", "has_resend_api_key", cfg.ResendAPIKey != "", "has_auth_email_from", cfg.AuthEmailFrom != "")
 	}
 	authSvc.SetAuthorizationAuditRepository(auditRepo)
 	apiKeySvc := service.NewAPIKeyService(apiKeyRepo, userRepo, recorder, pool, logger)
-	apiKeySvc.SetExternalAccessRepository(externalAccessRepo)
+	apiKeySvc.SetIdentityRepositories(workspaceMembershipRepo)
+	apiKeySvc.SetExternalMemberRepository(externalMemberRepo)
 	apiKeySvc.SetAuthorizationAuditRepository(auditRepo)
-	externalAccessSvc := service.NewExternalPrincipalAccessService(externalAccessRepo, userRepo, convRepo, recorder, pool, logger)
-	externalAccessSvc.SetAuthorizationAuditRepository(auditRepo)
+	externalMemberSvc := service.NewExternalMemberService(externalMemberRepo, accountRepo, convRepo, workspaceRepo)
+	externalMemberSvc.SetConversationAccessService(convAccessSvc)
 	// Initialize TurbopufferClient (optional — nil means search is disabled)
 	var tpClient service.TurbopufferClient
 	if cfg.TurbopufferAPIKey != "" {
@@ -190,20 +196,19 @@ func run(logger *slog.Logger) error {
 		logger.Info("turbopuffer client initialized", "ns_prefix", nsPrefix, "region", cfg.TurbopufferRegion)
 	}
 	searchSvc := service.NewSearchService(tpClient)
-	searchSvc.SetExternalAccessRepository(externalAccessRepo)
+	searchSvc.SetExternalMemberRepository(externalMemberRepo)
 	workspaceInviteSvc := service.NewWorkspaceInviteService(workspaceInviteRepo, userRepo, recorder, pool, cfg.FrontendURL)
 	workspaceInviteSvc.SetAuthorizationAuditRepository(auditRepo)
+	workspaceInviteSvc.SetIdentityRepositories(accountRepo, workspaceMembershipRepo)
 	// Initialize handlers
 	workspaceHandler := handler.NewWorkspaceHandler(workspaceSvc)
 	workspaceInviteHandler := handler.NewWorkspaceInviteHandler(workspaceInviteSvc)
 	userHandler := handler.NewUserHandler(userSvc, roleSvc)
 	convHandler := handler.NewConversationHandler(convSvc, convAccessSvc)
+	externalMemberHandler := handler.NewExternalMemberHandler(externalMemberSvc)
 	msgHandler := handler.NewMessageHandler(msgSvc)
-	pinHandler := handler.NewPinHandler(pinSvc)
-	bookmarkHandler := handler.NewBookmarkHandler(bookmarkSvc)
 	fileHandler := handler.NewFileHandler(fileSvc)
 	externalEventHandler := handler.NewExternalEventHandler(externalEventSvc)
-	externalAccessHandler := handler.NewExternalPrincipalAccessHandler(externalAccessSvc)
 	eventHandler := handler.NewEventHandler(eventSvc)
 	authHandler := handler.NewAuthHandler(authSvc)
 	apiKeyHandler := handler.NewAPIKeyHandler(apiKeySvc)
@@ -222,11 +227,9 @@ func run(logger *slog.Logger) error {
 		userHandler,
 		convHandler,
 		msgHandler,
-		pinHandler,
-		bookmarkHandler,
 		fileHandler,
 		externalEventHandler,
-		externalAccessHandler,
+		externalMemberHandler,
 		eventHandler,
 		authHandler,
 		searchHandler,

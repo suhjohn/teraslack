@@ -26,9 +26,14 @@ func recordAuthorizationAudit(ctx context.Context, repo repository.Authorization
 	if tx != nil {
 		auditRepo = repo.WithTx(tx)
 	}
-	_, err := auditRepo.Create(ctx, domain.CreateAuthorizationAuditLogParams{
+	actor := actorFromContext(ctx)
+	metadataJSON, err := mergeActorMetadata(metadataJSON, actor)
+	if err != nil {
+		return err
+	}
+	_, err = auditRepo.Create(ctx, domain.CreateAuthorizationAuditLogParams{
 		WorkspaceID:     workspaceID,
-		ActorID:    ctxutil.GetUserID(ctx),
+		ActorID:    actor.CompatibilityUserID(),
 		APIKeyID:   ctxutil.GetAPIKeyID(ctx),
 		OnBehalfOf: ctxutil.GetOnBehalfOf(ctx),
 		Action:     action,

@@ -9,7 +9,6 @@ import type { FreeFormObject } from './freeFormObject';
 import type { WorkspaceBilling } from './workspaceBilling';
 import type { WorkspaceDiscoverability } from './workspaceDiscoverability';
 import type { WorkspaceIcon } from './workspaceIcon';
-import type { WorkspaceProfileField } from './workspaceProfileField';
 
 export interface CreateWorkspaceRequest {
   /** Display name of the workspace. */
@@ -25,7 +24,5 @@ export interface CreateWorkspaceRequest {
   /** Conversation IDs new members are automatically added to. */
   default_channels: string[];
   preferences: FreeFormObject;
-  /** Custom profile fields for workspace members. */
-  profile_fields: WorkspaceProfileField[];
   billing: WorkspaceBilling;
 }

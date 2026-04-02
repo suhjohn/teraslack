@@ -28,7 +28,7 @@ func (r *FileRepo) WithTx(tx pgx.Tx) repository.FileRepository {
 func (r *FileRepo) Create(ctx context.Context, f *domain.File) error {
 	return r.q.CreateFile(ctx, sqlcgen.CreateFileParams{
 		ID:                 f.ID,
-		WorkspaceID:             f.WorkspaceID,
+		WorkspaceID:        f.WorkspaceID,
 		Name:               f.Name,
 		Title:              f.Title,
 		Mimetype:           f.Mimetype,
@@ -53,10 +53,22 @@ func (r *FileRepo) Get(ctx context.Context, workspaceID, id string) (*domain.Fil
 		}
 		return nil, fmt.Errorf("get file: %w", err)
 	}
+	return r.inflateFile(ctx, fileToDomain(row))
+}
 
-	f := fileToDomain(row)
+func (r *FileRepo) GetByID(ctx context.Context, id string) (*domain.File, error) {
+	row, err := r.q.GetFileByID(ctx, id)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, domain.ErrNotFound
+		}
+		return nil, fmt.Errorf("get file: %w", err)
+	}
+	return r.inflateFile(ctx, fileByIDToDomain(row))
+}
 
-	channels, err := r.q.GetFileChannels(ctx, id)
+func (r *FileRepo) inflateFile(ctx context.Context, f *domain.File) (*domain.File, error) {
+	channels, err := r.q.GetFileChannels(ctx, f.ID)
 	if err != nil {
 		return nil, fmt.Errorf("get file channels: %w", err)
 	}
@@ -67,7 +79,7 @@ func (r *FileRepo) Get(ctx context.Context, workspaceID, id string) (*domain.Fil
 
 func (r *FileRepo) Update(ctx context.Context, workspaceID string, f *domain.File) error {
 	return r.q.UpdateFileComplete(ctx, sqlcgen.UpdateFileCompleteParams{
-		WorkspaceID:             workspaceID,
+		WorkspaceID:        workspaceID,
 		ID:                 f.ID,
 		Title:              f.Title,
 		UrlPrivate:         f.URLPrivate,
@@ -91,11 +103,11 @@ func (r *FileRepo) List(ctx context.Context, params domain.ListFilesParams) (*do
 	switch {
 	case params.ChannelID != "" && params.UserID != "":
 		rows, err := r.q.ListFilesByChannelAndUser(ctx, sqlcgen.ListFilesByChannelAndUserParams{
-			WorkspaceID:    params.WorkspaceID,
-			ChannelID: params.ChannelID,
-			UserID:    params.UserID,
-			ID:        params.Cursor,
-			Limit:     int32(limit + 1),
+			WorkspaceID: params.WorkspaceID,
+			ChannelID:   params.ChannelID,
+			UserID:      params.UserID,
+			ID:          params.Cursor,
+			Limit:       int32(limit + 1),
 		})
 		if err != nil {
 			return nil, fmt.Errorf("list files: %w", err)
@@ -105,10 +117,10 @@ func (r *FileRepo) List(ctx context.Context, params domain.ListFilesParams) (*do
 		}
 	case params.ChannelID != "":
 		rows, err := r.q.ListFilesByChannel(ctx, sqlcgen.ListFilesByChannelParams{
-			WorkspaceID:    params.WorkspaceID,
-			ChannelID: params.ChannelID,
-			ID:        params.Cursor,
-			Limit:     int32(limit + 1),
+			WorkspaceID: params.WorkspaceID,
+			ChannelID:   params.ChannelID,
+			ID:          params.Cursor,
+			Limit:       int32(limit + 1),
 		})
 		if err != nil {
 			return nil, fmt.Errorf("list files: %w", err)
@@ -119,9 +131,9 @@ func (r *FileRepo) List(ctx context.Context, params domain.ListFilesParams) (*do
 	case params.UserID != "":
 		rows, err := r.q.ListFilesByUser(ctx, sqlcgen.ListFilesByUserParams{
 			WorkspaceID: params.WorkspaceID,
-			UserID: params.UserID,
-			ID:     params.Cursor,
-			Limit:  int32(limit + 1),
+			UserID:      params.UserID,
+			ID:          params.Cursor,
+			Limit:       int32(limit + 1),
 		})
 		if err != nil {
 			return nil, fmt.Errorf("list files: %w", err)
@@ -132,8 +144,8 @@ func (r *FileRepo) List(ctx context.Context, params domain.ListFilesParams) (*do
 	default:
 		rows, err := r.q.ListFiles(ctx, sqlcgen.ListFilesParams{
 			WorkspaceID: params.WorkspaceID,
-			ID:     params.Cursor,
-			Limit:  int32(limit + 1),
+			ID:          params.Cursor,
+			Limit:       int32(limit + 1),
 		})
 		if err != nil {
 			return nil, fmt.Errorf("list files: %w", err)
@@ -177,9 +189,9 @@ func (r *FileRepo) ShareToChannel(ctx context.Context, workspaceID, fileID, chan
 	}
 
 	rowsAffected, err := r.q.ShareFileToChannel(ctx, sqlcgen.ShareFileToChannelParams{
-		WorkspaceID:    workspaceID,
-		FileID:    fileID,
-		ChannelID: channelID,
+		WorkspaceID: workspaceID,
+		FileID:      fileID,
+		ChannelID:   channelID,
 	})
 	if err != nil {
 		return fmt.Errorf("share file to channel: %w", err)

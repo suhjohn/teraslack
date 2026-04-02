@@ -167,10 +167,10 @@ func TestConversationService_Create_ReusesCanonicalDMWithoutCreateEvent(t *testi
 	ctx := ctxutil.WithUser(context.Background(), "U1", "T123")
 	ctx = ctxutil.WithPrincipal(ctx, domain.PrincipalTypeHuman, domain.AccountTypeMember, false)
 	conv, err := svc.Create(ctx, domain.CreateConversationParams{
-		WorkspaceID:    "T123",
-		Type:      domain.ConversationTypeIM,
-		CreatorID: "U1",
-		UserIDs:   []string{"U2"},
+		WorkspaceID: "T123",
+		Type:        domain.ConversationTypeIM,
+		CreatorID:   "U1",
+		UserIDs:     []string{"U2"},
 	})
 	if err != nil {
 		t.Fatalf("Create() error = %v", err)
@@ -197,5 +197,159 @@ func TestConversationService_List_UsesActingUserID(t *testing.T) {
 	}
 	if repo.lastList.UserID != "U_ACTOR" {
 		t.Fatalf("List() user_id = %q, want %q", repo.lastList.UserID, "U_ACTOR")
+	}
+}
+
+func TestConversationService_CreateRejectsMembershipOutsideWorkspace(t *testing.T) {
+	repo := newMockConversationRepoTenant()
+	userRepo := &mockUserRepoMap{
+		users: map[string]*domain.User{
+			"U1": {ID: "U1", WorkspaceID: "T123", PrincipalType: domain.PrincipalTypeHuman, AccountType: domain.AccountTypeMember},
+			"U2": {ID: "U2", WorkspaceID: "T123", PrincipalType: domain.PrincipalTypeHuman, AccountType: domain.AccountTypeMember},
+		},
+	}
+	membershipRepo := newMockWorkspaceMembershipRepo()
+	membershipRepo.byUser["U1"] = &domain.WorkspaceMembership{
+		ID:          "WM1",
+		AccountID:   "A1",
+		WorkspaceID: "T123",
+		UserID:      "U1",
+		AccountType: domain.AccountTypeMember,
+	}
+	membershipRepo.byUser["U2"] = &domain.WorkspaceMembership{
+		ID:          "WM2",
+		AccountID:   "A2",
+		WorkspaceID: "T999",
+		UserID:      "U2",
+		AccountType: domain.AccountTypeMember,
+	}
+
+	svc := NewConversationService(repo, userRepo, nil, mockTxBeginner{}, nil)
+	svc.SetIdentityRepositories(membershipRepo)
+
+	ctx := ctxutil.WithUser(context.Background(), "U1", "T123")
+	ctx = ctxutil.WithPrincipal(ctx, domain.PrincipalTypeHuman, domain.AccountTypeMember, false)
+
+	_, err := svc.Create(ctx, domain.CreateConversationParams{
+		WorkspaceID: "T123",
+		Type:        domain.ConversationTypePrivateChannel,
+		CreatorID:   "U1",
+		Name:        "shared",
+		UserIDs:     []string{"U2"},
+	})
+	if err == nil || !errors.Is(err, domain.ErrForbidden) {
+		t.Fatalf("expected forbidden for cross-workspace membership, got %v", err)
+	}
+}
+
+func TestConversationService_Get_AllowsExternalMember(t *testing.T) {
+	repo := newMockConversationRepoTenant()
+	repo.conversations["G123"] = &domain.Conversation{
+		ID:          "G123",
+		WorkspaceID: "T123",
+		Name:        "shared",
+		Type:        domain.ConversationTypePrivateChannel,
+	}
+	svc := NewConversationService(repo, &mockUserRepoDefault{}, nil, mockTxBeginner{}, nil)
+	svc.SetExternalMemberRepository(&externalMemberRepoStub{
+		byConversationAccount: map[string]*domain.ExternalMember{
+			"G123|A123": {
+				ID:                  "EM123",
+				ConversationID:      "G123",
+				HostWorkspaceID:     "T123",
+				ExternalWorkspaceID: "T999",
+				AccountID:           "A123",
+				AccessMode:          domain.ExternalPrincipalAccessModeShared,
+				AllowedCapabilities: []string{domain.PermissionMessagesRead},
+			},
+		},
+	})
+
+	ctx := ctxutil.WithUser(context.Background(), "U_EXT", "T999")
+	ctx = ctxutil.WithIdentity(ctx, "A123", "WM_EXT")
+	ctx = ctxutil.WithPrincipal(ctx, domain.PrincipalTypeHuman, domain.AccountTypeMember, false)
+
+	conv, err := svc.Get(ctx, "G123")
+	if err != nil {
+		t.Fatalf("Get() error = %v", err)
+	}
+	if conv.ID != "G123" {
+		t.Fatalf("conversation id = %q, want G123", conv.ID)
+	}
+}
+
+func TestConversationService_List_AllowsExternalMemberHostWorkspace(t *testing.T) {
+	repo := newMockConversationRepoTenant()
+	repo.conversations["G123"] = &domain.Conversation{
+		ID:          "G123",
+		WorkspaceID: "T123",
+		Name:        "shared",
+		Type:        domain.ConversationTypePrivateChannel,
+	}
+	repo.conversations["G124"] = &domain.Conversation{
+		ID:          "G124",
+		WorkspaceID: "T123",
+		Name:        "shared-2",
+		Type:        domain.ConversationTypePrivateChannel,
+	}
+	svc := NewConversationService(repo, &mockUserRepoDefault{}, nil, mockTxBeginner{}, nil)
+	svc.SetExternalMemberRepository(&externalMemberRepoStub{
+		byConversationAccount: map[string]*domain.ExternalMember{
+			"G123|A123": {
+				ID:                  "EM123",
+				ConversationID:      "G123",
+				HostWorkspaceID:     "T123",
+				ExternalWorkspaceID: "T999",
+				AccountID:           "A123",
+				AccessMode:          domain.ExternalPrincipalAccessModeShared,
+			},
+		},
+	})
+
+	ctx := ctxutil.WithUser(context.Background(), "U_EXT", "T999")
+	ctx = ctxutil.WithIdentity(ctx, "A123", "WM_EXT")
+	ctx = ctxutil.WithPrincipal(ctx, domain.PrincipalTypeHuman, domain.AccountTypeMember, false)
+
+	page, err := svc.List(ctx, domain.ListConversationsParams{WorkspaceID: "T123", Limit: 100})
+	if err != nil {
+		t.Fatalf("List() error = %v", err)
+	}
+	if len(page.Items) != 1 {
+		t.Fatalf("items = %d, want 1", len(page.Items))
+	}
+	if page.Items[0].ID != "G123" {
+		t.Fatalf("conversation id = %q, want G123", page.Items[0].ID)
+	}
+}
+
+func TestConversationService_ListMembers_RejectsExternalMember(t *testing.T) {
+	repo := newMockConversationRepoTenant()
+	repo.conversations["G123"] = &domain.Conversation{
+		ID:          "G123",
+		WorkspaceID: "T123",
+		Name:        "shared",
+		Type:        domain.ConversationTypePrivateChannel,
+	}
+	svc := NewConversationService(repo, &mockUserRepoDefault{}, nil, mockTxBeginner{}, nil)
+	svc.SetExternalMemberRepository(&externalMemberRepoStub{
+		byConversationAccount: map[string]*domain.ExternalMember{
+			"G123|A123": {
+				ID:                  "EM123",
+				ConversationID:      "G123",
+				HostWorkspaceID:     "T123",
+				ExternalWorkspaceID: "T999",
+				AccountID:           "A123",
+				AccessMode:          domain.ExternalPrincipalAccessModeShared,
+				AllowedCapabilities: []string{domain.PermissionMessagesRead},
+			},
+		},
+	})
+
+	ctx := ctxutil.WithUser(context.Background(), "U_EXT", "T999")
+	ctx = ctxutil.WithIdentity(ctx, "A123", "")
+	ctx = ctxutil.WithPrincipal(ctx, domain.PrincipalTypeHuman, domain.AccountTypeMember, false)
+
+	if _, err := svc.ListMembers(ctx, "G123", "", 10); err == nil || !errors.Is(err, domain.ErrForbidden) {
+		t.Fatalf("expected forbidden for external member listing members, got %v", err)
 	}
 }

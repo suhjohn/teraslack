@@ -9,18 +9,6 @@ SELECT id, workspace_id, name, real_name, display_name, email, principal_type, o
        account_type, deleted, profile, created_at, updated_at
 FROM users WHERE id = $1;
 
--- name: GetUserByWorkspaceEmail :one
-SELECT id, workspace_id, name, real_name, display_name, email, principal_type, owner_id, is_bot,
-       account_type, deleted, profile, created_at, updated_at
-FROM users WHERE workspace_id = $1 AND email = $2;
-
--- name: ListUsersByEmail :many
-SELECT id, workspace_id, name, real_name, display_name, email, principal_type, owner_id, is_bot,
-       account_type, deleted, profile, created_at, updated_at
-FROM users
-WHERE LOWER(email) = LOWER($1)
-ORDER BY created_at ASC, id ASC;
-
 -- name: UpdateUser :one
 UPDATE users
 SET real_name = $2, display_name = $3, email = $4, account_type = $5, deleted = $6, profile = $7

@@ -15,13 +15,14 @@ import (
 
 // APIKeyService contains business logic for API key operations.
 type APIKeyService struct {
-	repo           repository.APIKeyRepository
-	userRepo       repository.UserRepository
-	externalAccess repository.ExternalPrincipalAccessRepository
-	auditRepo      repository.AuthorizationAuditRepository
-	recorder       EventRecorder
-	db             repository.TxBeginner
-	logger         *slog.Logger
+	repo            repository.APIKeyRepository
+	userRepo        repository.UserRepository
+	membershipRepo  repository.WorkspaceMembershipRepository
+	externalMembers repository.ExternalMemberRepository
+	auditRepo       repository.AuthorizationAuditRepository
+	recorder        EventRecorder
+	db              repository.TxBeginner
+	logger          *slog.Logger
 }
 
 // NewAPIKeyService creates a new APIKeyService.
@@ -32,8 +33,12 @@ func NewAPIKeyService(repo repository.APIKeyRepository, userRepo repository.User
 	return &APIKeyService{repo: repo, userRepo: userRepo, recorder: recorder, db: db, logger: logger}
 }
 
-func (s *APIKeyService) SetExternalAccessRepository(repo repository.ExternalPrincipalAccessRepository) {
-	s.externalAccess = repo
+func (s *APIKeyService) SetExternalMemberRepository(repo repository.ExternalMemberRepository) {
+	s.externalMembers = repo
+}
+
+func (s *APIKeyService) SetIdentityRepositories(membershipRepo repository.WorkspaceMembershipRepository) {
+	s.membershipRepo = membershipRepo
 }
 
 func (s *APIKeyService) SetAuthorizationAuditRepository(repo repository.AuthorizationAuditRepository) {
@@ -73,7 +78,7 @@ func (s *APIKeyService) Create(ctx context.Context, params domain.CreateAPIKeyPa
 		}
 	} else {
 		// User-scoped key — validate access to the target user.
-		user, err := s.userRepo.Get(ctx, params.UserID)
+		user, err := loadUserWithMembership(ctx, s.userRepo, s.membershipRepo, params.UserID)
 		if err != nil {
 			return nil, "", fmt.Errorf("user: %w", err)
 		}
@@ -88,7 +93,7 @@ func (s *APIKeyService) Create(ctx context.Context, params domain.CreateAPIKeyPa
 			if err := validateAPIKeyPermissions(user, params.Permissions); err != nil {
 				return nil, "", err
 			}
-			if err := s.validateExternalAccessPermissions(ctx, params.WorkspaceID, user, params.Permissions); err != nil {
+			if err := s.validateExternalMemberPermissions(ctx, params.WorkspaceID, user, params.Permissions); err != nil {
 				return nil, "", err
 			}
 		}
@@ -113,8 +118,8 @@ func (s *APIKeyService) Create(ctx context.Context, params domain.CreateAPIKeyPa
 		EventType:     domain.EventAPIKeyCreated,
 		AggregateType: domain.AggregateAPIKey,
 		AggregateID:   key.ID,
-		WorkspaceID:        key.WorkspaceID,
-		ActorID:       ctxutil.GetActingUserID(ctx),
+		WorkspaceID:   key.WorkspaceID,
+		ActorID:       compatibilityActorID(ctx),
 		Payload:       payload,
 	}); err != nil {
 		return nil, "", fmt.Errorf("record api_key.created event: %w", err)
@@ -206,8 +211,8 @@ func (s *APIKeyService) Revoke(ctx context.Context, id string) error {
 		EventType:     domain.EventAPIKeyRevoked,
 		AggregateType: domain.AggregateAPIKey,
 		AggregateID:   key.ID,
-		WorkspaceID:        key.WorkspaceID,
-		ActorID:       ctxutil.GetActingUserID(ctx),
+		WorkspaceID:   key.WorkspaceID,
+		ActorID:       compatibilityActorID(ctx),
 		Payload:       payload,
 	}); err != nil {
 		return fmt.Errorf("record api_key.revoked event: %w", err)
@@ -241,7 +246,7 @@ func (s *APIKeyService) Update(ctx context.Context, id string, params domain.Upd
 		if err := validateAPIKeyPermissions(user, *params.Permissions); err != nil {
 			return nil, err
 		}
-		if err := s.validateExternalAccessPermissions(ctx, existing.WorkspaceID, user, *params.Permissions); err != nil {
+		if err := s.validateExternalMemberPermissions(ctx, existing.WorkspaceID, user, *params.Permissions); err != nil {
 			return nil, err
 		}
 	}
@@ -262,8 +267,8 @@ func (s *APIKeyService) Update(ctx context.Context, id string, params domain.Upd
 		EventType:     domain.EventAPIKeyUpdated,
 		AggregateType: domain.AggregateAPIKey,
 		AggregateID:   key.ID,
-		WorkspaceID:        key.WorkspaceID,
-		ActorID:       ctxutil.GetActingUserID(ctx),
+		WorkspaceID:   key.WorkspaceID,
+		ActorID:       compatibilityActorID(ctx),
 		Payload:       payload,
 	}); err != nil {
 		return nil, fmt.Errorf("record api_key.updated event: %w", err)
@@ -322,7 +327,7 @@ func (s *APIKeyService) Rotate(ctx context.Context, id string, params domain.Rot
 	newKey, rawKey, err := txRepo.Create(ctx, domain.CreateAPIKeyParams{
 		Name:        oldKey.Name + " (rotated)",
 		Description: oldKey.Description,
-		WorkspaceID:      oldKey.WorkspaceID,
+		WorkspaceID: oldKey.WorkspaceID,
 		UserID:      oldKey.UserID,
 		CreatedBy:   oldKey.CreatedBy,
 		Permissions: oldKey.Permissions,
@@ -337,8 +342,8 @@ func (s *APIKeyService) Rotate(ctx context.Context, id string, params domain.Rot
 		EventType:     domain.EventAPIKeyCreated,
 		AggregateType: domain.AggregateAPIKey,
 		AggregateID:   newKey.ID,
-		WorkspaceID:        newKey.WorkspaceID,
-		ActorID:       ctxutil.GetActingUserID(ctx),
+		WorkspaceID:   newKey.WorkspaceID,
+		ActorID:       compatibilityActorID(ctx),
 		Payload:       newKeyPayload,
 	}); err != nil {
 		return nil, "", fmt.Errorf("record api_key.created event for rotated key: %w", err)
@@ -358,8 +363,8 @@ func (s *APIKeyService) Rotate(ctx context.Context, id string, params domain.Rot
 		EventType:     domain.EventAPIKeyRotated,
 		AggregateType: domain.AggregateAPIKey,
 		AggregateID:   oldKey.ID,
-		WorkspaceID:        oldKey.WorkspaceID,
-		ActorID:       ctxutil.GetActingUserID(ctx),
+		WorkspaceID:   oldKey.WorkspaceID,
+		ActorID:       compatibilityActorID(ctx),
 		Payload:       payload,
 	}); err != nil {
 		return nil, "", fmt.Errorf("record api_key.rotated event: %w", err)
@@ -408,7 +413,7 @@ func (s *APIKeyService) ValidateAPIKey(ctx context.Context, rawKey string) (*dom
 	// System key (no user_id) — acts as a system principal with admin access.
 	if key.UserID == "" {
 		return &domain.APIKeyValidation{
-			WorkspaceID:        key.WorkspaceID,
+			WorkspaceID:   key.WorkspaceID,
 			PrincipalType: domain.PrincipalTypeSystem,
 			AccountType:   domain.AccountTypePrimaryAdmin,
 			KeyID:         key.ID,
@@ -417,25 +422,36 @@ func (s *APIKeyService) ValidateAPIKey(ctx context.Context, rawKey string) (*dom
 	}
 
 	// User-scoped key — resolve the user for principal/account info.
-	user, err := s.userRepo.Get(ctx, key.UserID)
+	user, err := loadUserWithMembership(ctx, s.userRepo, s.membershipRepo, key.UserID)
 	if err != nil {
 		return nil, domain.ErrInvalidAuth
 	}
-	if s.externalAccess != nil {
-		if access, accessErr := s.externalAccess.GetActiveByPrincipal(ctx, key.WorkspaceID, key.UserID); accessErr == nil && access != nil {
-			key.Permissions = intersectPermissions(key.Permissions, access.AllowedCapabilities)
-		}
+	if caps, capsErr := s.externalMemberCapabilitiesForUser(ctx, key.WorkspaceID, user); capsErr == nil && len(caps) > 0 {
+		key.Permissions = intersectPermissions(key.Permissions, caps)
 	}
 
-	return &domain.APIKeyValidation{
-		WorkspaceID:        key.WorkspaceID,
+	validation := &domain.APIKeyValidation{
+		WorkspaceID:   key.WorkspaceID,
 		UserID:        key.UserID,
 		PrincipalType: user.PrincipalType,
 		AccountType:   user.EffectiveAccountType(),
 		IsBot:         user.IsBot,
 		KeyID:         key.ID,
 		Permissions:   key.Permissions,
-	}, nil
+	}
+	if s.membershipRepo != nil {
+		membership, membershipErr := s.membershipRepo.GetByLegacyUserID(ctx, key.UserID)
+		if membershipErr == nil {
+			validation.AccountID = membership.AccountID
+			validation.MembershipID = membership.ID
+			validation.WorkspaceID = membership.WorkspaceID
+			if membership.AccountType != "" {
+				validation.AccountType = membership.AccountType
+			}
+		}
+	}
+
+	return validation, nil
 }
 
 // parseDuration parses a human-friendly duration (supports "Nd" for days).
@@ -453,7 +469,7 @@ func (s *APIKeyService) validateAPIKeyCreator(ctx context.Context, workspaceID, 
 	if createdBy == "" {
 		return nil
 	}
-	creator, err := s.userRepo.Get(ctx, createdBy)
+	creator, err := loadUserWithMembership(ctx, s.userRepo, s.membershipRepo, createdBy)
 	if err != nil {
 		return fmt.Errorf("created_by: %w", err)
 	}
@@ -478,7 +494,7 @@ func (s *APIKeyService) authorizeAPIKeyUserID(ctx context.Context, userID string
 		}
 		return nil, nil
 	}
-	user, err := s.userRepo.Get(ctx, userID)
+	user, err := loadUserWithMembership(ctx, s.userRepo, s.membershipRepo, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -501,11 +517,11 @@ func (s *APIKeyService) authorizeAPIKeyUserAccess(ctx context.Context, user *dom
 		return nil, err
 	}
 	if err := ensureWorkspaceAccess(ctx, user.WorkspaceID); err != nil {
-		if ctxutil.GetWorkspaceID(ctx) == "" || user.PrincipalType != domain.PrincipalTypeAgent || s.externalAccess == nil {
+		if ctxutil.GetWorkspaceID(ctx) == "" || user.PrincipalType != domain.PrincipalTypeAgent {
 			return nil, err
 		}
-		access, accessErr := s.externalAccess.GetActiveByPrincipal(ctx, ctxutil.GetWorkspaceID(ctx), user.ID)
-		if accessErr != nil || access == nil {
+		caps, capsErr := s.externalMemberCapabilitiesForUser(ctx, ctxutil.GetWorkspaceID(ctx), user)
+		if capsErr != nil || len(caps) == 0 {
 			return nil, err
 		}
 		if !defaultAuthorizer.IsWorkspaceAdminAccount(actor.EffectiveAccountType()) {
@@ -521,9 +537,9 @@ func (s *APIKeyService) authorizeAPIKeyUserAccess(ctx context.Context, user *dom
 	if canManagePrincipal(actor, user) {
 		return actor, nil
 	}
-	if user.PrincipalType == domain.PrincipalTypeAgent && s.externalAccess != nil {
-		access, err := s.externalAccess.GetActiveByPrincipal(ctx, ctxutil.GetWorkspaceID(ctx), user.ID)
-		if err == nil && access != nil && defaultAuthorizer.IsWorkspaceAdminAccount(actor.EffectiveAccountType()) {
+	if user.PrincipalType == domain.PrincipalTypeAgent {
+		caps, err := s.externalMemberCapabilitiesForUser(ctx, ctxutil.GetWorkspaceID(ctx), user)
+		if err == nil && len(caps) > 0 && defaultAuthorizer.IsWorkspaceAdminAccount(actor.EffectiveAccountType()) {
 			return actor, nil
 		}
 	}
@@ -558,19 +574,19 @@ func validateAPIKeyPermissions(principal *domain.User, permissions []string) err
 	return nil
 }
 
-func (s *APIKeyService) validateExternalAccessPermissions(ctx context.Context, workspaceID string, principal *domain.User, permissions []string) error {
-	if principal == nil || principal.PrincipalType != domain.PrincipalTypeAgent || s.externalAccess == nil || workspaceID == "" || principal.WorkspaceID == workspaceID {
+func (s *APIKeyService) validateExternalMemberPermissions(ctx context.Context, workspaceID string, principal *domain.User, permissions []string) error {
+	if principal == nil || principal.PrincipalType != domain.PrincipalTypeAgent || workspaceID == "" || principal.WorkspaceID == workspaceID {
 		return nil
 	}
-	access, err := s.externalAccess.GetActiveByPrincipal(ctx, workspaceID, principal.ID)
-	if err != nil || access == nil {
+	allowedCapabilities, err := s.externalMemberCapabilitiesForUser(ctx, workspaceID, principal)
+	if err != nil || len(allowedCapabilities) == 0 {
 		return domain.ErrForbidden
 	}
 	if len(permissions) == 0 {
 		return nil
 	}
-	allowed := make(map[string]struct{}, len(access.AllowedCapabilities))
-	for _, capability := range access.AllowedCapabilities {
+	allowed := make(map[string]struct{}, len(allowedCapabilities))
+	for _, capability := range allowedCapabilities {
 		allowed[capability] = struct{}{}
 	}
 	for _, permission := range permissions {
@@ -579,6 +595,34 @@ func (s *APIKeyService) validateExternalAccessPermissions(ctx context.Context, w
 		}
 	}
 	return nil
+}
+
+func (s *APIKeyService) externalMemberCapabilitiesForUser(ctx context.Context, workspaceID string, principal *domain.User) ([]string, error) {
+	if principal == nil || s.membershipRepo == nil || s.externalMembers == nil || workspaceID == "" {
+		return nil, nil
+	}
+	membership, err := s.membershipRepo.GetByLegacyUserID(ctx, principal.ID)
+	if err != nil {
+		if err == domain.ErrNotFound {
+			return nil, nil
+		}
+		return nil, err
+	}
+	items, err := s.externalMembers.ListActiveByAccountAndWorkspace(ctx, membership.AccountID, workspaceID)
+	if err != nil {
+		return nil, err
+	}
+	allowed := make(map[string]struct{})
+	for _, item := range items {
+		for _, capability := range item.AllowedCapabilities {
+			allowed[capability] = struct{}{}
+		}
+	}
+	out := make([]string, 0, len(allowed))
+	for capability := range allowed {
+		out = append(out, capability)
+	}
+	return out, nil
 }
 
 func intersectPermissions(keyPermissions, allowedCapabilities []string) []string {

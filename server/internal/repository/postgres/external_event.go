@@ -33,7 +33,7 @@ func (r *ExternalEventRepo) Insert(ctx context.Context, event domain.ExternalEve
 	}
 
 	row, err := r.q.CreateExternalEvent(ctx, sqlcgen.CreateExternalEventParams{
-		WorkspaceID:                 event.WorkspaceID,
+		WorkspaceID:            event.WorkspaceID,
 		Type:                   event.Type,
 		ResourceType:           event.ResourceType,
 		ResourceID:             event.ResourceID,
@@ -100,11 +100,7 @@ func (r *ExternalEventRepo) ListVisible(ctx context.Context, principal repositor
 		limit = 100
 	}
 
-	externalAccess, err := r.activeExternalAccessForPrincipal(ctx, principal.WorkspaceID, principal.UserID)
-	if err != nil {
-		return nil, err
-	}
-	events, err := r.listVisibleEvents(ctx, principal, externalAccess, params, limit+1)
+	events, err := r.listVisibleEvents(ctx, principal, params, limit+1)
 	if err != nil {
 		return nil, err
 	}
@@ -215,11 +211,6 @@ func (r *ExternalEventRepo) insertFeedRow(ctx context.Context, event domain.Exte
 	return nil
 }
 
-type externalAccessState struct {
-	ID                  string
-	AllowedCapabilities []string
-}
-
 func principalCanReadExternalResourceType(principal repository.ExternalEventPrincipal, resourceType string) bool {
 	if resourceType == "" {
 		return true
@@ -261,9 +252,33 @@ func hasPermission(perms []string, required string) bool {
 	return false
 }
 
-func (r *ExternalEventRepo) listVisibleEvents(ctx context.Context, principal repository.ExternalEventPrincipal, externalAccess *externalAccessState, params domain.ListExternalEventsParams, limit int) ([]sqlcgen.ExternalEvent, error) {
-	if externalAccess != nil {
-		return r.listVisibleExternalAccessEvents(ctx, principal.WorkspaceID, externalAccess, params, limit)
+func (r *ExternalEventRepo) listVisibleEvents(ctx context.Context, principal repository.ExternalEventPrincipal, params domain.ListExternalEventsParams, limit int) ([]sqlcgen.ExternalEvent, error) {
+	if principal.MembershipID != "" {
+		resourceTypes := allowedResourceTypes(principal)
+		if params.ResourceType != "" {
+			if !principalCanReadExternalResourceType(principal, params.ResourceType) {
+				return []sqlcgen.ExternalEvent{}, nil
+			}
+			resourceTypes = []string{params.ResourceType}
+		}
+		if len(resourceTypes) == 0 {
+			return []sqlcgen.ExternalEvent{}, nil
+		}
+		rows, err := r.q.ListVisibleExternalEventsByWorkspaceAndResourceTypes(ctx, sqlcgen.ListVisibleExternalEventsByWorkspaceAndResourceTypesParams{
+			WorkspaceID: principal.WorkspaceID,
+			ID:          params.AfterID,
+			Column3:     resourceTypes,
+			Limit:       int32(limit),
+			EventType:   stringToText(params.Type),
+			ResourceID:  stringToText(params.ResourceID),
+		})
+		if err != nil {
+			return nil, fmt.Errorf("list visible external events: %w", err)
+		}
+		return rows, nil
+	}
+	if principal.AccountID != "" {
+		return r.listVisibleExternalMemberEvents(ctx, principal, params, limit)
 	}
 	resourceTypes := allowedResourceTypes(principal)
 	if params.ResourceType != "" {
@@ -276,12 +291,12 @@ func (r *ExternalEventRepo) listVisibleEvents(ctx context.Context, principal rep
 		return []sqlcgen.ExternalEvent{}, nil
 	}
 	rows, err := r.q.ListVisibleExternalEventsByWorkspaceAndResourceTypes(ctx, sqlcgen.ListVisibleExternalEventsByWorkspaceAndResourceTypesParams{
-		WorkspaceID:     principal.WorkspaceID,
-		ID:         params.AfterID,
-		Column3:    resourceTypes,
-		Limit:      int32(limit),
-		EventType:  stringToText(params.Type),
-		ResourceID: stringToText(params.ResourceID),
+		WorkspaceID: principal.WorkspaceID,
+		ID:          params.AfterID,
+		Column3:     resourceTypes,
+		Limit:       int32(limit),
+		EventType:   stringToText(params.Type),
+		ResourceID:  stringToText(params.ResourceID),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("list visible external events: %w", err)
@@ -289,55 +304,55 @@ func (r *ExternalEventRepo) listVisibleEvents(ctx context.Context, principal rep
 	return rows, nil
 }
 
-func (r *ExternalEventRepo) listVisibleExternalAccessEvents(ctx context.Context, workspaceID string, access *externalAccessState, params domain.ListExternalEventsParams, limit int) ([]sqlcgen.ExternalEvent, error) {
+func (r *ExternalEventRepo) listVisibleExternalMemberEvents(ctx context.Context, principal repository.ExternalEventPrincipal, params domain.ListExternalEventsParams, limit int) ([]sqlcgen.ExternalEvent, error) {
 	switch params.ResourceType {
 	case domain.ResourceTypeConversation:
-		if !externalAccessAllowsResource(access, domain.ResourceTypeConversation) {
+		if !principalCanReadExternalResourceType(principal, domain.ResourceTypeConversation) {
 			return []sqlcgen.ExternalEvent{}, nil
 		}
-		rows, err := r.q.ListVisibleConversationExternalEventsByAccess(ctx, sqlcgen.ListVisibleConversationExternalEventsByAccessParams{
-			AccessID:       access.ID,
-			WorkspaceID:         workspaceID,
-			ID:             params.AfterID,
-			Limit:          int32(limit),
-			EventType:      stringToText(params.Type),
-			ConversationID: stringToText(params.ResourceID),
+		rows, err := r.q.ListVisibleConversationExternalEventsByExternalMember(ctx, sqlcgen.ListVisibleConversationExternalEventsByExternalMemberParams{
+			AccountID:       principal.AccountID,
+			HostWorkspaceID: principal.WorkspaceID,
+			ID:              params.AfterID,
+			Limit:           int32(limit),
+			EventType:       stringToText(params.Type),
+			ConversationID:  stringToText(params.ResourceID),
 		})
 		if err != nil {
-			return nil, fmt.Errorf("list visible conversation external events: %w", err)
+			return nil, fmt.Errorf("list visible conversation external member events: %w", err)
 		}
 		return rows, nil
 	case domain.ResourceTypeFile:
-		if !externalAccessAllowsResource(access, domain.ResourceTypeFile) {
+		if !principalCanReadExternalResourceType(principal, domain.ResourceTypeFile) {
 			return []sqlcgen.ExternalEvent{}, nil
 		}
-		rows, err := r.q.ListVisibleFileExternalEventsByAccess(ctx, sqlcgen.ListVisibleFileExternalEventsByAccessParams{
-			AccessID:  access.ID,
-			WorkspaceID:    workspaceID,
-			ID:        params.AfterID,
-			Limit:     int32(limit),
-			EventType: stringToText(params.Type),
-			FileID:    stringToText(params.ResourceID),
+		rows, err := r.q.ListVisibleFileExternalEventsByExternalMember(ctx, sqlcgen.ListVisibleFileExternalEventsByExternalMemberParams{
+			AccountID:       principal.AccountID,
+			HostWorkspaceID: principal.WorkspaceID,
+			ID:              params.AfterID,
+			Limit:           int32(limit),
+			EventType:       stringToText(params.Type),
+			FileID:          stringToText(params.ResourceID),
 		})
 		if err != nil {
-			return nil, fmt.Errorf("list visible file external events: %w", err)
+			return nil, fmt.Errorf("list visible file external member events: %w", err)
 		}
 		return rows, nil
-	case "", domain.ResourceTypeWorkspace, domain.ResourceTypeUser:
-		resourceTypes := externalAccessResourceTypes(access)
+	case "":
+		resourceTypes := externalMemberResourceTypes(principal)
 		if len(resourceTypes) == 0 {
 			return []sqlcgen.ExternalEvent{}, nil
 		}
-		rows, err := r.q.ListVisibleExternalEventsByAccessAndResourceTypes(ctx, sqlcgen.ListVisibleExternalEventsByAccessAndResourceTypesParams{
-			AccessID:  access.ID,
-			WorkspaceID:    workspaceID,
-			ID:        params.AfterID,
-			Column4:   resourceTypes,
-			Limit:     int32(limit),
-			EventType: stringToText(params.Type),
+		rows, err := r.q.ListVisibleExternalEventsByExternalMemberAndResourceTypes(ctx, sqlcgen.ListVisibleExternalEventsByExternalMemberAndResourceTypesParams{
+			AccountID:       principal.AccountID,
+			HostWorkspaceID: principal.WorkspaceID,
+			ID:              params.AfterID,
+			Column4:         resourceTypes,
+			Limit:           int32(limit),
+			EventType:       stringToText(params.Type),
 		})
 		if err != nil {
-			return nil, fmt.Errorf("list visible external access events: %w", err)
+			return nil, fmt.Errorf("list visible external member events: %w", err)
 		}
 		return rows, nil
 	default:
@@ -356,50 +371,15 @@ func allowedResourceTypes(principal repository.ExternalEventPrincipal) []string 
 	return resourceTypes
 }
 
-func externalAccessAllowsResource(access *externalAccessState, resourceType string) bool {
-	switch resourceType {
-	case domain.ResourceTypeConversation:
-		return hasPermission(access.AllowedCapabilities, domain.PermissionMessagesRead)
-	case domain.ResourceTypeFile:
-		return hasPermission(access.AllowedCapabilities, domain.PermissionFilesRead) ||
-			hasPermission(access.AllowedCapabilities, domain.PermissionFilesWrite)
-	default:
-		return false
-	}
-}
-
-func externalAccessResourceTypes(access *externalAccessState) []string {
+func externalMemberResourceTypes(principal repository.ExternalEventPrincipal) []string {
 	resourceTypes := make([]string, 0, 2)
-	if externalAccessAllowsResource(access, domain.ResourceTypeConversation) {
+	if principalCanReadExternalResourceType(principal, domain.ResourceTypeConversation) {
 		resourceTypes = append(resourceTypes, domain.ResourceTypeConversation)
 	}
-	if externalAccessAllowsResource(access, domain.ResourceTypeFile) {
+	if principalCanReadExternalResourceType(principal, domain.ResourceTypeFile) {
 		resourceTypes = append(resourceTypes, domain.ResourceTypeFile)
 	}
 	return resourceTypes
-}
-
-func (r *ExternalEventRepo) activeExternalAccessForPrincipal(ctx context.Context, hostWorkspaceID, principalID string) (*externalAccessState, error) {
-	if hostWorkspaceID == "" || principalID == "" {
-		return nil, nil
-	}
-	row, err := sqlcgen.New(r.db).GetExternalAccessStateByPrincipal(ctx, sqlcgen.GetExternalAccessStateByPrincipalParams{
-		HostWorkspaceID:  hostWorkspaceID,
-		PrincipalID: principalID,
-	})
-	if err != nil {
-		if err == pgx.ErrNoRows {
-			return nil, nil
-		}
-		return nil, fmt.Errorf("lookup external access for events: %w", err)
-	}
-	var caps []string
-	if len(row.AllowedCapabilities) > 0 {
-		if err := json.Unmarshal(row.AllowedCapabilities, &caps); err != nil {
-			return nil, fmt.Errorf("decode external access capabilities: %w", err)
-		}
-	}
-	return &externalAccessState{ID: row.ID, AllowedCapabilities: caps}, nil
 }
 
 func int64ToPgtypeInt8(v *int64) pgtype.Int8 {

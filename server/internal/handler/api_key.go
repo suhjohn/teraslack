@@ -33,7 +33,7 @@ func (h *APIKeyHandler) Create(w http.ResponseWriter, r *http.Request) {
 		params.WorkspaceID = ctxutil.GetWorkspaceID(r.Context())
 	}
 	// Always track the authenticated actor who created the key.
-	if actorID := ctxutil.GetActingUserID(r.Context()); actorID != "" {
+	if actorID := service.CompatibilityActorID(r.Context()); actorID != "" {
 		params.CreatedBy = actorID
 	}
 

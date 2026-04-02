@@ -15,8 +15,12 @@ import type { User } from './user';
 export interface AuthMeResponse {
   /** Workspace the caller is authenticated in. */
   workspace_id: string;
-  /** User identity of the caller. */
-  user_id: string;
+  /** Canonical account identity of the caller. */
+  account_id?: string;
+  /** Workspace membership identity of the caller when the caller is a member. */
+  membership_id?: string;
+  /** Compatibility workspace-local user identity of the caller when materialized. */
+  user_id?: string;
   principal_type: PrincipalType;
   account_type?: AccountType;
   /** Whether the caller is a bot/agent. */

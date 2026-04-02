@@ -23,22 +23,31 @@ import { getErrorMessage, useAdmin } from '../../lib/admin'
 import {
   ConversationType,
   getGetConversationQueryKey,
+  getListConversationExternalMembersQueryKey,
   getListConversationMembersQueryKey,
   getListConversationsQueryKey,
   useAddConversationMembers,
+  useCreateConversationExternalMember,
   useGetConversation,
+  useDeleteConversationExternalMember,
+  useListConversationExternalMembers,
   useListConversationMembers,
   useListConversations,
+  useListExternalWorkspaces,
   useListMessages,
   useListUsers,
   useRemoveConversationMember,
   useCreateConversation,
+  useUpdateConversationExternalMember,
   useUpdateConversation,
 } from '../../lib/openapi'
 import type {
   Conversation,
   ConversationType as ConversationTypeValue,
   ConversationsCollection,
+  ExternalMember,
+  ExternalMembersCollection,
+  ExternalWorkspacesCollection,
   Message,
   MessagesCollection,
   StringsCollection,
@@ -287,6 +296,7 @@ function ConversationsPage() {
               {showDetails ? (
                 <div className="w-[340px] flex-none overflow-y-auto border-l border-[var(--line)] bg-[var(--surface-strong)]">
                   <ConversationInspector
+                    workspaceID={workspaceID}
                     conversationID={effectiveConversationID}
                     conversationSummary={selectedConversation}
                     conversationListQueryKey={conversationListQueryKey}
@@ -539,11 +549,13 @@ function ConversationMessages({
 }
 
 function ConversationInspector({
+  workspaceID,
   conversationID,
   conversationSummary,
   conversationListQueryKey,
   users,
 }: {
+  workspaceID: string
   conversationID: string
   conversationSummary: Conversation | null
   conversationListQueryKey: ReturnType<typeof getListConversationsQueryKey>
@@ -593,6 +605,7 @@ function ConversationInspector({
 
       <MembersPanel
         key={`members-${conversationID}-${members.join(',')}`}
+        workspaceID={workspaceID}
         conversationID={conversationID}
         conversationListQueryKey={conversationListQueryKey}
         members={members}
@@ -728,12 +741,14 @@ function ConversationMetadataForm({
 }
 
 function MembersPanel({
+  workspaceID,
   conversationID,
   conversationListQueryKey,
   members,
   users,
   loading,
 }: {
+  workspaceID: string
   conversationID: string
   conversationListQueryKey: ReturnType<typeof getListConversationsQueryKey>
   members: string[]
@@ -749,6 +764,26 @@ function MembersPanel({
   const [error, setError] = useState('')
   const addMembers = useAddConversationMembers()
   const removeMember = useRemoveConversationMember()
+  const externalMembersQuery =
+    useListConversationExternalMembers<ExternalMembersCollection>(conversationID, {
+      query: { enabled: !!conversationID, retry: false },
+    })
+  const externalWorkspacesQuery =
+    useListExternalWorkspaces<ExternalWorkspacesCollection>(workspaceID, {
+      query: { enabled: !!workspaceID, retry: false, staleTime: 30_000 },
+    })
+  const createExternalMember = useCreateConversationExternalMember()
+  const updateExternalMember = useUpdateConversationExternalMember()
+  const deleteExternalMember = useDeleteConversationExternalMember()
+  const connectedExternalWorkspaces = (externalWorkspacesQuery.data?.items ?? []).filter(
+    (workspace) => workspace.connected,
+  )
+  const externalMembers = externalMembersQuery.data?.items ?? []
+  const [externalWorkspaceID, setExternalWorkspaceID] = useState('')
+  const [externalEmail, setExternalEmail] = useState('')
+  const [externalName, setExternalName] = useState('')
+  const [externalAccessMode, setExternalAccessMode] = useState<'external_shared' | 'external_shared_readonly'>('external_shared')
+  const [externalMemberModes, setExternalMemberModes] = useState<Record<string, 'external_shared' | 'external_shared_readonly'>>({})
 
   async function refreshMembership() {
     await Promise.all([
@@ -764,6 +799,12 @@ function MembersPanel({
         queryKey: conversationListQueryKey,
       }),
     ])
+  }
+
+  async function refreshExternalMembers() {
+    await queryClient.invalidateQueries({
+      queryKey: getListConversationExternalMembersQueryKey(conversationID),
+    })
   }
 
   async function addUserIDs(userIDs: string[], fallbackMessage: string) {
@@ -798,13 +839,74 @@ function MembersPanel({
     }
   }
 
+  async function addExternalMember() {
+    const targetExternalWorkspaceID =
+      externalWorkspaceID || connectedExternalWorkspaces[0]?.external_workspace_id || ''
+    if (!targetExternalWorkspaceID || !externalEmail.trim()) {
+      return
+    }
+    setError('')
+    try {
+      await createExternalMember.mutateAsync({
+        id: conversationID,
+        data: {
+          external_workspace_id: targetExternalWorkspaceID,
+          email: externalEmail.trim(),
+          name: externalName.trim() || undefined,
+          access_mode: externalAccessMode,
+        },
+      })
+      setExternalEmail('')
+      setExternalName('')
+      await refreshExternalMembers()
+    } catch (err) {
+      setError(getErrorMessage(err, 'Failed to add external member.'))
+    }
+  }
+
+  async function saveExternalMemberAccess(member: ExternalMember) {
+    const nextMode = externalMemberModes[member.id] ?? member.access_mode
+    if (nextMode === member.access_mode) {
+      return
+    }
+    setError('')
+    try {
+      await updateExternalMember.mutateAsync({
+        id: conversationID,
+        externalMemberId: member.id,
+        data: {
+          access_mode: nextMode,
+        },
+      })
+      await refreshExternalMembers()
+    } catch (err) {
+      setError(getErrorMessage(err, 'Failed to update external member access.'))
+    }
+  }
+
+  async function revokeExternalMember(memberID: string) {
+    setError('')
+    try {
+      await deleteExternalMember.mutateAsync({
+        id: conversationID,
+        externalMemberId: memberID,
+      })
+      await refreshExternalMembers()
+    } catch (err) {
+      setError(getErrorMessage(err, 'Failed to remove external member.'))
+    }
+  }
+
+  const selectedExternalWorkspaceID =
+    externalWorkspaceID || connectedExternalWorkspaces[0]?.external_workspace_id || ''
+
   return (
     <div>
       <div className="border-y border-[var(--line)] px-4 py-3">
         <div className="flex items-center justify-between">
           <h3 className="text-[15px] font-bold text-[var(--ink)]">Members</h3>
           <span className="text-xs text-[var(--ink-soft)]">
-            {members.length}
+            {members.length} workspace
           </span>
         </div>
       </div>
@@ -897,9 +999,181 @@ function MembersPanel({
             </p>
           )}
         </div>
+
+        <div className="border-t border-[var(--line)] pt-4">
+          <div className="mb-3 flex items-center justify-between">
+            <div>
+              <h4 className="text-sm font-bold text-[var(--ink)]">External members</h4>
+              <p className="mt-0.5 text-xs text-[var(--ink-soft)]">
+                Conversation-scoped access for connected external workspaces.
+              </p>
+            </div>
+            <Badge variant="muted">{externalMembers.length} external</Badge>
+          </div>
+
+          {connectedExternalWorkspaces.length ? (
+            <div className="space-y-2">
+              <div className="grid gap-2 md:grid-cols-[1.1fr_1fr_1fr_auto]">
+                <Select
+                  className="text-xs"
+                  value={selectedExternalWorkspaceID}
+                  onChange={(event) => setExternalWorkspaceID(event.target.value)}
+                >
+                  {connectedExternalWorkspaces.map((workspace) => (
+                    <option
+                      key={workspace.id}
+                      value={workspace.external_workspace_id}
+                    >
+                      {workspace.name}
+                    </option>
+                  ))}
+                </Select>
+                <Input
+                  className="text-xs"
+                  value={externalEmail}
+                  onChange={(event) => setExternalEmail(event.target.value)}
+                  placeholder="External email"
+                />
+                <Input
+                  className="text-xs"
+                  value={externalName}
+                  onChange={(event) => setExternalName(event.target.value)}
+                  placeholder="Display name"
+                />
+                <div className="flex gap-2">
+                  <Select
+                    className="text-xs"
+                    value={externalAccessMode}
+                    onChange={(event) =>
+                      setExternalAccessMode(
+                        event.target.value as 'external_shared' | 'external_shared_readonly',
+                      )}
+                  >
+                    <option value="external_shared">shared</option>
+                    <option value="external_shared_readonly">read only</option>
+                  </Select>
+                  <Button
+                    size="sm"
+                    onClick={() => void addExternalMember()}
+                    disabled={
+                      createExternalMember.isPending ||
+                      !selectedExternalWorkspaceID ||
+                      !externalEmail.trim()
+                    }
+                  >
+                    Add
+                  </Button>
+                </div>
+              </div>
+
+              <div className="max-h-[260px] space-y-2 overflow-y-auto">
+                {externalMembersQuery.isFetching && !externalMembers.length ? (
+                  <div className="flex items-center justify-center py-6">
+                    <LoaderCircle className="h-4 w-4 animate-spin text-[var(--ink-soft)]" />
+                  </div>
+                ) : externalMembers.length ? (
+                  externalMembers.map((member) => (
+                    <div
+                      key={member.id}
+                      className="rounded-lg border border-[var(--line)] bg-[var(--surface-strong)] px-3 py-3"
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="truncate text-sm font-medium text-[var(--ink)]">
+                              {getExternalMemberLabel(member)}
+                            </span>
+                            <Badge variant="muted">external</Badge>
+                          </div>
+                          <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-[var(--ink-soft)]">
+                            <span>{member.account?.email || member.account_id}</span>
+                            <span>
+                              {getExternalWorkspaceLabel(
+                                connectedExternalWorkspaces,
+                                member.external_workspace_id,
+                              )}
+                            </span>
+                            <span>{member.allowed_capabilities?.join(', ') || 'default capabilities'}</span>
+                          </div>
+                        </div>
+                        <span className="text-xs text-[var(--ink-soft)]">
+                          {formatRelativeTime(member.created_at)}
+                        </span>
+                      </div>
+
+                      <div className="mt-3 flex items-center gap-2">
+                        <Select
+                          className="text-xs"
+                          value={externalMemberModes[member.id] ?? member.access_mode}
+                          onChange={(event) =>
+                            setExternalMemberModes((current) => ({
+                              ...current,
+                              [member.id]: event.target.value as 'external_shared' | 'external_shared_readonly',
+                            }))
+                          }
+                        >
+                          <option value="external_shared">shared</option>
+                          <option value="external_shared_readonly">read only</option>
+                        </Select>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => void saveExternalMemberAccess(member)}
+                          disabled={
+                            updateExternalMember.isPending ||
+                            (externalMemberModes[member.id] ?? member.access_mode) === member.access_mode
+                          }
+                        >
+                          Save
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="text-[#b42318] hover:text-[#b42318]"
+                          onClick={() => void revokeExternalMember(member.id)}
+                          disabled={deleteExternalMember.isPending}
+                        >
+                          Remove
+                        </Button>
+                      </div>
+                    </div>
+                  ))
+                ) : (
+                  <p className="py-4 text-center text-xs text-[var(--ink-soft)]">
+                    No external members yet.
+                  </p>
+                )}
+              </div>
+            </div>
+          ) : (
+            <p className="text-xs text-[var(--ink-soft)]">
+              Connect an external workspace before inviting conversation-scoped external members.
+            </p>
+          )}
+        </div>
       </div>
     </div>
   )
+}
+
+export function getExternalMemberLabel(member: ExternalMember) {
+  return (
+    member.account?.display_name ||
+    member.account?.real_name ||
+    member.account?.name ||
+    member.account?.email ||
+    member.account_id
+  )
+}
+
+export function getExternalWorkspaceLabel(
+  workspaces: ExternalWorkspacesCollection['items'],
+  externalWorkspaceID: string,
+) {
+  const workspace = workspaces.find(
+    (item) => item.external_workspace_id === externalWorkspaceID,
+  )
+  return workspace?.name || externalWorkspaceID
 }
 
 function MessageRow({

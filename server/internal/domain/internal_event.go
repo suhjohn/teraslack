@@ -11,7 +11,7 @@ type InternalEvent struct {
 	EventType     string          `json:"event_type"`
 	AggregateType string          `json:"aggregate_type"`
 	AggregateID   string          `json:"aggregate_id"`
-	WorkspaceID        string          `json:"workspace_id"`
+	WorkspaceID   string          `json:"workspace_id"`
 	ActorID       string          `json:"actor_id"`
 	ShardKey      string          `json:"shard_key,omitempty"`
 	ShardID       int             `json:"shard_id"`
@@ -24,12 +24,10 @@ const InternalEventShardCount = 16
 
 // Aggregate type constants.
 const (
-	AggregateWorkspace         = "workspace"
+	AggregateWorkspace    = "workspace"
 	AggregateUser         = "user"
 	AggregateConversation = "conversation"
 	AggregateMessage      = "message"
-	AggregatePin          = "pin"
-	AggregateBookmark     = "bookmark"
 	AggregateFile         = "file"
 	AggregateAPIKey       = "api_key"
 	AggregateSubscription = "event_subscription"
@@ -64,13 +62,6 @@ const (
 	EventReactionAdded   = "reaction.added"
 	EventReactionRemoved = "reaction.removed"
 
-	EventPinAdded   = "pin.added"
-	EventPinRemoved = "pin.removed"
-
-	EventBookmarkCreated = "bookmark.created"
-	EventBookmarkUpdated = "bookmark.updated"
-	EventBookmarkDeleted = "bookmark.deleted"
-
 	EventFileCreated = "file.created"
 	EventFileUpdated = "file.updated"
 	EventFileDeleted = "file.deleted"
@@ -85,7 +76,4 @@ const (
 	EventSubscriptionUpdated = "event_subscription.updated"
 	EventSubscriptionDeleted = "event_subscription.deleted"
 
-	EventExternalPrincipalAccessGranted = "external_principal_access.granted"
-	EventExternalPrincipalAccessUpdated = "external_principal_access.updated"
-	EventExternalPrincipalAccessRevoked = "external_principal_access.revoked"
 )

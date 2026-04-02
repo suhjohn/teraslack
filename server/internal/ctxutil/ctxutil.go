@@ -13,6 +13,8 @@ type contextKey string
 const (
 	ContextKeyWorkspaceID   contextKey = "workspace_id"
 	ContextKeyUserID        contextKey = "user_id"
+	ContextKeyAccountID     contextKey = "account_id"
+	ContextKeyMembershipID  contextKey = "membership_id"
 	ContextKeyIsBot         contextKey = "is_bot"
 	ContextKeyPrincipalType contextKey = "principal_type"
 	ContextKeyAccountType   contextKey = "account_type"
@@ -25,6 +27,18 @@ const (
 // GetUserID extracts user_id from context (set by AuthMiddleware).
 func GetUserID(ctx context.Context) string {
 	v, _ := ctx.Value(ContextKeyUserID).(string)
+	return v
+}
+
+// GetAccountID extracts account_id from context.
+func GetAccountID(ctx context.Context) string {
+	v, _ := ctx.Value(ContextKeyAccountID).(string)
+	return v
+}
+
+// GetMembershipID extracts membership_id from context.
+func GetMembershipID(ctx context.Context) string {
+	v, _ := ctx.Value(ContextKeyMembershipID).(string)
 	return v
 }
 
@@ -95,6 +109,17 @@ func GetOAuthScopes(ctx context.Context) []string {
 func WithUser(ctx context.Context, userID, workspaceID string) context.Context {
 	ctx = context.WithValue(ctx, ContextKeyUserID, userID)
 	ctx = context.WithValue(ctx, ContextKeyWorkspaceID, workspaceID)
+	return ctx
+}
+
+// WithIdentity returns a context with canonical account and workspace membership identifiers set.
+func WithIdentity(ctx context.Context, accountID, membershipID string) context.Context {
+	if accountID != "" {
+		ctx = context.WithValue(ctx, ContextKeyAccountID, accountID)
+	}
+	if membershipID != "" {
+		ctx = context.WithValue(ctx, ContextKeyMembershipID, membershipID)
+	}
 	return ctx
 }
 

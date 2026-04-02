@@ -47,6 +47,9 @@ func (m *mockAPIKeyRepo) Get(_ context.Context, id string) (*domain.APIKey, erro
 }
 
 func (m *mockAPIKeyRepo) GetByHash(_ context.Context, _ string) (*domain.APIKey, error) {
+	for _, key := range m.keys {
+		return key, nil
+	}
 	return nil, domain.ErrNotFound
 }
 
@@ -214,5 +217,72 @@ func TestAPIKeyService_SystemKeyRequiresCreatorWithoutAuth(t *testing.T) {
 		WorkspaceID: "T123",
 	}); err == nil || !errors.Is(err, domain.ErrInvalidArgument) {
 		t.Fatalf("expected invalid argument for missing created_by, got %v", err)
+	}
+}
+
+func TestAPIKeyService_ValidateAPIKeyIncludesMembershipIdentity(t *testing.T) {
+	repo := newMockAPIKeyRepo()
+	repo.keys["AK1"] = &domain.APIKey{
+		ID:          "AK1",
+		WorkspaceID: "T123",
+		UserID:      "U_MEMBER",
+		Permissions: []string{domain.PermissionMessagesRead},
+	}
+	userRepo := newMockUserRepoTenant()
+	userRepo.users["U_MEMBER"] = &domain.User{
+		ID:            "U_MEMBER",
+		WorkspaceID:   "T123",
+		PrincipalType: domain.PrincipalTypeHuman,
+		AccountType:   domain.AccountTypeMember,
+	}
+	membershipRepo := newMockWorkspaceMembershipRepo()
+	membershipRepo.byUser["U_MEMBER"] = &domain.WorkspaceMembership{
+		ID:          "WM123",
+		AccountID:   "A123",
+		WorkspaceID: "T123",
+		UserID:      "U_MEMBER",
+		AccountType: domain.AccountTypeAdmin,
+	}
+	svc := NewAPIKeyService(repo, userRepo, nil, mockTxBeginner{}, nil)
+	svc.SetIdentityRepositories(membershipRepo)
+
+	validation, err := svc.ValidateAPIKey(context.Background(), "sk_test_value")
+	if err != nil {
+		t.Fatalf("ValidateAPIKey() error = %v", err)
+	}
+	if validation.AccountID != "A123" || validation.MembershipID != "WM123" {
+		t.Fatalf("unexpected validation identity: %+v", validation)
+	}
+	if validation.AccountType != domain.AccountTypeAdmin {
+		t.Fatalf("expected membership account type override, got %s", validation.AccountType)
+	}
+}
+
+func TestAPIKeyService_CreateUsesMembershipAccountTypeForPermissionValidation(t *testing.T) {
+	repo := newMockAPIKeyRepo()
+	userRepo := newMockUserRepoTenant()
+	userRepo.users["U_ADMIN"] = &domain.User{ID: "U_ADMIN", WorkspaceID: "T123", PrincipalType: domain.PrincipalTypeHuman, AccountType: domain.AccountTypeAdmin}
+	userRepo.users["U_TARGET"] = &domain.User{ID: "U_TARGET", WorkspaceID: "T123", PrincipalType: domain.PrincipalTypeHuman, AccountType: domain.AccountTypeAdmin}
+	membershipRepo := newMockWorkspaceMembershipRepo()
+	membershipRepo.byUser["U_TARGET"] = &domain.WorkspaceMembership{
+		ID:          "WM_TARGET",
+		AccountID:   "A_TARGET",
+		WorkspaceID: "T123",
+		UserID:      "U_TARGET",
+		AccountType: domain.AccountTypeMember,
+	}
+	membershipRepo.byWorkspaceAccount["T123|A_TARGET"] = membershipRepo.byUser["U_TARGET"]
+	svc := NewAPIKeyService(repo, userRepo, nil, mockTxBeginner{}, nil)
+	svc.SetIdentityRepositories(membershipRepo)
+
+	ctx := ctxutil.WithUser(context.Background(), "U_ADMIN", "T123")
+	ctx = ctxutil.WithPrincipal(ctx, domain.PrincipalTypeHuman, domain.AccountTypeAdmin, false)
+	if _, _, err := svc.Create(ctx, domain.CreateAPIKeyParams{
+		Name:        "target",
+		WorkspaceID: "T123",
+		UserID:      "U_TARGET",
+		Permissions: []string{domain.PermissionUsersCreate},
+	}); err == nil || !errors.Is(err, domain.ErrForbidden) {
+		t.Fatalf("expected member-scoped permission validation to reject elevated permission, got %v", err)
 	}
 }

@@ -10,7 +10,6 @@ tags:
   - name: Workspaces
   - name: Invites
   - name: Users
-  - name: Access
   - name: Conversations
   - name: Messages
   - name: Usergroups
@@ -197,6 +196,26 @@ paths:
         default:
           $ref: "#/components/responses/ApiErrorResponse"
   /workspaces/{id}/external-workspaces:
+    post:
+      tags: [Workspaces]
+      operationId: createExternalWorkspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceIDPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateExternalWorkspaceRequest"
+      responses:
+        "201":
+          description: External workspace connected.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExternalWorkspace"
+        default:
+          $ref: "#/components/responses/ApiErrorResponse"
     get:
       tags: [Workspaces]
       operationId: listExternalWorkspaces
@@ -273,21 +292,6 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/FreeFormObject"
-        default:
-          $ref: "#/components/responses/ApiErrorResponse"
-  /workspaces/{id}/profile-fields:
-    get:
-      tags: [Workspaces]
-      operationId: listWorkspaceProfileFields
-      parameters:
-        - $ref: "#/components/parameters/WorkspaceIDPath"
-      responses:
-        "200":
-          description: Workspace profile fields.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/WorkspaceProfileFieldsCollection"
         default:
           $ref: "#/components/responses/ApiErrorResponse"
   /workspaces/{id}/invites:
@@ -446,91 +450,6 @@ paths:
                 $ref: "#/components/schemas/UserRolesResponse"
         default:
           $ref: "#/components/responses/ApiErrorResponse"
-  /external-principal-access:
-    get:
-      tags: [Access]
-      operationId: listExternalPrincipalAccess
-      parameters:
-        - name: host_workspace_id
-          in: query
-          description: Filter by the workspace granting access.
-          schema:
-            type: string
-      responses:
-        "200":
-          description: External principal access grants.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ExternalPrincipalAccessCollection"
-        default:
-          $ref: "#/components/responses/ApiErrorResponse"
-    post:
-      tags: [Access]
-      operationId: createExternalPrincipalAccess
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/CreateExternalPrincipalAccessRequest"
-      responses:
-        "201":
-          description: External principal access granted.
-          headers:
-            Location:
-              $ref: "#/components/headers/Location"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ExternalPrincipalAccess"
-        default:
-          $ref: "#/components/responses/ApiErrorResponse"
-  /external-principal-access/{id}:
-    get:
-      tags: [Access]
-      operationId: getExternalPrincipalAccess
-      parameters:
-        - $ref: "#/components/parameters/ExternalPrincipalAccessIDPath"
-      responses:
-        "200":
-          description: External principal access grant.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ExternalPrincipalAccess"
-        default:
-          $ref: "#/components/responses/ApiErrorResponse"
-    patch:
-      tags: [Access]
-      operationId: updateExternalPrincipalAccess
-      parameters:
-        - $ref: "#/components/parameters/ExternalPrincipalAccessIDPath"
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/UpdateExternalPrincipalAccessRequest"
-      responses:
-        "200":
-          description: External principal access updated.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ExternalPrincipalAccess"
-        default:
-          $ref: "#/components/responses/ApiErrorResponse"
-    delete:
-      tags: [Access]
-      operationId: deleteExternalPrincipalAccess
-      parameters:
-        - $ref: "#/components/parameters/ExternalPrincipalAccessIDPath"
-      responses:
-        "204":
-          $ref: "#/components/responses/NoContent"
-        default:
-          $ref: "#/components/responses/ApiErrorResponse"
   /conversations:
     get:
       tags: [Conversations]
@@ -667,6 +586,74 @@ paths:
           $ref: "#/components/responses/NoContent"
         default:
           $ref: "#/components/responses/ApiErrorResponse"
+  /conversations/{id}/external-members:
+    get:
+      tags: [Conversations]
+      operationId: listConversationExternalMembers
+      parameters:
+        - $ref: "#/components/parameters/ConversationIDPath"
+      responses:
+        "200":
+          description: External members for the conversation.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExternalMembersCollection"
+        default:
+          $ref: "#/components/responses/ApiErrorResponse"
+    post:
+      tags: [Conversations]
+      operationId: createConversationExternalMember
+      parameters:
+        - $ref: "#/components/parameters/ConversationIDPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateExternalMemberRequest"
+      responses:
+        "201":
+          description: External member created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExternalMember"
+        default:
+          $ref: "#/components/responses/ApiErrorResponse"
+  /conversations/{id}/external-members/{external_member_id}:
+    patch:
+      tags: [Conversations]
+      operationId: updateConversationExternalMember
+      parameters:
+        - $ref: "#/components/parameters/ConversationIDPath"
+        - $ref: "#/components/parameters/ExternalMemberIDPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateExternalMemberRequest"
+      responses:
+        "200":
+          description: External member updated.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExternalMember"
+        default:
+          $ref: "#/components/responses/ApiErrorResponse"
+    delete:
+      tags: [Conversations]
+      operationId: deleteConversationExternalMember
+      parameters:
+        - $ref: "#/components/parameters/ConversationIDPath"
+        - $ref: "#/components/parameters/ExternalMemberIDPath"
+      responses:
+        "204":
+          $ref: "#/components/responses/NoContent"
+        default:
+          $ref: "#/components/responses/ApiErrorResponse"
   /conversations/{id}/managers:
     get:
       tags: [Conversations]
@@ -749,127 +736,6 @@ paths:
           application/json:
             schema:
               $ref: "#/components/schemas/ConversationReadUpdateRequest"
-      responses:
-        "204":
-          $ref: "#/components/responses/NoContent"
-        default:
-          $ref: "#/components/responses/ApiErrorResponse"
-  /conversations/{id}/pins:
-    get:
-      tags: [Conversations]
-      operationId: listPins
-      parameters:
-        - $ref: "#/components/parameters/ConversationIDPath"
-      responses:
-        "200":
-          description: Pins.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/PinsCollection"
-        default:
-          $ref: "#/components/responses/ApiErrorResponse"
-    post:
-      tags: [Conversations]
-      operationId: createPin
-      parameters:
-        - $ref: "#/components/parameters/ConversationIDPath"
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/PinCreateRequest"
-      responses:
-        "201":
-          description: Pin created.
-          headers:
-            Location:
-              $ref: "#/components/headers/Location"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Pin"
-        default:
-          $ref: "#/components/responses/ApiErrorResponse"
-  /conversations/{id}/pins/{message_ts}:
-    delete:
-      tags: [Conversations]
-      operationId: deletePin
-      parameters:
-        - $ref: "#/components/parameters/ConversationIDPath"
-        - $ref: "#/components/parameters/MessageTSPath"
-      responses:
-        "204":
-          $ref: "#/components/responses/NoContent"
-        default:
-          $ref: "#/components/responses/ApiErrorResponse"
-  /conversations/{id}/bookmarks:
-    get:
-      tags: [Conversations]
-      operationId: listBookmarks
-      parameters:
-        - $ref: "#/components/parameters/ConversationIDPath"
-      responses:
-        "200":
-          description: Bookmarks.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/BookmarksCollection"
-        default:
-          $ref: "#/components/responses/ApiErrorResponse"
-    post:
-      tags: [Conversations]
-      operationId: createBookmark
-      parameters:
-        - $ref: "#/components/parameters/ConversationIDPath"
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/CreateBookmarkRequest"
-      responses:
-        "201":
-          description: Bookmark created.
-          headers:
-            Location:
-              $ref: "#/components/headers/Location"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Bookmark"
-        default:
-          $ref: "#/components/responses/ApiErrorResponse"
-  /conversations/{conversation_id}/bookmarks/{bookmark_id}:
-    patch:
-      tags: [Conversations]
-      operationId: updateBookmark
-      parameters:
-        - $ref: "#/components/parameters/ConversationIDPathNamed"
-        - $ref: "#/components/parameters/BookmarkIDPath"
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/BookmarkUpdateRequest"
-      responses:
-        "200":
-          description: Bookmark updated.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Bookmark"
-        default:
-          $ref: "#/components/responses/ApiErrorResponse"
-    delete:
-      tags: [Conversations]
-      operationId: deleteBookmark
-      parameters:
-        - $ref: "#/components/parameters/ConversationIDPathNamed"
-        - $ref: "#/components/parameters/BookmarkIDPath"
       responses:
         "204":
           $ref: "#/components/responses/NoContent"
@@ -1247,6 +1113,7 @@ paths:
           schema:
             type: string
         - $ref: "#/components/parameters/LimitQuery"
+        - $ref: "#/components/parameters/WorkspaceIDQuery"
         - name: type
           in: query
           description: Filter by event type (e.g. "conversation.message.created").
@@ -1609,18 +1476,11 @@ components:
       description: External workspace connection identifier.
       schema:
         type: string
-    ExternalPrincipalAccessIDPath:
-      name: id
+    ExternalMemberIDPath:
+      name: external_member_id
       in: path
       required: true
-      description: External principal access grant identifier.
-      schema:
-        type: string
-    BookmarkIDPath:
-      name: bookmark_id
-      in: path
-      required: true
-      description: Bookmark identifier.
+      description: External member identifier.
       schema:
         type: string
     MessageTSPath:
@@ -1729,7 +1589,14 @@ components:
     DelegatedRole:
       type: string
       description: Fine-grained administrative role that can be granted to a user.
-      enum: [channels_admin, roles_admin, security_admin, integrations_admin, support_readonly]
+      enum:
+        [
+          channels_admin,
+          roles_admin,
+          security_admin,
+          integrations_admin,
+          support_readonly,
+        ]
     ExternalPrincipalAccessMode:
       type: string
       description: Level of access granted to an external principal.
@@ -1759,25 +1626,6 @@ components:
           type: string
         image_44:
           type: string
-    WorkspaceProfileField:
-      type: object
-      required: [id, label, type, ordering]
-      properties:
-        id:
-          type: string
-        label:
-          type: string
-        hint:
-          type: string
-        type:
-          type: string
-        options:
-          type: array
-          items:
-            type: string
-        ordering:
-          type: integer
-          format: int32
     WorkspaceBilling:
       type: object
       required: [plan, status]
@@ -1801,7 +1649,6 @@ components:
         - discoverability
         - default_channels
         - preferences
-        - profile_fields
         - billing
         - created_at
         - updated_at
@@ -1832,11 +1679,6 @@ components:
             type: string
         preferences:
           $ref: "#/components/schemas/FreeFormObject"
-        profile_fields:
-          type: array
-          description: Custom profile fields defined for this workspace.
-          items:
-            $ref: "#/components/schemas/WorkspaceProfileField"
         billing:
           $ref: "#/components/schemas/WorkspaceBilling"
         created_at:
@@ -1935,7 +1777,15 @@ components:
           type: string
     ExternalWorkspace:
       type: object
-      required: [id, external_workspace_id, name, connection_type, connected, created_at]
+      required:
+        [
+          id,
+          external_workspace_id,
+          name,
+          connection_type,
+          connected,
+          created_at,
+        ]
       properties:
         id:
           type: string
@@ -1953,14 +1803,79 @@ components:
         disconnected_at:
           type: string
           format: date-time
-    UserProfileFieldValue:
+    CreateExternalWorkspaceRequest:
       type: object
-      required: [value, alt]
+      required: [external_workspace_id]
       properties:
-        value:
+        external_workspace_id:
           type: string
-        alt:
+        name:
           type: string
+        connection_type:
+          type: string
+    Account:
+      type: object
+      required:
+        [
+          id,
+          principal_type,
+          name,
+          real_name,
+          display_name,
+          email,
+          is_bot,
+          deleted,
+          profile,
+          created_at,
+          updated_at,
+        ]
+      properties:
+        id:
+          type: string
+        principal_type:
+          $ref: "#/components/schemas/PrincipalType"
+        name:
+          type: string
+        real_name:
+          type: string
+        display_name:
+          type: string
+        email:
+          type: string
+        is_bot:
+          type: boolean
+        deleted:
+          type: boolean
+        profile:
+          $ref: "#/components/schemas/UserProfile"
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    WorkspaceMembership:
+      type: object
+      required:
+        [id, account_id, workspace_id, created_at, updated_at]
+      properties:
+        id:
+          type: string
+        account_id:
+          type: string
+        workspace_id:
+          type: string
+        user_id:
+          type: string
+          description: Workspace-local compatibility user row, materialized lazily when needed.
+        account_type:
+          $ref: "#/components/schemas/AccountType"
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
     UserProfile:
       type: object
       required:
@@ -1996,10 +1911,6 @@ components:
           type: string
         image_512:
           type: string
-        fields:
-          type: object
-          additionalProperties:
-            $ref: "#/components/schemas/UserProfileFieldValue"
     User:
       type: object
       description: A user identity — can represent a human, an AI agent, or a system service.
@@ -2222,59 +2133,6 @@ components:
         updated_at:
           type: string
           format: date-time
-    Pin:
-      type: object
-      description: A pinned message in a conversation.
-      required: [channel_id, message_ts, pinned_by, pinned_at]
-      properties:
-        channel_id:
-          type: string
-          description: Conversation the pin belongs to.
-        message_ts:
-          type: string
-          description: Timestamp of the pinned message.
-        pinned_by:
-          type: string
-          description: User who pinned the message.
-        pinned_at:
-          type: string
-          format: date-time
-          description: When the message was pinned.
-    Bookmark:
-      type: object
-      description: A saved link in a conversation's bookmark bar.
-      required: [id, channel_id, title, type, link, created_by, updated_by, created_at, updated_at]
-      properties:
-        id:
-          type: string
-          description: Unique bookmark identifier.
-        channel_id:
-          type: string
-          description: Conversation this bookmark belongs to.
-        title:
-          type: string
-          description: Display title for the bookmark.
-        type:
-          type: string
-          description: Bookmark type (e.g. "link").
-        link:
-          type: string
-          description: URL the bookmark points to.
-        emoji:
-          type: string
-          description: Optional emoji icon displayed next to the title.
-        created_by:
-          type: string
-          description: User who created the bookmark.
-        updated_by:
-          type: string
-          description: User who last updated the bookmark.
-        created_at:
-          type: string
-          format: date-time
-        updated_at:
-          type: string
-          format: date-time
     File:
       type: object
       description: An uploaded or external file.
@@ -2381,7 +2239,16 @@ components:
     ExternalEvent:
       type: object
       description: An event representing something that happened in the system (message sent, user joined, etc.).
-      required: [id, workspace_id, type, resource_type, resource_id, occurred_at, payload]
+      required:
+        [
+          id,
+          workspace_id,
+          type,
+          resource_type,
+          resource_id,
+          occurred_at,
+          payload,
+        ]
       properties:
         id:
           type: integer
@@ -2411,7 +2278,7 @@ components:
     AuthSession:
       type: object
       description: An authenticated session created via email auth or OAuth.
-      required: [id, workspace_id, user_id, provider, expires_at, created_at]
+      required: [id, workspace_id, provider, expires_at, created_at]
       properties:
         id:
           type: string
@@ -2419,9 +2286,15 @@ components:
         workspace_id:
           type: string
           description: Workspace the user authenticated into.
+        account_id:
+          type: string
+          description: Canonical account identity for the session actor.
+        membership_id:
+          type: string
+          description: Workspace membership identity for the session actor.
         user_id:
           type: string
-          description: Authenticated user.
+          description: Compatibility workspace-local user identity when materialized.
         provider:
           $ref: "#/components/schemas/AuthProvider"
         token:
@@ -2441,7 +2314,16 @@ components:
     WorkspaceInvite:
       type: object
       description: A single-use workspace invite scoped to one email address.
-      required: [id, workspace_id, email, invited_by, expires_at, created_at, updated_at]
+      required:
+        [
+          id,
+          workspace_id,
+          email,
+          invited_by,
+          expires_at,
+          created_at,
+          updated_at,
+        ]
       properties:
         id:
           type: string
@@ -2456,9 +2338,12 @@ components:
         invited_by:
           type: string
           description: User who created the invite.
-        accepted_by_user_id:
+        accepted_by_account_id:
           type: string
-          description: Workspace user that accepted the invite.
+          description: Canonical account that accepted the invite.
+        accepted_by_membership_id:
+          type: string
+          description: Workspace membership created or reused by invite acceptance.
         expires_at:
           type: string
           format: date-time
@@ -2502,12 +2387,14 @@ components:
           description: Raw invite code returned when the invite was created.
     AcceptWorkspaceInviteResponse:
       type: object
-      required: [invite, user]
+      required: [invite, membership]
       properties:
         invite:
           $ref: "#/components/schemas/WorkspaceInvite"
         user:
           $ref: "#/components/schemas/User"
+        membership:
+          $ref: "#/components/schemas/WorkspaceMembership"
     AuthSignupRequest:
       type: object
       required: [email]
@@ -2542,14 +2429,20 @@ components:
     AuthMeResponse:
       type: object
       description: The authenticated identity of the current request.
-      required: [workspace_id, user_id, principal_type, is_bot]
+      required: [workspace_id, principal_type, is_bot]
       properties:
         workspace_id:
           type: string
           description: Workspace the caller is authenticated in.
+        account_id:
+          type: string
+          description: Canonical account identity of the caller.
+        membership_id:
+          type: string
+          description: Workspace membership identity of the caller when the caller is a member.
         user_id:
           type: string
-          description: User identity of the caller.
+          description: Compatibility workspace-local user identity of the caller when materialized.
         principal_type:
           $ref: "#/components/schemas/PrincipalType"
         account_type:
@@ -2667,7 +2560,18 @@ components:
           description: The matched resource object.
     CreateWorkspaceRequest:
       type: object
-      required: [name, domain, email_domain, description, icon, discoverability, default_channels, preferences, profile_fields, billing]
+      required:
+        [
+          name,
+          domain,
+          email_domain,
+          description,
+          icon,
+          discoverability,
+          default_channels,
+          preferences,
+          billing,
+        ]
       properties:
         name:
           type: string
@@ -2692,11 +2596,6 @@ components:
             type: string
         preferences:
           $ref: "#/components/schemas/FreeFormObject"
-        profile_fields:
-          type: array
-          description: Custom profile fields for workspace members.
-          items:
-            $ref: "#/components/schemas/WorkspaceProfileField"
         billing:
           $ref: "#/components/schemas/WorkspaceBilling"
     UpdateWorkspaceRequest:
@@ -2720,10 +2619,6 @@ components:
             type: string
         preferences:
           $ref: "#/components/schemas/FreeFormJSON"
-        profile_fields:
-          type: array
-          items:
-            $ref: "#/components/schemas/WorkspaceProfileField"
         billing:
           $ref: "#/components/schemas/WorkspaceBilling"
     SwitchCurrentSessionWorkspaceRequest:
@@ -2735,7 +2630,17 @@ components:
           description: Workspace to switch the current browser session into.
     CreateUserRequest:
       type: object
-      required: [workspace_id, name, real_name, display_name, email, principal_type, is_bot, profile]
+      required:
+        [
+          workspace_id,
+          name,
+          real_name,
+          display_name,
+          email,
+          principal_type,
+          is_bot,
+          profile,
+        ]
       properties:
         workspace_id:
           type: string
@@ -2793,86 +2698,82 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/DelegatedRole"
-    ExternalPrincipalAccess:
+    ExternalMember:
       type: object
-      description: An access grant allowing an external principal to participate in a host workspace.
-      required: [id, host_workspace_id, principal_id, principal_type, home_workspace_id, access_mode, granted_by, created_at]
+      required:
+        [
+          id,
+          conversation_id,
+          host_workspace_id,
+          external_workspace_id,
+          account_id,
+          access_mode,
+          invited_by,
+          created_at,
+        ]
       properties:
         id:
           type: string
-          description: Unique access grant identifier.
+        conversation_id:
+          type: string
         host_workspace_id:
           type: string
-          description: Workspace granting access.
-        principal_id:
+        external_workspace_id:
           type: string
-          description: External user or agent being granted access.
-        principal_type:
-          $ref: "#/components/schemas/PrincipalType"
-        home_workspace_id:
+        account_id:
           type: string
-          description: Workspace the principal belongs to.
         access_mode:
           $ref: "#/components/schemas/ExternalPrincipalAccessMode"
         allowed_capabilities:
           type: array
-          description: Specific capabilities granted (e.g. "read", "write").
           items:
             type: string
-        conversation_ids:
-          type: array
-          description: Conversations the principal can access. Empty means all conversations.
-          items:
-            type: string
-        granted_by:
+        invited_by:
           type: string
-          description: User who granted the access.
         created_at:
           type: string
           format: date-time
         expires_at:
           type: string
           format: date-time
-          description: When the access grant expires.
         revoked_at:
           type: string
           format: date-time
-          description: When the access was revoked.
-    CreateExternalPrincipalAccessRequest:
+        account:
+          $ref: "#/components/schemas/Account"
+    CreateExternalMemberRequest:
       type: object
-      required: [host_workspace_id, principal_id, principal_type, home_workspace_id, access_mode]
+      required: [external_workspace_id, access_mode]
       properties:
-        host_workspace_id:
+        external_workspace_id:
           type: string
-        principal_id:
+        account_id:
           type: string
         principal_type:
           $ref: "#/components/schemas/PrincipalType"
-        home_workspace_id:
+        email:
+          type: string
+        name:
+          type: string
+        real_name:
+          type: string
+        display_name:
           type: string
         access_mode:
           $ref: "#/components/schemas/ExternalPrincipalAccessMode"
         allowed_capabilities:
-          type: array
-          items:
-            type: string
-        conversation_ids:
           type: array
           items:
             type: string
         expires_at:
           type: string
           format: date-time
-    UpdateExternalPrincipalAccessRequest:
+    UpdateExternalMemberRequest:
       type: object
       properties:
         access_mode:
           $ref: "#/components/schemas/ExternalPrincipalAccessMode"
         allowed_capabilities:
-          type: array
-          items:
-            type: string
-        conversation_ids:
           type: array
           items:
             type: string
@@ -3008,53 +2909,6 @@ components:
         last_read_ts:
           type: string
           description: Timestamp of the last message the user has read.
-    PinCreateRequest:
-      type: object
-      required: [message_ts]
-      properties:
-        message_ts:
-          type: string
-          description: Timestamp of the message to pin.
-        user_id:
-          type: string
-          description: User pinning the message. Defaults to the authenticated user.
-    CreateBookmarkRequest:
-      type: object
-      required: [title, type, link]
-      properties:
-        channel_id:
-          type: string
-          description: Conversation to add the bookmark to (if not in the URL path).
-        title:
-          type: string
-          description: Display title.
-        type:
-          type: string
-          description: Bookmark type (e.g. "link").
-        link:
-          type: string
-          description: URL the bookmark points to.
-        emoji:
-          type: string
-          description: Optional emoji icon.
-        created_by:
-          type: string
-          description: User creating the bookmark. Defaults to the authenticated user.
-    BookmarkUpdateRequest:
-      type: object
-      properties:
-        title:
-          type: string
-          description: New title.
-        link:
-          type: string
-          description: New URL.
-        emoji:
-          type: string
-          description: New emoji icon.
-        updated_by:
-          type: string
-          description: User making the update. Defaults to the authenticated user.
     PostMessageRequest:
       type: object
       required: [channel_id, user_id, text]
@@ -3113,6 +2967,9 @@ components:
           type: integer
           format: int64
           description: File size in bytes.
+        channel_id:
+          type: string
+          description: Conversation the uploaded file will be shared into. Required for external shared uploads.
     GetUploadURLResponse:
       type: object
       required: [upload_url, file_id]
@@ -3154,6 +3011,9 @@ components:
         user_id:
           type: string
           description: User adding the file. Defaults to the authenticated user.
+        channel_id:
+          type: string
+          description: Conversation to share the remote file into immediately. Required for external shared writes.
     ShareRemoteFileRequest:
       type: object
       required: [channels]
@@ -3307,14 +3167,14 @@ components:
             $ref: "#/components/schemas/User"
         next_cursor:
           type: string
-    ExternalPrincipalAccessCollection:
+    ExternalMembersCollection:
       type: object
       required: [items]
       properties:
         items:
           type: array
           items:
-            $ref: "#/components/schemas/ExternalPrincipalAccess"
+            $ref: "#/components/schemas/ExternalMember"
         next_cursor:
           type: string
     ConversationsCollection:
@@ -3335,26 +3195,6 @@ components:
           type: array
           items:
             type: string
-        next_cursor:
-          type: string
-    PinsCollection:
-      type: object
-      required: [items]
-      properties:
-        items:
-          type: array
-          items:
-            $ref: "#/components/schemas/Pin"
-        next_cursor:
-          type: string
-    BookmarksCollection:
-      type: object
-      required: [items]
-      properties:
-        items:
-          type: array
-          items:
-            $ref: "#/components/schemas/Bookmark"
         next_cursor:
           type: string
     MessagesCollection:
@@ -3457,15 +3297,5 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/ExternalWorkspace"
-        next_cursor:
-          type: string
-    WorkspaceProfileFieldsCollection:
-      type: object
-      required: [items]
-      properties:
-        items:
-          type: array
-          items:
-            $ref: "#/components/schemas/WorkspaceProfileField"
         next_cursor:
           type: string

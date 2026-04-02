@@ -435,10 +435,28 @@ type AcceptWorkspaceInviteRequest struct {
 // AcceptWorkspaceInviteResponse defines model for AcceptWorkspaceInviteResponse.
 type AcceptWorkspaceInviteResponse struct {
 	// Invite A single-use workspace invite scoped to one email address.
-	Invite WorkspaceInvite `json:"invite"`
+	Invite     WorkspaceInvite     `json:"invite"`
+	Membership WorkspaceMembership `json:"membership"`
 
 	// User A user identity — can represent a human, an AI agent, or a system service.
-	User User `json:"user"`
+	User *User `json:"user,omitempty"`
+}
+
+// Account defines model for Account.
+type Account struct {
+	CreatedAt   time.Time `json:"created_at"`
+	Deleted     bool      `json:"deleted"`
+	DisplayName string    `json:"display_name"`
+	Email       string    `json:"email"`
+	Id          string    `json:"id"`
+	IsBot       bool      `json:"is_bot"`
+	Name        string    `json:"name"`
+
+	// PrincipalType The kind of identity: human user, AI agent, or system service.
+	PrincipalType PrincipalType `json:"principal_type"`
+	Profile       UserProfile   `json:"profile"`
+	RealName      string        `json:"real_name"`
+	UpdatedAt     time.Time     `json:"updated_at"`
 }
 
 // AccountType Permission tier within a workspace.
@@ -446,6 +464,9 @@ type AccountType string
 
 // AddRemoteFileRequest defines model for AddRemoteFileRequest.
 type AddRemoteFileRequest struct {
+	// ChannelId Conversation to share the remote file into immediately. Required for external shared writes.
+	ChannelId *string `json:"channel_id,omitempty"`
+
 	// ExternalUrl URL where the file is hosted.
 	ExternalUrl string `json:"external_url"`
 
@@ -461,11 +482,17 @@ type AddRemoteFileRequest struct {
 
 // AuthMeResponse The authenticated identity of the current request.
 type AuthMeResponse struct {
+	// AccountId Canonical account identity of the caller.
+	AccountId *string `json:"account_id,omitempty"`
+
 	// AccountType Permission tier within a workspace.
 	AccountType *AccountType `json:"account_type,omitempty"`
 
 	// IsBot Whether the caller is a bot/agent.
 	IsBot bool `json:"is_bot"`
+
+	// MembershipId Workspace membership identity of the caller when the caller is a member.
+	MembershipId *string `json:"membership_id,omitempty"`
 
 	// Permissions Effective permissions granted to the caller for this request context.
 	Permissions *[]string `json:"permissions,omitempty"`
@@ -479,8 +506,8 @@ type AuthMeResponse struct {
 	// User A user identity — can represent a human, an AI agent, or a system service.
 	User *User `json:"user,omitempty"`
 
-	// UserId User identity of the caller.
-	UserId string `json:"user_id"`
+	// UserId Compatibility workspace-local user identity of the caller when materialized.
+	UserId *string `json:"user_id,omitempty"`
 
 	// WorkspaceId Workspace the caller is authenticated in.
 	WorkspaceId string `json:"workspace_id"`
@@ -491,6 +518,8 @@ type AuthProvider string
 
 // AuthSession An authenticated session created via email auth or OAuth.
 type AuthSession struct {
+	// AccountId Canonical account identity for the session actor.
+	AccountId *string   `json:"account_id,omitempty"`
 	CreatedAt time.Time `json:"created_at"`
 
 	// ExpiresAt When the session expires.
@@ -498,6 +527,9 @@ type AuthSession struct {
 
 	// Id Unique session identifier.
 	Id string `json:"id"`
+
+	// MembershipId Workspace membership identity for the session actor.
+	MembershipId *string `json:"membership_id,omitempty"`
 
 	// Provider Supported auth provider.
 	Provider AuthProvider `json:"provider"`
@@ -508,8 +540,8 @@ type AuthSession struct {
 	// Token Session token (only returned on creation).
 	Token *string `json:"token,omitempty"`
 
-	// UserId Authenticated user.
-	UserId string `json:"user_id"`
+	// UserId Compatibility workspace-local user identity when materialized.
+	UserId *string `json:"user_id,omitempty"`
 
 	// WorkspaceId Workspace the user authenticated into.
 	WorkspaceId string `json:"workspace_id"`
@@ -572,56 +604,6 @@ type AuthorizationAuditLog struct {
 type AuthorizationAuditLogsCollection struct {
 	Items      []AuthorizationAuditLog `json:"items"`
 	NextCursor *string                 `json:"next_cursor,omitempty"`
-}
-
-// Bookmark A saved link in a conversation's bookmark bar.
-type Bookmark struct {
-	// ChannelId Conversation this bookmark belongs to.
-	ChannelId string    `json:"channel_id"`
-	CreatedAt time.Time `json:"created_at"`
-
-	// CreatedBy User who created the bookmark.
-	CreatedBy string `json:"created_by"`
-
-	// Emoji Optional emoji icon displayed next to the title.
-	Emoji *string `json:"emoji,omitempty"`
-
-	// Id Unique bookmark identifier.
-	Id string `json:"id"`
-
-	// Link URL the bookmark points to.
-	Link string `json:"link"`
-
-	// Title Display title for the bookmark.
-	Title string `json:"title"`
-
-	// Type Bookmark type (e.g. "link").
-	Type      string    `json:"type"`
-	UpdatedAt time.Time `json:"updated_at"`
-
-	// UpdatedBy User who last updated the bookmark.
-	UpdatedBy string `json:"updated_by"`
-}
-
-// BookmarkUpdateRequest defines model for BookmarkUpdateRequest.
-type BookmarkUpdateRequest struct {
-	// Emoji New emoji icon.
-	Emoji *string `json:"emoji,omitempty"`
-
-	// Link New URL.
-	Link *string `json:"link,omitempty"`
-
-	// Title New title.
-	Title *string `json:"title,omitempty"`
-
-	// UpdatedBy User making the update. Defaults to the authenticated user.
-	UpdatedBy *string `json:"updated_by,omitempty"`
-}
-
-// BookmarksCollection defines model for BookmarksCollection.
-type BookmarksCollection struct {
-	Items      []Bookmark `json:"items"`
-	NextCursor *string    `json:"next_cursor,omitempty"`
 }
 
 // CompleteUploadRequest defines model for CompleteUploadRequest.
@@ -781,27 +763,6 @@ type CreateAPIKeyRequest struct {
 	WorkspaceId string `json:"workspace_id"`
 }
 
-// CreateBookmarkRequest defines model for CreateBookmarkRequest.
-type CreateBookmarkRequest struct {
-	// ChannelId Conversation to add the bookmark to (if not in the URL path).
-	ChannelId *string `json:"channel_id,omitempty"`
-
-	// CreatedBy User creating the bookmark. Defaults to the authenticated user.
-	CreatedBy *string `json:"created_by,omitempty"`
-
-	// Emoji Optional emoji icon.
-	Emoji *string `json:"emoji,omitempty"`
-
-	// Link URL the bookmark points to.
-	Link string `json:"link"`
-
-	// Title Display title.
-	Title string `json:"title"`
-
-	// Type Bookmark type (e.g. "link").
-	Type string `json:"type"`
-}
-
 // CreateConversationRequest defines model for CreateConversationRequest.
 type CreateConversationRequest struct {
 	// CreatorId User creating the conversation (becomes the first member).
@@ -850,19 +811,28 @@ type CreateEventSubscriptionRequest struct {
 // CreateEventSubscriptionRequestResourceType Filter events to a specific resource type.
 type CreateEventSubscriptionRequestResourceType string
 
-// CreateExternalPrincipalAccessRequest defines model for CreateExternalPrincipalAccessRequest.
-type CreateExternalPrincipalAccessRequest struct {
+// CreateExternalMemberRequest defines model for CreateExternalMemberRequest.
+type CreateExternalMemberRequest struct {
 	// AccessMode Level of access granted to an external principal.
 	AccessMode          ExternalPrincipalAccessMode `json:"access_mode"`
+	AccountId           *string                     `json:"account_id,omitempty"`
 	AllowedCapabilities *[]string                   `json:"allowed_capabilities,omitempty"`
-	ConversationIds     *[]string                   `json:"conversation_ids,omitempty"`
+	DisplayName         *string                     `json:"display_name,omitempty"`
+	Email               *string                     `json:"email,omitempty"`
 	ExpiresAt           *time.Time                  `json:"expires_at,omitempty"`
-	HomeWorkspaceId     string                      `json:"home_workspace_id"`
-	HostWorkspaceId     string                      `json:"host_workspace_id"`
-	PrincipalId         string                      `json:"principal_id"`
+	ExternalWorkspaceId string                      `json:"external_workspace_id"`
+	Name                *string                     `json:"name,omitempty"`
 
 	// PrincipalType The kind of identity: human user, AI agent, or system service.
-	PrincipalType PrincipalType `json:"principal_type"`
+	PrincipalType *PrincipalType `json:"principal_type,omitempty"`
+	RealName      *string        `json:"real_name,omitempty"`
+}
+
+// CreateExternalWorkspaceRequest defines model for CreateExternalWorkspaceRequest.
+type CreateExternalWorkspaceRequest struct {
+	ConnectionType      *string `json:"connection_type,omitempty"`
+	ExternalWorkspaceId string  `json:"external_workspace_id"`
+	Name                *string `json:"name,omitempty"`
 }
 
 // CreateUserRequest defines model for CreateUserRequest.
@@ -937,9 +907,6 @@ type CreateWorkspaceRequest struct {
 	// Name Display name of the workspace.
 	Name        string         `json:"name"`
 	Preferences FreeFormObject `json:"preferences"`
-
-	// ProfileFields Custom profile fields for workspace members.
-	ProfileFields []WorkspaceProfileField `json:"profile_fields"`
 }
 
 // DelegatedRole Fine-grained administrative role that can be granted to a user.
@@ -1036,47 +1003,27 @@ type ExternalEventsCollection struct {
 	NextCursor *string         `json:"next_cursor,omitempty"`
 }
 
-// ExternalPrincipalAccess An access grant allowing an external principal to participate in a host workspace.
-type ExternalPrincipalAccess struct {
+// ExternalMember defines model for ExternalMember.
+type ExternalMember struct {
 	// AccessMode Level of access granted to an external principal.
-	AccessMode ExternalPrincipalAccessMode `json:"access_mode"`
-
-	// AllowedCapabilities Specific capabilities granted (e.g. "read", "write").
-	AllowedCapabilities *[]string `json:"allowed_capabilities,omitempty"`
-
-	// ConversationIds Conversations the principal can access. Empty means all conversations.
-	ConversationIds *[]string `json:"conversation_ids,omitempty"`
-	CreatedAt       time.Time `json:"created_at"`
-
-	// ExpiresAt When the access grant expires.
-	ExpiresAt *time.Time `json:"expires_at,omitempty"`
-
-	// GrantedBy User who granted the access.
-	GrantedBy string `json:"granted_by"`
-
-	// HomeWorkspaceId Workspace the principal belongs to.
-	HomeWorkspaceId string `json:"home_workspace_id"`
-
-	// HostWorkspaceId Workspace granting access.
-	HostWorkspaceId string `json:"host_workspace_id"`
-
-	// Id Unique access grant identifier.
-	Id string `json:"id"`
-
-	// PrincipalId External user or agent being granted access.
-	PrincipalId string `json:"principal_id"`
-
-	// PrincipalType The kind of identity: human user, AI agent, or system service.
-	PrincipalType PrincipalType `json:"principal_type"`
-
-	// RevokedAt When the access was revoked.
-	RevokedAt *time.Time `json:"revoked_at,omitempty"`
+	AccessMode          ExternalPrincipalAccessMode `json:"access_mode"`
+	Account             *Account                    `json:"account,omitempty"`
+	AccountId           string                      `json:"account_id"`
+	AllowedCapabilities *[]string                   `json:"allowed_capabilities,omitempty"`
+	ConversationId      string                      `json:"conversation_id"`
+	CreatedAt           time.Time                   `json:"created_at"`
+	ExpiresAt           *time.Time                  `json:"expires_at,omitempty"`
+	ExternalWorkspaceId string                      `json:"external_workspace_id"`
+	HostWorkspaceId     string                      `json:"host_workspace_id"`
+	Id                  string                      `json:"id"`
+	InvitedBy           string                      `json:"invited_by"`
+	RevokedAt           *time.Time                  `json:"revoked_at,omitempty"`
 }
 
-// ExternalPrincipalAccessCollection defines model for ExternalPrincipalAccessCollection.
-type ExternalPrincipalAccessCollection struct {
-	Items      []ExternalPrincipalAccess `json:"items"`
-	NextCursor *string                   `json:"next_cursor,omitempty"`
+// ExternalMembersCollection defines model for ExternalMembersCollection.
+type ExternalMembersCollection struct {
+	Items      []ExternalMember `json:"items"`
+	NextCursor *string          `json:"next_cursor,omitempty"`
 }
 
 // ExternalPrincipalAccessMode Level of access granted to an external principal.
@@ -1172,6 +1119,9 @@ type FreeFormObject map[string]interface{}
 
 // GetUploadURLRequest defines model for GetUploadURLRequest.
 type GetUploadURLRequest struct {
+	// ChannelId Conversation the uploaded file will be shared into. Required for external shared uploads.
+	ChannelId *string `json:"channel_id,omitempty"`
+
 	// Filename Name of the file being uploaded.
 	Filename string `json:"filename"`
 
@@ -1260,36 +1210,6 @@ type MessageReactionRequest struct {
 type MessagesCollection struct {
 	Items      []Message `json:"items"`
 	NextCursor *string   `json:"next_cursor,omitempty"`
-}
-
-// Pin A pinned message in a conversation.
-type Pin struct {
-	// ChannelId Conversation the pin belongs to.
-	ChannelId string `json:"channel_id"`
-
-	// MessageTs Timestamp of the pinned message.
-	MessageTs string `json:"message_ts"`
-
-	// PinnedAt When the message was pinned.
-	PinnedAt time.Time `json:"pinned_at"`
-
-	// PinnedBy User who pinned the message.
-	PinnedBy string `json:"pinned_by"`
-}
-
-// PinCreateRequest defines model for PinCreateRequest.
-type PinCreateRequest struct {
-	// MessageTs Timestamp of the message to pin.
-	MessageTs string `json:"message_ts"`
-
-	// UserId User pinning the message. Defaults to the authenticated user.
-	UserId *string `json:"user_id,omitempty"`
-}
-
-// PinsCollection defines model for PinsCollection.
-type PinsCollection struct {
-	Items      []Pin   `json:"items"`
-	NextCursor *string `json:"next_cursor,omitempty"`
 }
 
 // PostMessageRequest defines model for PostMessageRequest.
@@ -1414,12 +1334,11 @@ type UpdateAPIKeyRequest struct {
 	Permissions *[]string `json:"permissions,omitempty"`
 }
 
-// UpdateExternalPrincipalAccessRequest defines model for UpdateExternalPrincipalAccessRequest.
-type UpdateExternalPrincipalAccessRequest struct {
+// UpdateExternalMemberRequest defines model for UpdateExternalMemberRequest.
+type UpdateExternalMemberRequest struct {
 	// AccessMode Level of access granted to an external principal.
 	AccessMode          *ExternalPrincipalAccessMode `json:"access_mode,omitempty"`
 	AllowedCapabilities *[]string                    `json:"allowed_capabilities,omitempty"`
-	ConversationIds     *[]string                    `json:"conversation_ids,omitempty"`
 	ExpiresAt           *time.Time                   `json:"expires_at,omitempty"`
 }
 
@@ -1469,7 +1388,6 @@ type UpdateWorkspaceRequest struct {
 	Icon            *WorkspaceIcon            `json:"icon,omitempty"`
 	Name            *string                   `json:"name,omitempty"`
 	Preferences     *FreeFormJSON             `json:"preferences,omitempty"`
-	ProfileFields   *[]WorkspaceProfileField  `json:"profile_fields,omitempty"`
 }
 
 // User A user identity — can represent a human, an AI agent, or a system service.
@@ -1516,23 +1434,16 @@ type User struct {
 
 // UserProfile defines model for UserProfile.
 type UserProfile struct {
-	AvatarHash       string                            `json:"avatar_hash"`
-	Fields           *map[string]UserProfileFieldValue `json:"fields,omitempty"`
-	Image192         string                            `json:"image_192"`
-	Image48          string                            `json:"image_48"`
-	Image512         string                            `json:"image_512"`
-	ImageOriginal    string                            `json:"image_original"`
-	Phone            string                            `json:"phone"`
-	StatusEmoji      string                            `json:"status_emoji"`
-	StatusExpiration int64                             `json:"status_expiration"`
-	StatusText       string                            `json:"status_text"`
-	Title            string                            `json:"title"`
-}
-
-// UserProfileFieldValue defines model for UserProfileFieldValue.
-type UserProfileFieldValue struct {
-	Alt   string `json:"alt"`
-	Value string `json:"value"`
+	AvatarHash       string `json:"avatar_hash"`
+	Image192         string `json:"image_192"`
+	Image48          string `json:"image_48"`
+	Image512         string `json:"image_512"`
+	ImageOriginal    string `json:"image_original"`
+	Phone            string `json:"phone"`
+	StatusEmoji      string `json:"status_emoji"`
+	StatusExpiration int64  `json:"status_expiration"`
+	StatusText       string `json:"status_text"`
+	Title            string `json:"title"`
 }
 
 // UserRolesResponse defines model for UserRolesResponse.
@@ -1574,10 +1485,7 @@ type Workspace struct {
 	// Name Display name of the workspace.
 	Name        string         `json:"name"`
 	Preferences FreeFormObject `json:"preferences"`
-
-	// ProfileFields Custom profile fields defined for this workspace.
-	ProfileFields []WorkspaceProfileField `json:"profile_fields"`
-	UpdatedAt     time.Time               `json:"updated_at"`
+	UpdatedAt   time.Time      `json:"updated_at"`
 }
 
 // WorkspaceAccessLog defines model for WorkspaceAccessLog.
@@ -1643,9 +1551,12 @@ type WorkspaceInvite struct {
 	// AcceptedAt When the invite was accepted.
 	AcceptedAt *time.Time `json:"accepted_at,omitempty"`
 
-	// AcceptedByUserId Workspace user that accepted the invite.
-	AcceptedByUserId *string   `json:"accepted_by_user_id,omitempty"`
-	CreatedAt        time.Time `json:"created_at"`
+	// AcceptedByAccountId Canonical account that accepted the invite.
+	AcceptedByAccountId *string `json:"accepted_by_account_id,omitempty"`
+
+	// AcceptedByMembershipId Workspace membership created or reused by invite acceptance.
+	AcceptedByMembershipId *string   `json:"accepted_by_membership_id,omitempty"`
+	CreatedAt              time.Time `json:"created_at"`
 
 	// Email Email address allowed to accept the invite.
 	Email openapi_types.Email `json:"email"`
@@ -1664,20 +1575,19 @@ type WorkspaceInvite struct {
 	WorkspaceId string `json:"workspace_id"`
 }
 
-// WorkspaceProfileField defines model for WorkspaceProfileField.
-type WorkspaceProfileField struct {
-	Hint     *string   `json:"hint,omitempty"`
-	Id       string    `json:"id"`
-	Label    string    `json:"label"`
-	Options  *[]string `json:"options,omitempty"`
-	Ordering int32     `json:"ordering"`
-	Type     string    `json:"type"`
-}
+// WorkspaceMembership defines model for WorkspaceMembership.
+type WorkspaceMembership struct {
+	AccountId string `json:"account_id"`
 
-// WorkspaceProfileFieldsCollection defines model for WorkspaceProfileFieldsCollection.
-type WorkspaceProfileFieldsCollection struct {
-	Items      []WorkspaceProfileField `json:"items"`
-	NextCursor *string                 `json:"next_cursor,omitempty"`
+	// AccountType Permission tier within a workspace.
+	AccountType *AccountType `json:"account_type,omitempty"`
+	CreatedAt   time.Time    `json:"created_at"`
+	Id          string       `json:"id"`
+	UpdatedAt   time.Time    `json:"updated_at"`
+
+	// UserId Workspace-local compatibility user row, materialized lazily when needed.
+	UserId      *string `json:"user_id,omitempty"`
+	WorkspaceId string  `json:"workspace_id"`
 }
 
 // WorkspacesCollection defines model for WorkspacesCollection.
@@ -1692,9 +1602,6 @@ type APIKeyIDPath = string
 // AuthProviderPath Supported auth provider.
 type AuthProviderPath = AuthProvider
 
-// BookmarkIDPath defines model for BookmarkIDPath.
-type BookmarkIDPath = string
-
 // ConversationIDPath defines model for ConversationIDPath.
 type ConversationIDPath = string
 
@@ -1707,8 +1614,8 @@ type CursorQuery = string
 // EventSubscriptionIDPath defines model for EventSubscriptionIDPath.
 type EventSubscriptionIDPath = string
 
-// ExternalPrincipalAccessIDPath defines model for ExternalPrincipalAccessIDPath.
-type ExternalPrincipalAccessIDPath = string
+// ExternalMemberIDPath defines model for ExternalMemberIDPath.
+type ExternalMemberIDPath = string
 
 // ExternalWorkspaceIDPath defines model for ExternalWorkspaceIDPath.
 type ExternalWorkspaceIDPath = string
@@ -1817,6 +1724,9 @@ type ListEventsParams struct {
 	// Limit Maximum number of items to return per page.
 	Limit *LimitQuery `form:"limit,omitempty" json:"limit,omitempty"`
 
+	// WorkspaceId Filter results by workspace identifier.
+	WorkspaceId *WorkspaceIDQuery `form:"workspace_id,omitempty" json:"workspace_id,omitempty"`
+
 	// Type Filter by event type (e.g. "conversation.message.created").
 	Type *string `form:"type,omitempty" json:"type,omitempty"`
 
@@ -1829,12 +1739,6 @@ type ListEventsParams struct {
 
 // ListEventsParamsResourceType defines parameters for ListEvents.
 type ListEventsParamsResourceType string
-
-// ListExternalPrincipalAccessParams defines parameters for ListExternalPrincipalAccess.
-type ListExternalPrincipalAccessParams struct {
-	// HostWorkspaceId Filter by the workspace granting access.
-	HostWorkspaceId *string `form:"host_workspace_id,omitempty" json:"host_workspace_id,omitempty"`
-}
 
 // ListFilesParams defines parameters for ListFiles.
 type ListFilesParams struct {
@@ -1932,23 +1836,20 @@ type CreateAuthVerifyJSONRequestBody = AuthVerifyRequest
 // CreateConversationJSONRequestBody defines body for CreateConversation for application/json ContentType.
 type CreateConversationJSONRequestBody = CreateConversationRequest
 
-// UpdateBookmarkJSONRequestBody defines body for UpdateBookmark for application/json ContentType.
-type UpdateBookmarkJSONRequestBody = BookmarkUpdateRequest
-
 // UpdateConversationJSONRequestBody defines body for UpdateConversation for application/json ContentType.
 type UpdateConversationJSONRequestBody = ConversationUpdateRequest
 
-// CreateBookmarkJSONRequestBody defines body for CreateBookmark for application/json ContentType.
-type CreateBookmarkJSONRequestBody = CreateBookmarkRequest
+// CreateConversationExternalMemberJSONRequestBody defines body for CreateConversationExternalMember for application/json ContentType.
+type CreateConversationExternalMemberJSONRequestBody = CreateExternalMemberRequest
+
+// UpdateConversationExternalMemberJSONRequestBody defines body for UpdateConversationExternalMember for application/json ContentType.
+type UpdateConversationExternalMemberJSONRequestBody = UpdateExternalMemberRequest
 
 // UpdateConversationManagersJSONRequestBody defines body for UpdateConversationManagers for application/json ContentType.
 type UpdateConversationManagersJSONRequestBody = ConversationManagersUpdateRequest
 
 // AddConversationMembersJSONRequestBody defines body for AddConversationMembers for application/json ContentType.
 type AddConversationMembersJSONRequestBody = ConversationInviteRequest
-
-// CreatePinJSONRequestBody defines body for CreatePin for application/json ContentType.
-type CreatePinJSONRequestBody = PinCreateRequest
 
 // UpdateConversationPostingPolicyJSONRequestBody defines body for UpdateConversationPostingPolicy for application/json ContentType.
 type UpdateConversationPostingPolicyJSONRequestBody = ConversationPostingPolicyUpdateRequest
@@ -1961,12 +1862,6 @@ type CreateEventSubscriptionJSONRequestBody = CreateEventSubscriptionRequest
 
 // UpdateEventSubscriptionJSONRequestBody defines body for UpdateEventSubscription for application/json ContentType.
 type UpdateEventSubscriptionJSONRequestBody = EventSubscriptionUpdateRequest
-
-// CreateExternalPrincipalAccessJSONRequestBody defines body for CreateExternalPrincipalAccess for application/json ContentType.
-type CreateExternalPrincipalAccessJSONRequestBody = CreateExternalPrincipalAccessRequest
-
-// UpdateExternalPrincipalAccessJSONRequestBody defines body for UpdateExternalPrincipalAccess for application/json ContentType.
-type UpdateExternalPrincipalAccessJSONRequestBody = UpdateExternalPrincipalAccessRequest
 
 // CreateFileUploadJSONRequestBody defines body for CreateFileUpload for application/json ContentType.
 type CreateFileUploadJSONRequestBody = GetUploadURLRequest
@@ -2009,6 +1904,9 @@ type CreateWorkspaceJSONRequestBody = CreateWorkspaceRequest
 
 // UpdateWorkspaceJSONRequestBody defines body for UpdateWorkspace for application/json ContentType.
 type UpdateWorkspaceJSONRequestBody = UpdateWorkspaceRequest
+
+// CreateExternalWorkspaceJSONRequestBody defines body for CreateExternalWorkspace for application/json ContentType.
+type CreateExternalWorkspaceJSONRequestBody = CreateExternalWorkspaceRequest
 
 // CreateWorkspaceInviteJSONRequestBody defines body for CreateWorkspaceInvite for application/json ContentType.
 type CreateWorkspaceInviteJSONRequestBody = CreateWorkspaceInviteRequest
@@ -2064,23 +1962,23 @@ type ServerInterface interface {
 	// (POST /conversations)
 	CreateConversation(w http.ResponseWriter, r *http.Request)
 
-	// (DELETE /conversations/{conversation_id}/bookmarks/{bookmark_id})
-	DeleteBookmark(w http.ResponseWriter, r *http.Request, conversationId ConversationIDPathNamed, bookmarkId BookmarkIDPath)
-
-	// (PATCH /conversations/{conversation_id}/bookmarks/{bookmark_id})
-	UpdateBookmark(w http.ResponseWriter, r *http.Request, conversationId ConversationIDPathNamed, bookmarkId BookmarkIDPath)
-
 	// (GET /conversations/{id})
 	GetConversation(w http.ResponseWriter, r *http.Request, id ConversationIDPath)
 
 	// (PATCH /conversations/{id})
 	UpdateConversation(w http.ResponseWriter, r *http.Request, id ConversationIDPath)
 
-	// (GET /conversations/{id}/bookmarks)
-	ListBookmarks(w http.ResponseWriter, r *http.Request, id ConversationIDPath)
+	// (GET /conversations/{id}/external-members)
+	ListConversationExternalMembers(w http.ResponseWriter, r *http.Request, id ConversationIDPath)
 
-	// (POST /conversations/{id}/bookmarks)
-	CreateBookmark(w http.ResponseWriter, r *http.Request, id ConversationIDPath)
+	// (POST /conversations/{id}/external-members)
+	CreateConversationExternalMember(w http.ResponseWriter, r *http.Request, id ConversationIDPath)
+
+	// (DELETE /conversations/{id}/external-members/{external_member_id})
+	DeleteConversationExternalMember(w http.ResponseWriter, r *http.Request, id ConversationIDPath, externalMemberId ExternalMemberIDPath)
+
+	// (PATCH /conversations/{id}/external-members/{external_member_id})
+	UpdateConversationExternalMember(w http.ResponseWriter, r *http.Request, id ConversationIDPath, externalMemberId ExternalMemberIDPath)
 
 	// (GET /conversations/{id}/managers)
 	GetConversationManagers(w http.ResponseWriter, r *http.Request, id ConversationIDPath)
@@ -2096,15 +1994,6 @@ type ServerInterface interface {
 
 	// (DELETE /conversations/{id}/members/{user_id})
 	RemoveConversationMember(w http.ResponseWriter, r *http.Request, id ConversationIDPath, userId UserIDPathNamed)
-
-	// (GET /conversations/{id}/pins)
-	ListPins(w http.ResponseWriter, r *http.Request, id ConversationIDPath)
-
-	// (POST /conversations/{id}/pins)
-	CreatePin(w http.ResponseWriter, r *http.Request, id ConversationIDPath)
-
-	// (DELETE /conversations/{id}/pins/{message_ts})
-	DeletePin(w http.ResponseWriter, r *http.Request, id ConversationIDPath, messageTs MessageTSPath)
 
 	// (GET /conversations/{id}/posting-policy)
 	GetConversationPostingPolicy(w http.ResponseWriter, r *http.Request, id ConversationIDPath)
@@ -2132,21 +2021,6 @@ type ServerInterface interface {
 
 	// (GET /events)
 	ListEvents(w http.ResponseWriter, r *http.Request, params ListEventsParams)
-
-	// (GET /external-principal-access)
-	ListExternalPrincipalAccess(w http.ResponseWriter, r *http.Request, params ListExternalPrincipalAccessParams)
-
-	// (POST /external-principal-access)
-	CreateExternalPrincipalAccess(w http.ResponseWriter, r *http.Request)
-
-	// (DELETE /external-principal-access/{id})
-	DeleteExternalPrincipalAccess(w http.ResponseWriter, r *http.Request, id ExternalPrincipalAccessIDPath)
-
-	// (GET /external-principal-access/{id})
-	GetExternalPrincipalAccess(w http.ResponseWriter, r *http.Request, id ExternalPrincipalAccessIDPath)
-
-	// (PATCH /external-principal-access/{id})
-	UpdateExternalPrincipalAccess(w http.ResponseWriter, r *http.Request, id ExternalPrincipalAccessIDPath)
 
 	// (POST /file-uploads)
 	CreateFileUpload(w http.ResponseWriter, r *http.Request)
@@ -2247,6 +2121,9 @@ type ServerInterface interface {
 	// (GET /workspaces/{id}/external-workspaces)
 	ListExternalWorkspaces(w http.ResponseWriter, r *http.Request, id WorkspaceIDPath)
 
+	// (POST /workspaces/{id}/external-workspaces)
+	CreateExternalWorkspace(w http.ResponseWriter, r *http.Request, id WorkspaceIDPath)
+
 	// (DELETE /workspaces/{id}/external-workspaces/{external_workspace_id})
 	DisconnectExternalWorkspace(w http.ResponseWriter, r *http.Request, id WorkspaceIDPath, externalWorkspaceId ExternalWorkspaceIDPath)
 
@@ -2264,9 +2141,6 @@ type ServerInterface interface {
 
 	// (POST /workspaces/{id}/primary-admin)
 	TransferPrimaryAdmin(w http.ResponseWriter, r *http.Request, id WorkspaceIDPath)
-
-	// (GET /workspaces/{id}/profile-fields)
-	ListWorkspaceProfileFields(w http.ResponseWriter, r *http.Request, id WorkspaceIDPath)
 }
 
 // ServerInterfaceWrapper converts contexts to parameters.
@@ -2762,86 +2636,6 @@ func (siw *ServerInterfaceWrapper) CreateConversation(w http.ResponseWriter, r *
 	handler.ServeHTTP(w, r)
 }
 
-// DeleteBookmark operation middleware
-func (siw *ServerInterfaceWrapper) DeleteBookmark(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-
-	// ------------- Path parameter "conversation_id" -------------
-	var conversationId ConversationIDPathNamed
-
-	err = runtime.BindStyledParameterWithOptions("simple", "conversation_id", r.PathValue("conversation_id"), &conversationId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "conversation_id", Err: err})
-		return
-	}
-
-	// ------------- Path parameter "bookmark_id" -------------
-	var bookmarkId BookmarkIDPath
-
-	err = runtime.BindStyledParameterWithOptions("simple", "bookmark_id", r.PathValue("bookmark_id"), &bookmarkId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "bookmark_id", Err: err})
-		return
-	}
-
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
-
-	r = r.WithContext(ctx)
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.DeleteBookmark(w, r, conversationId, bookmarkId)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// UpdateBookmark operation middleware
-func (siw *ServerInterfaceWrapper) UpdateBookmark(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-
-	// ------------- Path parameter "conversation_id" -------------
-	var conversationId ConversationIDPathNamed
-
-	err = runtime.BindStyledParameterWithOptions("simple", "conversation_id", r.PathValue("conversation_id"), &conversationId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "conversation_id", Err: err})
-		return
-	}
-
-	// ------------- Path parameter "bookmark_id" -------------
-	var bookmarkId BookmarkIDPath
-
-	err = runtime.BindStyledParameterWithOptions("simple", "bookmark_id", r.PathValue("bookmark_id"), &bookmarkId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "bookmark_id", Err: err})
-		return
-	}
-
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
-
-	r = r.WithContext(ctx)
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.UpdateBookmark(w, r, conversationId, bookmarkId)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
 // GetConversation operation middleware
 func (siw *ServerInterfaceWrapper) GetConversation(w http.ResponseWriter, r *http.Request) {
 
@@ -2904,8 +2698,8 @@ func (siw *ServerInterfaceWrapper) UpdateConversation(w http.ResponseWriter, r *
 	handler.ServeHTTP(w, r)
 }
 
-// ListBookmarks operation middleware
-func (siw *ServerInterfaceWrapper) ListBookmarks(w http.ResponseWriter, r *http.Request) {
+// ListConversationExternalMembers operation middleware
+func (siw *ServerInterfaceWrapper) ListConversationExternalMembers(w http.ResponseWriter, r *http.Request) {
 
 	var err error
 
@@ -2925,7 +2719,7 @@ func (siw *ServerInterfaceWrapper) ListBookmarks(w http.ResponseWriter, r *http.
 	r = r.WithContext(ctx)
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.ListBookmarks(w, r, id)
+		siw.Handler.ListConversationExternalMembers(w, r, id)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -2935,8 +2729,8 @@ func (siw *ServerInterfaceWrapper) ListBookmarks(w http.ResponseWriter, r *http.
 	handler.ServeHTTP(w, r)
 }
 
-// CreateBookmark operation middleware
-func (siw *ServerInterfaceWrapper) CreateBookmark(w http.ResponseWriter, r *http.Request) {
+// CreateConversationExternalMember operation middleware
+func (siw *ServerInterfaceWrapper) CreateConversationExternalMember(w http.ResponseWriter, r *http.Request) {
 
 	var err error
 
@@ -2956,7 +2750,87 @@ func (siw *ServerInterfaceWrapper) CreateBookmark(w http.ResponseWriter, r *http
 	r = r.WithContext(ctx)
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.CreateBookmark(w, r, id)
+		siw.Handler.CreateConversationExternalMember(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteConversationExternalMember operation middleware
+func (siw *ServerInterfaceWrapper) DeleteConversationExternalMember(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "id" -------------
+	var id ConversationIDPath
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "external_member_id" -------------
+	var externalMemberId ExternalMemberIDPath
+
+	err = runtime.BindStyledParameterWithOptions("simple", "external_member_id", r.PathValue("external_member_id"), &externalMemberId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "external_member_id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteConversationExternalMember(w, r, id, externalMemberId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdateConversationExternalMember operation middleware
+func (siw *ServerInterfaceWrapper) UpdateConversationExternalMember(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "id" -------------
+	var id ConversationIDPath
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "external_member_id" -------------
+	var externalMemberId ExternalMemberIDPath
+
+	err = runtime.BindStyledParameterWithOptions("simple", "external_member_id", r.PathValue("external_member_id"), &externalMemberId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "external_member_id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateConversationExternalMember(w, r, id, externalMemberId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -3140,108 +3014,6 @@ func (siw *ServerInterfaceWrapper) RemoveConversationMember(w http.ResponseWrite
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.RemoveConversationMember(w, r, id, userId)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// ListPins operation middleware
-func (siw *ServerInterfaceWrapper) ListPins(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-
-	// ------------- Path parameter "id" -------------
-	var id ConversationIDPath
-
-	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
-		return
-	}
-
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
-
-	r = r.WithContext(ctx)
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.ListPins(w, r, id)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// CreatePin operation middleware
-func (siw *ServerInterfaceWrapper) CreatePin(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-
-	// ------------- Path parameter "id" -------------
-	var id ConversationIDPath
-
-	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
-		return
-	}
-
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
-
-	r = r.WithContext(ctx)
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.CreatePin(w, r, id)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// DeletePin operation middleware
-func (siw *ServerInterfaceWrapper) DeletePin(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-
-	// ------------- Path parameter "id" -------------
-	var id ConversationIDPath
-
-	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
-		return
-	}
-
-	// ------------- Path parameter "message_ts" -------------
-	var messageTs MessageTSPath
-
-	err = runtime.BindStyledParameterWithOptions("simple", "message_ts", r.PathValue("message_ts"), &messageTs, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "message_ts", Err: err})
-		return
-	}
-
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
-
-	r = r.WithContext(ctx)
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.DeletePin(w, r, id, messageTs)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -3520,6 +3292,14 @@ func (siw *ServerInterfaceWrapper) ListEvents(w http.ResponseWriter, r *http.Req
 		return
 	}
 
+	// ------------- Optional query parameter "workspace_id" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "workspace_id", r.URL.Query(), &params.WorkspaceId, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "workspace_id", Err: err})
+		return
+	}
+
 	// ------------- Optional query parameter "type" -------------
 
 	err = runtime.BindQueryParameterWithOptions("form", true, false, "type", r.URL.Query(), &params.Type, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
@@ -3546,152 +3326,6 @@ func (siw *ServerInterfaceWrapper) ListEvents(w http.ResponseWriter, r *http.Req
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ListEvents(w, r, params)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// ListExternalPrincipalAccess operation middleware
-func (siw *ServerInterfaceWrapper) ListExternalPrincipalAccess(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
-
-	r = r.WithContext(ctx)
-
-	// Parameter object where we will unmarshal all parameters from the context
-	var params ListExternalPrincipalAccessParams
-
-	// ------------- Optional query parameter "host_workspace_id" -------------
-
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "host_workspace_id", r.URL.Query(), &params.HostWorkspaceId, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "host_workspace_id", Err: err})
-		return
-	}
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.ListExternalPrincipalAccess(w, r, params)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// CreateExternalPrincipalAccess operation middleware
-func (siw *ServerInterfaceWrapper) CreateExternalPrincipalAccess(w http.ResponseWriter, r *http.Request) {
-
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
-
-	r = r.WithContext(ctx)
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.CreateExternalPrincipalAccess(w, r)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// DeleteExternalPrincipalAccess operation middleware
-func (siw *ServerInterfaceWrapper) DeleteExternalPrincipalAccess(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-
-	// ------------- Path parameter "id" -------------
-	var id ExternalPrincipalAccessIDPath
-
-	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
-		return
-	}
-
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
-
-	r = r.WithContext(ctx)
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.DeleteExternalPrincipalAccess(w, r, id)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// GetExternalPrincipalAccess operation middleware
-func (siw *ServerInterfaceWrapper) GetExternalPrincipalAccess(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-
-	// ------------- Path parameter "id" -------------
-	var id ExternalPrincipalAccessIDPath
-
-	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
-		return
-	}
-
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
-
-	r = r.WithContext(ctx)
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.GetExternalPrincipalAccess(w, r, id)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// UpdateExternalPrincipalAccess operation middleware
-func (siw *ServerInterfaceWrapper) UpdateExternalPrincipalAccess(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-
-	// ------------- Path parameter "id" -------------
-	var id ExternalPrincipalAccessIDPath
-
-	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
-		return
-	}
-
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
-
-	r = r.WithContext(ctx)
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.UpdateExternalPrincipalAccess(w, r, id)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -4805,6 +4439,37 @@ func (siw *ServerInterfaceWrapper) ListExternalWorkspaces(w http.ResponseWriter,
 	handler.ServeHTTP(w, r)
 }
 
+// CreateExternalWorkspace operation middleware
+func (siw *ServerInterfaceWrapper) CreateExternalWorkspace(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "id" -------------
+	var id WorkspaceIDPath
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateExternalWorkspace(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // DisconnectExternalWorkspace operation middleware
 func (siw *ServerInterfaceWrapper) DisconnectExternalWorkspace(w http.ResponseWriter, r *http.Request) {
 
@@ -5011,37 +4676,6 @@ func (siw *ServerInterfaceWrapper) TransferPrimaryAdmin(w http.ResponseWriter, r
 	handler.ServeHTTP(w, r)
 }
 
-// ListWorkspaceProfileFields operation middleware
-func (siw *ServerInterfaceWrapper) ListWorkspaceProfileFields(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-
-	// ------------- Path parameter "id" -------------
-	var id WorkspaceIDPath
-
-	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
-		return
-	}
-
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
-
-	r = r.WithContext(ctx)
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.ListWorkspaceProfileFields(w, r, id)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
 type UnescapedCookieParamError struct {
 	ParamName string
 	Err       error
@@ -5177,20 +4811,17 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc("POST "+options.BaseURL+"/auth/verify", wrapper.CreateAuthVerify)
 	m.HandleFunc("GET "+options.BaseURL+"/conversations", wrapper.ListConversations)
 	m.HandleFunc("POST "+options.BaseURL+"/conversations", wrapper.CreateConversation)
-	m.HandleFunc("DELETE "+options.BaseURL+"/conversations/{conversation_id}/bookmarks/{bookmark_id}", wrapper.DeleteBookmark)
-	m.HandleFunc("PATCH "+options.BaseURL+"/conversations/{conversation_id}/bookmarks/{bookmark_id}", wrapper.UpdateBookmark)
 	m.HandleFunc("GET "+options.BaseURL+"/conversations/{id}", wrapper.GetConversation)
 	m.HandleFunc("PATCH "+options.BaseURL+"/conversations/{id}", wrapper.UpdateConversation)
-	m.HandleFunc("GET "+options.BaseURL+"/conversations/{id}/bookmarks", wrapper.ListBookmarks)
-	m.HandleFunc("POST "+options.BaseURL+"/conversations/{id}/bookmarks", wrapper.CreateBookmark)
+	m.HandleFunc("GET "+options.BaseURL+"/conversations/{id}/external-members", wrapper.ListConversationExternalMembers)
+	m.HandleFunc("POST "+options.BaseURL+"/conversations/{id}/external-members", wrapper.CreateConversationExternalMember)
+	m.HandleFunc("DELETE "+options.BaseURL+"/conversations/{id}/external-members/{external_member_id}", wrapper.DeleteConversationExternalMember)
+	m.HandleFunc("PATCH "+options.BaseURL+"/conversations/{id}/external-members/{external_member_id}", wrapper.UpdateConversationExternalMember)
 	m.HandleFunc("GET "+options.BaseURL+"/conversations/{id}/managers", wrapper.GetConversationManagers)
 	m.HandleFunc("PUT "+options.BaseURL+"/conversations/{id}/managers", wrapper.UpdateConversationManagers)
 	m.HandleFunc("GET "+options.BaseURL+"/conversations/{id}/members", wrapper.ListConversationMembers)
 	m.HandleFunc("POST "+options.BaseURL+"/conversations/{id}/members", wrapper.AddConversationMembers)
 	m.HandleFunc("DELETE "+options.BaseURL+"/conversations/{id}/members/{user_id}", wrapper.RemoveConversationMember)
-	m.HandleFunc("GET "+options.BaseURL+"/conversations/{id}/pins", wrapper.ListPins)
-	m.HandleFunc("POST "+options.BaseURL+"/conversations/{id}/pins", wrapper.CreatePin)
-	m.HandleFunc("DELETE "+options.BaseURL+"/conversations/{id}/pins/{message_ts}", wrapper.DeletePin)
 	m.HandleFunc("GET "+options.BaseURL+"/conversations/{id}/posting-policy", wrapper.GetConversationPostingPolicy)
 	m.HandleFunc("PUT "+options.BaseURL+"/conversations/{id}/posting-policy", wrapper.UpdateConversationPostingPolicy)
 	m.HandleFunc("PUT "+options.BaseURL+"/conversations/{id}/read-state", wrapper.UpdateConversationReadState)
@@ -5200,11 +4831,6 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc("GET "+options.BaseURL+"/event-subscriptions/{id}", wrapper.GetEventSubscription)
 	m.HandleFunc("PATCH "+options.BaseURL+"/event-subscriptions/{id}", wrapper.UpdateEventSubscription)
 	m.HandleFunc("GET "+options.BaseURL+"/events", wrapper.ListEvents)
-	m.HandleFunc("GET "+options.BaseURL+"/external-principal-access", wrapper.ListExternalPrincipalAccess)
-	m.HandleFunc("POST "+options.BaseURL+"/external-principal-access", wrapper.CreateExternalPrincipalAccess)
-	m.HandleFunc("DELETE "+options.BaseURL+"/external-principal-access/{id}", wrapper.DeleteExternalPrincipalAccess)
-	m.HandleFunc("GET "+options.BaseURL+"/external-principal-access/{id}", wrapper.GetExternalPrincipalAccess)
-	m.HandleFunc("PATCH "+options.BaseURL+"/external-principal-access/{id}", wrapper.UpdateExternalPrincipalAccess)
 	m.HandleFunc("POST "+options.BaseURL+"/file-uploads", wrapper.CreateFileUpload)
 	m.HandleFunc("POST "+options.BaseURL+"/file-uploads/{id}/complete", wrapper.CompleteFileUpload)
 	m.HandleFunc("GET "+options.BaseURL+"/files", wrapper.ListFiles)
@@ -5238,13 +4864,13 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc("GET "+options.BaseURL+"/workspaces/{id}/billable-info", wrapper.GetWorkspaceBillableInfo)
 	m.HandleFunc("GET "+options.BaseURL+"/workspaces/{id}/billing", wrapper.GetWorkspaceBilling)
 	m.HandleFunc("GET "+options.BaseURL+"/workspaces/{id}/external-workspaces", wrapper.ListExternalWorkspaces)
+	m.HandleFunc("POST "+options.BaseURL+"/workspaces/{id}/external-workspaces", wrapper.CreateExternalWorkspace)
 	m.HandleFunc("DELETE "+options.BaseURL+"/workspaces/{id}/external-workspaces/{external_workspace_id}", wrapper.DisconnectExternalWorkspace)
 	m.HandleFunc("GET "+options.BaseURL+"/workspaces/{id}/integration-logs", wrapper.ListWorkspaceIntegrationLogs)
 	m.HandleFunc("POST "+options.BaseURL+"/workspaces/{id}/invites", wrapper.CreateWorkspaceInvite)
 	m.HandleFunc("GET "+options.BaseURL+"/workspaces/{id}/owners", wrapper.ListWorkspaceOwners)
 	m.HandleFunc("GET "+options.BaseURL+"/workspaces/{id}/preferences", wrapper.GetWorkspacePreferences)
 	m.HandleFunc("POST "+options.BaseURL+"/workspaces/{id}/primary-admin", wrapper.TransferPrimaryAdmin)
-	m.HandleFunc("GET "+options.BaseURL+"/workspaces/{id}/profile-fields", wrapper.ListWorkspaceProfileFields)
 
 	return m
 }
@@ -5716,65 +5342,6 @@ func (response CreateConversationdefaultJSONResponse) VisitCreateConversationRes
 	return json.NewEncoder(w).Encode(response.Body)
 }
 
-type DeleteBookmarkRequestObject struct {
-	ConversationId ConversationIDPathNamed `json:"conversation_id"`
-	BookmarkId     BookmarkIDPath          `json:"bookmark_id"`
-}
-
-type DeleteBookmarkResponseObject interface {
-	VisitDeleteBookmarkResponse(w http.ResponseWriter) error
-}
-
-type DeleteBookmark204Response = NoContentResponse
-
-func (response DeleteBookmark204Response) VisitDeleteBookmarkResponse(w http.ResponseWriter) error {
-	w.WriteHeader(204)
-	return nil
-}
-
-type DeleteBookmarkdefaultJSONResponse struct {
-	Body       APIError
-	StatusCode int
-}
-
-func (response DeleteBookmarkdefaultJSONResponse) VisitDeleteBookmarkResponse(w http.ResponseWriter) error {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(response.StatusCode)
-
-	return json.NewEncoder(w).Encode(response.Body)
-}
-
-type UpdateBookmarkRequestObject struct {
-	ConversationId ConversationIDPathNamed `json:"conversation_id"`
-	BookmarkId     BookmarkIDPath          `json:"bookmark_id"`
-	Body           *UpdateBookmarkJSONRequestBody
-}
-
-type UpdateBookmarkResponseObject interface {
-	VisitUpdateBookmarkResponse(w http.ResponseWriter) error
-}
-
-type UpdateBookmark200JSONResponse Bookmark
-
-func (response UpdateBookmark200JSONResponse) VisitUpdateBookmarkResponse(w http.ResponseWriter) error {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(200)
-
-	return json.NewEncoder(w).Encode(response)
-}
-
-type UpdateBookmarkdefaultJSONResponse struct {
-	Body       APIError
-	StatusCode int
-}
-
-func (response UpdateBookmarkdefaultJSONResponse) VisitUpdateBookmarkResponse(w http.ResponseWriter) error {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(response.StatusCode)
-
-	return json.NewEncoder(w).Encode(response.Body)
-}
-
 type GetConversationRequestObject struct {
 	Id ConversationIDPath `json:"id"`
 }
@@ -5834,67 +5401,118 @@ func (response UpdateConversationdefaultJSONResponse) VisitUpdateConversationRes
 	return json.NewEncoder(w).Encode(response.Body)
 }
 
-type ListBookmarksRequestObject struct {
+type ListConversationExternalMembersRequestObject struct {
 	Id ConversationIDPath `json:"id"`
 }
 
-type ListBookmarksResponseObject interface {
-	VisitListBookmarksResponse(w http.ResponseWriter) error
+type ListConversationExternalMembersResponseObject interface {
+	VisitListConversationExternalMembersResponse(w http.ResponseWriter) error
 }
 
-type ListBookmarks200JSONResponse BookmarksCollection
+type ListConversationExternalMembers200JSONResponse ExternalMembersCollection
 
-func (response ListBookmarks200JSONResponse) VisitListBookmarksResponse(w http.ResponseWriter) error {
+func (response ListConversationExternalMembers200JSONResponse) VisitListConversationExternalMembersResponse(w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(200)
 
 	return json.NewEncoder(w).Encode(response)
 }
 
-type ListBookmarksdefaultJSONResponse struct {
+type ListConversationExternalMembersdefaultJSONResponse struct {
 	Body       APIError
 	StatusCode int
 }
 
-func (response ListBookmarksdefaultJSONResponse) VisitListBookmarksResponse(w http.ResponseWriter) error {
+func (response ListConversationExternalMembersdefaultJSONResponse) VisitListConversationExternalMembersResponse(w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(response.StatusCode)
 
 	return json.NewEncoder(w).Encode(response.Body)
 }
 
-type CreateBookmarkRequestObject struct {
+type CreateConversationExternalMemberRequestObject struct {
 	Id   ConversationIDPath `json:"id"`
-	Body *CreateBookmarkJSONRequestBody
+	Body *CreateConversationExternalMemberJSONRequestBody
 }
 
-type CreateBookmarkResponseObject interface {
-	VisitCreateBookmarkResponse(w http.ResponseWriter) error
+type CreateConversationExternalMemberResponseObject interface {
+	VisitCreateConversationExternalMemberResponse(w http.ResponseWriter) error
 }
 
-type CreateBookmark201ResponseHeaders struct {
-	Location string
-}
+type CreateConversationExternalMember201JSONResponse ExternalMember
 
-type CreateBookmark201JSONResponse struct {
-	Body    Bookmark
-	Headers CreateBookmark201ResponseHeaders
-}
-
-func (response CreateBookmark201JSONResponse) VisitCreateBookmarkResponse(w http.ResponseWriter) error {
+func (response CreateConversationExternalMember201JSONResponse) VisitCreateConversationExternalMemberResponse(w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("Location", fmt.Sprint(response.Headers.Location))
 	w.WriteHeader(201)
 
-	return json.NewEncoder(w).Encode(response.Body)
+	return json.NewEncoder(w).Encode(response)
 }
 
-type CreateBookmarkdefaultJSONResponse struct {
+type CreateConversationExternalMemberdefaultJSONResponse struct {
 	Body       APIError
 	StatusCode int
 }
 
-func (response CreateBookmarkdefaultJSONResponse) VisitCreateBookmarkResponse(w http.ResponseWriter) error {
+func (response CreateConversationExternalMemberdefaultJSONResponse) VisitCreateConversationExternalMemberResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type DeleteConversationExternalMemberRequestObject struct {
+	Id               ConversationIDPath   `json:"id"`
+	ExternalMemberId ExternalMemberIDPath `json:"external_member_id"`
+}
+
+type DeleteConversationExternalMemberResponseObject interface {
+	VisitDeleteConversationExternalMemberResponse(w http.ResponseWriter) error
+}
+
+type DeleteConversationExternalMember204Response = NoContentResponse
+
+func (response DeleteConversationExternalMember204Response) VisitDeleteConversationExternalMemberResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type DeleteConversationExternalMemberdefaultJSONResponse struct {
+	Body       APIError
+	StatusCode int
+}
+
+func (response DeleteConversationExternalMemberdefaultJSONResponse) VisitDeleteConversationExternalMemberResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type UpdateConversationExternalMemberRequestObject struct {
+	Id               ConversationIDPath   `json:"id"`
+	ExternalMemberId ExternalMemberIDPath `json:"external_member_id"`
+	Body             *UpdateConversationExternalMemberJSONRequestBody
+}
+
+type UpdateConversationExternalMemberResponseObject interface {
+	VisitUpdateConversationExternalMemberResponse(w http.ResponseWriter) error
+}
+
+type UpdateConversationExternalMember200JSONResponse ExternalMember
+
+func (response UpdateConversationExternalMember200JSONResponse) VisitUpdateConversationExternalMemberResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type UpdateConversationExternalMemberdefaultJSONResponse struct {
+	Body       APIError
+	StatusCode int
+}
+
+func (response UpdateConversationExternalMemberdefaultJSONResponse) VisitUpdateConversationExternalMemberResponse(w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(response.StatusCode)
 
@@ -6042,101 +5660,6 @@ type RemoveConversationMemberdefaultJSONResponse struct {
 }
 
 func (response RemoveConversationMemberdefaultJSONResponse) VisitRemoveConversationMemberResponse(w http.ResponseWriter) error {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(response.StatusCode)
-
-	return json.NewEncoder(w).Encode(response.Body)
-}
-
-type ListPinsRequestObject struct {
-	Id ConversationIDPath `json:"id"`
-}
-
-type ListPinsResponseObject interface {
-	VisitListPinsResponse(w http.ResponseWriter) error
-}
-
-type ListPins200JSONResponse PinsCollection
-
-func (response ListPins200JSONResponse) VisitListPinsResponse(w http.ResponseWriter) error {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(200)
-
-	return json.NewEncoder(w).Encode(response)
-}
-
-type ListPinsdefaultJSONResponse struct {
-	Body       APIError
-	StatusCode int
-}
-
-func (response ListPinsdefaultJSONResponse) VisitListPinsResponse(w http.ResponseWriter) error {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(response.StatusCode)
-
-	return json.NewEncoder(w).Encode(response.Body)
-}
-
-type CreatePinRequestObject struct {
-	Id   ConversationIDPath `json:"id"`
-	Body *CreatePinJSONRequestBody
-}
-
-type CreatePinResponseObject interface {
-	VisitCreatePinResponse(w http.ResponseWriter) error
-}
-
-type CreatePin201ResponseHeaders struct {
-	Location string
-}
-
-type CreatePin201JSONResponse struct {
-	Body    Pin
-	Headers CreatePin201ResponseHeaders
-}
-
-func (response CreatePin201JSONResponse) VisitCreatePinResponse(w http.ResponseWriter) error {
-	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("Location", fmt.Sprint(response.Headers.Location))
-	w.WriteHeader(201)
-
-	return json.NewEncoder(w).Encode(response.Body)
-}
-
-type CreatePindefaultJSONResponse struct {
-	Body       APIError
-	StatusCode int
-}
-
-func (response CreatePindefaultJSONResponse) VisitCreatePinResponse(w http.ResponseWriter) error {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(response.StatusCode)
-
-	return json.NewEncoder(w).Encode(response.Body)
-}
-
-type DeletePinRequestObject struct {
-	Id        ConversationIDPath `json:"id"`
-	MessageTs MessageTSPath      `json:"message_ts"`
-}
-
-type DeletePinResponseObject interface {
-	VisitDeletePinResponse(w http.ResponseWriter) error
-}
-
-type DeletePin204Response = NoContentResponse
-
-func (response DeletePin204Response) VisitDeletePinResponse(w http.ResponseWriter) error {
-	w.WriteHeader(204)
-	return nil
-}
-
-type DeletePindefaultJSONResponse struct {
-	Body       APIError
-	StatusCode int
-}
-
-func (response DeletePindefaultJSONResponse) VisitDeletePinResponse(w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(response.StatusCode)
 
@@ -6405,158 +5928,6 @@ type ListEventsdefaultJSONResponse struct {
 }
 
 func (response ListEventsdefaultJSONResponse) VisitListEventsResponse(w http.ResponseWriter) error {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(response.StatusCode)
-
-	return json.NewEncoder(w).Encode(response.Body)
-}
-
-type ListExternalPrincipalAccessRequestObject struct {
-	Params ListExternalPrincipalAccessParams
-}
-
-type ListExternalPrincipalAccessResponseObject interface {
-	VisitListExternalPrincipalAccessResponse(w http.ResponseWriter) error
-}
-
-type ListExternalPrincipalAccess200JSONResponse ExternalPrincipalAccessCollection
-
-func (response ListExternalPrincipalAccess200JSONResponse) VisitListExternalPrincipalAccessResponse(w http.ResponseWriter) error {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(200)
-
-	return json.NewEncoder(w).Encode(response)
-}
-
-type ListExternalPrincipalAccessdefaultJSONResponse struct {
-	Body       APIError
-	StatusCode int
-}
-
-func (response ListExternalPrincipalAccessdefaultJSONResponse) VisitListExternalPrincipalAccessResponse(w http.ResponseWriter) error {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(response.StatusCode)
-
-	return json.NewEncoder(w).Encode(response.Body)
-}
-
-type CreateExternalPrincipalAccessRequestObject struct {
-	Body *CreateExternalPrincipalAccessJSONRequestBody
-}
-
-type CreateExternalPrincipalAccessResponseObject interface {
-	VisitCreateExternalPrincipalAccessResponse(w http.ResponseWriter) error
-}
-
-type CreateExternalPrincipalAccess201ResponseHeaders struct {
-	Location string
-}
-
-type CreateExternalPrincipalAccess201JSONResponse struct {
-	Body    ExternalPrincipalAccess
-	Headers CreateExternalPrincipalAccess201ResponseHeaders
-}
-
-func (response CreateExternalPrincipalAccess201JSONResponse) VisitCreateExternalPrincipalAccessResponse(w http.ResponseWriter) error {
-	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("Location", fmt.Sprint(response.Headers.Location))
-	w.WriteHeader(201)
-
-	return json.NewEncoder(w).Encode(response.Body)
-}
-
-type CreateExternalPrincipalAccessdefaultJSONResponse struct {
-	Body       APIError
-	StatusCode int
-}
-
-func (response CreateExternalPrincipalAccessdefaultJSONResponse) VisitCreateExternalPrincipalAccessResponse(w http.ResponseWriter) error {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(response.StatusCode)
-
-	return json.NewEncoder(w).Encode(response.Body)
-}
-
-type DeleteExternalPrincipalAccessRequestObject struct {
-	Id ExternalPrincipalAccessIDPath `json:"id"`
-}
-
-type DeleteExternalPrincipalAccessResponseObject interface {
-	VisitDeleteExternalPrincipalAccessResponse(w http.ResponseWriter) error
-}
-
-type DeleteExternalPrincipalAccess204Response = NoContentResponse
-
-func (response DeleteExternalPrincipalAccess204Response) VisitDeleteExternalPrincipalAccessResponse(w http.ResponseWriter) error {
-	w.WriteHeader(204)
-	return nil
-}
-
-type DeleteExternalPrincipalAccessdefaultJSONResponse struct {
-	Body       APIError
-	StatusCode int
-}
-
-func (response DeleteExternalPrincipalAccessdefaultJSONResponse) VisitDeleteExternalPrincipalAccessResponse(w http.ResponseWriter) error {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(response.StatusCode)
-
-	return json.NewEncoder(w).Encode(response.Body)
-}
-
-type GetExternalPrincipalAccessRequestObject struct {
-	Id ExternalPrincipalAccessIDPath `json:"id"`
-}
-
-type GetExternalPrincipalAccessResponseObject interface {
-	VisitGetExternalPrincipalAccessResponse(w http.ResponseWriter) error
-}
-
-type GetExternalPrincipalAccess200JSONResponse ExternalPrincipalAccess
-
-func (response GetExternalPrincipalAccess200JSONResponse) VisitGetExternalPrincipalAccessResponse(w http.ResponseWriter) error {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(200)
-
-	return json.NewEncoder(w).Encode(response)
-}
-
-type GetExternalPrincipalAccessdefaultJSONResponse struct {
-	Body       APIError
-	StatusCode int
-}
-
-func (response GetExternalPrincipalAccessdefaultJSONResponse) VisitGetExternalPrincipalAccessResponse(w http.ResponseWriter) error {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(response.StatusCode)
-
-	return json.NewEncoder(w).Encode(response.Body)
-}
-
-type UpdateExternalPrincipalAccessRequestObject struct {
-	Id   ExternalPrincipalAccessIDPath `json:"id"`
-	Body *UpdateExternalPrincipalAccessJSONRequestBody
-}
-
-type UpdateExternalPrincipalAccessResponseObject interface {
-	VisitUpdateExternalPrincipalAccessResponse(w http.ResponseWriter) error
-}
-
-type UpdateExternalPrincipalAccess200JSONResponse ExternalPrincipalAccess
-
-func (response UpdateExternalPrincipalAccess200JSONResponse) VisitUpdateExternalPrincipalAccessResponse(w http.ResponseWriter) error {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(200)
-
-	return json.NewEncoder(w).Encode(response)
-}
-
-type UpdateExternalPrincipalAccessdefaultJSONResponse struct {
-	Body       APIError
-	StatusCode int
-}
-
-func (response UpdateExternalPrincipalAccessdefaultJSONResponse) VisitUpdateExternalPrincipalAccessResponse(w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(response.StatusCode)
 
@@ -7563,6 +6934,36 @@ func (response ListExternalWorkspacesdefaultJSONResponse) VisitListExternalWorks
 	return json.NewEncoder(w).Encode(response.Body)
 }
 
+type CreateExternalWorkspaceRequestObject struct {
+	Id   WorkspaceIDPath `json:"id"`
+	Body *CreateExternalWorkspaceJSONRequestBody
+}
+
+type CreateExternalWorkspaceResponseObject interface {
+	VisitCreateExternalWorkspaceResponse(w http.ResponseWriter) error
+}
+
+type CreateExternalWorkspace201JSONResponse ExternalWorkspace
+
+func (response CreateExternalWorkspace201JSONResponse) VisitCreateExternalWorkspaceResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type CreateExternalWorkspacedefaultJSONResponse struct {
+	Body       APIError
+	StatusCode int
+}
+
+func (response CreateExternalWorkspacedefaultJSONResponse) VisitCreateExternalWorkspaceResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
 type DisconnectExternalWorkspaceRequestObject struct {
 	Id                  WorkspaceIDPath         `json:"id"`
 	ExternalWorkspaceId ExternalWorkspaceIDPath `json:"external_workspace_id"`
@@ -7747,35 +7148,6 @@ func (response TransferPrimaryAdmindefaultJSONResponse) VisitTransferPrimaryAdmi
 	return json.NewEncoder(w).Encode(response.Body)
 }
 
-type ListWorkspaceProfileFieldsRequestObject struct {
-	Id WorkspaceIDPath `json:"id"`
-}
-
-type ListWorkspaceProfileFieldsResponseObject interface {
-	VisitListWorkspaceProfileFieldsResponse(w http.ResponseWriter) error
-}
-
-type ListWorkspaceProfileFields200JSONResponse WorkspaceProfileFieldsCollection
-
-func (response ListWorkspaceProfileFields200JSONResponse) VisitListWorkspaceProfileFieldsResponse(w http.ResponseWriter) error {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(200)
-
-	return json.NewEncoder(w).Encode(response)
-}
-
-type ListWorkspaceProfileFieldsdefaultJSONResponse struct {
-	Body       APIError
-	StatusCode int
-}
-
-func (response ListWorkspaceProfileFieldsdefaultJSONResponse) VisitListWorkspaceProfileFieldsResponse(w http.ResponseWriter) error {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(response.StatusCode)
-
-	return json.NewEncoder(w).Encode(response.Body)
-}
-
 // StrictServerInterface represents all server handlers.
 type StrictServerInterface interface {
 
@@ -7824,23 +7196,23 @@ type StrictServerInterface interface {
 	// (POST /conversations)
 	CreateConversation(ctx context.Context, request CreateConversationRequestObject) (CreateConversationResponseObject, error)
 
-	// (DELETE /conversations/{conversation_id}/bookmarks/{bookmark_id})
-	DeleteBookmark(ctx context.Context, request DeleteBookmarkRequestObject) (DeleteBookmarkResponseObject, error)
-
-	// (PATCH /conversations/{conversation_id}/bookmarks/{bookmark_id})
-	UpdateBookmark(ctx context.Context, request UpdateBookmarkRequestObject) (UpdateBookmarkResponseObject, error)
-
 	// (GET /conversations/{id})
 	GetConversation(ctx context.Context, request GetConversationRequestObject) (GetConversationResponseObject, error)
 
 	// (PATCH /conversations/{id})
 	UpdateConversation(ctx context.Context, request UpdateConversationRequestObject) (UpdateConversationResponseObject, error)
 
-	// (GET /conversations/{id}/bookmarks)
-	ListBookmarks(ctx context.Context, request ListBookmarksRequestObject) (ListBookmarksResponseObject, error)
+	// (GET /conversations/{id}/external-members)
+	ListConversationExternalMembers(ctx context.Context, request ListConversationExternalMembersRequestObject) (ListConversationExternalMembersResponseObject, error)
 
-	// (POST /conversations/{id}/bookmarks)
-	CreateBookmark(ctx context.Context, request CreateBookmarkRequestObject) (CreateBookmarkResponseObject, error)
+	// (POST /conversations/{id}/external-members)
+	CreateConversationExternalMember(ctx context.Context, request CreateConversationExternalMemberRequestObject) (CreateConversationExternalMemberResponseObject, error)
+
+	// (DELETE /conversations/{id}/external-members/{external_member_id})
+	DeleteConversationExternalMember(ctx context.Context, request DeleteConversationExternalMemberRequestObject) (DeleteConversationExternalMemberResponseObject, error)
+
+	// (PATCH /conversations/{id}/external-members/{external_member_id})
+	UpdateConversationExternalMember(ctx context.Context, request UpdateConversationExternalMemberRequestObject) (UpdateConversationExternalMemberResponseObject, error)
 
 	// (GET /conversations/{id}/managers)
 	GetConversationManagers(ctx context.Context, request GetConversationManagersRequestObject) (GetConversationManagersResponseObject, error)
@@ -7856,15 +7228,6 @@ type StrictServerInterface interface {
 
 	// (DELETE /conversations/{id}/members/{user_id})
 	RemoveConversationMember(ctx context.Context, request RemoveConversationMemberRequestObject) (RemoveConversationMemberResponseObject, error)
-
-	// (GET /conversations/{id}/pins)
-	ListPins(ctx context.Context, request ListPinsRequestObject) (ListPinsResponseObject, error)
-
-	// (POST /conversations/{id}/pins)
-	CreatePin(ctx context.Context, request CreatePinRequestObject) (CreatePinResponseObject, error)
-
-	// (DELETE /conversations/{id}/pins/{message_ts})
-	DeletePin(ctx context.Context, request DeletePinRequestObject) (DeletePinResponseObject, error)
 
 	// (GET /conversations/{id}/posting-policy)
 	GetConversationPostingPolicy(ctx context.Context, request GetConversationPostingPolicyRequestObject) (GetConversationPostingPolicyResponseObject, error)
@@ -7892,21 +7255,6 @@ type StrictServerInterface interface {
 
 	// (GET /events)
 	ListEvents(ctx context.Context, request ListEventsRequestObject) (ListEventsResponseObject, error)
-
-	// (GET /external-principal-access)
-	ListExternalPrincipalAccess(ctx context.Context, request ListExternalPrincipalAccessRequestObject) (ListExternalPrincipalAccessResponseObject, error)
-
-	// (POST /external-principal-access)
-	CreateExternalPrincipalAccess(ctx context.Context, request CreateExternalPrincipalAccessRequestObject) (CreateExternalPrincipalAccessResponseObject, error)
-
-	// (DELETE /external-principal-access/{id})
-	DeleteExternalPrincipalAccess(ctx context.Context, request DeleteExternalPrincipalAccessRequestObject) (DeleteExternalPrincipalAccessResponseObject, error)
-
-	// (GET /external-principal-access/{id})
-	GetExternalPrincipalAccess(ctx context.Context, request GetExternalPrincipalAccessRequestObject) (GetExternalPrincipalAccessResponseObject, error)
-
-	// (PATCH /external-principal-access/{id})
-	UpdateExternalPrincipalAccess(ctx context.Context, request UpdateExternalPrincipalAccessRequestObject) (UpdateExternalPrincipalAccessResponseObject, error)
 
 	// (POST /file-uploads)
 	CreateFileUpload(ctx context.Context, request CreateFileUploadRequestObject) (CreateFileUploadResponseObject, error)
@@ -8007,6 +7355,9 @@ type StrictServerInterface interface {
 	// (GET /workspaces/{id}/external-workspaces)
 	ListExternalWorkspaces(ctx context.Context, request ListExternalWorkspacesRequestObject) (ListExternalWorkspacesResponseObject, error)
 
+	// (POST /workspaces/{id}/external-workspaces)
+	CreateExternalWorkspace(ctx context.Context, request CreateExternalWorkspaceRequestObject) (CreateExternalWorkspaceResponseObject, error)
+
 	// (DELETE /workspaces/{id}/external-workspaces/{external_workspace_id})
 	DisconnectExternalWorkspace(ctx context.Context, request DisconnectExternalWorkspaceRequestObject) (DisconnectExternalWorkspaceResponseObject, error)
 
@@ -8024,9 +7375,6 @@ type StrictServerInterface interface {
 
 	// (POST /workspaces/{id}/primary-admin)
 	TransferPrimaryAdmin(ctx context.Context, request TransferPrimaryAdminRequestObject) (TransferPrimaryAdminResponseObject, error)
-
-	// (GET /workspaces/{id}/profile-fields)
-	ListWorkspaceProfileFields(ctx context.Context, request ListWorkspaceProfileFieldsRequestObject) (ListWorkspaceProfileFieldsResponseObject, error)
 }
 
 type StrictHandlerFunc = strictnethttp.StrictHTTPHandlerFunc
@@ -8488,67 +7836,6 @@ func (sh *strictHandler) CreateConversation(w http.ResponseWriter, r *http.Reque
 	}
 }
 
-// DeleteBookmark operation middleware
-func (sh *strictHandler) DeleteBookmark(w http.ResponseWriter, r *http.Request, conversationId ConversationIDPathNamed, bookmarkId BookmarkIDPath) {
-	var request DeleteBookmarkRequestObject
-
-	request.ConversationId = conversationId
-	request.BookmarkId = bookmarkId
-
-	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.DeleteBookmark(ctx, request.(DeleteBookmarkRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "DeleteBookmark")
-	}
-
-	response, err := handler(r.Context(), w, r, request)
-
-	if err != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(DeleteBookmarkResponseObject); ok {
-		if err := validResponse.VisitDeleteBookmarkResponse(w); err != nil {
-			sh.options.ResponseErrorHandlerFunc(w, r, err)
-		}
-	} else if response != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
-	}
-}
-
-// UpdateBookmark operation middleware
-func (sh *strictHandler) UpdateBookmark(w http.ResponseWriter, r *http.Request, conversationId ConversationIDPathNamed, bookmarkId BookmarkIDPath) {
-	var request UpdateBookmarkRequestObject
-
-	request.ConversationId = conversationId
-	request.BookmarkId = bookmarkId
-
-	var body UpdateBookmarkJSONRequestBody
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
-		return
-	}
-	request.Body = &body
-
-	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.UpdateBookmark(ctx, request.(UpdateBookmarkRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "UpdateBookmark")
-	}
-
-	response, err := handler(r.Context(), w, r, request)
-
-	if err != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(UpdateBookmarkResponseObject); ok {
-		if err := validResponse.VisitUpdateBookmarkResponse(w); err != nil {
-			sh.options.ResponseErrorHandlerFunc(w, r, err)
-		}
-	} else if response != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
-	}
-}
-
 // GetConversation operation middleware
 func (sh *strictHandler) GetConversation(w http.ResponseWriter, r *http.Request, id ConversationIDPath) {
 	var request GetConversationRequestObject
@@ -8608,25 +7895,25 @@ func (sh *strictHandler) UpdateConversation(w http.ResponseWriter, r *http.Reque
 	}
 }
 
-// ListBookmarks operation middleware
-func (sh *strictHandler) ListBookmarks(w http.ResponseWriter, r *http.Request, id ConversationIDPath) {
-	var request ListBookmarksRequestObject
+// ListConversationExternalMembers operation middleware
+func (sh *strictHandler) ListConversationExternalMembers(w http.ResponseWriter, r *http.Request, id ConversationIDPath) {
+	var request ListConversationExternalMembersRequestObject
 
 	request.Id = id
 
 	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.ListBookmarks(ctx, request.(ListBookmarksRequestObject))
+		return sh.ssi.ListConversationExternalMembers(ctx, request.(ListConversationExternalMembersRequestObject))
 	}
 	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "ListBookmarks")
+		handler = middleware(handler, "ListConversationExternalMembers")
 	}
 
 	response, err := handler(r.Context(), w, r, request)
 
 	if err != nil {
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(ListBookmarksResponseObject); ok {
-		if err := validResponse.VisitListBookmarksResponse(w); err != nil {
+	} else if validResponse, ok := response.(ListConversationExternalMembersResponseObject); ok {
+		if err := validResponse.VisitListConversationExternalMembersResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -8634,13 +7921,13 @@ func (sh *strictHandler) ListBookmarks(w http.ResponseWriter, r *http.Request, i
 	}
 }
 
-// CreateBookmark operation middleware
-func (sh *strictHandler) CreateBookmark(w http.ResponseWriter, r *http.Request, id ConversationIDPath) {
-	var request CreateBookmarkRequestObject
+// CreateConversationExternalMember operation middleware
+func (sh *strictHandler) CreateConversationExternalMember(w http.ResponseWriter, r *http.Request, id ConversationIDPath) {
+	var request CreateConversationExternalMemberRequestObject
 
 	request.Id = id
 
-	var body CreateBookmarkJSONRequestBody
+	var body CreateConversationExternalMemberJSONRequestBody
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
 		return
@@ -8648,18 +7935,79 @@ func (sh *strictHandler) CreateBookmark(w http.ResponseWriter, r *http.Request, 
 	request.Body = &body
 
 	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.CreateBookmark(ctx, request.(CreateBookmarkRequestObject))
+		return sh.ssi.CreateConversationExternalMember(ctx, request.(CreateConversationExternalMemberRequestObject))
 	}
 	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "CreateBookmark")
+		handler = middleware(handler, "CreateConversationExternalMember")
 	}
 
 	response, err := handler(r.Context(), w, r, request)
 
 	if err != nil {
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(CreateBookmarkResponseObject); ok {
-		if err := validResponse.VisitCreateBookmarkResponse(w); err != nil {
+	} else if validResponse, ok := response.(CreateConversationExternalMemberResponseObject); ok {
+		if err := validResponse.VisitCreateConversationExternalMemberResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DeleteConversationExternalMember operation middleware
+func (sh *strictHandler) DeleteConversationExternalMember(w http.ResponseWriter, r *http.Request, id ConversationIDPath, externalMemberId ExternalMemberIDPath) {
+	var request DeleteConversationExternalMemberRequestObject
+
+	request.Id = id
+	request.ExternalMemberId = externalMemberId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DeleteConversationExternalMember(ctx, request.(DeleteConversationExternalMemberRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeleteConversationExternalMember")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DeleteConversationExternalMemberResponseObject); ok {
+		if err := validResponse.VisitDeleteConversationExternalMemberResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// UpdateConversationExternalMember operation middleware
+func (sh *strictHandler) UpdateConversationExternalMember(w http.ResponseWriter, r *http.Request, id ConversationIDPath, externalMemberId ExternalMemberIDPath) {
+	var request UpdateConversationExternalMemberRequestObject
+
+	request.Id = id
+	request.ExternalMemberId = externalMemberId
+
+	var body UpdateConversationExternalMemberJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.UpdateConversationExternalMember(ctx, request.(UpdateConversationExternalMemberRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "UpdateConversationExternalMember")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(UpdateConversationExternalMemberResponseObject); ok {
+		if err := validResponse.VisitUpdateConversationExternalMemberResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -8806,92 +8154,6 @@ func (sh *strictHandler) RemoveConversationMember(w http.ResponseWriter, r *http
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(RemoveConversationMemberResponseObject); ok {
 		if err := validResponse.VisitRemoveConversationMemberResponse(w); err != nil {
-			sh.options.ResponseErrorHandlerFunc(w, r, err)
-		}
-	} else if response != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
-	}
-}
-
-// ListPins operation middleware
-func (sh *strictHandler) ListPins(w http.ResponseWriter, r *http.Request, id ConversationIDPath) {
-	var request ListPinsRequestObject
-
-	request.Id = id
-
-	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.ListPins(ctx, request.(ListPinsRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "ListPins")
-	}
-
-	response, err := handler(r.Context(), w, r, request)
-
-	if err != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(ListPinsResponseObject); ok {
-		if err := validResponse.VisitListPinsResponse(w); err != nil {
-			sh.options.ResponseErrorHandlerFunc(w, r, err)
-		}
-	} else if response != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
-	}
-}
-
-// CreatePin operation middleware
-func (sh *strictHandler) CreatePin(w http.ResponseWriter, r *http.Request, id ConversationIDPath) {
-	var request CreatePinRequestObject
-
-	request.Id = id
-
-	var body CreatePinJSONRequestBody
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
-		return
-	}
-	request.Body = &body
-
-	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.CreatePin(ctx, request.(CreatePinRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "CreatePin")
-	}
-
-	response, err := handler(r.Context(), w, r, request)
-
-	if err != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(CreatePinResponseObject); ok {
-		if err := validResponse.VisitCreatePinResponse(w); err != nil {
-			sh.options.ResponseErrorHandlerFunc(w, r, err)
-		}
-	} else if response != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
-	}
-}
-
-// DeletePin operation middleware
-func (sh *strictHandler) DeletePin(w http.ResponseWriter, r *http.Request, id ConversationIDPath, messageTs MessageTSPath) {
-	var request DeletePinRequestObject
-
-	request.Id = id
-	request.MessageTs = messageTs
-
-	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.DeletePin(ctx, request.(DeletePinRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "DeletePin")
-	}
-
-	response, err := handler(r.Context(), w, r, request)
-
-	if err != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(DeletePinResponseObject); ok {
-		if err := validResponse.VisitDeletePinResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -9152,148 +8414,6 @@ func (sh *strictHandler) ListEvents(w http.ResponseWriter, r *http.Request, para
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(ListEventsResponseObject); ok {
 		if err := validResponse.VisitListEventsResponse(w); err != nil {
-			sh.options.ResponseErrorHandlerFunc(w, r, err)
-		}
-	} else if response != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
-	}
-}
-
-// ListExternalPrincipalAccess operation middleware
-func (sh *strictHandler) ListExternalPrincipalAccess(w http.ResponseWriter, r *http.Request, params ListExternalPrincipalAccessParams) {
-	var request ListExternalPrincipalAccessRequestObject
-
-	request.Params = params
-
-	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.ListExternalPrincipalAccess(ctx, request.(ListExternalPrincipalAccessRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "ListExternalPrincipalAccess")
-	}
-
-	response, err := handler(r.Context(), w, r, request)
-
-	if err != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(ListExternalPrincipalAccessResponseObject); ok {
-		if err := validResponse.VisitListExternalPrincipalAccessResponse(w); err != nil {
-			sh.options.ResponseErrorHandlerFunc(w, r, err)
-		}
-	} else if response != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
-	}
-}
-
-// CreateExternalPrincipalAccess operation middleware
-func (sh *strictHandler) CreateExternalPrincipalAccess(w http.ResponseWriter, r *http.Request) {
-	var request CreateExternalPrincipalAccessRequestObject
-
-	var body CreateExternalPrincipalAccessJSONRequestBody
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
-		return
-	}
-	request.Body = &body
-
-	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.CreateExternalPrincipalAccess(ctx, request.(CreateExternalPrincipalAccessRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "CreateExternalPrincipalAccess")
-	}
-
-	response, err := handler(r.Context(), w, r, request)
-
-	if err != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(CreateExternalPrincipalAccessResponseObject); ok {
-		if err := validResponse.VisitCreateExternalPrincipalAccessResponse(w); err != nil {
-			sh.options.ResponseErrorHandlerFunc(w, r, err)
-		}
-	} else if response != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
-	}
-}
-
-// DeleteExternalPrincipalAccess operation middleware
-func (sh *strictHandler) DeleteExternalPrincipalAccess(w http.ResponseWriter, r *http.Request, id ExternalPrincipalAccessIDPath) {
-	var request DeleteExternalPrincipalAccessRequestObject
-
-	request.Id = id
-
-	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.DeleteExternalPrincipalAccess(ctx, request.(DeleteExternalPrincipalAccessRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "DeleteExternalPrincipalAccess")
-	}
-
-	response, err := handler(r.Context(), w, r, request)
-
-	if err != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(DeleteExternalPrincipalAccessResponseObject); ok {
-		if err := validResponse.VisitDeleteExternalPrincipalAccessResponse(w); err != nil {
-			sh.options.ResponseErrorHandlerFunc(w, r, err)
-		}
-	} else if response != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
-	}
-}
-
-// GetExternalPrincipalAccess operation middleware
-func (sh *strictHandler) GetExternalPrincipalAccess(w http.ResponseWriter, r *http.Request, id ExternalPrincipalAccessIDPath) {
-	var request GetExternalPrincipalAccessRequestObject
-
-	request.Id = id
-
-	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.GetExternalPrincipalAccess(ctx, request.(GetExternalPrincipalAccessRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "GetExternalPrincipalAccess")
-	}
-
-	response, err := handler(r.Context(), w, r, request)
-
-	if err != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(GetExternalPrincipalAccessResponseObject); ok {
-		if err := validResponse.VisitGetExternalPrincipalAccessResponse(w); err != nil {
-			sh.options.ResponseErrorHandlerFunc(w, r, err)
-		}
-	} else if response != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
-	}
-}
-
-// UpdateExternalPrincipalAccess operation middleware
-func (sh *strictHandler) UpdateExternalPrincipalAccess(w http.ResponseWriter, r *http.Request, id ExternalPrincipalAccessIDPath) {
-	var request UpdateExternalPrincipalAccessRequestObject
-
-	request.Id = id
-
-	var body UpdateExternalPrincipalAccessJSONRequestBody
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
-		return
-	}
-	request.Body = &body
-
-	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.UpdateExternalPrincipalAccess(ctx, request.(UpdateExternalPrincipalAccessRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "UpdateExternalPrincipalAccess")
-	}
-
-	response, err := handler(r.Context(), w, r, request)
-
-	if err != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(UpdateExternalPrincipalAccessResponseObject); ok {
-		if err := validResponse.VisitUpdateExternalPrincipalAccessResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -10247,6 +9367,39 @@ func (sh *strictHandler) ListExternalWorkspaces(w http.ResponseWriter, r *http.R
 	}
 }
 
+// CreateExternalWorkspace operation middleware
+func (sh *strictHandler) CreateExternalWorkspace(w http.ResponseWriter, r *http.Request, id WorkspaceIDPath) {
+	var request CreateExternalWorkspaceRequestObject
+
+	request.Id = id
+
+	var body CreateExternalWorkspaceJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateExternalWorkspace(ctx, request.(CreateExternalWorkspaceRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateExternalWorkspace")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateExternalWorkspaceResponseObject); ok {
+		if err := validResponse.VisitCreateExternalWorkspaceResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // DisconnectExternalWorkspace operation middleware
 func (sh *strictHandler) DisconnectExternalWorkspace(w http.ResponseWriter, r *http.Request, id WorkspaceIDPath, externalWorkspaceId ExternalWorkspaceIDPath) {
 	var request DisconnectExternalWorkspaceRequestObject
@@ -10419,223 +9572,187 @@ func (sh *strictHandler) TransferPrimaryAdmin(w http.ResponseWriter, r *http.Req
 	}
 }
 
-// ListWorkspaceProfileFields operation middleware
-func (sh *strictHandler) ListWorkspaceProfileFields(w http.ResponseWriter, r *http.Request, id WorkspaceIDPath) {
-	var request ListWorkspaceProfileFieldsRequestObject
-
-	request.Id = id
-
-	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.ListWorkspaceProfileFields(ctx, request.(ListWorkspaceProfileFieldsRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "ListWorkspaceProfileFields")
-	}
-
-	response, err := handler(r.Context(), w, r, request)
-
-	if err != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(ListWorkspaceProfileFieldsResponseObject); ok {
-		if err := validResponse.VisitListWorkspaceProfileFieldsResponse(w); err != nil {
-			sh.options.ResponseErrorHandlerFunc(w, r, err)
-		}
-	} else if response != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
-	}
-}
-
 // Base64 encoded, gzipped, json marshaled Swagger object
 var swaggerSpec = []string{
 
-	"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",
-	"4PnVBfor2TXGmGy9h08P/xUAAP//y0h49gZPAQA=",
+	"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",
 }
 
 // GetSwagger returns the content of the embedded swagger specification file

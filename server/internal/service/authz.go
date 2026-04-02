@@ -28,13 +28,7 @@ func resolveWorkspaceID(ctx context.Context, requested string) (string, error) {
 }
 
 func resolveActorID(ctx context.Context, requested string) (string, error) {
-	if actor := ctxutil.GetActingUserID(ctx); actor != "" {
-		return actor, nil
-	}
-	if requested != "" {
-		return requested, nil
-	}
-	return "", fmt.Errorf("user_id: %w", domain.ErrInvalidArgument)
+	return requireCompatibilityActorID(ctx, requested, "user_id")
 }
 
 func ensureWorkspaceAccess(ctx context.Context, resourceWorkspaceID string) error {
@@ -70,11 +64,25 @@ func requirePermission(ctx context.Context, permission string) error {
 }
 
 func requiresAuthenticatedActor(ctx context.Context) bool {
-	return ctxutil.GetActingUserID(ctx) != "" || ctxutil.GetAPIKeyID(ctx) != "" || ctxutil.GetWorkspaceID(ctx) != ""
+	return actorFromContext(ctx).IsAuthenticated()
 }
 
 func isInternalCallWithoutAuth(ctx context.Context) bool {
 	return !requiresAuthenticatedActor(ctx)
+}
+
+func isExternalWorkspaceParticipant(ctx context.Context) bool {
+	return ctxutil.GetAccountID(ctx) != "" && ctxutil.GetMembershipID(ctx) == ""
+}
+
+func hasWorkspaceMembershipContext(ctx context.Context, workspaceID string) bool {
+	if ctxutil.GetMembershipID(ctx) == "" {
+		return false
+	}
+	if workspaceID == "" {
+		return true
+	}
+	return ctxutil.GetWorkspaceID(ctx) == workspaceID
 }
 
 func authenticatedAccountType(ctx context.Context) domain.AccountType {
@@ -90,14 +98,42 @@ func contextIsWorkspaceAdmin(ctx context.Context) bool {
 }
 
 func loadActingUser(ctx context.Context, userRepo repository.UserRepository) (*domain.User, error) {
-	actorID := ctxutil.GetActingUserID(ctx)
-	if actorID == "" {
+	actorIdentity := actorFromContext(ctx)
+	if actorIdentity.CompatibilityUserID() == "" {
 		if actor, ok := syntheticSystemActor(ctx); ok {
+			return actor, nil
+		}
+		if actor := actorIdentity.syntheticUser(); actor != nil {
 			return actor, nil
 		}
 		return nil, domain.ErrForbidden
 	}
-	return userRepo.Get(ctx, actorID)
+	if userRepo == nil {
+		if actor := actorIdentity.syntheticUser(); actor != nil {
+			return actor, nil
+		}
+		return nil, domain.ErrForbidden
+	}
+	actor, err := userRepo.Get(ctx, actorIdentity.CompatibilityUserID())
+	if err != nil {
+		if err != domain.ErrNotFound || (actorIdentity.AccountID == "" && actorIdentity.MembershipID == "") {
+			return nil, err
+		}
+		actor = actorIdentity.syntheticUser()
+	}
+	if workspaceID := ctxutil.GetWorkspaceID(ctx); workspaceID != "" {
+		actor.WorkspaceID = workspaceID
+	}
+	if accountType := ctxutil.GetAccountType(ctx); accountType != "" {
+		actor.AccountType = accountType
+	}
+	if principalType := ctxutil.GetPrincipalType(ctx); principalType != "" {
+		actor.PrincipalType = principalType
+	}
+	if ctxutil.GetIsBot(ctx) {
+		actor.IsBot = true
+	}
+	return actor, nil
 }
 
 func syntheticSystemActor(ctx context.Context) (*domain.User, bool) {
@@ -125,7 +161,7 @@ func requirePrimaryAdminActor(ctx context.Context, userRepo repository.UserRepos
 }
 
 func isSelfAction(ctx context.Context, userID string) bool {
-	return userID != "" && ctxutil.GetActingUserID(ctx) == userID
+	return userID != "" && compatibilityActorID(ctx) == userID
 }
 
 func canSelfUpdateUser(params domain.UpdateUserParams) bool {

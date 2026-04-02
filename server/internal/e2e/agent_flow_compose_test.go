@@ -64,10 +64,10 @@ func TestComposeE2E_AgentSessionFlow(t *testing.T) {
 	})
 
 	_, agentAKey := createAPIKeyViaHTTP(t, httpClient, baseURL, ownerToken, domain.CreateAPIKeyParams{
-		Name:      "Agent A Key",
+		Name:        "Agent A Key",
 		WorkspaceID: owner.WorkspaceID,
-		UserID:    agentA.ID,
-		CreatedBy: owner.ID,
+		UserID:      agentA.ID,
+		CreatedBy:   owner.ID,
 		Permissions: []string{
 			domain.PermissionMessagesRead,
 			domain.PermissionMessagesWrite,
@@ -76,10 +76,10 @@ func TestComposeE2E_AgentSessionFlow(t *testing.T) {
 		},
 	})
 	_, agentBKey := createAPIKeyViaHTTP(t, httpClient, baseURL, ownerToken, domain.CreateAPIKeyParams{
-		Name:      "Agent B Key",
+		Name:        "Agent B Key",
 		WorkspaceID: owner.WorkspaceID,
-		UserID:    agentB.ID,
-		CreatedBy: owner.ID,
+		UserID:      agentB.ID,
+		CreatedBy:   owner.ID,
 		Permissions: []string{
 			domain.PermissionMessagesRead,
 			domain.PermissionMessagesWrite,
@@ -117,14 +117,6 @@ func TestComposeE2E_AgentSessionFlow(t *testing.T) {
 	}
 
 	addReactionViaHTTP(t, httpClient, baseURL, agentBKey, channel.ID, rootMessage.TS, "eyes", agentB.ID)
-	addPinViaHTTP(t, httpClient, baseURL, agentAKey, channel.ID, rootMessage.TS)
-	bookmark := createBookmarkViaHTTP(t, httpClient, baseURL, agentAKey, domain.CreateBookmarkParams{
-		ChannelID: channel.ID,
-		Title:     "Deployment Runbook",
-		Type:      "link",
-		Link:      "https://example.com/runbooks/deployments",
-		CreatedBy: agentA.ID,
-	})
 
 	memberIDs := listMembersViaHTTP(t, httpClient, baseURL, agentAKey, channel.ID)
 	if !contains(memberIDs, agentA.ID) || !contains(memberIDs, agentB.ID) {
@@ -134,16 +126,6 @@ func TestComposeE2E_AgentSessionFlow(t *testing.T) {
 	threadMessages := listThreadMessagesViaHTTP(t, httpClient, baseURL, agentAKey, channel.ID, rootMessage.TS)
 	if len(threadMessages) != 2 {
 		t.Fatalf("thread message count = %d, want 2", len(threadMessages))
-	}
-
-	pins := listPinsViaHTTP(t, httpClient, baseURL, agentAKey, channel.ID)
-	if len(pins) != 1 || pins[0].MessageTS != rootMessage.TS {
-		t.Fatalf("pins = %+v, want root message pin", pins)
-	}
-
-	bookmarks := listBookmarksViaHTTP(t, httpClient, baseURL, agentAKey, channel.ID)
-	if len(bookmarks) != 1 || bookmarks[0].ID != bookmark.ID {
-		t.Fatalf("bookmarks = %+v, want %s", bookmarks, bookmark.ID)
 	}
 
 	eventTypes := queryWorkspaceEventTypes(t, ctx, pool, owner.WorkspaceID)
@@ -158,8 +140,6 @@ func TestComposeE2E_AgentSessionFlow(t *testing.T) {
 		domain.EventMessagePosted,
 		domain.EventMessagePosted,
 		domain.EventReactionAdded,
-		domain.EventPinAdded,
-		domain.EventBookmarkCreated,
 	}
 	if len(eventTypes) != len(wantEvents) {
 		t.Fatalf("event count = %d, want %d: %v", len(eventTypes), len(wantEvents), eventTypes)
@@ -208,9 +188,9 @@ func createSessionToken(t *testing.T, ctx context.Context, pool *pgxpool.Pool, w
 	t.Helper()
 	session, err := pgRepo.NewAuthRepo(pool).CreateSession(ctx, domain.CreateAuthSessionParams{
 		WorkspaceID: workspaceID,
-		UserID:    userID,
-		Provider:  domain.AuthProviderGitHub,
-		ExpiresAt: time.Now().UTC().Add(24 * time.Hour),
+		UserID:      userID,
+		Provider:    domain.AuthProviderGitHub,
+		ExpiresAt:   time.Now().UTC().Add(24 * time.Hour),
 	})
 	if err != nil {
 		t.Fatalf("create session token: %v", err)
@@ -279,27 +259,6 @@ func addReactionViaHTTP(t *testing.T, httpClient *http.Client, baseURL, auth, ch
 	}, nil)
 }
 
-func addPinViaHTTP(t *testing.T, httpClient *http.Client, baseURL, auth, channelID, ts string) {
-	t.Helper()
-	var resp domain.Pin
-	doJSON(t, httpClient, http.MethodPost, baseURL+"/conversations/"+channelID+"/pins", auth, map[string]any{
-		"message_ts": ts,
-	}, &resp)
-	if resp.MessageTS != ts {
-		t.Fatalf("add pin response = %+v", resp)
-	}
-}
-
-func createBookmarkViaHTTP(t *testing.T, httpClient *http.Client, baseURL, auth string, params domain.CreateBookmarkParams) domain.Bookmark {
-	t.Helper()
-	var resp domain.Bookmark
-	doJSON(t, httpClient, http.MethodPost, baseURL+"/conversations/"+params.ChannelID+"/bookmarks", auth, params, &resp)
-	if resp.ID == "" {
-		t.Fatalf("create bookmark response = %+v", resp)
-	}
-	return resp
-}
-
 func listMembersViaHTTP(t *testing.T, httpClient *http.Client, baseURL, auth, channelID string) []string {
 	t.Helper()
 	var resp struct {
@@ -315,26 +274,6 @@ func listThreadMessagesViaHTTP(t *testing.T, httpClient *http.Client, baseURL, a
 		Items []domain.Message `json:"items"`
 	}
 	url := fmt.Sprintf("%s/messages?conversation_id=%s&thread_ts=%s", baseURL, channelID, threadTS)
-	doJSON(t, httpClient, http.MethodGet, url, auth, nil, &resp)
-	return resp.Items
-}
-
-func listPinsViaHTTP(t *testing.T, httpClient *http.Client, baseURL, auth, channelID string) []domain.Pin {
-	t.Helper()
-	var resp struct {
-		Items []domain.Pin `json:"items"`
-	}
-	url := fmt.Sprintf("%s/conversations/%s/pins", baseURL, channelID)
-	doJSON(t, httpClient, http.MethodGet, url, auth, nil, &resp)
-	return resp.Items
-}
-
-func listBookmarksViaHTTP(t *testing.T, httpClient *http.Client, baseURL, auth, channelID string) []domain.Bookmark {
-	t.Helper()
-	var resp struct {
-		Items []domain.Bookmark `json:"items"`
-	}
-	url := fmt.Sprintf("%s/conversations/%s/bookmarks", baseURL, channelID)
 	doJSON(t, httpClient, http.MethodGet, url, auth, nil, &resp)
 	return resp.Items
 }

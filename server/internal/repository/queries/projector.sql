@@ -137,31 +137,6 @@ ON CONFLICT (id) DO UPDATE SET
 -- name: ProjectorDeleteSubscription :exec
 DELETE FROM event_subscriptions WHERE id = $1;
 
--- name: ProjectorUpsertExternalPrincipalAccess :exec
-INSERT INTO external_principal_access (
-    id, host_workspace_id, principal_id, principal_type, home_workspace_id, access_mode,
-    allowed_capabilities, granted_by, created_at, expires_at, revoked_at
-)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-ON CONFLICT (id) DO UPDATE SET
-    host_workspace_id = EXCLUDED.host_workspace_id,
-    principal_id = EXCLUDED.principal_id,
-    principal_type = EXCLUDED.principal_type,
-    home_workspace_id = EXCLUDED.home_workspace_id,
-    access_mode = EXCLUDED.access_mode,
-    allowed_capabilities = EXCLUDED.allowed_capabilities,
-    granted_by = EXCLUDED.granted_by,
-    expires_at = EXCLUDED.expires_at,
-    revoked_at = EXCLUDED.revoked_at;
-
--- name: ProjectorDeleteExternalPrincipalConversationAssignments :exec
-DELETE FROM external_principal_conversation_assignments
-WHERE access_id = $1;
-
--- name: ProjectorInsertExternalPrincipalConversationAssignment :exec
-INSERT INTO external_principal_conversation_assignments (access_id, conversation_id, granted_by, created_at)
-VALUES ($1, $2, $3, $4);
-
 -- name: ProjectorUpsertAPIKey :exec
 INSERT INTO api_keys (id, name, description, key_hash, key_prefix, key_hint,
     workspace_id, principal_id, created_by, on_behalf_of, type, environment,
@@ -199,7 +174,7 @@ WHERE id > $1
 ORDER BY id ASC;
 
 -- name: ProjectorTruncateUserProjection :exec
-TRUNCATE external_principal_conversation_assignments, external_principal_access, user_role_assignments, users CASCADE;
+TRUNCATE user_role_assignments, users CASCADE;
 
 -- name: ProjectorTruncateConversationProjection :exec
 TRUNCATE conversation_posting_policies, conversation_manager_assignments, conversation_members, conversations CASCADE;

@@ -107,7 +107,7 @@ func TestServiceEventRecording_UserCreate(t *testing.T) {
 	userSvc := service.NewUserService(userRepo, recorder, pool, logger)
 
 	user, err := userSvc.Create(ctx, domain.CreateUserParams{
-		WorkspaceID:        "T001",
+		WorkspaceID:   "T001",
 		Name:          "alice",
 		Email:         "alice@example.com",
 		PrincipalType: domain.PrincipalTypeHuman,
@@ -170,7 +170,7 @@ func TestServiceEventRecording_UserUpdate(t *testing.T) {
 	userSvc := service.NewUserService(userRepo, recorder, pool, logger)
 
 	user, err := userSvc.Create(ctx, domain.CreateUserParams{
-		WorkspaceID:        "T001",
+		WorkspaceID:   "T001",
 		Name:          "bob",
 		Email:         "bob@example.com",
 		PrincipalType: domain.PrincipalTypeHuman,
@@ -237,7 +237,7 @@ func TestReplayCorrectness_Users(t *testing.T) {
 	var userIDs []string
 	for i := 0; i < 5; i++ {
 		u, err := userSvc.Create(ctx, domain.CreateUserParams{
-			WorkspaceID:        "T001",
+			WorkspaceID:   "T001",
 			Name:          fmt.Sprintf("user%d", i),
 			Email:         fmt.Sprintf("user%d@example.com", i),
 			PrincipalType: domain.PrincipalTypeHuman,
@@ -321,7 +321,7 @@ func TestReplayCorrectness_ConversationWithMembers(t *testing.T) {
 	convSvc := service.NewConversationService(convRepo, userRepo, recorder, pool, logger)
 
 	creator, err := userSvc.Create(ctx, domain.CreateUserParams{
-		WorkspaceID:        "T001",
+		WorkspaceID:   "T001",
 		Name:          "creator",
 		Email:         "creator@example.com",
 		PrincipalType: domain.PrincipalTypeHuman,
@@ -331,7 +331,7 @@ func TestReplayCorrectness_ConversationWithMembers(t *testing.T) {
 	}
 
 	member, err := userSvc.Create(ctx, domain.CreateUserParams{
-		WorkspaceID:        "T001",
+		WorkspaceID:   "T001",
 		Name:          "member",
 		Email:         "member@example.com",
 		PrincipalType: domain.PrincipalTypeHuman,
@@ -341,10 +341,10 @@ func TestReplayCorrectness_ConversationWithMembers(t *testing.T) {
 	}
 
 	conv, err := convSvc.Create(ctx, domain.CreateConversationParams{
-		WorkspaceID:    "T001",
-		Name:      "general",
-		Type:      domain.ConversationTypePublicChannel,
-		CreatorID: creator.ID,
+		WorkspaceID: "T001",
+		Name:        "general",
+		Type:        domain.ConversationTypePublicChannel,
+		CreatorID:   creator.ID,
 	})
 	if err != nil {
 		t.Fatalf("create conversation: %v", err)
@@ -385,99 +385,6 @@ func TestReplayCorrectness_ConversationWithMembers(t *testing.T) {
 	}
 }
 
-func TestReplayCorrectness_BookmarkCRUD(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping integration test")
-	}
-
-	pool := setupTestDB(t)
-	ctx := context.Background()
-	logger := newTestLogger()
-
-	userRepo := pgRepo.NewUserRepo(pool)
-	convRepo := pgRepo.NewConversationRepo(pool)
-	bookmarkRepo := pgRepo.NewBookmarkRepo(pool)
-	eventStoreRepo := pgRepo.NewEventStoreRepo(pool)
-	recorder := service.NewEventRecorder(eventStoreRepo)
-	userSvc := service.NewUserService(userRepo, recorder, pool, logger)
-	convSvc := service.NewConversationService(convRepo, userRepo, recorder, pool, logger)
-	bookmarkSvc := service.NewBookmarkService(bookmarkRepo, convRepo, recorder, pool, logger)
-
-	user, err := userSvc.Create(ctx, domain.CreateUserParams{
-		WorkspaceID:        "T001",
-		Name:          "alice",
-		Email:         "alice@example.com",
-		PrincipalType: domain.PrincipalTypeHuman,
-	})
-	if err != nil {
-		t.Fatalf("create user: %v", err)
-	}
-
-	conv, err := convSvc.Create(ctx, domain.CreateConversationParams{
-		WorkspaceID:    "T001",
-		Name:      "bookmarks-test",
-		Type:      domain.ConversationTypePublicChannel,
-		CreatorID: user.ID,
-	})
-	if err != nil {
-		t.Fatalf("create conversation: %v", err)
-	}
-
-	bm, err := bookmarkSvc.Create(ctx, domain.CreateBookmarkParams{
-		ChannelID: conv.ID,
-		Title:     "Go Docs",
-		Type:      "link",
-		Link:      "https://go.dev",
-		CreatedBy: user.ID,
-	})
-	if err != nil {
-		t.Fatalf("create bookmark: %v", err)
-	}
-
-	newTitle := "Updated Go Docs"
-	_, err = bookmarkSvc.Update(ctx, bm.ID, domain.UpdateBookmarkParams{
-		Title:     &newTitle,
-		UpdatedBy: user.ID,
-	})
-	if err != nil {
-		t.Fatalf("update bookmark: %v", err)
-	}
-
-	var bmEventCount int
-	pool.QueryRow(ctx, "SELECT COUNT(*) FROM internal_events WHERE aggregate_type = $1",
-		domain.AggregateBookmark).Scan(&bmEventCount)
-	if bmEventCount != 2 {
-		t.Errorf("expected 2 bookmark events, got %d", bmEventCount)
-	}
-
-	var payload json.RawMessage
-	pool.QueryRow(ctx,
-		"SELECT payload FROM internal_events WHERE aggregate_type = $1 AND event_type = $2 ORDER BY id DESC LIMIT 1",
-		domain.AggregateBookmark, domain.EventBookmarkUpdated,
-	).Scan(&payload)
-	var bmSnapshot domain.Bookmark
-	if err := json.Unmarshal(payload, &bmSnapshot); err != nil {
-		t.Fatalf("unmarshal bookmark snapshot: %v", err)
-	}
-	if bmSnapshot.Title != "Updated Go Docs" {
-		t.Errorf("bookmark snapshot title = %q, want %q", bmSnapshot.Title, "Updated Go Docs")
-	}
-
-	projector := eventsourcing.NewProjector(pool, logger)
-	if err := projector.RebuildAll(ctx); err != nil {
-		t.Fatalf("rebuild all: %v", err)
-	}
-
-	var rebuiltTitle string
-	err = pool.QueryRow(ctx, "SELECT title FROM bookmarks WHERE id = $1", bm.ID).Scan(&rebuiltTitle)
-	if err != nil {
-		t.Fatalf("query rebuilt bookmark: %v", err)
-	}
-	if rebuiltTitle != "Updated Go Docs" {
-		t.Errorf("rebuilt bookmark title = %q, want %q", rebuiltTitle, "Updated Go Docs")
-	}
-}
-
 // ---------- Payload full snapshots ----------
 
 func TestPayloadIsFullSnapshot(t *testing.T) {
@@ -495,7 +402,7 @@ func TestPayloadIsFullSnapshot(t *testing.T) {
 	userSvc := service.NewUserService(userRepo, recorder, pool, logger)
 
 	user, err := userSvc.Create(ctx, domain.CreateUserParams{
-		WorkspaceID:        "T001",
+		WorkspaceID:   "T001",
 		Name:          "snapshot-test",
 		Email:         "snap@example.com",
 		PrincipalType: domain.PrincipalTypeHuman,
@@ -549,80 +456,6 @@ func TestPayloadIsFullSnapshot(t *testing.T) {
 
 // ---------- Delete events ----------
 
-func TestDeleteEventIsRecorded(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping integration test")
-	}
-
-	pool := setupTestDB(t)
-	ctx := context.Background()
-	logger := newTestLogger()
-
-	userRepo := pgRepo.NewUserRepo(pool)
-	convRepo := pgRepo.NewConversationRepo(pool)
-	bookmarkRepo := pgRepo.NewBookmarkRepo(pool)
-	eventStoreRepo := pgRepo.NewEventStoreRepo(pool)
-	recorder := service.NewEventRecorder(eventStoreRepo)
-	userSvc := service.NewUserService(userRepo, recorder, pool, logger)
-	convSvc := service.NewConversationService(convRepo, userRepo, recorder, pool, logger)
-	bookmarkSvc := service.NewBookmarkService(bookmarkRepo, convRepo, recorder, pool, logger)
-
-	user, err := userSvc.Create(ctx, domain.CreateUserParams{
-		WorkspaceID:        "T001",
-		Name:          "deleter",
-		Email:         "deleter@example.com",
-		PrincipalType: domain.PrincipalTypeHuman,
-	})
-	if err != nil {
-		t.Fatalf("create user: %v", err)
-	}
-
-	conv, err := convSvc.Create(ctx, domain.CreateConversationParams{
-		WorkspaceID:    "T001",
-		Name:      "delete-test",
-		Type:      domain.ConversationTypePublicChannel,
-		CreatorID: user.ID,
-	})
-	if err != nil {
-		t.Fatalf("create conversation: %v", err)
-	}
-
-	bm, err := bookmarkSvc.Create(ctx, domain.CreateBookmarkParams{
-		ChannelID: conv.ID,
-		Title:     "To Be Deleted",
-		Type:      "link",
-		Link:      "https://example.com/delete",
-		CreatedBy: user.ID,
-	})
-	if err != nil {
-		t.Fatalf("create bookmark: %v", err)
-	}
-
-	if err := bookmarkSvc.Delete(ctx, bm.ID); err != nil {
-		t.Fatalf("delete bookmark: %v", err)
-	}
-
-	var payload json.RawMessage
-	err = pool.QueryRow(ctx,
-		"SELECT payload FROM internal_events WHERE aggregate_type = $1 AND event_type = $2 AND aggregate_id = $3",
-		domain.AggregateBookmark, domain.EventBookmarkDeleted, bm.ID,
-	).Scan(&payload)
-	if err != nil {
-		t.Fatalf("query delete event: %v", err)
-	}
-
-	var deletePayload map[string]string
-	if err := json.Unmarshal(payload, &deletePayload); err != nil {
-		t.Fatalf("unmarshal delete payload: %v", err)
-	}
-	if deletePayload["id"] != bm.ID {
-		t.Errorf("delete payload id = %q, want %q", deletePayload["id"], bm.ID)
-	}
-	if deletePayload["channel_id"] != conv.ID {
-		t.Errorf("delete payload channel_id = %q, want %q", deletePayload["channel_id"], conv.ID)
-	}
-}
-
 // ---------- Event count consistency ----------
 
 func TestEventCountConsistency(t *testing.T) {
@@ -640,7 +473,7 @@ func TestEventCountConsistency(t *testing.T) {
 	userSvc := service.NewUserService(userRepo, recorder, pool, logger)
 
 	u, err := userSvc.Create(ctx, domain.CreateUserParams{
-		WorkspaceID:        "T001",
+		WorkspaceID:   "T001",
 		Name:          "counter",
 		Email:         "counter@example.com",
 		PrincipalType: domain.PrincipalTypeHuman,

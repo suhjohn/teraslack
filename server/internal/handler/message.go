@@ -4,7 +4,6 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/suhjohn/teraslack/internal/ctxutil"
 	"github.com/suhjohn/teraslack/internal/domain"
 	"github.com/suhjohn/teraslack/internal/service"
 	"github.com/suhjohn/teraslack/pkg/httputil"
@@ -142,7 +141,7 @@ func (h *MessageHandler) AddReaction(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteError(w, r, domain.ErrInvalidArgument)
 		return
 	}
-	if actorID := ctxutil.GetActingUserID(r.Context()); actorID != "" {
+	if actorID := service.CompatibilityActorID(r.Context()); actorID != "" {
 		req.UserID = actorID
 	}
 
@@ -165,7 +164,7 @@ func (h *MessageHandler) RemoveReaction(w http.ResponseWriter, r *http.Request) 
 	channelID := r.PathValue("conversation_id")
 	messageTS := r.PathValue("message_ts")
 	name := r.PathValue("reaction_name")
-	userID := ctxutil.GetActingUserID(r.Context())
+	userID := service.CompatibilityActorID(r.Context())
 
 	err := h.svc.RemoveReaction(r.Context(), domain.RemoveReactionParams{
 		ChannelID: channelID,

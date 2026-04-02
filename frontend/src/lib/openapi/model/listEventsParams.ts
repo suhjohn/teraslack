@@ -7,6 +7,7 @@
  */
 import type { LimitQueryParameter } from './limitQueryParameter';
 import type { ListEventsResourceType } from './listEventsResourceType';
+import type { WorkspaceIDQueryParameter } from './workspaceIDQueryParameter';
 
 export type ListEventsParams = {
 /**
@@ -18,6 +19,10 @@ after?: string;
  * @minimum 0
  */
 limit?: LimitQueryParameter;
+/**
+ * Filter results by workspace identifier.
+ */
+workspace_id?: WorkspaceIDQueryParameter;
 /**
  * Filter by event type (e.g. "conversation.message.created").
  */

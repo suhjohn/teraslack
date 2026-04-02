@@ -9,7 +9,6 @@ import type { FreeFormJSON } from './freeFormJSON';
 import type { WorkspaceBilling } from './workspaceBilling';
 import type { WorkspaceDiscoverability } from './workspaceDiscoverability';
 import type { WorkspaceIcon } from './workspaceIcon';
-import type { WorkspaceProfileField } from './workspaceProfileField';
 
 export interface UpdateWorkspaceRequest {
   name?: string;
@@ -20,6 +19,5 @@ export interface UpdateWorkspaceRequest {
   discoverability?: WorkspaceDiscoverability;
   default_channels?: string[];
   preferences?: FreeFormJSON;
-  profile_fields?: WorkspaceProfileField[];
   billing?: WorkspaceBilling;
 }

@@ -3,15 +3,16 @@ package domain
 import "time"
 
 type WorkspaceInvite struct {
-	ID               string     `json:"id"`
-	WorkspaceID      string     `json:"workspace_id"`
-	Email            string     `json:"email"`
-	InvitedBy        string     `json:"invited_by"`
-	AcceptedByUserID string     `json:"accepted_by_user_id,omitempty"`
-	ExpiresAt        time.Time  `json:"expires_at"`
-	AcceptedAt       *time.Time `json:"accepted_at,omitempty"`
-	CreatedAt        time.Time  `json:"created_at"`
-	UpdatedAt        time.Time  `json:"updated_at"`
+	ID                     string     `json:"id"`
+	WorkspaceID            string     `json:"workspace_id"`
+	Email                  string     `json:"email"`
+	InvitedBy              string     `json:"invited_by"`
+	AcceptedByAccountID    string     `json:"accepted_by_account_id,omitempty"`
+	AcceptedByMembershipID string     `json:"accepted_by_membership_id,omitempty"`
+	ExpiresAt              time.Time  `json:"expires_at"`
+	AcceptedAt             *time.Time `json:"accepted_at,omitempty"`
+	CreatedAt              time.Time  `json:"created_at"`
+	UpdatedAt              time.Time  `json:"updated_at"`
 }
 
 type CreateWorkspaceInviteParams struct {
@@ -32,6 +33,7 @@ type AcceptWorkspaceInviteParams struct {
 }
 
 type AcceptWorkspaceInviteResult struct {
-	Invite *WorkspaceInvite `json:"invite"`
-	User   *User            `json:"user"`
+	Invite     *WorkspaceInvite     `json:"invite"`
+	User       *User                `json:"user"`
+	Membership *WorkspaceMembership `json:"membership"`
 }

@@ -47,10 +47,6 @@ func (r *WorkspaceRepo) Create(ctx context.Context, params domain.CreateWorkspac
 	if len(params.Preferences) > 0 {
 		preferences = params.Preferences
 	}
-	profileFields, err := json.Marshal(params.ProfileFields)
-	if err != nil {
-		return nil, fmt.Errorf("marshal profile fields: %w", err)
-	}
 	billing := params.Billing
 	if billing.Plan == "" {
 		billing.Plan = "free"
@@ -71,7 +67,6 @@ func (r *WorkspaceRepo) Create(ctx context.Context, params domain.CreateWorkspac
 		Discoverability:   discoverability,
 		DefaultChannels:   defaultChannels,
 		Preferences:       preferences,
-		ProfileFields:     profileFields,
 		BillingPlan:       billing.Plan,
 		BillingStatus:     billing.Status,
 		BillingEmail:      billing.BillingEmail,
@@ -148,10 +143,6 @@ func (r *WorkspaceRepo) Update(ctx context.Context, id string, params domain.Upd
 	if len(params.Preferences) > 0 {
 		preferences = params.Preferences
 	}
-	profileFields := existing.ProfileFields
-	if params.ProfileFields != nil {
-		profileFields = *params.ProfileFields
-	}
 	billing := existing.Billing
 	if params.Billing != nil {
 		billing = *params.Billing
@@ -163,10 +154,6 @@ func (r *WorkspaceRepo) Update(ctx context.Context, id string, params domain.Upd
 		billing.Status = "active"
 	}
 
-	profileFieldsJSON, err := json.Marshal(profileFields)
-	if err != nil {
-		return nil, fmt.Errorf("marshal profile fields: %w", err)
-	}
 	preferencesJSON := []byte("{}")
 	if len(preferences) > 0 {
 		preferencesJSON = preferences
@@ -184,7 +171,6 @@ func (r *WorkspaceRepo) Update(ctx context.Context, id string, params domain.Upd
 		Discoverability:   discoverability,
 		DefaultChannels:   defaultChannels,
 		Preferences:       preferencesJSON,
-		ProfileFields:     profileFieldsJSON,
 		BillingPlan:       billing.Plan,
 		BillingStatus:     billing.Status,
 		BillingEmail:      billing.BillingEmail,
@@ -314,6 +300,53 @@ func (r *WorkspaceRepo) ListExternalWorkspaces(ctx context.Context, workspaceID 
 	return workspaces, nil
 }
 
+func (r *WorkspaceRepo) CreateExternalWorkspace(ctx context.Context, params domain.CreateExternalWorkspaceParams) (*domain.ExternalWorkspace, error) {
+	if params.ConnectionType == "" {
+		params.ConnectionType = "slack_connect"
+	}
+	row, err := r.q.CreateWorkspaceExternalWorkspace(ctx, sqlcgen.CreateWorkspaceExternalWorkspaceParams{
+		ID:                  generateID("EW"),
+		WorkspaceID:         params.WorkspaceID,
+		ExternalWorkspaceID: params.ExternalWorkspaceID,
+		ExternalWorkspaceName: params.Name,
+		ConnectionType:      params.ConnectionType,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("create external workspace: %w", err)
+	}
+	return &domain.ExternalWorkspace{
+		ID:                  row.ID,
+		ExternalWorkspaceID: row.ExternalWorkspaceID,
+		Name:                row.ExternalWorkspaceName,
+		ConnectionType:      row.ConnectionType,
+		Connected:           row.Connected,
+		CreatedAt:           row.CreatedAt,
+		DisconnectedAt:      row.DisconnectedAt,
+	}, nil
+}
+
+func (r *WorkspaceRepo) GetExternalWorkspace(ctx context.Context, workspaceID, externalWorkspaceID string) (*domain.ExternalWorkspace, error) {
+	row, err := r.q.GetWorkspaceExternalWorkspace(ctx, sqlcgen.GetWorkspaceExternalWorkspaceParams{
+		WorkspaceID:         workspaceID,
+		ExternalWorkspaceID: externalWorkspaceID,
+	})
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, domain.ErrNotFound
+		}
+		return nil, fmt.Errorf("get external workspace: %w", err)
+	}
+	return &domain.ExternalWorkspace{
+		ID:                  row.ID,
+		ExternalWorkspaceID: row.ExternalWorkspaceID,
+		Name:                row.ExternalWorkspaceName,
+		ConnectionType:      row.ConnectionType,
+		Connected:           row.Connected,
+		CreatedAt:           row.CreatedAt,
+		DisconnectedAt:      row.DisconnectedAt,
+	}, nil
+}
+
 func (r *WorkspaceRepo) DisconnectExternalWorkspace(ctx context.Context, workspaceID, externalWorkspaceID string) error {
 	rowsAffected, err := r.q.DisconnectWorkspaceExternalWorkspace(ctx, sqlcgen.DisconnectWorkspaceExternalWorkspaceParams{
 		WorkspaceID:         workspaceID,
@@ -326,52 +359,6 @@ func (r *WorkspaceRepo) DisconnectExternalWorkspace(ctx context.Context, workspa
 		return domain.ErrNotFound
 	}
 	return nil
-}
-
-func scanWorkspace(row rowScanner) (*domain.Workspace, error) {
-	var ws domain.Workspace
-	var discoverability string
-	var preferences []byte
-	var profileFields []byte
-	if err := row.Scan(
-		&ws.ID,
-		&ws.Name,
-		&ws.Domain,
-		&ws.EmailDomain,
-		&ws.Description,
-		&ws.Icon.ImageOriginal,
-		&ws.Icon.Image34,
-		&ws.Icon.Image44,
-		&discoverability,
-		&ws.DefaultChannels,
-		&preferences,
-		&profileFields,
-		&ws.Billing.Plan,
-		&ws.Billing.Status,
-		&ws.Billing.BillingEmail,
-		&ws.CreatedAt,
-		&ws.UpdatedAt,
-	); err != nil {
-		return nil, err
-	}
-	ws.Discoverability = domain.WorkspaceDiscoverability(discoverability)
-	if len(preferences) == 0 {
-		ws.Preferences = json.RawMessage("{}")
-	} else {
-		ws.Preferences = json.RawMessage(preferences)
-	}
-	if len(profileFields) > 0 {
-		if err := json.Unmarshal(profileFields, &ws.ProfileFields); err != nil {
-			return nil, fmt.Errorf("unmarshal profile fields: %w", err)
-		}
-	}
-	if ws.DefaultChannels == nil {
-		ws.DefaultChannels = []string{}
-	}
-	if ws.ProfileFields == nil {
-		ws.ProfileFields = []domain.WorkspaceProfileField{}
-	}
-	return &ws, nil
 }
 
 func scanUser(row rowScanner) (*domain.User, error) {
@@ -422,16 +409,8 @@ func workspaceFromSQLC(row sqlcgen.Workspace) (*domain.Workspace, error) {
 	} else {
 		ws.Preferences = json.RawMessage(row.Preferences)
 	}
-	if len(row.ProfileFields) > 0 {
-		if err := json.Unmarshal(row.ProfileFields, &ws.ProfileFields); err != nil {
-			return nil, fmt.Errorf("unmarshal profile fields: %w", err)
-		}
-	}
 	if ws.DefaultChannels == nil {
 		ws.DefaultChannels = []string{}
-	}
-	if ws.ProfileFields == nil {
-		ws.ProfileFields = []domain.WorkspaceProfileField{}
 	}
 	return ws, nil
 }

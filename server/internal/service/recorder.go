@@ -6,7 +6,6 @@ import (
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/suhjohn/teraslack/internal/ctxutil"
 	"github.com/suhjohn/teraslack/internal/domain"
 	"github.com/suhjohn/teraslack/internal/repository"
 )
@@ -33,18 +32,22 @@ func NewEventRecorder(store repository.InternalEventStoreRepository) EventRecord
 // Record appends an internal event to the event store.
 // It extracts the actor_id from the request context if not already set.
 func (r *eventRecorder) Record(ctx context.Context, event domain.InternalEvent) error {
-	// Extract actor_id from auth context if not explicitly set.
-	// This uses the effective actor for delegated API key requests.
+	actor := actorFromContext(ctx)
 	if event.ActorID == "" {
-		event.ActorID = ctxutil.GetActingUserID(ctx)
+		event.ActorID = actor.CompatibilityUserID()
 	}
+	metadata, err := mergeActorMetadata(event.Metadata, actor)
+	if err != nil {
+		return fmt.Errorf("merge actor metadata: %w", err)
+	}
+	event.Metadata = metadata
 
 	// Ensure payload is valid JSON
 	if event.Payload == nil {
 		event.Payload = json.RawMessage("{}")
 	}
 
-	_, err := r.store.Append(ctx, event)
+	_, err = r.store.Append(ctx, event)
 	if err != nil {
 		return fmt.Errorf("record event %s: %w", event.EventType, err)
 	}

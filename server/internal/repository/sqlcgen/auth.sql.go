@@ -8,6 +8,8 @@ package sqlcgen
 import (
 	"context"
 	"time"
+
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const consumeEmailVerificationChallenge = `-- name: ConsumeEmailVerificationChallenge :execrows
@@ -30,33 +32,52 @@ func (q *Queries) ConsumeEmailVerificationChallenge(ctx context.Context, arg Con
 }
 
 const createAuthSession = `-- name: CreateAuthSession :one
-INSERT INTO auth_sessions (id, workspace_id, user_id, session_hash, provider, expires_at)
-VALUES ($1, $2, $3, $4, $5, $6)
-RETURNING id, workspace_id, user_id, session_hash, provider, expires_at, revoked_at, created_at
+INSERT INTO auth_sessions (id, workspace_id, account_id, membership_id, user_id, session_hash, provider, expires_at)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+RETURNING id, workspace_id, account_id, membership_id, user_id, session_hash, provider, expires_at, revoked_at, created_at
 `
 
 type CreateAuthSessionParams struct {
-	ID          string    `json:"id"`
-	WorkspaceID string    `json:"workspace_id"`
-	UserID      string    `json:"user_id"`
-	SessionHash string    `json:"session_hash"`
-	Provider    string    `json:"provider"`
-	ExpiresAt   time.Time `json:"expires_at"`
+	ID           string      `json:"id"`
+	WorkspaceID  string      `json:"workspace_id"`
+	AccountID    pgtype.Text `json:"account_id"`
+	MembershipID pgtype.Text `json:"membership_id"`
+	UserID       pgtype.Text `json:"user_id"`
+	SessionHash  string      `json:"session_hash"`
+	Provider     string      `json:"provider"`
+	ExpiresAt    time.Time   `json:"expires_at"`
 }
 
-func (q *Queries) CreateAuthSession(ctx context.Context, arg CreateAuthSessionParams) (AuthSession, error) {
+type CreateAuthSessionRow struct {
+	ID           string      `json:"id"`
+	WorkspaceID  string      `json:"workspace_id"`
+	AccountID    pgtype.Text `json:"account_id"`
+	MembershipID pgtype.Text `json:"membership_id"`
+	UserID       pgtype.Text `json:"user_id"`
+	SessionHash  string      `json:"session_hash"`
+	Provider     string      `json:"provider"`
+	ExpiresAt    time.Time   `json:"expires_at"`
+	RevokedAt    *time.Time  `json:"revoked_at"`
+	CreatedAt    time.Time   `json:"created_at"`
+}
+
+func (q *Queries) CreateAuthSession(ctx context.Context, arg CreateAuthSessionParams) (CreateAuthSessionRow, error) {
 	row := q.db.QueryRow(ctx, createAuthSession,
 		arg.ID,
 		arg.WorkspaceID,
+		arg.AccountID,
+		arg.MembershipID,
 		arg.UserID,
 		arg.SessionHash,
 		arg.Provider,
 		arg.ExpiresAt,
 	)
-	var i AuthSession
+	var i CreateAuthSessionRow
 	err := row.Scan(
 		&i.ID,
 		&i.WorkspaceID,
+		&i.AccountID,
+		&i.MembershipID,
 		&i.UserID,
 		&i.SessionHash,
 		&i.Provider,
@@ -110,17 +131,32 @@ func (q *Queries) DeletePendingEmailVerificationChallenges(ctx context.Context, 
 }
 
 const getAuthSessionByHash = `-- name: GetAuthSessionByHash :one
-SELECT id, workspace_id, user_id, session_hash, provider, expires_at, revoked_at, created_at
+SELECT id, workspace_id, account_id, membership_id, user_id, session_hash, provider, expires_at, revoked_at, created_at
 FROM auth_sessions
 WHERE session_hash = $1
 `
 
-func (q *Queries) GetAuthSessionByHash(ctx context.Context, sessionHash string) (AuthSession, error) {
+type GetAuthSessionByHashRow struct {
+	ID           string      `json:"id"`
+	WorkspaceID  string      `json:"workspace_id"`
+	AccountID    pgtype.Text `json:"account_id"`
+	MembershipID pgtype.Text `json:"membership_id"`
+	UserID       pgtype.Text `json:"user_id"`
+	SessionHash  string      `json:"session_hash"`
+	Provider     string      `json:"provider"`
+	ExpiresAt    time.Time   `json:"expires_at"`
+	RevokedAt    *time.Time  `json:"revoked_at"`
+	CreatedAt    time.Time   `json:"created_at"`
+}
+
+func (q *Queries) GetAuthSessionByHash(ctx context.Context, sessionHash string) (GetAuthSessionByHashRow, error) {
 	row := q.db.QueryRow(ctx, getAuthSessionByHash, sessionHash)
-	var i AuthSession
+	var i GetAuthSessionByHashRow
 	err := row.Scan(
 		&i.ID,
 		&i.WorkspaceID,
+		&i.AccountID,
+		&i.MembershipID,
 		&i.UserID,
 		&i.SessionHash,
 		&i.Provider,
@@ -159,7 +195,7 @@ func (q *Queries) GetEmailVerificationChallenge(ctx context.Context, arg GetEmai
 }
 
 const getOAuthAccount = `-- name: GetOAuthAccount :one
-SELECT id, workspace_id, user_id, provider, provider_subject, email, created_at, updated_at
+SELECT id, workspace_id, account_id, membership_id, user_id, provider, provider_subject, email, created_at, updated_at
 FROM oauth_accounts
 WHERE workspace_id = $1 AND provider = $2 AND provider_subject = $3
 `
@@ -170,12 +206,27 @@ type GetOAuthAccountParams struct {
 	ProviderSubject string `json:"provider_subject"`
 }
 
-func (q *Queries) GetOAuthAccount(ctx context.Context, arg GetOAuthAccountParams) (OauthAccount, error) {
+type GetOAuthAccountRow struct {
+	ID              string      `json:"id"`
+	WorkspaceID     string      `json:"workspace_id"`
+	AccountID       pgtype.Text `json:"account_id"`
+	MembershipID    pgtype.Text `json:"membership_id"`
+	UserID          pgtype.Text `json:"user_id"`
+	Provider        string      `json:"provider"`
+	ProviderSubject string      `json:"provider_subject"`
+	Email           string      `json:"email"`
+	CreatedAt       time.Time   `json:"created_at"`
+	UpdatedAt       time.Time   `json:"updated_at"`
+}
+
+func (q *Queries) GetOAuthAccount(ctx context.Context, arg GetOAuthAccountParams) (GetOAuthAccountRow, error) {
 	row := q.db.QueryRow(ctx, getOAuthAccount, arg.WorkspaceID, arg.Provider, arg.ProviderSubject)
-	var i OauthAccount
+	var i GetOAuthAccountRow
 	err := row.Scan(
 		&i.ID,
 		&i.WorkspaceID,
+		&i.AccountID,
+		&i.MembershipID,
 		&i.UserID,
 		&i.Provider,
 		&i.ProviderSubject,
@@ -187,7 +238,7 @@ func (q *Queries) GetOAuthAccount(ctx context.Context, arg GetOAuthAccountParams
 }
 
 const listOAuthAccountsBySubject = `-- name: ListOAuthAccountsBySubject :many
-SELECT id, workspace_id, user_id, provider, provider_subject, email, created_at, updated_at
+SELECT id, workspace_id, account_id, membership_id, user_id, provider, provider_subject, email, created_at, updated_at
 FROM oauth_accounts
 WHERE provider = $1 AND provider_subject = $2
 ORDER BY created_at ASC, id ASC
@@ -198,18 +249,33 @@ type ListOAuthAccountsBySubjectParams struct {
 	ProviderSubject string `json:"provider_subject"`
 }
 
-func (q *Queries) ListOAuthAccountsBySubject(ctx context.Context, arg ListOAuthAccountsBySubjectParams) ([]OauthAccount, error) {
+type ListOAuthAccountsBySubjectRow struct {
+	ID              string      `json:"id"`
+	WorkspaceID     string      `json:"workspace_id"`
+	AccountID       pgtype.Text `json:"account_id"`
+	MembershipID    pgtype.Text `json:"membership_id"`
+	UserID          pgtype.Text `json:"user_id"`
+	Provider        string      `json:"provider"`
+	ProviderSubject string      `json:"provider_subject"`
+	Email           string      `json:"email"`
+	CreatedAt       time.Time   `json:"created_at"`
+	UpdatedAt       time.Time   `json:"updated_at"`
+}
+
+func (q *Queries) ListOAuthAccountsBySubject(ctx context.Context, arg ListOAuthAccountsBySubjectParams) ([]ListOAuthAccountsBySubjectRow, error) {
 	rows, err := q.db.Query(ctx, listOAuthAccountsBySubject, arg.Provider, arg.ProviderSubject)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []OauthAccount{}
+	items := []ListOAuthAccountsBySubjectRow{}
 	for rows.Next() {
-		var i OauthAccount
+		var i ListOAuthAccountsBySubjectRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.WorkspaceID,
+			&i.AccountID,
+			&i.MembershipID,
 			&i.UserID,
 			&i.Provider,
 			&i.ProviderSubject,
@@ -239,37 +305,58 @@ func (q *Queries) RevokeAuthSessionByHash(ctx context.Context, sessionHash strin
 }
 
 const upsertOAuthAccount = `-- name: UpsertOAuthAccount :one
-INSERT INTO oauth_accounts (id, workspace_id, user_id, provider, provider_subject, email)
-VALUES ($1, $2, $3, $4, $5, $6)
+INSERT INTO oauth_accounts (id, workspace_id, account_id, membership_id, user_id, provider, provider_subject, email)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 ON CONFLICT (workspace_id, provider, provider_subject) DO UPDATE SET
+    account_id = EXCLUDED.account_id,
+    membership_id = EXCLUDED.membership_id,
     user_id = EXCLUDED.user_id,
     email = EXCLUDED.email,
     updated_at = NOW()
-RETURNING id, workspace_id, user_id, provider, provider_subject, email, created_at, updated_at
+RETURNING id, workspace_id, account_id, membership_id, user_id, provider, provider_subject, email, created_at, updated_at
 `
 
 type UpsertOAuthAccountParams struct {
-	ID              string `json:"id"`
-	WorkspaceID     string `json:"workspace_id"`
-	UserID          string `json:"user_id"`
-	Provider        string `json:"provider"`
-	ProviderSubject string `json:"provider_subject"`
-	Email           string `json:"email"`
+	ID              string      `json:"id"`
+	WorkspaceID     string      `json:"workspace_id"`
+	AccountID       pgtype.Text `json:"account_id"`
+	MembershipID    pgtype.Text `json:"membership_id"`
+	UserID          pgtype.Text `json:"user_id"`
+	Provider        string      `json:"provider"`
+	ProviderSubject string      `json:"provider_subject"`
+	Email           string      `json:"email"`
 }
 
-func (q *Queries) UpsertOAuthAccount(ctx context.Context, arg UpsertOAuthAccountParams) (OauthAccount, error) {
+type UpsertOAuthAccountRow struct {
+	ID              string      `json:"id"`
+	WorkspaceID     string      `json:"workspace_id"`
+	AccountID       pgtype.Text `json:"account_id"`
+	MembershipID    pgtype.Text `json:"membership_id"`
+	UserID          pgtype.Text `json:"user_id"`
+	Provider        string      `json:"provider"`
+	ProviderSubject string      `json:"provider_subject"`
+	Email           string      `json:"email"`
+	CreatedAt       time.Time   `json:"created_at"`
+	UpdatedAt       time.Time   `json:"updated_at"`
+}
+
+func (q *Queries) UpsertOAuthAccount(ctx context.Context, arg UpsertOAuthAccountParams) (UpsertOAuthAccountRow, error) {
 	row := q.db.QueryRow(ctx, upsertOAuthAccount,
 		arg.ID,
 		arg.WorkspaceID,
+		arg.AccountID,
+		arg.MembershipID,
 		arg.UserID,
 		arg.Provider,
 		arg.ProviderSubject,
 		arg.Email,
 	)
-	var i OauthAccount
+	var i UpsertOAuthAccountRow
 	err := row.Scan(
 		&i.ID,
 		&i.WorkspaceID,
+		&i.AccountID,
+		&i.MembershipID,
 		&i.UserID,
 		&i.Provider,
 		&i.ProviderSubject,

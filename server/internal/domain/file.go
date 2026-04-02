@@ -5,7 +5,7 @@ import "time"
 // File represents an uploaded file.
 type File struct {
 	ID                 string    `json:"id"`
-	WorkspaceID             string    `json:"workspace_id"`
+	WorkspaceID        string    `json:"workspace_id"`
 	Name               string    `json:"name"`
 	Title              string    `json:"title"`
 	Mimetype           string    `json:"mimetype"`
@@ -24,8 +24,9 @@ type File struct {
 
 // GetUploadURLParams holds the parameters for getting an upload URL.
 type GetUploadURLParams struct {
-	Filename string `json:"filename"`
-	Length   int64  `json:"length"`
+	Filename  string `json:"filename"`
+	Length    int64  `json:"length"`
+	ChannelID string `json:"channel_id,omitempty"`
 }
 
 // GetUploadURLResponse holds the response for getting an upload URL.
@@ -44,11 +45,11 @@ type CompleteUploadParams struct {
 
 // ListFilesParams holds the parameters for listing files.
 type ListFilesParams struct {
-	WorkspaceID    string `json:"workspace_id"`
-	ChannelID string `json:"channel_id,omitempty"`
-	UserID    string `json:"user_id,omitempty"`
-	Cursor    string `json:"cursor"`
-	Limit     int    `json:"limit"`
+	WorkspaceID string `json:"workspace_id"`
+	ChannelID   string `json:"channel_id,omitempty"`
+	UserID      string `json:"user_id,omitempty"`
+	Cursor      string `json:"cursor"`
+	Limit       int    `json:"limit"`
 }
 
 // AddRemoteFileParams holds the parameters for adding a remote file.
@@ -57,6 +58,7 @@ type AddRemoteFileParams struct {
 	ExternalURL string `json:"external_url"`
 	Filetype    string `json:"filetype"`
 	UserID      string `json:"user_id"`
+	ChannelID   string `json:"channel_id,omitempty"`
 }
 
 // ShareRemoteFileParams holds the parameters for sharing a remote file.

@@ -190,7 +190,7 @@ func (p *IndexProducer) eventToJob(evt domain.InternalEvent) *Job {
 			EventID:      evt.ID,
 			ResourceType: "user",
 			ResourceID:   u.ID,
-			WorkspaceID:       evt.WorkspaceID,
+			WorkspaceID:  evt.WorkspaceID,
 			EventType:    evt.EventType,
 			Content:      content,
 			Data:         evt.Payload,
@@ -217,7 +217,7 @@ func (p *IndexProducer) eventToJob(evt domain.InternalEvent) *Job {
 			EventID:      evt.ID,
 			ResourceType: "conversation",
 			ResourceID:   c.ID,
-			WorkspaceID:       evt.WorkspaceID,
+			WorkspaceID:  evt.WorkspaceID,
 			EventType:    evt.EventType,
 			Content:      content,
 			Data:         evt.Payload,
@@ -239,7 +239,7 @@ func (p *IndexProducer) eventToJob(evt domain.InternalEvent) *Job {
 			EventID:      evt.ID,
 			ResourceType: "message",
 			ResourceID:   service.MessageSearchID(m.ChannelID, m.TS),
-			WorkspaceID:       evt.WorkspaceID,
+			WorkspaceID:  evt.WorkspaceID,
 			EventType:    evt.EventType,
 			Content:      m.Text,
 			Data:         evt.Payload,
@@ -255,7 +255,7 @@ func (p *IndexProducer) eventToJob(evt domain.InternalEvent) *Job {
 				EventID:      evt.ID,
 				ResourceType: "message",
 				ResourceID:   service.MessageSearchID(m.ChannelID, m.TS),
-				WorkspaceID:       evt.WorkspaceID,
+				WorkspaceID:  evt.WorkspaceID,
 				EventType:    evt.EventType,
 				Content:      "",
 				Data:         evt.Payload,
@@ -277,7 +277,7 @@ func (p *IndexProducer) eventToJob(evt domain.InternalEvent) *Job {
 			EventID:      evt.ID,
 			ResourceType: "message",
 			ResourceID:   service.MessageSearchID(data.ChannelID, data.TS),
-			WorkspaceID:       evt.WorkspaceID,
+			WorkspaceID:  evt.WorkspaceID,
 			EventType:    evt.EventType,
 			Content:      "",
 			Data:         evt.Payload,
@@ -300,7 +300,7 @@ func (p *IndexProducer) eventToJob(evt domain.InternalEvent) *Job {
 			EventID:      evt.ID,
 			ResourceType: "file",
 			ResourceID:   f.ID,
-			WorkspaceID:       evt.WorkspaceID,
+			WorkspaceID:  evt.WorkspaceID,
 			EventType:    evt.EventType,
 			Content:      content,
 			Data:         evt.Payload,
@@ -315,7 +315,7 @@ func (p *IndexProducer) eventToJob(evt domain.InternalEvent) *Job {
 			EventID:      evt.ID,
 			ResourceType: evt.AggregateType,
 			ResourceID:   evt.AggregateID,
-			WorkspaceID:       evt.WorkspaceID,
+			WorkspaceID:  evt.WorkspaceID,
 			EventType:    evt.EventType,
 			Content:      "", // No content needed for deletes
 			Data:         evt.Payload,
@@ -324,7 +324,7 @@ func (p *IndexProducer) eventToJob(evt domain.InternalEvent) *Job {
 		}
 
 	default:
-		// Skip events that don't need indexing (reactions, pins, bookmarks, tokens, etc.)
+		// Skip events that don't need indexing (reactions, tokens, etc.)
 		return nil
 	}
 }

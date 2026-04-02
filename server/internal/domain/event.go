@@ -7,7 +7,7 @@ import (
 // EventSubscription represents a webhook subscription for events.
 type EventSubscription struct {
 	ID              string    `json:"id"`
-	WorkspaceID          string    `json:"workspace_id"`
+	WorkspaceID     string    `json:"workspace_id"`
 	URL             string    `json:"url"`
 	Type            string    `json:"type,omitempty"`
 	ResourceType    string    `json:"resource_type,omitempty"`
@@ -32,7 +32,7 @@ func (s *EventSubscription) Redacted() *EventSubscription {
 
 // CreateEventSubscriptionParams holds the parameters for creating a subscription.
 type CreateEventSubscriptionParams struct {
-	WorkspaceID       string `json:"workspace_id"`
+	WorkspaceID  string `json:"workspace_id"`
 	URL          string `json:"url"`
 	Type         string `json:"type,omitempty"`
 	ResourceType string `json:"resource_type,omitempty"`
@@ -56,8 +56,8 @@ type ListEventSubscriptionsParams struct {
 
 // Public event types supported by webhook filters.
 const (
-	EventTypeWorkspaceCreated                      = "workspace.created"
-	EventTypeWorkspaceUpdated                      = "workspace.updated"
+	EventTypeWorkspaceCreated                 = "workspace.created"
+	EventTypeWorkspaceUpdated                 = "workspace.updated"
 	EventTypeUserCreated                      = "user.created"
 	EventTypeUserUpdated                      = "user.updated"
 	EventTypeUserDeleted                      = "user.deleted"
@@ -76,11 +76,6 @@ const (
 	EventTypeConversationMessageDeleted       = "conversation.message.deleted"
 	EventTypeConversationReactionAdded        = "conversation.message.reaction.added"
 	EventTypeConversationReactionRemoved      = "conversation.message.reaction.removed"
-	EventTypeConversationPinAdded             = "conversation.pin.added"
-	EventTypeConversationPinRemoved           = "conversation.pin.removed"
-	EventTypeConversationBookmarkCreated      = "conversation.bookmark.created"
-	EventTypeConversationBookmarkUpdated      = "conversation.bookmark.updated"
-	EventTypeConversationBookmarkDeleted      = "conversation.bookmark.deleted"
 	EventTypeFileCreated                      = "file.created"
 	EventTypeFileUpdated                      = "file.updated"
 	EventTypeFileDeleted                      = "file.deleted"
@@ -88,9 +83,6 @@ const (
 	EventTypeEventSubscriptionCreated         = "event_subscription.created"
 	EventTypeEventSubscriptionUpdated         = "event_subscription.updated"
 	EventTypeEventSubscriptionDeleted         = "event_subscription.deleted"
-	EventTypeExternalPrincipalAccessGranted   = "external_principal_access.granted"
-	EventTypeExternalPrincipalAccessUpdated   = "external_principal_access.updated"
-	EventTypeExternalPrincipalAccessRevoked   = "external_principal_access.revoked"
 )
 
 func IsSupportedSubscriptionEventType(eventType string) bool {
@@ -137,16 +129,6 @@ func IsSupportedSubscriptionEventType(eventType string) bool {
 		return true
 	case EventTypeConversationReactionRemoved:
 		return true
-	case EventTypeConversationPinAdded:
-		return true
-	case EventTypeConversationPinRemoved:
-		return true
-	case EventTypeConversationBookmarkCreated:
-		return true
-	case EventTypeConversationBookmarkUpdated:
-		return true
-	case EventTypeConversationBookmarkDeleted:
-		return true
 	case EventTypeFileCreated:
 		return true
 	case EventTypeFileUpdated:
@@ -160,12 +142,6 @@ func IsSupportedSubscriptionEventType(eventType string) bool {
 	case EventTypeEventSubscriptionUpdated:
 		return true
 	case EventTypeEventSubscriptionDeleted:
-		return true
-	case EventTypeExternalPrincipalAccessGranted:
-		return true
-	case EventTypeExternalPrincipalAccessUpdated:
-		return true
-	case EventTypeExternalPrincipalAccessRevoked:
 		return true
 	default:
 		return false

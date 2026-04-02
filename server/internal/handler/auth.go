@@ -186,6 +186,8 @@ func (h *AuthHandler) Me(w http.ResponseWriter, r *http.Request) {
 
 	httputil.WriteResource(w, http.StatusOK, domain.AuthMeResponse{
 		WorkspaceID:   ctxutil.GetWorkspaceID(r.Context()),
+		AccountID:     ctxutil.GetAccountID(r.Context()),
+		MembershipID:  ctxutil.GetMembershipID(r.Context()),
 		UserID:        ctxutil.GetUserID(r.Context()),
 		PrincipalType: ctxutil.GetPrincipalType(r.Context()),
 		AccountType:   ctxutil.GetAccountType(r.Context()),
@@ -288,6 +290,7 @@ func AuthMiddleware(authSvc *service.AuthService, apiKeySvc *service.APIKeyServi
 
 				ctx = context.WithValue(ctx, ctxutil.ContextKeyWorkspaceID, validation.WorkspaceID)
 				ctx = context.WithValue(ctx, ctxutil.ContextKeyUserID, validation.UserID)
+				ctx = ctxutil.WithIdentity(ctx, validation.AccountID, validation.MembershipID)
 				ctx = ctxutil.WithPrincipal(ctx, validation.PrincipalType, validation.AccountType, validation.IsBot)
 				ctx = ctxutil.WithDelegation(ctx, "", validation.KeyID)
 				ctx = ctxutil.WithPermissions(ctx, validation.Permissions)
@@ -308,6 +311,7 @@ func AuthMiddleware(authSvc *service.AuthService, apiKeySvc *service.APIKeyServi
 
 			ctx = context.WithValue(ctx, ctxutil.ContextKeyWorkspaceID, auth.WorkspaceID)
 			ctx = context.WithValue(ctx, ctxutil.ContextKeyUserID, auth.UserID)
+			ctx = ctxutil.WithIdentity(ctx, auth.AccountID, auth.MembershipID)
 			ctx = ctxutil.WithPrincipal(ctx, auth.PrincipalType, auth.AccountType, auth.IsBot)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})

@@ -26,13 +26,9 @@ import { useAdmin, formatDate, getErrorMessage } from '../../lib/admin'
 import {
   getListExternalWorkspacesQueryKey,
   useDisconnectExternalWorkspace,
-  useListExternalPrincipalAccess,
   useListExternalWorkspaces,
 } from '../../lib/openapi'
-import type {
-  ExternalWorkspacesCollection,
-  ExternalPrincipalAccessCollection,
-} from '../../lib/openapi'
+import type { ExternalWorkspacesCollection } from '../../lib/openapi'
 
 export const Route = createFileRoute('/workspace/external-access')({
   component: ExternalAccessPage,
@@ -47,12 +43,6 @@ function ExternalAccessPage() {
     useListExternalWorkspaces<ExternalWorkspacesCollection>(
     workspaceID,
     { query: { enabled: !!workspaceID, retry: false } },
-    )
-
-  const principalAccessQuery =
-    useListExternalPrincipalAccess<ExternalPrincipalAccessCollection>(
-      { host_workspace_id: workspaceID },
-      { query: { enabled: !!workspaceID, retry: false } },
     )
 
   const disconnectMutation = useDisconnectExternalWorkspace()
@@ -73,7 +63,6 @@ function ExternalAccessPage() {
   }
 
   const externalWorkspaces = externalWorkspacesQuery.data?.items ?? []
-  const principalAccess = principalAccessQuery.data?.items ?? []
 
   return (
     <div className="space-y-6">
@@ -139,52 +128,6 @@ function ExternalAccessPage() {
                           Disconnect
                         </Button>
                       ) : null}
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          )}
-        </CardContent>
-      </Card>
-
-      <Card className="p-5">
-        <CardHeader className="mb-4">
-          <CardTitle>External Principal Access</CardTitle>
-          <CardDescription>
-            {principalAccess.length} principal access rule
-            {principalAccess.length !== 1 ? 's' : ''}
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          {principalAccessQuery.isFetching && !principalAccess.length ? (
-            <EmptyState className="min-h-[160px]" description="Loading…">
-              <LoaderCircle className="h-4 w-4 animate-spin" />
-            </EmptyState>
-          ) : !principalAccess.length ? (
-            <EmptyState className="min-h-[160px]" description="No external principal access rules." />
-          ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>User</TableHead>
-                  <TableHead>External Workspace</TableHead>
-                  <TableHead>Mode</TableHead>
-                  <TableHead>Created</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {principalAccess.map((access) => (
-                  <TableRow key={access.id}>
-                    <TableCell className="font-medium">{access.principal_id}</TableCell>
-                    <TableCell className="text-[var(--ink-soft)]">
-                      {access.home_workspace_id}
-                    </TableCell>
-                    <TableCell>
-                      <Badge>{access.access_mode}</Badge>
-                    </TableCell>
-                    <TableCell className="text-[var(--ink-soft)]">
-                      {formatDate(access.created_at)}
                     </TableCell>
                   </TableRow>
                 ))}

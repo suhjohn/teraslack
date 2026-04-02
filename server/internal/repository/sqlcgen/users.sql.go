@@ -127,56 +127,6 @@ func (q *Queries) GetUser(ctx context.Context, id string) (GetUserRow, error) {
 	return i, err
 }
 
-const getUserByWorkspaceEmail = `-- name: GetUserByWorkspaceEmail :one
-SELECT id, workspace_id, name, real_name, display_name, email, principal_type, owner_id, is_bot,
-       account_type, deleted, profile, created_at, updated_at
-FROM users WHERE workspace_id = $1 AND email = $2
-`
-
-type GetUserByWorkspaceEmailParams struct {
-	WorkspaceID string `json:"workspace_id"`
-	Email       string `json:"email"`
-}
-
-type GetUserByWorkspaceEmailRow struct {
-	ID            string    `json:"id"`
-	WorkspaceID   string    `json:"workspace_id"`
-	Name          string    `json:"name"`
-	RealName      string    `json:"real_name"`
-	DisplayName   string    `json:"display_name"`
-	Email         string    `json:"email"`
-	PrincipalType string    `json:"principal_type"`
-	OwnerID       string    `json:"owner_id"`
-	IsBot         bool      `json:"is_bot"`
-	AccountType   string    `json:"account_type"`
-	Deleted       bool      `json:"deleted"`
-	Profile       []byte    `json:"profile"`
-	CreatedAt     time.Time `json:"created_at"`
-	UpdatedAt     time.Time `json:"updated_at"`
-}
-
-func (q *Queries) GetUserByWorkspaceEmail(ctx context.Context, arg GetUserByWorkspaceEmailParams) (GetUserByWorkspaceEmailRow, error) {
-	row := q.db.QueryRow(ctx, getUserByWorkspaceEmail, arg.WorkspaceID, arg.Email)
-	var i GetUserByWorkspaceEmailRow
-	err := row.Scan(
-		&i.ID,
-		&i.WorkspaceID,
-		&i.Name,
-		&i.RealName,
-		&i.DisplayName,
-		&i.Email,
-		&i.PrincipalType,
-		&i.OwnerID,
-		&i.IsBot,
-		&i.AccountType,
-		&i.Deleted,
-		&i.Profile,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-	)
-	return i, err
-}
-
 const listUsers = `-- name: ListUsers :many
 SELECT id, workspace_id, name, real_name, display_name, email, principal_type, owner_id, is_bot,
        account_type, deleted, profile, created_at, updated_at
@@ -218,66 +168,6 @@ func (q *Queries) ListUsers(ctx context.Context, arg ListUsersParams) ([]ListUse
 	items := []ListUsersRow{}
 	for rows.Next() {
 		var i ListUsersRow
-		if err := rows.Scan(
-			&i.ID,
-			&i.WorkspaceID,
-			&i.Name,
-			&i.RealName,
-			&i.DisplayName,
-			&i.Email,
-			&i.PrincipalType,
-			&i.OwnerID,
-			&i.IsBot,
-			&i.AccountType,
-			&i.Deleted,
-			&i.Profile,
-			&i.CreatedAt,
-			&i.UpdatedAt,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const listUsersByEmail = `-- name: ListUsersByEmail :many
-SELECT id, workspace_id, name, real_name, display_name, email, principal_type, owner_id, is_bot,
-       account_type, deleted, profile, created_at, updated_at
-FROM users
-WHERE LOWER(email) = LOWER($1)
-ORDER BY created_at ASC, id ASC
-`
-
-type ListUsersByEmailRow struct {
-	ID            string    `json:"id"`
-	WorkspaceID   string    `json:"workspace_id"`
-	Name          string    `json:"name"`
-	RealName      string    `json:"real_name"`
-	DisplayName   string    `json:"display_name"`
-	Email         string    `json:"email"`
-	PrincipalType string    `json:"principal_type"`
-	OwnerID       string    `json:"owner_id"`
-	IsBot         bool      `json:"is_bot"`
-	AccountType   string    `json:"account_type"`
-	Deleted       bool      `json:"deleted"`
-	Profile       []byte    `json:"profile"`
-	CreatedAt     time.Time `json:"created_at"`
-	UpdatedAt     time.Time `json:"updated_at"`
-}
-
-func (q *Queries) ListUsersByEmail(ctx context.Context, lower string) ([]ListUsersByEmailRow, error) {
-	rows, err := q.db.Query(ctx, listUsersByEmail, lower)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []ListUsersByEmailRow{}
-	for rows.Next() {
-		var i ListUsersByEmailRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.WorkspaceID,

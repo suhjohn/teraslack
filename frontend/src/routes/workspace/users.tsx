@@ -1,6 +1,6 @@
 import { useQueryClient } from '@tanstack/react-query'
 import { createFileRoute } from '@tanstack/react-router'
-import { Bot, LoaderCircle, Trash2 } from 'lucide-react'
+import { Bot, LoaderCircle } from 'lucide-react'
 import { startTransition, useDeferredValue, useMemo, useState } from 'react'
 import { Alert } from '../../components/ui/alert'
 import { Badge } from '../../components/ui/badge'
@@ -9,32 +9,18 @@ import { Input } from '../../components/ui/input'
 import { Select } from '../../components/ui/select'
 import { formatDate, getErrorMessage, useAdmin } from '../../lib/admin'
 import {
-  getListExternalPrincipalAccessQueryKey,
   getListUsersQueryKey,
-  useCreateExternalPrincipalAccess,
-  useDeleteExternalPrincipalAccess,
-  useListExternalPrincipalAccess,
   useListUsers,
   useUpdateUser,
 } from '../../lib/openapi'
-import type {
-  ExternalPrincipalAccessCollection,
-  User,
-  UsersCollection,
-} from '../../lib/openapi'
+import type { User, UsersCollection } from '../../lib/openapi'
 
 export const Route = createFileRoute('/workspace/users')({
   component: UsersPage,
 })
 
 const accountTypeOptions = ['member', 'admin', 'primary_admin'] as const
-const externalAccessModeOptions = [
-  'external_shared',
-  'external_shared_readonly',
-] as const
-
 type AccountTypeOption = (typeof accountTypeOptions)[number]
-type ExternalAccessModeOption = (typeof externalAccessModeOptions)[number]
 
 function getUserDisplayName(user: User) {
   return user.display_name || user.real_name || user.name
@@ -62,19 +48,6 @@ function UsersPage() {
     { query: { enabled: !!workspaceID, retry: false } },
   )
   const users = usersQuery.data?.items ?? []
-  const selectedUserIsBot =
-    users.find((u) => u.id === selectedUserID)?.is_bot ?? false
-  const principalAccessQuery =
-    useListExternalPrincipalAccess<ExternalPrincipalAccessCollection>(
-      workspaceID ? { host_workspace_id: workspaceID } : undefined,
-      {
-        query: {
-          enabled: !!workspaceID && selectedUserIsBot,
-          retry: false,
-        },
-      },
-    )
-  const principalAccessRules = principalAccessQuery.data?.items ?? []
 
   const filteredUsers = useMemo(() => {
     if (!deferredSearch) return users
@@ -92,10 +65,6 @@ function UsersPage() {
 
   const selectedUser =
     filteredUsers.find((u) => u.id === effectiveUserID) ?? null
-  const selectedUserRules = selectedUser
-    ? principalAccessRules.filter((r) => r.principal_id === selectedUser.id)
-    : []
-
   return (
     <div className="flex h-full min-h-[600px] overflow-hidden border border-[var(--line)]">
       {/* Sidebar */}
@@ -180,8 +149,6 @@ function UsersPage() {
             key={selectedUser.id}
             workspaceID={workspaceID}
             user={selectedUser}
-            principalAccessRules={selectedUserRules}
-            principalAccessLoading={principalAccessQuery.isFetching}
           />
         ) : (
           <div className="flex flex-1 items-center justify-center">
@@ -200,13 +167,9 @@ function UsersPage() {
 function UserDetail({
   workspaceID,
   user,
-  principalAccessRules,
-  principalAccessLoading,
 }: {
   workspaceID: string
   user: User
-  principalAccessRules: ExternalPrincipalAccessCollection['items']
-  principalAccessLoading: boolean
 }) {
   const label = getUserDisplayName(user)
 
@@ -252,21 +215,6 @@ function UserDetail({
       <Section label="Account type" description="Workspace-level administrative access.">
         <AccountTypeForm user={user} workspaceID={workspaceID} />
       </Section>
-
-      {/* External access — agents only */}
-      {user.is_bot ? (
-        <Section
-          label="External access"
-          description="Principal-access rules that allow this agent to reach external workspaces."
-        >
-          <ExternalAccessSection
-            principalAccessRules={principalAccessRules}
-            workspaceID={workspaceID}
-            user={user}
-            loading={principalAccessLoading}
-          />
-        </Section>
-      ) : null}
     </div>
   )
 }
@@ -320,140 +268,6 @@ function AccountTypeForm({ user, workspaceID }: { user: User; workspaceID: strin
           {updateUser.isPending ? 'Saving…' : 'Save'}
         </Button>
       </div>
-    </div>
-  )
-}
-
-function ExternalAccessSection({
-  principalAccessRules,
-  workspaceID,
-  user,
-  loading,
-}: {
-  principalAccessRules: ExternalPrincipalAccessCollection['items']
-  workspaceID: string
-  user: User
-  loading: boolean
-}) {
-  const queryClient = useQueryClient()
-  const [homeWorkspaceID, setHomeWorkspaceID] = useState('')
-  const [accessMode, setAccessMode] =
-    useState<ExternalAccessModeOption>('external_shared')
-  const [error, setError] = useState('')
-  const createAccess = useCreateExternalPrincipalAccess()
-  const deleteAccess = useDeleteExternalPrincipalAccess()
-
-  async function createRule() {
-    const id = homeWorkspaceID.trim()
-    if (!id) return
-    setError('')
-    try {
-      await createAccess.mutateAsync({
-        data: {
-          host_workspace_id: workspaceID,
-          principal_id: user.id,
-          principal_type: 'human',
-          home_workspace_id: id,
-          access_mode: accessMode,
-        },
-      })
-      setHomeWorkspaceID('')
-      await queryClient.invalidateQueries({
-        queryKey: getListExternalPrincipalAccessQueryKey({ host_workspace_id: workspaceID }),
-      })
-    } catch (err) {
-      setError(getErrorMessage(err, 'Failed to create external access rule.'))
-    }
-  }
-
-  async function deleteRule(id: string) {
-    setError('')
-    try {
-      await deleteAccess.mutateAsync({ id })
-      await queryClient.invalidateQueries({
-        queryKey: getListExternalPrincipalAccessQueryKey({ host_workspace_id: workspaceID }),
-      })
-    } catch (err) {
-      setError(getErrorMessage(err, 'Failed to delete external access rule.'))
-    }
-  }
-
-  return (
-    <div className="space-y-4">
-      {error ? <Alert>{error}</Alert> : null}
-
-      {/* Create form */}
-      <div className="flex flex-wrap gap-2">
-        <Input
-          className="h-8 w-48 text-xs"
-          value={homeWorkspaceID}
-          onChange={(e) => setHomeWorkspaceID(e.target.value)}
-          placeholder="Home workspace ID"
-        />
-        <Select
-          className="h-8 text-xs"
-          value={accessMode}
-          onChange={(e) => setAccessMode(e.target.value as ExternalAccessModeOption)}
-        >
-          {externalAccessModeOptions.map((option) => (
-            <option key={option} value={option}>
-              {option}
-            </option>
-          ))}
-        </Select>
-        <Button
-          size="sm"
-          onClick={() => void createRule()}
-          disabled={createAccess.isPending || !homeWorkspaceID.trim()}
-        >
-          {createAccess.isPending ? 'Adding…' : 'Add rule'}
-        </Button>
-      </div>
-
-      {/* Rules list */}
-      {loading && !principalAccessRules.length ? (
-        <LoaderCircle className="h-4 w-4 animate-spin text-[var(--ink-soft)]" />
-      ) : principalAccessRules.length ? (
-        <div className="border border-[var(--line)]">
-          {principalAccessRules.map((rule, index) => (
-            <div
-              key={rule.id}
-              className={`flex items-center gap-3 px-3 py-2 ${
-                index > 0 ? 'border-t border-[var(--line)]' : ''
-              }`}
-            >
-              <div className="min-w-0 flex-1">
-                <span className="text-[13px] font-medium text-[var(--ink)]">
-                  {rule.home_workspace_id}
-                </span>
-                <span className="ml-2 text-[11px] text-[var(--ink-soft)]">
-                  {rule.access_mode}
-                </span>
-                {rule.revoked_at ? (
-                  <Badge variant="muted" className="ml-2">revoked</Badge>
-                ) : null}
-              </div>
-              <span className="text-[11px] text-[var(--ink-soft)]">
-                {formatDate(rule.created_at)}
-              </span>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-6 w-6 text-[var(--ink-soft)] hover:text-[#dc2626]"
-                onClick={() => void deleteRule(rule.id)}
-                disabled={deleteAccess.isPending}
-                title="Remove rule"
-              >
-                <Trash2 className="h-3 w-3" />
-              </Button>
-            </div>
-          ))}
-        </div>
-      ) : (
-        <p className="text-xs text-[var(--ink-soft)]">
-          No external access rules for this user.
-        </p>
-      )}
     </div>
   )
 }

@@ -6,7 +6,7 @@ import (
 )
 
 const (
-	ResourceTypeWorkspace         = "workspace"
+	ResourceTypeWorkspace    = "workspace"
 	ResourceTypeUser         = "user"
 	ResourceTypeConversation = "conversation"
 	ResourceTypeFile         = "file"
@@ -15,7 +15,7 @@ const (
 // ExternalEvent is the canonical public event envelope exposed by /events and webhooks.
 type ExternalEvent struct {
 	ID                     int64           `json:"id"`
-	WorkspaceID                 string          `json:"workspace_id"`
+	WorkspaceID            string          `json:"workspace_id"`
 	Type                   string          `json:"type"`
 	ResourceType           string          `json:"resource_type"`
 	ResourceID             string          `json:"resource_id"`
@@ -31,6 +31,7 @@ type ListExternalEventsParams struct {
 	AfterID      int64  `json:"after_id,omitempty"`
 	Cursor       string `json:"cursor,omitempty"`
 	Limit        int    `json:"limit,omitempty"`
+	WorkspaceID  string `json:"workspace_id,omitempty"`
 	Type         string `json:"type,omitempty"`
 	ResourceType string `json:"resource_type,omitempty"`
 	ResourceID   string `json:"resource_id,omitempty"`

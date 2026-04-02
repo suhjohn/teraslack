@@ -150,6 +150,24 @@ Relevant references:
 
 Teraslack should keep the explicit top-custodian pattern, not Slack's full guest taxonomy.
 
+## Canonical Identity And Sharing Model
+
+The implementation target is:
+
+- `account` = canonical identity across workspaces
+- `workspace_membership` = normal membership in one workspace
+- `external_workspace` = connection/trust record between workspaces
+- `external_member` = conversation-scoped cross-workspace participant grant
+
+Rules:
+
+- `external_workspace` is connection metadata and bulk-revocation scope, not a permission grant by itself.
+- `external_member` is the canonical cross-workspace authorization object for conversation-scoped access.
+- A single account may have:
+  - many `workspace_memberships`
+  - zero or more `external_members`
+- An external participant must never be treated as a normal workspace member unless a real `workspace_membership` exists.
+
 ## Core Concepts
 
 Authorization is the intersection of five checks:
@@ -231,21 +249,21 @@ They are Slack-Connect-like, not guest-like.
 
 Introduce a first-class sharing grant for cross-workspace principals.
 
-Suggested resource:
+Canonical resources:
 
-- `external_principal_access`
+- `workspace_external_workspaces`
+- `external_members`
 
-Target-state fields:
+Target-state fields for `external_member`:
 
 - `id`
+- `conversation_id`
 - `host_workspace_id`
-- `principal_id`
-- `principal_type`
-- `home_workspace_id`
+- `external_workspace_id`
+- `account_id`
 - `access_mode`
-- `allowed_conversation_ids`
 - `allowed_capabilities`
-- `granted_by`
+- `invited_by`
 - `created_at`
 - `expires_at`
 - `revoked_at`
@@ -255,9 +273,9 @@ Rules:
 - `access_mode` values:
   - `external_shared`
   - `external_shared_readonly`
-- only `agent` principals are in scope for v1
-- a grant is always host-workspace scoped
-- an external agent must never be treated as a full workspace member
+- both human and agent accounts may be represented through the same canonical `account` model
+- the permission-bearing grant is always conversation-scoped
+- an external participant must never be treated as a full workspace member
 - no implicit directory access
 - no implicit access to public channels
 - access exists only through explicit sharing grants
@@ -336,7 +354,7 @@ Visibility is the first hard gate for reads.
 ### Users
 
 - Full members can view the workspace directory.
-- Support/admin roles may read more profile fields, subject to privacy settings in a future phase.
+- Support/admin roles may read more profile data, subject to privacy settings in a future phase.
 - External shared agents can view only users reachable from explicitly shared conversations, and only the minimum profile needed for message attribution and mention resolution.
 
 ### Conversations
@@ -379,21 +397,21 @@ Visibility is the first hard gate for reads.
 
 This matrix defines the default power for each account type before additive roles.
 
-| Capability | Primary Admin | Admin | Member |
-| --- | --- | --- | --- |
-| Read workspace resources | yes | yes | yes |
-| Create public channels | yes | yes | yes |
-| Create private channels | yes | yes | yes |
-| Start DMs | yes | yes | yes |
-| Start MPIMs | yes | yes | yes |
-| Post messages | yes | yes | yes |
-| Upload/share files | yes | yes | yes |
-| Create API keys for self | yes | yes | yes |
-| Create event subscriptions | yes | yes | no |
-| Manage members | yes | yes with rank limits | no |
-| Manage roles | yes | no unless `roles_admin` | no |
-| Manage workspace settings | yes | limited | no |
-| Manage billing | yes | no | no |
+| Capability                 | Primary Admin | Admin                   | Member |
+| -------------------------- | ------------- | ----------------------- | ------ |
+| Read workspace resources   | yes           | yes                     | yes    |
+| Create public channels     | yes           | yes                     | yes    |
+| Create private channels    | yes           | yes                     | yes    |
+| Start DMs                  | yes           | yes                     | yes    |
+| Start MPIMs                | yes           | yes                     | yes    |
+| Post messages              | yes           | yes                     | yes    |
+| Upload/share files         | yes           | yes                     | yes    |
+| Create API keys for self   | yes           | yes                     | yes    |
+| Create event subscriptions | yes           | yes                     | no     |
+| Manage members             | yes           | yes with rank limits    | no     |
+| Manage roles               | yes           | no unless `roles_admin` | no     |
+| Manage workspace settings  | yes           | limited                 | no     |
+| Manage billing             | yes           | no                      | no     |
 
 External shared agents are not part of this matrix. They use explicit grant-based capabilities only.
 
@@ -522,8 +540,6 @@ These become the canonical permission names for both human authz and API-key sco
 - `workspace.update`
 - `workspace.preferences.read`
 - `workspace.preferences.write`
-- `workspace.profile_fields.read`
-- `workspace.profile_fields.write`
 - `workspace.logs.read`
 - `workspace.billing.read`
 - `workspace.external_teams.read`
@@ -654,11 +670,13 @@ Authorization:
 - `PUT /conversations/{id}/managers`
 - `GET /conversations/{id}/posting-policy`
 - `PUT /conversations/{id}/posting-policy`
-- `GET /external-principal-access`
-- `POST /external-principal-access`
-- `GET /external-principal-access/{id}`
-- `PATCH /external-principal-access/{id}`
-- `DELETE /external-principal-access/{id}`
+- `GET /workspaces/{id}/external-workspaces`
+- `POST /workspaces/{id}/external-workspaces`
+- `DELETE /workspaces/{id}/external-workspaces/{external_workspace_id}`
+- `GET /conversations/{id}/external-members`
+- `POST /conversations/{id}/external-members`
+- `PATCH /conversations/{id}/external-members/{external_member_id}`
+- `DELETE /conversations/{id}/external-members/{external_member_id}`
 
 ### Event Stream
 
@@ -668,47 +686,36 @@ Add external event types:
 - `conversation.manager.added`
 - `conversation.manager.removed`
 - `conversation.posting_policy.updated`
-- `external_principal_access.granted`
-- `external_principal_access.updated`
-- `external_principal_access.revoked`
 
 ## Data Model Changes
 
 ### users table
 
-Target-state columns:
-
-- `account_type text not null`
-
+- `users` is now a compatibility/materialization table, not the canonical membership source.
+- Workspace-scoped access rank comes from `workspace_memberships.account_type`.
+- A `users` row may be materialized lazily from `accounts + workspace_memberships` when a legacy `user_id` is still required by old resources.
 - remove legacy columns:
 - `is_admin`
 - `is_owner`
 - `is_restricted`
 
-### external_principal_access
+### external_members
 
 - `id`
+- `conversation_id`
 - `host_workspace_id`
-- `principal_id`
-- `principal_type`
-- `home_workspace_id`
+- `external_workspace_id`
+- `account_id`
 - `access_mode`
 - `allowed_capabilities jsonb`
-- `granted_by`
+- `invited_by`
 - `created_at`
 - `expires_at`
 - `revoked_at`
 
-### external_principal_conversation_assignments
-
-- `access_id`
-- `conversation_id`
-- `granted_by`
-- `created_at`
-
 Unique:
 
-- `(access_id, conversation_id)`
+- one active row per `(conversation_id, account_id)`
 
 ### user_role_assignments
 
@@ -797,6 +804,7 @@ Examples:
 
 ### `/users`
 
+- `/users` is a compatibility view over membership/account identity.
 - list filtered by directory visibility
 - get filtered by directory visibility
 - create restricted to `primary_admin` or `admin`
@@ -843,13 +851,15 @@ Examples:
 ### `/events`
 
 - results filtered by resource visibility and key scope
-- external shared agents receive only events for explicitly shared resources
+- `workspace_id` may target a shared host workspace when the caller has `external_member` visibility there
+- external shared principals receive only conversation/file events reachable from explicitly shared conversations
+- workspace and user events remain restricted to real workspace members
 
 ### `/search`
 
 - only indexes visible content
 - query results filtered by the same authorizer used for direct reads
-- external shared agents search only over content in explicitly shared conversations
+- external shared principals search only over content in explicitly shared conversations and files
 
 ## Audit And Observability
 

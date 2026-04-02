@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"sort"
 	"strings"
 
 	"github.com/suhjohn/teraslack/internal/ctxutil"
@@ -15,7 +16,8 @@ import (
 // UserService contains business logic for user operations.
 type UserService struct {
 	repo           repository.UserRepository
-	externalAccess repository.ExternalPrincipalAccessRepository
+	accountRepo    repository.AccountRepository
+	membershipRepo repository.WorkspaceMembershipRepository
 	auditRepo      repository.AuthorizationAuditRepository
 	recorder       EventRecorder
 	db             repository.TxBeginner
@@ -30,8 +32,9 @@ func NewUserService(repo repository.UserRepository, recorder EventRecorder, db r
 	return &UserService{repo: repo, recorder: recorder, db: db, logger: logger}
 }
 
-func (s *UserService) SetExternalAccessRepository(repo repository.ExternalPrincipalAccessRepository) {
-	s.externalAccess = repo
+func (s *UserService) SetIdentityRepositories(accountRepo repository.AccountRepository, membershipRepo repository.WorkspaceMembershipRepository) {
+	s.accountRepo = accountRepo
+	s.membershipRepo = membershipRepo
 }
 
 func (s *UserService) SetAuthorizationAuditRepository(repo repository.AuthorizationAuditRepository) {
@@ -88,13 +91,18 @@ func (s *UserService) Create(ctx context.Context, params domain.CreateUserParams
 	if err != nil {
 		return nil, err
 	}
+	if s.accountRepo != nil && s.membershipRepo != nil {
+		if _, _, err := syncIdentityForUser(ctx, s.accountRepo.WithTx(tx), s.membershipRepo.WithTx(tx), user); err != nil {
+			return nil, fmt.Errorf("sync identity for user: %w", err)
+		}
+	}
 	payload, _ := json.Marshal(user)
 	if err := s.recorder.WithTx(tx).Record(ctx, domain.InternalEvent{
 		EventType:     domain.EventUserCreated,
 		AggregateType: domain.AggregateUser,
 		AggregateID:   user.ID,
-		WorkspaceID:        user.WorkspaceID,
-		ActorID:       ctxutil.GetActingUserID(ctx),
+		WorkspaceID:   user.WorkspaceID,
+		ActorID:       compatibilityActorID(ctx),
 		Payload:       payload,
 	}); err != nil {
 		return nil, fmt.Errorf("record user.created event: %w", err)
@@ -110,10 +118,33 @@ func (s *UserService) Get(ctx context.Context, id string) (*domain.User, error) 
 	if id == "" {
 		return nil, fmt.Errorf("id: %w", domain.ErrInvalidArgument)
 	}
-	if external, err := isExternalSharedActor(ctx, s.externalAccess); err != nil {
-		return nil, err
-	} else if external {
+	if isExternalWorkspaceParticipant(ctx) {
 		return nil, domain.ErrForbidden
+	}
+	if s.accountRepo != nil && s.membershipRepo != nil {
+		tx, err := s.db.Begin(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("begin tx: %w", err)
+		}
+		defer tx.Rollback(ctx)
+
+		memberRepo := s.membershipRepo.WithTx(tx)
+		membership, err := memberRepo.GetByLegacyUserID(ctx, id)
+		if err != nil {
+			return nil, err
+		}
+		if err := ensureWorkspaceAccess(ctx, membership.WorkspaceID); err != nil {
+			return nil, err
+		}
+
+		user, _, err := loadMembershipBackedUser(ctx, tx, s.repo.WithTx(tx), s.accountRepo.WithTx(tx), memberRepo, membership, s.recorder)
+		if err != nil {
+			return nil, err
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return nil, fmt.Errorf("commit tx: %w", err)
+		}
+		return user, nil
 	}
 	user, err := s.repo.Get(ctx, id)
 	if err != nil {
@@ -122,27 +153,46 @@ func (s *UserService) Get(ctx context.Context, id string) (*domain.User, error) 
 	if err := ensureWorkspaceAccess(ctx, user.WorkspaceID); err != nil {
 		return nil, err
 	}
-	return user, nil
+	return decorateUserWithMembership(ctx, s.membershipRepo, user)
 }
 
 func (s *UserService) GetByEmail(ctx context.Context, email string) (*domain.User, error) {
 	if email == "" {
 		return nil, fmt.Errorf("email: %w", domain.ErrInvalidArgument)
 	}
-	if external, err := isExternalSharedActor(ctx, s.externalAccess); err != nil {
-		return nil, err
-	} else if external {
+	if isExternalWorkspaceParticipant(ctx) {
 		return nil, domain.ErrForbidden
 	}
 	workspaceID := ctxutil.GetWorkspaceID(ctx)
 	if workspaceID == "" {
 		return nil, domain.ErrForbidden
 	}
-	user, err := s.repo.GetByTeamEmail(ctx, workspaceID, email)
-	if err != nil {
-		return nil, err
+	if s.accountRepo != nil && s.membershipRepo != nil {
+		tx, err := s.db.Begin(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("begin tx: %w", err)
+		}
+		defer tx.Rollback(ctx)
+
+		account, err := s.accountRepo.WithTx(tx).GetByEmail(ctx, email)
+		if err != nil {
+			return nil, err
+		}
+		memberRepo := s.membershipRepo.WithTx(tx)
+		membership, err := memberRepo.GetByWorkspaceAndAccount(ctx, workspaceID, account.ID)
+		if err != nil {
+			return nil, err
+		}
+		user, _, err := loadMembershipBackedUser(ctx, tx, s.repo.WithTx(tx), s.accountRepo.WithTx(tx), memberRepo, membership, s.recorder)
+		if err != nil {
+			return nil, err
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return nil, fmt.Errorf("commit tx: %w", err)
+		}
+		return user, nil
 	}
-	return user, nil
+	return nil, domain.ErrNotFound
 }
 
 func (s *UserService) Update(ctx context.Context, id string, params domain.UpdateUserParams) (*domain.User, error) {
@@ -150,13 +200,45 @@ func (s *UserService) Update(ctx context.Context, id string, params domain.Updat
 		return nil, fmt.Errorf("id: %w", domain.ErrInvalidArgument)
 	}
 
-	existing, err := s.repo.Get(ctx, id)
+	tx, err := s.db.Begin(ctx)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("begin tx: %w", err)
 	}
-	if err := ensureWorkspaceAccess(ctx, existing.WorkspaceID); err != nil {
-		return nil, err
+	defer tx.Rollback(ctx)
+
+	userRepo := s.repo.WithTx(tx)
+	memberRepo := s.membershipRepo
+	accountRepo := s.accountRepo
+	if memberRepo != nil {
+		memberRepo = memberRepo.WithTx(tx)
 	}
+	if accountRepo != nil {
+		accountRepo = accountRepo.WithTx(tx)
+	}
+
+	existing := &domain.User{}
+	if accountRepo != nil && memberRepo != nil {
+		membership, err := memberRepo.GetByLegacyUserID(ctx, id)
+		if err != nil {
+			return nil, err
+		}
+		existing, membership, err = loadMembershipBackedUser(ctx, tx, userRepo, accountRepo, memberRepo, membership, s.recorder)
+		if err != nil {
+			return nil, err
+		}
+		if err := ensureWorkspaceAccess(ctx, membership.WorkspaceID); err != nil {
+			return nil, err
+		}
+	} else {
+		existing, err = s.repo.Get(ctx, id)
+		if err != nil {
+			return nil, err
+		}
+		if err := ensureWorkspaceAccess(ctx, existing.WorkspaceID); err != nil {
+			return nil, err
+		}
+	}
+
 	if params.AccountType != nil {
 		if err := validateAccountType(existing.PrincipalType, *params.AccountType); err != nil {
 			return nil, err
@@ -185,23 +267,27 @@ func (s *UserService) Update(ctx context.Context, id string, params domain.Updat
 		}
 	}
 
-	tx, err := s.db.Begin(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("begin tx: %w", err)
-	}
-	defer tx.Rollback(ctx)
-
-	user, err := s.repo.WithTx(tx).Update(ctx, id, params)
+	user, err := userRepo.Update(ctx, id, params)
 	if err != nil {
 		return nil, err
+	}
+	if memberRepo != nil && params.AccountType != nil {
+		updatedMembership, err := memberRepo.UpdateAccountTypeByLegacyUserID(ctx, user.ID, user.EffectiveAccountType())
+		if err != nil && err != domain.ErrNotFound {
+			return nil, fmt.Errorf("sync membership account type: %w", err)
+		}
+		if updatedMembership != nil {
+			user.AccountType = updatedMembership.AccountType
+			user.WorkspaceID = updatedMembership.WorkspaceID
+		}
 	}
 	payload, _ := json.Marshal(user)
 	if err := s.recorder.WithTx(tx).Record(ctx, domain.InternalEvent{
 		EventType:     domain.EventUserUpdated,
 		AggregateType: domain.AggregateUser,
 		AggregateID:   user.ID,
-		WorkspaceID:        user.WorkspaceID,
-		ActorID:       ctxutil.GetActingUserID(ctx),
+		WorkspaceID:   user.WorkspaceID,
+		ActorID:       compatibilityActorID(ctx),
 		Payload:       payload,
 	}); err != nil {
 		return nil, fmt.Errorf("record user.updated event: %w", err)
@@ -222,9 +308,7 @@ func (s *UserService) Update(ctx context.Context, id string, params domain.Updat
 }
 
 func (s *UserService) List(ctx context.Context, params domain.ListUsersParams) (*domain.CursorPage[domain.User], error) {
-	if external, err := isExternalSharedActor(ctx, s.externalAccess); err != nil {
-		return nil, err
-	} else if external {
+	if isExternalWorkspaceParticipant(ctx) {
 		return nil, domain.ErrForbidden
 	}
 	workspaceID, err := resolveWorkspaceID(ctx, params.WorkspaceID)
@@ -232,6 +316,68 @@ func (s *UserService) List(ctx context.Context, params domain.ListUsersParams) (
 		return nil, err
 	}
 	params.WorkspaceID = workspaceID
+	if s.accountRepo != nil && s.membershipRepo != nil {
+		tx, err := s.db.Begin(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("begin tx: %w", err)
+		}
+		defer tx.Rollback(ctx)
+
+		memberRepo := s.membershipRepo.WithTx(tx)
+		memberships, err := memberRepo.ListByWorkspace(ctx, workspaceID)
+		if err != nil {
+			return nil, err
+		}
+		type listedUser struct {
+			key  string
+			user domain.User
+		}
+		listed := make([]listedUser, 0, len(memberships))
+		for i := range memberships {
+			user, membership, err := loadMembershipBackedUser(ctx, tx, s.repo.WithTx(tx), s.accountRepo.WithTx(tx), memberRepo, &memberships[i], s.recorder)
+			if err != nil {
+				return nil, err
+			}
+			key := user.ID
+			if key == "" {
+				key = membership.ID
+			}
+			if key == "" {
+				continue
+			}
+			listed = append(listed, listedUser{key: key, user: *user})
+		}
+		sort.Slice(listed, func(i, j int) bool {
+			return listed[i].key < listed[j].key
+		})
+
+		limit := params.Limit
+		if limit <= 0 || limit > 200 {
+			limit = 100
+		}
+		filtered := make([]listedUser, 0, len(listed))
+		for _, item := range listed {
+			if params.Cursor != "" && item.key < params.Cursor {
+				continue
+			}
+			filtered = append(filtered, item)
+		}
+
+		page := &domain.CursorPage[domain.User]{Items: []domain.User{}}
+		if len(filtered) > limit {
+			page.HasMore = true
+			page.NextCursor = filtered[limit].key
+			filtered = filtered[:limit]
+		}
+		for _, item := range filtered {
+			page.Items = append(page.Items, item.user)
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return nil, fmt.Errorf("commit tx: %w", err)
+		}
+		return page, nil
+	}
+
 	return s.repo.List(ctx, params)
 }
 

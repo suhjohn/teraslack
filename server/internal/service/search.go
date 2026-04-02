@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/suhjohn/teraslack/internal/ctxutil"
 	"github.com/suhjohn/teraslack/internal/domain"
 	"github.com/suhjohn/teraslack/internal/repository"
 )
@@ -17,8 +18,8 @@ import (
 // Documents are sharded across 256 namespaces based on the first 2 hex chars
 // of the UUID portion of entity IDs (e.g., "U_01abc..." → namespace "01").
 type SearchService struct {
-	turbopuffer    TurbopufferClient
-	externalAccess repository.ExternalPrincipalAccessRepository
+	turbopuffer     TurbopufferClient
+	externalMembers repository.ExternalMemberRepository
 }
 
 // TurbopufferClient defines the interface for vector search operations.
@@ -79,8 +80,8 @@ func NewSearchService(turbopuffer TurbopufferClient) *SearchService {
 	}
 }
 
-func (s *SearchService) SetExternalAccessRepository(repo repository.ExternalPrincipalAccessRepository) {
-	s.externalAccess = repo
+func (s *SearchService) SetExternalMemberRepository(repo repository.ExternalMemberRepository) {
+	s.externalMembers = repo
 }
 
 // Search performs a unified search across all resource types using Turbopuffer.
@@ -90,16 +91,11 @@ func (s *SearchService) Search(ctx context.Context, params domain.SearchParams) 
 	if params.Query == "" {
 		return nil, fmt.Errorf("query: %w", domain.ErrInvalidArgument)
 	}
-	workspaceID, err := resolveWorkspaceID(ctx, params.WorkspaceID)
+	workspaceID, visibility, err := s.resolveSearchWorkspace(ctx, params.WorkspaceID)
 	if err != nil {
 		return nil, err
 	}
 	params.WorkspaceID = workspaceID
-	if external, err := isExternalSharedActor(ctx, s.externalAccess); err != nil {
-		return nil, err
-	} else if external {
-		return nil, domain.ErrForbidden
-	}
 
 	limit := params.Limit
 	if limit <= 0 || limit > 100 {
@@ -123,6 +119,16 @@ func (s *SearchService) Search(ctx context.Context, params domain.SearchParams) 
 	if len(params.Types) > 0 {
 		filters["type"] = params.Types
 	}
+	queryLimit := limit
+	if visibility.external {
+		queryLimit = limit * 4
+		if queryLimit < 50 {
+			queryLimit = 50
+		}
+		if queryLimit > 100 {
+			queryLimit = 100
+		}
+	}
 
 	// Fan out across all 256 namespaces in parallel
 	namespaces := AllNamespaces()
@@ -144,7 +150,7 @@ func (s *SearchService) Search(ctx context.Context, params domain.SearchParams) 
 			sem <- struct{}{}
 			defer func() { <-sem }()
 
-			results, qErr := s.turbopuffer.Query(ctx, namespace, embedding, limit, filters)
+			results, qErr := s.turbopuffer.Query(ctx, namespace, embedding, queryLimit, filters)
 			resultsCh <- nsResult{results: results, err: qErr}
 		}(ns)
 	}
@@ -165,6 +171,10 @@ func (s *SearchService) Search(ctx context.Context, params domain.SearchParams) 
 	sort.Slice(allResults, func(i, j int) bool {
 		return allResults[i].Score > allResults[j].Score
 	})
+
+	if visibility.external {
+		allResults = filterSearchResultsByVisibility(allResults, visibility)
+	}
 
 	// Take top-k
 	if len(allResults) > limit {
@@ -188,6 +198,193 @@ func (s *SearchService) Search(ctx context.Context, params domain.SearchParams) 
 	}
 
 	return searchResults, nil
+}
+
+type searchVisibilityScope struct {
+	external             bool
+	allowedConversations map[string]struct{}
+}
+
+func (s *SearchService) resolveSearchWorkspace(ctx context.Context, requested string) (string, searchVisibilityScope, error) {
+	requested = strings.TrimSpace(requested)
+	ctxWorkspace := ctxutil.GetWorkspaceID(ctx)
+	if requested == "" || ctxWorkspace == "" || requested == ctxWorkspace {
+		workspaceID, err := resolveWorkspaceID(ctx, requested)
+		if err != nil {
+			return "", searchVisibilityScope{}, err
+		}
+		scope, err := s.searchVisibilityScope(ctx, workspaceID)
+		if err != nil {
+			return "", searchVisibilityScope{}, err
+		}
+		return workspaceID, scope, nil
+	}
+	scope, err := s.searchVisibilityScope(ctx, requested)
+	if err != nil {
+		return "", searchVisibilityScope{}, err
+	}
+	if !scope.external {
+		return "", searchVisibilityScope{}, domain.ErrForbidden
+	}
+	return requested, scope, nil
+}
+
+func (s *SearchService) searchVisibilityScope(ctx context.Context, workspaceID string) (searchVisibilityScope, error) {
+	if ctxutil.GetMembershipID(ctx) != "" {
+		return searchVisibilityScope{}, nil
+	}
+	if s.externalMembers != nil && ctxutil.GetAccountID(ctx) != "" {
+		items, err := s.externalMembers.ListActiveByAccountAndWorkspace(ctx, ctxutil.GetAccountID(ctx), workspaceID)
+		if err != nil {
+			return searchVisibilityScope{}, err
+		}
+		if len(items) > 0 {
+			conversationIDs := make([]string, 0, len(items))
+			for _, item := range items {
+				conversationIDs = append(conversationIDs, item.ConversationID)
+			}
+			return newSearchVisibilityScope(conversationIDs), nil
+		}
+	}
+	return searchVisibilityScope{}, nil
+}
+
+func newSearchVisibilityScope(conversationIDs []string) searchVisibilityScope {
+	allowed := make(map[string]struct{}, len(conversationIDs))
+	for _, id := range conversationIDs {
+		if id == "" {
+			continue
+		}
+		allowed[id] = struct{}{}
+	}
+	return searchVisibilityScope{
+		external:             len(allowed) > 0,
+		allowedConversations: allowed,
+	}
+}
+
+func filterSearchResultsByVisibility(results []VectorResult, scope searchVisibilityScope) []VectorResult {
+	if !scope.external || len(scope.allowedConversations) == 0 {
+		return results
+	}
+	filtered := make([]VectorResult, 0, len(results))
+	for _, result := range results {
+		if searchResultVisible(result, scope.allowedConversations) {
+			filtered = append(filtered, result)
+		}
+	}
+	return filtered
+}
+
+func searchResultVisible(result VectorResult, allowedConversations map[string]struct{}) bool {
+	resultType, _ := result.Metadata["type"].(string)
+	switch resultType {
+	case "conversation":
+		id := searchResultField(result.Metadata, "conversation_id", "id")
+		_, ok := allowedConversations[id]
+		return ok
+	case "message":
+		id := searchResultField(result.Metadata, "channel_id", "conversation_id")
+		_, ok := allowedConversations[id]
+		return ok
+	case "file":
+		for _, id := range searchResultFields(result.Metadata, "channel_ids", "channels") {
+			if _, ok := allowedConversations[id]; ok {
+				return true
+			}
+		}
+		return false
+	default:
+		return false
+	}
+}
+
+func searchResultField(metadata map[string]any, fields ...string) string {
+	for _, field := range fields {
+		if value, ok := searchDataField(metadata, field); ok {
+			return value
+		}
+	}
+	return ""
+}
+
+func searchResultFields(metadata map[string]any, fields ...string) []string {
+	for _, field := range fields {
+		if values, ok := searchDataFields(metadata, field); ok && len(values) > 0 {
+			return values
+		}
+	}
+	return nil
+}
+
+func searchDataField(metadata map[string]any, field string) (string, bool) {
+	if value, ok := metadata[field].(string); ok && value != "" {
+		return value, true
+	}
+	dataMap, ok := searchResultDataMap(metadata)
+	if !ok {
+		return "", false
+	}
+	value, ok := dataMap[field].(string)
+	return value, ok && value != ""
+}
+
+func searchDataFields(metadata map[string]any, field string) ([]string, bool) {
+	if raw, ok := metadata[field]; ok {
+		if values := anyToStringSlice(raw); len(values) > 0 {
+			return values, true
+		}
+	}
+	dataMap, ok := searchResultDataMap(metadata)
+	if !ok {
+		return nil, false
+	}
+	values := anyToStringSlice(dataMap[field])
+	return values, len(values) > 0
+}
+
+func searchResultDataMap(metadata map[string]any) (map[string]any, bool) {
+	raw, ok := metadata["data"]
+	if !ok || raw == nil {
+		return nil, false
+	}
+	switch v := raw.(type) {
+	case map[string]any:
+		return v, true
+	case json.RawMessage:
+		var out map[string]any
+		if err := json.Unmarshal(v, &out); err == nil {
+			return out, true
+		}
+	case []byte:
+		var out map[string]any
+		if err := json.Unmarshal(v, &out); err == nil {
+			return out, true
+		}
+	case string:
+		var out map[string]any
+		if err := json.Unmarshal([]byte(v), &out); err == nil {
+			return out, true
+		}
+	}
+	return nil, false
+}
+
+func anyToStringSlice(raw any) []string {
+	switch v := raw.(type) {
+	case []string:
+		return append([]string(nil), v...)
+	case []any:
+		out := make([]string, 0, len(v))
+		for _, item := range v {
+			if s, ok := item.(string); ok && s != "" {
+				out = append(out, s)
+			}
+		}
+		return out
+	default:
+		return nil
+	}
 }
 
 func normalizeSearchData(data any) (json.RawMessage, error) {
@@ -236,9 +433,9 @@ func (s *SearchService) Index(ctx context.Context, resourceType, id, workspaceID
 	namespace := NamespaceFromID(id)
 
 	metadata := map[string]any{
-		"type":    resourceType,
+		"type":         resourceType,
 		"workspace_id": workspaceID,
-		"data":    data,
+		"data":         data,
 	}
 
 	tpID := fmt.Sprintf("%s:%s", resourceType, id)

@@ -13,11 +13,9 @@ type openAPIServer struct {
 	userH             *UserHandler
 	convH             *ConversationHandler
 	msgH              *MessageHandler
-	pinH              *PinHandler
-	bookmarkH         *BookmarkHandler
 	fileH             *FileHandler
 	externalEventH    *ExternalEventHandler
-	externalAccessH   *ExternalPrincipalAccessHandler
+	externalMemberH   *ExternalMemberHandler
 	eventH            *EventHandler
 	authH             *AuthHandler
 	searchH           *SearchHandler
@@ -33,11 +31,9 @@ func newOpenAPIServer(
 	userH *UserHandler,
 	convH *ConversationHandler,
 	msgH *MessageHandler,
-	pinH *PinHandler,
-	bookmarkH *BookmarkHandler,
 	fileH *FileHandler,
 	externalEventH *ExternalEventHandler,
-	externalAccessH *ExternalPrincipalAccessHandler,
+	externalMemberH *ExternalMemberHandler,
 	eventH *EventHandler,
 	authH *AuthHandler,
 	searchH *SearchHandler,
@@ -50,11 +46,9 @@ func newOpenAPIServer(
 		userH:             userH,
 		convH:             convH,
 		msgH:              msgH,
-		pinH:              pinH,
-		bookmarkH:         bookmarkH,
 		fileH:             fileH,
 		externalEventH:    externalEventH,
-		externalAccessH:   externalAccessH,
+		externalMemberH:   externalMemberH,
 		eventH:            eventH,
 		authH:             authH,
 		searchH:           searchH,
@@ -71,24 +65,8 @@ func (s *openAPIServer) AcceptInvite(w http.ResponseWriter, r *http.Request) {
 	s.workspaceInviteH.Accept(w, r)
 }
 
-func (s *openAPIServer) ListExternalPrincipalAccess(w http.ResponseWriter, r *http.Request, _ openapi.ListExternalPrincipalAccessParams) {
-	s.externalAccessH.List(w, r)
-}
-
-func (s *openAPIServer) CreateExternalPrincipalAccess(w http.ResponseWriter, r *http.Request) {
-	s.externalAccessH.Create(w, r)
-}
-
-func (s *openAPIServer) GetExternalPrincipalAccess(w http.ResponseWriter, r *http.Request, _ openapi.ExternalPrincipalAccessIDPath) {
-	s.externalAccessH.Get(w, r)
-}
-
-func (s *openAPIServer) UpdateExternalPrincipalAccess(w http.ResponseWriter, r *http.Request, _ openapi.ExternalPrincipalAccessIDPath) {
-	s.externalAccessH.Update(w, r)
-}
-
-func (s *openAPIServer) DeleteExternalPrincipalAccess(w http.ResponseWriter, r *http.Request, _ openapi.ExternalPrincipalAccessIDPath) {
-	s.externalAccessH.Delete(w, r)
+func (s *openAPIServer) CreateExternalWorkspace(w http.ResponseWriter, r *http.Request, _ openapi.WorkspaceIDPath) {
+	s.workspaceH.CreateExternalWorkspace(w, r)
 }
 
 func (s *openAPIServer) CreateApiKey(w http.ResponseWriter, r *http.Request) {
@@ -131,28 +109,12 @@ func (s *openAPIServer) CreateConversation(w http.ResponseWriter, r *http.Reques
 	s.convH.Create(w, r)
 }
 
-func (s *openAPIServer) DeleteBookmark(w http.ResponseWriter, r *http.Request, _ openapi.ConversationIDPathNamed, _ openapi.BookmarkIDPath) {
-	s.bookmarkH.Remove(w, r)
-}
-
-func (s *openAPIServer) UpdateBookmark(w http.ResponseWriter, r *http.Request, _ openapi.ConversationIDPathNamed, _ openapi.BookmarkIDPath) {
-	s.bookmarkH.Edit(w, r)
-}
-
 func (s *openAPIServer) GetConversation(w http.ResponseWriter, r *http.Request, _ openapi.ConversationIDPath) {
 	s.convH.Info(w, r)
 }
 
 func (s *openAPIServer) UpdateConversation(w http.ResponseWriter, r *http.Request, _ openapi.ConversationIDPath) {
 	s.convH.Update(w, r)
-}
-
-func (s *openAPIServer) ListBookmarks(w http.ResponseWriter, r *http.Request, _ openapi.ConversationIDPath) {
-	s.bookmarkH.List(w, r)
-}
-
-func (s *openAPIServer) CreateBookmark(w http.ResponseWriter, r *http.Request, _ openapi.ConversationIDPath) {
-	s.bookmarkH.Create(w, r)
 }
 
 func (s *openAPIServer) ListConversationMembers(w http.ResponseWriter, r *http.Request, _ openapi.ConversationIDPath, _ openapi.ListConversationMembersParams) {
@@ -183,16 +145,20 @@ func (s *openAPIServer) RemoveConversationMember(w http.ResponseWriter, r *http.
 	s.convH.Kick(w, r)
 }
 
-func (s *openAPIServer) ListPins(w http.ResponseWriter, r *http.Request, _ openapi.ConversationIDPath) {
-	s.pinH.List(w, r)
+func (s *openAPIServer) ListConversationExternalMembers(w http.ResponseWriter, r *http.Request, _ openapi.ConversationIDPath) {
+	s.externalMemberH.List(w, r)
 }
 
-func (s *openAPIServer) CreatePin(w http.ResponseWriter, r *http.Request, _ openapi.ConversationIDPath) {
-	s.pinH.Add(w, r)
+func (s *openAPIServer) CreateConversationExternalMember(w http.ResponseWriter, r *http.Request, _ openapi.ConversationIDPath) {
+	s.externalMemberH.Create(w, r)
 }
 
-func (s *openAPIServer) DeletePin(w http.ResponseWriter, r *http.Request, _ openapi.ConversationIDPath, _ openapi.MessageTSPath) {
-	s.pinH.Remove(w, r)
+func (s *openAPIServer) UpdateConversationExternalMember(w http.ResponseWriter, r *http.Request, _ openapi.ConversationIDPath, _ openapi.ExternalMemberIDPath) {
+	s.externalMemberH.Update(w, r)
+}
+
+func (s *openAPIServer) DeleteConversationExternalMember(w http.ResponseWriter, r *http.Request, _ openapi.ConversationIDPath, _ openapi.ExternalMemberIDPath) {
+	s.externalMemberH.Delete(w, r)
 }
 
 func (s *openAPIServer) UpdateConversationReadState(w http.ResponseWriter, r *http.Request, _ openapi.ConversationIDPath) {
@@ -345,10 +311,6 @@ func (s *openAPIServer) ListWorkspaceOwners(w http.ResponseWriter, r *http.Reque
 
 func (s *openAPIServer) GetWorkspacePreferences(w http.ResponseWriter, r *http.Request, _ openapi.WorkspaceIDPath) {
 	s.workspaceH.Preferences(w, r)
-}
-
-func (s *openAPIServer) ListWorkspaceProfileFields(w http.ResponseWriter, r *http.Request, _ openapi.WorkspaceIDPath) {
-	s.workspaceH.ProfileFields(w, r)
 }
 
 func (s *openAPIServer) CreateWorkspaceInvite(w http.ResponseWriter, r *http.Request, _ openapi.WorkspaceIDPath) {

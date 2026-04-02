@@ -17,14 +17,19 @@ export {
 
 export {
   getGetConversationQueryKey,
+  getListConversationExternalMembersQueryKey,
   getListConversationMembersQueryKey,
   getListConversationsQueryKey,
   useAddConversationMembers,
+  useCreateConversationExternalMember,
   useCreateConversation,
+  useDeleteConversationExternalMember,
   useGetConversation,
+  useListConversationExternalMembers,
   useListConversationMembers,
   useListConversations,
   useRemoveConversationMember,
+  useUpdateConversationExternalMember,
   useUpdateConversation,
 } from './conversations/conversations'
 
@@ -37,13 +42,6 @@ export {
 
 export { useListEvents } from './events/events'
 export { useListMessages } from './messages/messages'
-
-export {
-  getListExternalPrincipalAccessQueryKey,
-  useCreateExternalPrincipalAccess,
-  useDeleteExternalPrincipalAccess,
-  useListExternalPrincipalAccess,
-} from './access/access'
 
 export {
   getListUsergroupMembersQueryKey,
@@ -65,7 +63,6 @@ export {
   getListExternalWorkspacesQueryKey,
   getListWorkspaceAuthorizationAuditLogsQueryKey,
   getListWorkspaceIntegrationLogsQueryKey,
-  getListWorkspaceProfileFieldsQueryKey,
   getListWorkspacesQueryKey,
   useCreateWorkspace,
   useDisconnectExternalWorkspace,
@@ -76,7 +73,6 @@ export {
   useListExternalWorkspaces,
   useListWorkspaceAuthorizationAuditLogs,
   useListWorkspaceIntegrationLogs,
-  useListWorkspaceProfileFields,
   useListWorkspaces,
   useTransferPrimaryAdmin,
   useUpdateWorkspace,

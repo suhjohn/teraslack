@@ -29,7 +29,7 @@ func (h *ConversationHandler) Create(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteError(w, r, domain.ErrInvalidArgument)
 		return
 	}
-	if workspaceID := ctxutil.GetWorkspaceID(r.Context()); workspaceID != "" {
+	if workspaceID := ctxutil.GetWorkspaceID(r.Context()); workspaceID != "" && params.WorkspaceID == "" {
 		params.WorkspaceID = workspaceID
 	}
 
@@ -92,7 +92,7 @@ func (h *ConversationHandler) Update(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if req.Topic != nil {
-		actorID := ctxutil.GetActingUserID(r.Context())
+		actorID := service.CompatibilityActorID(r.Context())
 		if _, err := h.svc.SetTopic(r.Context(), channelID, domain.SetTopicParams{
 			Topic:   *req.Topic,
 			SetByID: actorID,
@@ -102,7 +102,7 @@ func (h *ConversationHandler) Update(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if req.Purpose != nil {
-		actorID := ctxutil.GetActingUserID(r.Context())
+		actorID := service.CompatibilityActorID(r.Context())
 		if _, err := h.svc.SetPurpose(r.Context(), channelID, domain.SetPurposeParams{
 			Purpose: *req.Purpose,
 			SetByID: actorID,
@@ -136,7 +136,7 @@ func (h *ConversationHandler) List(w http.ResponseWriter, r *http.Request) {
 	excludeArchived, _ := strconv.ParseBool(q.Get("exclude_archived"))
 
 	params := domain.ListConversationsParams{
-		WorkspaceID:          q.Get("workspace_id"),
+		WorkspaceID:     q.Get("workspace_id"),
 		Types:           types,
 		ExcludeArchived: excludeArchived,
 		Cursor:          q.Get("cursor"),

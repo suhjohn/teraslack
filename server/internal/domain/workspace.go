@@ -24,7 +24,6 @@ type Workspace struct {
 	Discoverability WorkspaceDiscoverability `json:"discoverability"`
 	DefaultChannels []string                 `json:"default_channels"`
 	Preferences     json.RawMessage          `json:"preferences"`
-	ProfileFields   []WorkspaceProfileField  `json:"profile_fields"`
 	Billing         WorkspaceBilling         `json:"billing"`
 	CreatedAt       time.Time                `json:"created_at"`
 	UpdatedAt       time.Time                `json:"updated_at"`
@@ -35,16 +34,6 @@ type WorkspaceIcon struct {
 	ImageOriginal string `json:"image_original,omitempty"`
 	Image34       string `json:"image_34,omitempty"`
 	Image44       string `json:"image_44,omitempty"`
-}
-
-// WorkspaceProfileField defines a workspace profile field.
-type WorkspaceProfileField struct {
-	ID       string   `json:"id"`
-	Label    string   `json:"label"`
-	Hint     string   `json:"hint,omitempty"`
-	Type     string   `json:"type"`
-	Options  []string `json:"options,omitempty"`
-	Ordering int      `json:"ordering"`
 }
 
 // WorkspaceBilling stores workspace billing metadata.
@@ -82,13 +71,20 @@ type WorkspaceIntegrationLog struct {
 
 // ExternalWorkspace models a Slack Connect style external workspace link.
 type ExternalWorkspace struct {
-	ID             string     `json:"id"`
+	ID                  string     `json:"id"`
 	ExternalWorkspaceID string     `json:"external_workspace_id"`
-	Name           string     `json:"name"`
-	ConnectionType string     `json:"connection_type"`
-	Connected      bool       `json:"connected"`
-	CreatedAt      time.Time  `json:"created_at"`
-	DisconnectedAt *time.Time `json:"disconnected_at,omitempty"`
+	Name                string     `json:"name"`
+	ConnectionType      string     `json:"connection_type"`
+	Connected           bool       `json:"connected"`
+	CreatedAt           time.Time  `json:"created_at"`
+	DisconnectedAt      *time.Time `json:"disconnected_at,omitempty"`
+}
+
+type CreateExternalWorkspaceParams struct {
+	WorkspaceID         string `json:"workspace_id"`
+	ExternalWorkspaceID string `json:"external_workspace_id"`
+	Name                string `json:"name"`
+	ConnectionType      string `json:"connection_type"`
 }
 
 // CreateWorkspaceParams contains workspace creation inputs.
@@ -101,7 +97,6 @@ type CreateWorkspaceParams struct {
 	Discoverability WorkspaceDiscoverability `json:"discoverability"`
 	DefaultChannels []string                 `json:"default_channels"`
 	Preferences     json.RawMessage          `json:"preferences"`
-	ProfileFields   []WorkspaceProfileField  `json:"profile_fields"`
 	Billing         WorkspaceBilling         `json:"billing"`
 }
 
@@ -115,6 +110,5 @@ type UpdateWorkspaceParams struct {
 	Discoverability *WorkspaceDiscoverability `json:"discoverability,omitempty"`
 	DefaultChannels *[]string                 `json:"default_channels,omitempty"`
 	Preferences     json.RawMessage           `json:"preferences,omitempty"`
-	ProfileFields   *[]WorkspaceProfileField  `json:"profile_fields,omitempty"`
 	Billing         *WorkspaceBilling         `json:"billing,omitempty"`
 }

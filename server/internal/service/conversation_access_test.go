@@ -203,3 +203,44 @@ func TestMessageService_PostMessage_AllowsConversationManagerWhenRestricted(t *t
 		t.Fatalf("PostMessage() error = %v, want nil", err)
 	}
 }
+
+func TestConversationAccessService_CustomPolicyUsesMembershipAccountType(t *testing.T) {
+	userRepo := &mockUserRepoMap{
+		users: map[string]*domain.User{
+			"U123": {ID: "U123", WorkspaceID: "T123", PrincipalType: domain.PrincipalTypeHuman, AccountType: domain.AccountTypeMember},
+		},
+	}
+	membershipRepo := newMockWorkspaceMembershipRepo()
+	membershipRepo.byUser["U123"] = &domain.WorkspaceMembership{
+		ID:          "WM123",
+		AccountID:   "A123",
+		WorkspaceID: "T123",
+		UserID:      "U123",
+		AccountType: domain.AccountTypeAdmin,
+	}
+	membershipRepo.byWorkspaceAccount["T123|A123"] = membershipRepo.byUser["U123"]
+	svc := NewConversationAccessService(
+		&conversationAccessRepoStub{},
+		&conversationRepoStub{conversation: &domain.Conversation{ID: "C123", WorkspaceID: "T123", Type: domain.ConversationTypePublicChannel}},
+		userRepo,
+		&roleAssignmentRepoStub{},
+		nil,
+		mockTxBeginner{},
+		nil,
+	)
+	svc.SetIdentityRepositories(membershipRepo)
+
+	ctx := ctxutil.WithUser(context.Background(), "U123", "T123")
+	ctx = ctxutil.WithPrincipal(ctx, domain.PrincipalTypeHuman, domain.AccountTypeAdmin, false)
+	allowed, err := svc.actorMatchesCustomPostingPolicy(ctx, "T123", "U123", &domain.ConversationPostingPolicy{
+		ConversationID:      "C123",
+		PolicyType:          domain.ConversationPostingPolicyCustom,
+		AllowedAccountTypes: []domain.AccountType{domain.AccountTypeAdmin},
+	})
+	if err != nil {
+		t.Fatalf("actorMatchesCustomPostingPolicy() error = %v", err)
+	}
+	if !allowed {
+		t.Fatal("expected membership-backed admin account type to satisfy custom policy")
+	}
+}

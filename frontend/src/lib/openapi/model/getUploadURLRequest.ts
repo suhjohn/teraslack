@@ -11,4 +11,6 @@ export interface GetUploadURLRequest {
   filename: string;
   /** File size in bytes. */
   length: number;
+  /** Conversation the uploaded file will be shared into. Required for external shared uploads. */
+  channel_id?: string;
 }

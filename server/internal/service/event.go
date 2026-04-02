@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/suhjohn/teraslack/internal/ctxutil"
 	"github.com/suhjohn/teraslack/internal/domain"
 	"github.com/suhjohn/teraslack/internal/repository"
 )
@@ -72,7 +71,7 @@ func (s *EventService) CreateSubscription(ctx context.Context, params domain.Cre
 		AggregateType: domain.AggregateSubscription,
 		AggregateID:   sub.ID,
 		WorkspaceID:        sub.WorkspaceID,
-		ActorID:       ctxutil.GetActingUserID(ctx),
+		ActorID:       compatibilityActorID(ctx),
 		Payload:       payload,
 	}); err != nil {
 		return nil, fmt.Errorf("record event_subscription.created event: %w", err)
@@ -140,7 +139,7 @@ func (s *EventService) UpdateSubscription(ctx context.Context, id string, params
 		AggregateType: domain.AggregateSubscription,
 		AggregateID:   sub.ID,
 		WorkspaceID:        sub.WorkspaceID,
-		ActorID:       ctxutil.GetActingUserID(ctx),
+		ActorID:       compatibilityActorID(ctx),
 		Payload:       payload,
 	}); err != nil {
 		return nil, fmt.Errorf("record event_subscription.updated event: %w", err)
@@ -185,7 +184,7 @@ func (s *EventService) DeleteSubscription(ctx context.Context, id string) error 
 		AggregateType: domain.AggregateSubscription,
 		AggregateID:   id,
 		WorkspaceID:        sub.WorkspaceID,
-		ActorID:       ctxutil.GetActingUserID(ctx),
+		ActorID:       compatibilityActorID(ctx),
 		Payload:       payload,
 	}); err != nil {
 		return fmt.Errorf("record event_subscription.deleted event: %w", err)

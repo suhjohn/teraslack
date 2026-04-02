@@ -27,12 +27,12 @@ func (r *WorkspaceInviteRepo) WithTx(tx pgx.Tx) repository.WorkspaceInviteReposi
 
 func (r *WorkspaceInviteRepo) Create(ctx context.Context, params domain.CreateWorkspaceInviteParams, tokenHash string) (*domain.WorkspaceInvite, error) {
 	row, err := r.q.CreateWorkspaceInvite(ctx, sqlcgen.CreateWorkspaceInviteParams{
-		ID:        generateID("WI"),
-		WorkspaceID:    params.WorkspaceID,
-		Email:     params.Email,
-		InvitedBy: params.InvitedBy,
-		TokenHash: tokenHash,
-		ExpiresAt: params.ExpiresAt,
+		ID:          generateID("WI"),
+		WorkspaceID: params.WorkspaceID,
+		Email:       params.Email,
+		InvitedBy:   params.InvitedBy,
+		TokenHash:   tokenHash,
+		ExpiresAt:   params.ExpiresAt,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("insert workspace invite: %w", err)
@@ -51,11 +51,12 @@ func (r *WorkspaceInviteRepo) GetByTokenHash(ctx context.Context, tokenHash stri
 	return workspaceInviteFromGetRow(row), nil
 }
 
-func (r *WorkspaceInviteRepo) MarkAccepted(ctx context.Context, id, acceptedByUserID string, acceptedAt time.Time) error {
+func (r *WorkspaceInviteRepo) MarkAccepted(ctx context.Context, id, acceptedByAccountID, acceptedByMembershipID string, acceptedAt time.Time) error {
 	rowsAffected, err := r.q.MarkWorkspaceInviteAccepted(ctx, sqlcgen.MarkWorkspaceInviteAcceptedParams{
-		ID:               id,
-		AcceptedByUserID: stringPtrToText(&acceptedByUserID),
-		AcceptedAt:       tsToTimePtr(acceptedAt),
+		ID:                     id,
+		AcceptedByAccountID:    stringPtrToText(&acceptedByAccountID),
+		AcceptedByMembershipID: stringPtrToText(&acceptedByMembershipID),
+		AcceptedAt:             tsToTimePtr(acceptedAt),
 	})
 	if err != nil {
 		return fmt.Errorf("accept workspace invite: %w", err)
@@ -68,34 +69,40 @@ func (r *WorkspaceInviteRepo) MarkAccepted(ctx context.Context, id, acceptedByUs
 
 func workspaceInviteFromCreateRow(row sqlcgen.CreateWorkspaceInviteRow) *domain.WorkspaceInvite {
 	invite := &domain.WorkspaceInvite{
-		ID:         row.ID,
+		ID:          row.ID,
 		WorkspaceID: row.WorkspaceID,
-		Email:      row.Email,
-		InvitedBy:  row.InvitedBy,
-		ExpiresAt:  row.ExpiresAt,
-		AcceptedAt: tsToTimePtr(row.AcceptedAt),
-		CreatedAt:  row.CreatedAt,
-		UpdatedAt:  row.UpdatedAt,
+		Email:       row.Email,
+		InvitedBy:   row.InvitedBy,
+		ExpiresAt:   row.ExpiresAt,
+		AcceptedAt:  tsToTimePtr(row.AcceptedAt),
+		CreatedAt:   row.CreatedAt,
+		UpdatedAt:   row.UpdatedAt,
 	}
-	if acceptedByUserID := textToStringPtr(row.AcceptedByUserID); acceptedByUserID != nil {
-		invite.AcceptedByUserID = *acceptedByUserID
+	if acceptedByAccountID := textToStringPtr(row.AcceptedByAccountID); acceptedByAccountID != nil {
+		invite.AcceptedByAccountID = *acceptedByAccountID
+	}
+	if acceptedByMembershipID := textToStringPtr(row.AcceptedByMembershipID); acceptedByMembershipID != nil {
+		invite.AcceptedByMembershipID = *acceptedByMembershipID
 	}
 	return invite
 }
 
 func workspaceInviteFromGetRow(row sqlcgen.GetWorkspaceInviteByTokenHashRow) *domain.WorkspaceInvite {
 	invite := &domain.WorkspaceInvite{
-		ID:         row.ID,
+		ID:          row.ID,
 		WorkspaceID: row.WorkspaceID,
-		Email:      row.Email,
-		InvitedBy:  row.InvitedBy,
-		ExpiresAt:  row.ExpiresAt,
-		AcceptedAt: tsToTimePtr(row.AcceptedAt),
-		CreatedAt:  row.CreatedAt,
-		UpdatedAt:  row.UpdatedAt,
+		Email:       row.Email,
+		InvitedBy:   row.InvitedBy,
+		ExpiresAt:   row.ExpiresAt,
+		AcceptedAt:  tsToTimePtr(row.AcceptedAt),
+		CreatedAt:   row.CreatedAt,
+		UpdatedAt:   row.UpdatedAt,
 	}
-	if acceptedByUserID := textToStringPtr(row.AcceptedByUserID); acceptedByUserID != nil {
-		invite.AcceptedByUserID = *acceptedByUserID
+	if acceptedByAccountID := textToStringPtr(row.AcceptedByAccountID); acceptedByAccountID != nil {
+		invite.AcceptedByAccountID = *acceptedByAccountID
+	}
+	if acceptedByMembershipID := textToStringPtr(row.AcceptedByMembershipID); acceptedByMembershipID != nil {
+		invite.AcceptedByMembershipID = *acceptedByMembershipID
 	}
 	return invite
 }

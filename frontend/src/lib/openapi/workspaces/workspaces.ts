@@ -27,9 +27,11 @@ import type {
 import type {
   ApiErrorResponseResponse,
   AuthorizationAuditLogsCollection,
+  CreateExternalWorkspaceRequest,
   CreateWorkspaceInviteRequest,
   CreateWorkspaceInviteResponse,
   CreateWorkspaceRequest,
+  ExternalWorkspace,
   ExternalWorkspacesCollection,
   FreeFormObject,
   ListWorkspaceAccessLogsParams,
@@ -45,7 +47,6 @@ import type {
   WorkspaceBillableInfoMap,
   WorkspaceBilling,
   WorkspaceIntegrationLogsCollection,
-  WorkspaceProfileFieldsCollection,
   WorkspacesCollection
 } from '../model';
 
@@ -1150,7 +1151,91 @@ export function useGetWorkspaceBilling<TData = Awaited<ReturnType<typeof getWork
 
 
 
-export type listExternalWorkspacesResponse200 = {
+export type createExternalWorkspaceResponse201 = {
+  data: ExternalWorkspace
+  status: 201
+}
+
+export type createExternalWorkspaceResponseDefault = {
+  data: ApiErrorResponseResponse
+  status: Exclude<HTTPStatusCodes, 201>
+}
+
+export type createExternalWorkspaceResponseSuccess = (createExternalWorkspaceResponse201) & {
+  headers: Headers;
+};
+export type createExternalWorkspaceResponseError = (createExternalWorkspaceResponseDefault) & {
+  headers: Headers;
+};
+
+export type createExternalWorkspaceResponse = (createExternalWorkspaceResponseSuccess | createExternalWorkspaceResponseError)
+
+export const getCreateExternalWorkspaceUrl = (id: string,) => {
+
+
+
+
+  return `/workspaces/${id}/external-workspaces`
+}
+
+export const createExternalWorkspace = async (id: string,
+    createExternalWorkspaceRequest: CreateExternalWorkspaceRequest, options?: RequestInit): Promise<createExternalWorkspaceResponse> => {
+
+  return orvalFetch<createExternalWorkspaceResponse>(getCreateExternalWorkspaceUrl(id),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      createExternalWorkspaceRequest,)
+  }
+);}
+
+
+
+
+export const getCreateExternalWorkspaceMutationOptions = <TError = ErrorType<ApiErrorResponseResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createExternalWorkspace>>, TError,{id: string;data: BodyType<CreateExternalWorkspaceRequest>}, TContext>, request?: SecondParameter<typeof orvalFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createExternalWorkspace>>, TError,{id: string;data: BodyType<CreateExternalWorkspaceRequest>}, TContext> => {
+
+const mutationKey = ['createExternalWorkspace'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createExternalWorkspace>>, {id: string;data: BodyType<CreateExternalWorkspaceRequest>}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  createExternalWorkspace(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreateExternalWorkspaceMutationResult = NonNullable<Awaited<ReturnType<typeof createExternalWorkspace>>>
+    export type CreateExternalWorkspaceMutationBody = BodyType<CreateExternalWorkspaceRequest>
+    export type CreateExternalWorkspaceMutationError = ErrorType<ApiErrorResponseResponse>
+
+    export const useCreateExternalWorkspace = <TError = ErrorType<ApiErrorResponseResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createExternalWorkspace>>, TError,{id: string;data: BodyType<CreateExternalWorkspaceRequest>}, TContext>, request?: SecondParameter<typeof orvalFetch>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof createExternalWorkspace>>,
+        TError,
+        {id: string;data: BodyType<CreateExternalWorkspaceRequest>},
+        TContext
+      > => {
+      return useMutation(getCreateExternalWorkspaceMutationOptions(options), queryClient);
+    }
+    export type listExternalWorkspacesResponse200 = {
   data: ExternalWorkspacesCollection
   status: 200
 }
@@ -1657,117 +1742,6 @@ export function useGetWorkspacePreferences<TData = Awaited<ReturnType<typeof get
  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
 
   const queryOptions = getGetWorkspacePreferencesQueryOptions(id,options)
-
-  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
-
-  return { ...query, queryKey: queryOptions.queryKey };
-}
-
-
-
-
-export type listWorkspaceProfileFieldsResponse200 = {
-  data: WorkspaceProfileFieldsCollection
-  status: 200
-}
-
-export type listWorkspaceProfileFieldsResponseDefault = {
-  data: ApiErrorResponseResponse
-  status: Exclude<HTTPStatusCodes, 200>
-}
-
-export type listWorkspaceProfileFieldsResponseSuccess = (listWorkspaceProfileFieldsResponse200) & {
-  headers: Headers;
-};
-export type listWorkspaceProfileFieldsResponseError = (listWorkspaceProfileFieldsResponseDefault) & {
-  headers: Headers;
-};
-
-export type listWorkspaceProfileFieldsResponse = (listWorkspaceProfileFieldsResponseSuccess | listWorkspaceProfileFieldsResponseError)
-
-export const getListWorkspaceProfileFieldsUrl = (id: string,) => {
-
-
-
-
-  return `/workspaces/${id}/profile-fields`
-}
-
-export const listWorkspaceProfileFields = async (id: string, options?: RequestInit): Promise<listWorkspaceProfileFieldsResponse> => {
-
-  return orvalFetch<listWorkspaceProfileFieldsResponse>(getListWorkspaceProfileFieldsUrl(id),
-  {
-    ...options,
-    method: 'GET'
-
-
-  }
-);}
-
-
-
-
-
-export const getListWorkspaceProfileFieldsQueryKey = (id: string,) => {
-    return [
-    `/workspaces/${id}/profile-fields`
-    ] as const;
-    }
-
-
-export const getListWorkspaceProfileFieldsQueryOptions = <TData = Awaited<ReturnType<typeof listWorkspaceProfileFields>>, TError = ErrorType<ApiErrorResponseResponse>>(id: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listWorkspaceProfileFields>>, TError, TData>>, request?: SecondParameter<typeof orvalFetch>}
-) => {
-
-const {query: queryOptions, request: requestOptions} = options ?? {};
-
-  const queryKey =  queryOptions?.queryKey ?? getListWorkspaceProfileFieldsQueryKey(id);
-
-
-
-    const queryFn: QueryFunction<Awaited<ReturnType<typeof listWorkspaceProfileFields>>> = ({ signal }) => listWorkspaceProfileFields(id, { signal, ...requestOptions });
-
-
-
-
-
-   return  { queryKey, queryFn, enabled: !!(id), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listWorkspaceProfileFields>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
-}
-
-export type ListWorkspaceProfileFieldsQueryResult = NonNullable<Awaited<ReturnType<typeof listWorkspaceProfileFields>>>
-export type ListWorkspaceProfileFieldsQueryError = ErrorType<ApiErrorResponseResponse>
-
-
-export function useListWorkspaceProfileFields<TData = Awaited<ReturnType<typeof listWorkspaceProfileFields>>, TError = ErrorType<ApiErrorResponseResponse>>(
- id: string, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof listWorkspaceProfileFields>>, TError, TData>> & Pick<
-        DefinedInitialDataOptions<
-          Awaited<ReturnType<typeof listWorkspaceProfileFields>>,
-          TError,
-          Awaited<ReturnType<typeof listWorkspaceProfileFields>>
-        > , 'initialData'
-      >, request?: SecondParameter<typeof orvalFetch>}
- , queryClient?: QueryClient
-  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
-export function useListWorkspaceProfileFields<TData = Awaited<ReturnType<typeof listWorkspaceProfileFields>>, TError = ErrorType<ApiErrorResponseResponse>>(
- id: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listWorkspaceProfileFields>>, TError, TData>> & Pick<
-        UndefinedInitialDataOptions<
-          Awaited<ReturnType<typeof listWorkspaceProfileFields>>,
-          TError,
-          Awaited<ReturnType<typeof listWorkspaceProfileFields>>
-        > , 'initialData'
-      >, request?: SecondParameter<typeof orvalFetch>}
- , queryClient?: QueryClient
-  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
-export function useListWorkspaceProfileFields<TData = Awaited<ReturnType<typeof listWorkspaceProfileFields>>, TError = ErrorType<ApiErrorResponseResponse>>(
- id: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listWorkspaceProfileFields>>, TError, TData>>, request?: SecondParameter<typeof orvalFetch>}
- , queryClient?: QueryClient
-  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
-
-export function useListWorkspaceProfileFields<TData = Awaited<ReturnType<typeof listWorkspaceProfileFields>>, TError = ErrorType<ApiErrorResponseResponse>>(
- id: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listWorkspaceProfileFields>>, TError, TData>>, request?: SecondParameter<typeof orvalFetch>}
- , queryClient?: QueryClient
- ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
-
-  const queryOptions = getListWorkspaceProfileFieldsQueryOptions(id,options)
 
   const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
 

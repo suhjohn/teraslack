@@ -45,6 +45,17 @@ func (r captureRow) Scan(dest ...any) error {
 		switch ptr := d.(type) {
 		case *string:
 			*ptr = r.values[i].(string)
+		case *pgtype.Text:
+			switch v := r.values[i].(type) {
+			case nil:
+				*ptr = pgtype.Text{}
+			case string:
+				*ptr = pgtype.Text{String: v, Valid: true}
+			case pgtype.Text:
+				*ptr = v
+			default:
+				return fmt.Errorf("unsupported source %T for %T", r.values[i], d)
+			}
 		case *time.Time:
 			switch v := r.values[i].(type) {
 			case time.Time:
@@ -83,6 +94,8 @@ func TestAuthRepo_CreateSession_DoesNotPersistRawToken(t *testing.T) {
 		rowValues: []any{
 			"AS123",
 			"T123",
+			"A123",
+			"WM123",
 			"U123",
 			"hash-123",
 			"github",
@@ -94,10 +107,12 @@ func TestAuthRepo_CreateSession_DoesNotPersistRawToken(t *testing.T) {
 	repo := NewAuthRepo(db)
 
 	session, err := repo.CreateSession(context.Background(), domain.CreateAuthSessionParams{
-		WorkspaceID:    "T123",
-		UserID:    "U123",
-		Provider:  domain.AuthProviderGitHub,
-		ExpiresAt: timeNow(),
+		WorkspaceID:  "T123",
+		AccountID:    "A123",
+		MembershipID: "WM123",
+		UserID:       "U123",
+		Provider:     domain.AuthProviderGitHub,
+		ExpiresAt:    timeNow(),
 	})
 	if err != nil {
 		t.Fatalf("CreateSession: %v", err)

@@ -146,6 +146,28 @@ func TestAllowedResourceTypes_ExcludesDisallowedResourceFamilies(t *testing.T) {
 	}
 }
 
+func TestExternalMemberResourceTypes_OnlyIncludesSharedResourceFamilies(t *testing.T) {
+	t.Parallel()
+
+	principal := repository.ExternalEventPrincipal{
+		WorkspaceID: "T123",
+		AccountID:   "A123",
+		APIKeyID:    "AK123",
+		Permissions: []string{domain.PermissionMessagesRead},
+	}
+
+	resourceTypes := externalMemberResourceTypes(principal)
+	if !slicesContain(resourceTypes, domain.ResourceTypeConversation) {
+		t.Fatalf("resource types should include conversation: %#v", resourceTypes)
+	}
+	if slicesContain(resourceTypes, domain.ResourceTypeWorkspace) {
+		t.Fatalf("resource types should not include workspace: %#v", resourceTypes)
+	}
+	if slicesContain(resourceTypes, domain.ResourceTypeUser) {
+		t.Fatalf("resource types should not include user: %#v", resourceTypes)
+	}
+}
+
 func slicesContain(values []string, want string) bool {
 	for _, value := range values {
 		if value == want {

@@ -26,6 +26,8 @@ type WorkspaceRepository interface {
 	ListBillableInfo(ctx context.Context, workspaceID string) ([]domain.WorkspaceBillableInfo, error)
 	ListAccessLogs(ctx context.Context, workspaceID string, limit int) ([]domain.WorkspaceAccessLog, error)
 	ListIntegrationLogs(ctx context.Context, workspaceID string, limit int) ([]domain.WorkspaceIntegrationLog, error)
+	CreateExternalWorkspace(ctx context.Context, params domain.CreateExternalWorkspaceParams) (*domain.ExternalWorkspace, error)
+	GetExternalWorkspace(ctx context.Context, workspaceID, externalWorkspaceID string) (*domain.ExternalWorkspace, error)
 	ListExternalWorkspaces(ctx context.Context, workspaceID string) ([]domain.ExternalWorkspace, error)
 	DisconnectExternalWorkspace(ctx context.Context, workspaceID, externalWorkspaceID string) error
 }
@@ -34,7 +36,25 @@ type WorkspaceInviteRepository interface {
 	WithTx(tx pgx.Tx) WorkspaceInviteRepository
 	Create(ctx context.Context, params domain.CreateWorkspaceInviteParams, tokenHash string) (*domain.WorkspaceInvite, error)
 	GetByTokenHash(ctx context.Context, tokenHash string) (*domain.WorkspaceInvite, error)
-	MarkAccepted(ctx context.Context, id, acceptedByUserID string, acceptedAt time.Time) error
+	MarkAccepted(ctx context.Context, id, acceptedByAccountID, acceptedByMembershipID string, acceptedAt time.Time) error
+}
+
+type AccountRepository interface {
+	WithTx(tx pgx.Tx) AccountRepository
+	Create(ctx context.Context, params domain.CreateAccountParams) (*domain.Account, error)
+	Get(ctx context.Context, id string) (*domain.Account, error)
+	GetByEmail(ctx context.Context, email string) (*domain.Account, error)
+}
+
+type WorkspaceMembershipRepository interface {
+	WithTx(tx pgx.Tx) WorkspaceMembershipRepository
+	Create(ctx context.Context, params domain.CreateWorkspaceMembershipParams) (*domain.WorkspaceMembership, error)
+	GetByWorkspaceAndAccount(ctx context.Context, workspaceID, accountID string) (*domain.WorkspaceMembership, error)
+	GetByLegacyUserID(ctx context.Context, userID string) (*domain.WorkspaceMembership, error)
+	ListByAccount(ctx context.Context, accountID string) ([]domain.WorkspaceMembership, error)
+	ListByWorkspace(ctx context.Context, workspaceID string) ([]domain.WorkspaceMembership, error)
+	AttachUser(ctx context.Context, id, userID string) (*domain.WorkspaceMembership, error)
+	UpdateAccountTypeByLegacyUserID(ctx context.Context, userID string, accountType domain.AccountType) (*domain.WorkspaceMembership, error)
 }
 
 // UserRepository defines data access operations for users.
@@ -42,8 +62,6 @@ type UserRepository interface {
 	WithTx(tx pgx.Tx) UserRepository
 	Create(ctx context.Context, params domain.CreateUserParams) (*domain.User, error)
 	Get(ctx context.Context, id string) (*domain.User, error)
-	GetByTeamEmail(ctx context.Context, workspaceID, email string) (*domain.User, error)
-	ListByEmail(ctx context.Context, email string) ([]domain.User, error)
 	Update(ctx context.Context, id string, params domain.UpdateUserParams) (*domain.User, error)
 	List(ctx context.Context, params domain.ListUsersParams) (*domain.CursorPage[domain.User], error)
 }
@@ -63,17 +81,16 @@ type ConversationAccessRepository interface {
 	UpsertPostingPolicy(ctx context.Context, policy domain.ConversationPostingPolicy) (*domain.ConversationPostingPolicy, error)
 }
 
-type ExternalPrincipalAccessRepository interface {
-	WithTx(tx pgx.Tx) ExternalPrincipalAccessRepository
-	Create(ctx context.Context, params domain.CreateExternalPrincipalAccessParams) (*domain.ExternalPrincipalAccess, error)
-	Get(ctx context.Context, id string) (*domain.ExternalPrincipalAccess, error)
-	GetActiveByPrincipal(ctx context.Context, hostWorkspaceID, principalID string) (*domain.ExternalPrincipalAccess, error)
-	List(ctx context.Context, params domain.ListExternalPrincipalAccessParams) ([]domain.ExternalPrincipalAccess, error)
-	Update(ctx context.Context, id string, params domain.UpdateExternalPrincipalAccessParams) (*domain.ExternalPrincipalAccess, error)
+type ExternalMemberRepository interface {
+	WithTx(tx pgx.Tx) ExternalMemberRepository
+	Create(ctx context.Context, params domain.CreateExternalMemberParams, hostWorkspaceID string) (*domain.ExternalMember, error)
+	Get(ctx context.Context, id string) (*domain.ExternalMember, error)
+	GetActiveByConversationAndAccount(ctx context.Context, conversationID, accountID string) (*domain.ExternalMember, error)
+	ListActiveByAccountAndWorkspace(ctx context.Context, accountID, workspaceID string) ([]domain.ExternalMember, error)
+	ListByConversation(ctx context.Context, conversationID string) ([]domain.ExternalMember, error)
+	Update(ctx context.Context, id string, params domain.UpdateExternalMemberParams) (*domain.ExternalMember, error)
 	Revoke(ctx context.Context, id string, revokedAt time.Time) error
-	HasConversationAccess(ctx context.Context, accessID, conversationID string) (bool, error)
-	ListConversationIDs(ctx context.Context, accessID string) ([]string, error)
-	ReplaceConversationAssignments(ctx context.Context, accessID string, conversationIDs []string, grantedBy string) error
+	RevokeByExternalWorkspace(ctx context.Context, hostWorkspaceID, externalWorkspaceID string, revokedAt time.Time) error
 }
 
 type AuthorizationAuditRepository interface {
@@ -131,29 +148,12 @@ type ProjectorCheckpointRepository interface {
 	Set(ctx context.Context, name string, lastEventID int64) error
 }
 
-// PinRepository defines data access operations for pins.
-type PinRepository interface {
-	WithTx(tx pgx.Tx) PinRepository
-	Add(ctx context.Context, params domain.PinParams) (*domain.Pin, error)
-	Remove(ctx context.Context, params domain.PinParams) error
-	List(ctx context.Context, params domain.ListPinsParams) ([]domain.Pin, error)
-}
-
-// BookmarkRepository defines data access operations for bookmarks.
-type BookmarkRepository interface {
-	WithTx(tx pgx.Tx) BookmarkRepository
-	Create(ctx context.Context, params domain.CreateBookmarkParams) (*domain.Bookmark, error)
-	Get(ctx context.Context, id string) (*domain.Bookmark, error)
-	Update(ctx context.Context, id string, params domain.UpdateBookmarkParams) (*domain.Bookmark, error)
-	Delete(ctx context.Context, id string) error
-	List(ctx context.Context, params domain.ListBookmarksParams) ([]domain.Bookmark, error)
-}
-
 // FileRepository defines data access operations for files.
 type FileRepository interface {
 	WithTx(tx pgx.Tx) FileRepository
 	Create(ctx context.Context, f *domain.File) error
 	Get(ctx context.Context, workspaceID, id string) (*domain.File, error)
+	GetByID(ctx context.Context, id string) (*domain.File, error)
 	Update(ctx context.Context, workspaceID string, f *domain.File) error
 	Delete(ctx context.Context, workspaceID, id string) error
 	List(ctx context.Context, params domain.ListFilesParams) (*domain.CursorPage[domain.File], error)
@@ -235,8 +235,10 @@ type ExternalEventRepository interface {
 }
 
 type ExternalEventPrincipal struct {
-	WorkspaceID string
-	UserID      string
-	APIKeyID    string
-	Permissions []string
+	WorkspaceID  string
+	UserID       string
+	AccountID    string
+	MembershipID string
+	APIKeyID     string
+	Permissions  []string
 }

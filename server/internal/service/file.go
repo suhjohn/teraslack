@@ -20,14 +20,14 @@ import (
 
 // FileService contains business logic for file operations.
 type FileService struct {
-	repo           repository.FileRepository
-	externalAccess repository.ExternalPrincipalAccessRepository
-	s3             *s3client.Client
-	s3Prefix       string
-	baseURL        string
-	recorder       EventRecorder
-	db             repository.TxBeginner
-	logger         *slog.Logger
+	repo            repository.FileRepository
+	externalMembers repository.ExternalMemberRepository
+	s3              *s3client.Client
+	s3Prefix        string
+	baseURL         string
+	recorder        EventRecorder
+	db              repository.TxBeginner
+	logger          *slog.Logger
 }
 
 // NewFileService creates a new FileService.
@@ -46,8 +46,8 @@ func NewFileService(repo repository.FileRepository, s3 *s3client.Client, s3Prefi
 	}
 }
 
-func (s *FileService) SetExternalAccessRepository(repo repository.ExternalPrincipalAccessRepository) {
-	s.externalAccess = repo
+func (s *FileService) SetExternalMemberRepository(repo repository.ExternalMemberRepository) {
+	s.externalMembers = repo
 }
 
 func (s *FileService) GetUploadURL(ctx context.Context, params domain.GetUploadURLParams) (*domain.GetUploadURLResponse, error) {
@@ -60,7 +60,7 @@ func (s *FileService) GetUploadURL(ctx context.Context, params domain.GetUploadU
 	if params.Length <= 0 {
 		return nil, fmt.Errorf("length: %w", domain.ErrInvalidArgument)
 	}
-	workspaceID, userID, err := fileContext(ctx)
+	workspaceID, userID, _, err := s.resolveCreateContext(ctx, params.ChannelID)
 	if err != nil {
 		return nil, err
 	}
@@ -82,13 +82,13 @@ func (s *FileService) GetUploadURL(ctx context.Context, params domain.GetUploadU
 
 	// Create file record in DB only after URL generation succeeds
 	f := &domain.File{
-		WorkspaceID:   workspaceID,
-		ID:       fileID,
-		Name:     params.Filename,
-		UserID:   userID,
-		Mimetype: contentType,
-		Filetype: ext,
-		Size:     params.Length,
+		WorkspaceID: workspaceID,
+		ID:          fileID,
+		Name:        params.Filename,
+		UserID:      userID,
+		Mimetype:    contentType,
+		Filetype:    ext,
+		Size:        params.Length,
 	}
 
 	tx, err := s.db.Begin(ctx)
@@ -106,7 +106,7 @@ func (s *FileService) GetUploadURL(ctx context.Context, params domain.GetUploadU
 		EventType:     domain.EventFileCreated,
 		AggregateType: domain.AggregateFile,
 		AggregateID:   f.ID,
-		WorkspaceID:        f.WorkspaceID,
+		WorkspaceID:   f.WorkspaceID,
 		Payload:       payload,
 	}); err != nil {
 		return nil, fmt.Errorf("record file.created event: %w", err)
@@ -130,7 +130,7 @@ func (s *FileService) CompleteUpload(ctx context.Context, params domain.Complete
 	if params.FileID == "" {
 		return nil, fmt.Errorf("file_id: %w", domain.ErrInvalidArgument)
 	}
-	workspaceID, err := fileTeamContext(ctx)
+	workspaceID, _, _, err := s.resolveCreateContext(ctx, params.ChannelID)
 	if err != nil {
 		return nil, err
 	}
@@ -188,7 +188,7 @@ func (s *FileService) CompleteUpload(ctx context.Context, params domain.Complete
 		EventType:     domain.EventFileUpdated,
 		AggregateType: domain.AggregateFile,
 		AggregateID:   f.ID,
-		WorkspaceID:        f.WorkspaceID,
+		WorkspaceID:   f.WorkspaceID,
 		Payload:       payload,
 	}); err != nil {
 		return nil, fmt.Errorf("record file.updated event: %w", err)
@@ -201,7 +201,7 @@ func (s *FileService) CompleteUpload(ctx context.Context, params domain.Complete
 			EventType:     domain.EventFileShared,
 			AggregateType: domain.AggregateFile,
 			AggregateID:   f.ID,
-			WorkspaceID:        f.WorkspaceID,
+			WorkspaceID:   f.WorkspaceID,
 			Payload:       sharePayload,
 		}); err != nil {
 			return nil, fmt.Errorf("record file.shared event: %w", err)
@@ -218,15 +218,11 @@ func (s *FileService) Get(ctx context.Context, id string) (*domain.File, error) 
 	if id == "" {
 		return nil, fmt.Errorf("file_id: %w", domain.ErrInvalidArgument)
 	}
-	workspaceID, err := fileTeamContext(ctx)
+	f, err := s.repo.GetByID(ctx, id)
 	if err != nil {
 		return nil, err
 	}
-	f, err := s.repo.Get(ctx, workspaceID, id)
-	if err != nil {
-		return nil, err
-	}
-	if err := ensureExternalSharedFileAccess(ctx, s.externalAccess, f, domain.PermissionFilesRead, false); err != nil {
+	if _, err := ensureFileAccess(ctx, s.externalMembers, f, domain.PermissionFilesRead, false); err != nil {
 		return nil, err
 	}
 	return f, nil
@@ -237,16 +233,11 @@ func (s *FileService) Delete(ctx context.Context, id string) error {
 		return fmt.Errorf("file_id: %w", domain.ErrInvalidArgument)
 	}
 
-	workspaceID, err := fileTeamContext(ctx)
+	f, err := s.repo.GetByID(ctx, id)
 	if err != nil {
 		return err
 	}
-
-	f, err := s.repo.Get(ctx, workspaceID, id)
-	if err != nil {
-		return err
-	}
-	if err := ensureExternalSharedFileAccess(ctx, s.externalAccess, f, domain.PermissionFilesWrite, true); err != nil {
+	if _, err := ensureFileAccess(ctx, s.externalMembers, f, domain.PermissionFilesWrite, true); err != nil {
 		return err
 	}
 	if err := ensureFileOwnerOrAdmin(ctx, f.UserID); err != nil {
@@ -268,7 +259,7 @@ func (s *FileService) Delete(ctx context.Context, id string) error {
 	}
 	defer tx.Rollback(ctx)
 
-	if err := s.repo.WithTx(tx).Delete(ctx, workspaceID, id); err != nil {
+	if err := s.repo.WithTx(tx).Delete(ctx, f.WorkspaceID, id); err != nil {
 		return err
 	}
 	payload, _ := json.Marshal(f)
@@ -276,7 +267,7 @@ func (s *FileService) Delete(ctx context.Context, id string) error {
 		EventType:     domain.EventFileDeleted,
 		AggregateType: domain.AggregateFile,
 		AggregateID:   f.ID,
-		WorkspaceID:        f.WorkspaceID,
+		WorkspaceID:   f.WorkspaceID,
 		Payload:       payload,
 	}); err != nil {
 		return fmt.Errorf("record file.deleted event: %w", err)
@@ -289,24 +280,25 @@ func (s *FileService) Delete(ctx context.Context, id string) error {
 }
 
 func (s *FileService) List(ctx context.Context, params domain.ListFilesParams) (*domain.CursorPage[domain.File], error) {
-	workspaceID, err := fileTeamContext(ctx)
-	if err != nil {
-		return nil, err
+	params.WorkspaceID = ctxutil.GetWorkspaceID(ctx)
+	if params.WorkspaceID == "" && params.ChannelID == "" {
+		return nil, fmt.Errorf("workspace_id: %w", domain.ErrInvalidArgument)
 	}
-	params.WorkspaceID = workspaceID
-	if external, err := activeExternalSharedAccess(ctx, s.externalAccess); err != nil {
-		return nil, err
-	} else if external != nil {
-		if params.ChannelID == "" {
-			return nil, domain.ErrForbidden
-		}
-		ok, err := s.externalAccess.HasConversationAccess(ctx, external.ID, params.ChannelID)
-		if err != nil {
+	if params.ChannelID != "" {
+		if member, err := activeExternalMember(ctx, s.externalMembers, params.ChannelID); err != nil {
 			return nil, err
+		} else if member != nil {
+			if !capabilityAllowed(member.AllowedCapabilities, domain.PermissionFilesRead) {
+				return nil, domain.ErrForbidden
+			}
+			params.WorkspaceID = member.HostWorkspaceID
 		}
-		if !ok || !capabilityAllowed(external.AllowedCapabilities, domain.PermissionFilesRead) {
-			return nil, domain.ErrForbidden
-		}
+	}
+	if params.WorkspaceID == "" {
+		return nil, fmt.Errorf("workspace_id: %w", domain.ErrInvalidArgument)
+	}
+	if ctxutil.GetMembershipID(ctx) == "" && ctxutil.GetAccountID(ctx) != "" && params.ChannelID == "" {
+		return nil, domain.ErrForbidden
 	}
 	return s.repo.List(ctx, params)
 }
@@ -318,14 +310,14 @@ func (s *FileService) AddRemoteFile(ctx context.Context, params domain.AddRemote
 	if params.Title == "" {
 		return nil, fmt.Errorf("title: %w", domain.ErrInvalidArgument)
 	}
-	workspaceID, userID, err := fileContext(ctx)
+	workspaceID, userID, _, err := s.resolveCreateContext(ctx, params.ChannelID)
 	if err != nil {
 		return nil, err
 	}
 
 	fileID := generateFileID()
 	f := &domain.File{
-		WorkspaceID:      workspaceID,
+		WorkspaceID: workspaceID,
 		ID:          fileID,
 		Name:        params.Title,
 		Title:       params.Title,
@@ -351,10 +343,30 @@ func (s *FileService) AddRemoteFile(ctx context.Context, params domain.AddRemote
 		EventType:     domain.EventFileCreated,
 		AggregateType: domain.AggregateFile,
 		AggregateID:   f.ID,
-		WorkspaceID:        f.WorkspaceID,
+		WorkspaceID:   f.WorkspaceID,
 		Payload:       payload,
 	}); err != nil {
 		return nil, fmt.Errorf("record file.created event: %w", err)
+	}
+
+	if params.ChannelID != "" {
+		if err := s.repo.WithTx(tx).ShareToChannel(ctx, workspaceID, f.ID, params.ChannelID); err != nil {
+			if !errors.Is(err, domain.ErrAlreadyShared) {
+				return nil, fmt.Errorf("share remote file to channel: %w", err)
+			}
+		} else {
+			f.Channels = append(f.Channels, params.ChannelID)
+			sharePayload, _ := json.Marshal(map[string]string{"file_id": f.ID, "channel_id": params.ChannelID})
+			if err := s.recorder.WithTx(tx).Record(ctx, domain.InternalEvent{
+				EventType:     domain.EventFileShared,
+				AggregateType: domain.AggregateFile,
+				AggregateID:   f.ID,
+				WorkspaceID:   f.WorkspaceID,
+				Payload:       sharePayload,
+			}); err != nil {
+				return nil, fmt.Errorf("record file.shared event: %w", err)
+			}
+		}
 	}
 
 	if err := tx.Commit(ctx); err != nil {
@@ -376,16 +388,11 @@ func (s *FileService) ShareRemoteFile(ctx context.Context, params domain.ShareRe
 	if params.FileID == "" {
 		return fmt.Errorf("file_id: %w", domain.ErrInvalidArgument)
 	}
-	workspaceID, err := fileTeamContext(ctx)
+	f, err := s.repo.GetByID(ctx, params.FileID)
 	if err != nil {
 		return err
 	}
-
-	f, err := s.repo.Get(ctx, workspaceID, params.FileID)
-	if err != nil {
-		return err
-	}
-	if err := ensureExternalSharedFileAccess(ctx, s.externalAccess, f, domain.PermissionFilesWrite, true); err != nil {
+	if _, err := ensureFileAccess(ctx, s.externalMembers, f, domain.PermissionFilesWrite, true); err != nil {
 		return err
 	}
 	if err := ensureFileOwnerOrAdmin(ctx, f.UserID); err != nil {
@@ -402,7 +409,7 @@ func (s *FileService) ShareRemoteFile(ctx context.Context, params domain.ShareRe
 	txRecorder := s.recorder.WithTx(tx)
 
 	for _, ch := range params.Channels {
-		if err := txRepo.ShareToChannel(ctx, workspaceID, params.FileID, ch); err != nil {
+		if err := txRepo.ShareToChannel(ctx, f.WorkspaceID, params.FileID, ch); err != nil {
 			if errors.Is(err, domain.ErrAlreadyShared) {
 				continue
 			}
@@ -414,7 +421,7 @@ func (s *FileService) ShareRemoteFile(ctx context.Context, params domain.ShareRe
 			EventType:     domain.EventFileShared,
 			AggregateType: domain.AggregateFile,
 			AggregateID:   params.FileID,
-			WorkspaceID:        workspaceID,
+			WorkspaceID:   f.WorkspaceID,
 			Payload:       sharePayload,
 		}); err != nil {
 			return fmt.Errorf("record file.shared event: %w", err)
@@ -440,18 +447,46 @@ func fileContext(ctx context.Context) (workspaceID, userID string, err error) {
 	if err != nil {
 		return "", "", err
 	}
-	userID = ctxutil.GetActingUserID(ctx)
+	userID = compatibilityActorID(ctx)
 	if userID == "" {
 		return "", "", fmt.Errorf("user_id: %w", domain.ErrInvalidArgument)
 	}
 	return workspaceID, userID, nil
 }
 
+func (s *FileService) resolveCreateContext(ctx context.Context, channelID string) (workspaceID, userID string, external bool, err error) {
+	userID = compatibilityActorID(ctx)
+	if userID == "" {
+		return "", "", false, fmt.Errorf("user_id: %w", domain.ErrInvalidArgument)
+	}
+	if ctxutil.GetMembershipID(ctx) != "" || ctxutil.GetAccountID(ctx) == "" {
+		workspaceID, err = fileTeamContext(ctx)
+		if err != nil {
+			return "", "", false, err
+		}
+		return workspaceID, userID, false, nil
+	}
+	if channelID == "" {
+		return "", "", true, domain.ErrForbidden
+	}
+	member, err := activeExternalMember(ctx, s.externalMembers, channelID)
+	if err != nil {
+		return "", "", true, err
+	}
+	if member == nil {
+		return "", "", true, domain.ErrForbidden
+	}
+	if !capabilityAllowed(member.AllowedCapabilities, domain.PermissionFilesWrite) || member.AccessMode == domain.ExternalPrincipalAccessModeSharedReadOnly {
+		return "", "", true, domain.ErrForbidden
+	}
+	return member.HostWorkspaceID, userID, true, nil
+}
+
 func ensureFileOwnerOrAdmin(ctx context.Context, ownerUserID string) error {
 	if isInternalCallWithoutAuth(ctx) {
 		return nil
 	}
-	actorID := ctxutil.GetActingUserID(ctx)
+	actorID := compatibilityActorID(ctx)
 	if actorID != "" && actorID == ownerUserID {
 		return nil
 	}

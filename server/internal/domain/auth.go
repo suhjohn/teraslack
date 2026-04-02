@@ -11,14 +11,16 @@ const (
 )
 
 type AuthSession struct {
-	ID          string       `json:"id"`
-	WorkspaceID string       `json:"workspace_id"`
-	UserID      string       `json:"user_id"`
-	Provider    AuthProvider `json:"provider"`
-	Token       string       `json:"token,omitempty"`
-	ExpiresAt   time.Time    `json:"expires_at"`
-	RevokedAt   *time.Time   `json:"revoked_at,omitempty"`
-	CreatedAt   time.Time    `json:"created_at"`
+	ID           string       `json:"id"`
+	WorkspaceID  string       `json:"workspace_id"`
+	AccountID    string       `json:"account_id,omitempty"`
+	MembershipID string       `json:"membership_id,omitempty"`
+	UserID       string       `json:"user_id,omitempty"`
+	Provider     AuthProvider `json:"provider"`
+	Token        string       `json:"token,omitempty"`
+	ExpiresAt    time.Time    `json:"expires_at"`
+	RevokedAt    *time.Time   `json:"revoked_at,omitempty"`
+	CreatedAt    time.Time    `json:"created_at"`
 }
 
 func (s *AuthSession) Redacted() *AuthSession {
@@ -30,6 +32,8 @@ func (s *AuthSession) Redacted() *AuthSession {
 type AuthContext struct {
 	WorkspaceID   string        `json:"workspace_id"`
 	UserID        string        `json:"user_id"`
+	AccountID     string        `json:"account_id,omitempty"`
+	MembershipID  string        `json:"membership_id,omitempty"`
 	PrincipalType PrincipalType `json:"principal_type"`
 	AccountType   AccountType   `json:"account_type,omitempty"`
 	IsBot         bool          `json:"is_bot"`
@@ -39,7 +43,9 @@ type AuthContext struct {
 
 type AuthMeResponse struct {
 	WorkspaceID   string        `json:"workspace_id"`
-	UserID        string        `json:"user_id"`
+	AccountID     string        `json:"account_id,omitempty"`
+	MembershipID  string        `json:"membership_id,omitempty"`
+	UserID        string        `json:"user_id,omitempty"`
 	PrincipalType PrincipalType `json:"principal_type"`
 	AccountType   AccountType   `json:"account_type,omitempty"`
 	IsBot         bool          `json:"is_bot"`
@@ -91,7 +97,9 @@ type CompleteOAuthResult struct {
 type OAuthAccount struct {
 	ID              string       `json:"id"`
 	WorkspaceID     string       `json:"workspace_id"`
-	UserID          string       `json:"user_id"`
+	AccountID       string       `json:"account_id,omitempty"`
+	MembershipID    string       `json:"membership_id,omitempty"`
+	UserID          string       `json:"user_id,omitempty"`
 	Provider        AuthProvider `json:"provider"`
 	ProviderSubject string       `json:"provider_subject"`
 	Email           string       `json:"email"`
@@ -100,10 +108,12 @@ type OAuthAccount struct {
 }
 
 type CreateAuthSessionParams struct {
-	WorkspaceID string
-	UserID      string
-	Provider    AuthProvider
-	ExpiresAt   time.Time
+	WorkspaceID  string
+	AccountID    string
+	MembershipID string
+	UserID       string
+	Provider     AuthProvider
+	ExpiresAt    time.Time
 }
 
 type EmailVerificationChallenge struct {
@@ -123,6 +133,8 @@ type CreateEmailVerificationChallengeParams struct {
 
 type UpsertOAuthAccountParams struct {
 	WorkspaceID     string
+	AccountID       string
+	MembershipID    string
 	UserID          string
 	Provider        AuthProvider
 	ProviderSubject string

@@ -59,14 +59,6 @@ func TestComposeE2E_SystemAPIKeyCanReachProtectedRoutes(t *testing.T) {
 		Text:      "system route coverage seed",
 	})
 	addReactionViaHTTP(t, httpClient, baseURL, ownerToken, channel.ID, rootMessage.TS, "eyes", owner.ID)
-	addPinViaHTTP(t, httpClient, baseURL, ownerToken, channel.ID, rootMessage.TS)
-	bookmark := createBookmarkViaHTTP(t, httpClient, baseURL, ownerToken, domain.CreateBookmarkParams{
-		ChannelID: channel.ID,
-		Title:     "System Route Bookmark",
-		Type:      "link",
-		Link:      "https://example.com/system-routes",
-		CreatedBy: owner.ID,
-	})
 
 	subscription := createEventSubscriptionViaHTTP(t, httpClient, baseURL, ownerToken, map[string]any{
 		"workspace_id":  owner.WorkspaceID,
@@ -76,16 +68,16 @@ func TestComposeE2E_SystemAPIKeyCanReachProtectedRoutes(t *testing.T) {
 		"resource_id":   channel.ID,
 		"secret":        "system-route-secret",
 	})
-	externalAccess := createExternalAccessViaHTTP(t, httpClient, baseURL, ownerToken, map[string]any{
-		"host_workspace_id": owner.WorkspaceID,
-		"principal_id":      agent.ID,
-		"principal_type":    domain.PrincipalTypeAgent,
-		"home_workspace_id": owner.WorkspaceID,
-		"access_mode":       domain.ExternalPrincipalAccessModeShared,
-		"allowed_capabilities": []string{
-			domain.PermissionMessagesRead,
-		},
-		"conversation_ids": []string{channel.ID},
+	externalWorkspace := createExternalWorkspaceViaHTTP(t, httpClient, baseURL, ownerToken, owner.WorkspaceID, map[string]any{
+		"external_workspace_id": "T_REMOTE",
+		"name":                  "Remote Workspace",
+		"connection_type":       "slack_connect",
+	})
+	externalMember := createExternalMemberViaHTTP(t, httpClient, baseURL, ownerToken, channel.ID, map[string]any{
+		"external_workspace_id": externalWorkspace.ExternalWorkspaceID,
+		"email":                 uniqueEmail("external-member"),
+		"name":                  uniqueName("external-member"),
+		"access_mode":           domain.ExternalPrincipalAccessModeShared,
 	})
 
 	spec, err := openapi.GetSwagger()
@@ -100,14 +92,13 @@ func TestComposeE2E_SystemAPIKeyCanReachProtectedRoutes(t *testing.T) {
 		agentID:            agent.ID,
 		channelID:          channel.ID,
 		messageTS:          rootMessage.TS,
-		bookmarkID:         bookmark.ID,
 		apiKeyID:           managedKey.ID,
 		subscriptionID:     subscription.ID,
-		externalAccessID:   externalAccess.ID,
-		fakeExternalWSID:   "EW_DOES_NOT_EXIST",
+		externalWorkspaceID: externalWorkspace.ID,
+		externalMemberID:    externalMember.ID,
+		fakeExternalWSID:    "EW_DOES_NOT_EXIST",
 		fakeFileID:         "F_DOES_NOT_EXIST",
 		fakeUploadFileID:   "F_UPLOAD_DOES_NOT_EXIST",
-		fakeBookmarkID:     "B_DOES_NOT_EXIST",
 		fakeMessageTS:      "9999.999999",
 		fakeConversationID: "C_DOES_NOT_EXIST",
 	}
@@ -130,14 +121,13 @@ type systemRouteFixtures struct {
 	agentID            string
 	channelID          string
 	messageTS          string
-	bookmarkID         string
 	apiKeyID           string
 	subscriptionID     string
-	externalAccessID   string
+	externalWorkspaceID string
+	externalMemberID    string
 	fakeExternalWSID   string
 	fakeFileID         string
 	fakeUploadFileID   string
-	fakeBookmarkID     string
 	fakeMessageTS      string
 	fakeConversationID string
 }
@@ -228,8 +218,6 @@ func buildSystemRouteURL(baseURL, path string, fx systemRouteFixtures) string {
 		urlPath = strings.ReplaceAll(urlPath, "{id}", fx.apiKeyID)
 	case strings.HasPrefix(path, "/event-subscriptions/{id}"):
 		urlPath = strings.ReplaceAll(urlPath, "{id}", fx.subscriptionID)
-	case strings.HasPrefix(path, "/external-principal-access/{id}"):
-		urlPath = strings.ReplaceAll(urlPath, "{id}", fx.externalAccessID)
 	case strings.HasPrefix(path, "/file-uploads/{id}"):
 		urlPath = strings.ReplaceAll(urlPath, "{id}", fx.fakeUploadFileID)
 	case strings.HasPrefix(path, "/files/{id}"):
@@ -243,13 +231,13 @@ func buildSystemRouteURL(baseURL, path string, fx systemRouteFixtures) string {
 	}
 
 	replacements := map[string]string{
-		"{bookmark_id}":           fx.bookmarkID,
 		"{user_id}":               fx.memberID,
 		"{message_ts}":            fx.fakeMessageTS,
 		"{reaction_name}":         "eyes",
+		"{external_member_id}":    fx.externalMemberID,
 		"{external_workspace_id}": fx.fakeExternalWSID,
 	}
-	if strings.Contains(path, "/reactions") || strings.HasSuffix(path, "/pins/{message_ts}") {
+	if strings.Contains(path, "/reactions") {
 		replacements["{message_ts}"] = fx.messageTS
 	}
 	for token, value := range replacements {
@@ -292,16 +280,6 @@ func buildSystemRouteBody(method, path string, fx systemRouteFixtures) any {
 		}
 	case http.MethodPatch + " /conversations/{id}":
 		return map[string]any{"name": "route-channel-updated"}
-	case http.MethodPost + " /conversations/{id}/bookmarks":
-		return map[string]any{
-			"channel_id": fx.channelID,
-			"title":      "route bookmark",
-			"type":       "link",
-			"link":       "https://example.com/route-bookmark",
-			"created_by": fx.ownerID,
-		}
-	case http.MethodPatch + " /conversations/{conversation_id}/bookmarks/{bookmark_id}":
-		return map[string]any{"title": "route bookmark updated"}
 	case http.MethodPut + " /conversations/{id}/managers":
 		return map[string]any{"user_ids": []string{fx.ownerID}}
 	case http.MethodPost + " /conversations/{id}/members":
@@ -321,20 +299,15 @@ func buildSystemRouteBody(method, path string, fx systemRouteFixtures) any {
 		}
 	case http.MethodPatch + " /event-subscriptions/{id}":
 		return map[string]any{"enabled": true}
-	case http.MethodPost + " /external-principal-access":
+	case http.MethodPost + " /conversations/{id}/external-members":
 		return map[string]any{
-			"host_workspace_id": ownerWorkspace(fx),
-			"principal_id":      fx.agentID,
-			"principal_type":    domain.PrincipalTypeAgent,
-			"home_workspace_id": ownerWorkspace(fx),
-			"access_mode":       domain.ExternalPrincipalAccessModeShared,
-			"allowed_capabilities": []string{
-				domain.PermissionMessagesRead,
-			},
-			"conversation_ids": []string{fx.channelID},
+			"external_workspace_id": "T_REMOTE",
+			"email":                 uniqueEmail("route-external-member"),
+			"name":                  uniqueName("route-external-member"),
+			"access_mode":           domain.ExternalPrincipalAccessModeSharedReadOnly,
 		}
-	case http.MethodPatch + " /external-principal-access/{id}":
-		return map[string]any{"allowed_capabilities": []string{domain.PermissionMessagesRead}}
+	case http.MethodPatch + " /conversations/{id}/external-members/{external_member_id}":
+		return map[string]any{"access_mode": domain.ExternalPrincipalAccessModeShared}
 	case http.MethodPost + " /file-uploads":
 		return map[string]any{"filename": "route-upload.txt", "length": 3}
 	case http.MethodPost + " /file-uploads/{id}/complete":
@@ -387,12 +360,22 @@ func buildSystemRouteBody(method, path string, fx systemRouteFixtures) any {
 	return nil
 }
 
-func createExternalAccessViaHTTP(t *testing.T, httpClient *http.Client, baseURL, auth string, body map[string]any) domain.ExternalPrincipalAccess {
+func createExternalWorkspaceViaHTTP(t *testing.T, httpClient *http.Client, baseURL, auth, workspaceID string, body map[string]any) domain.ExternalWorkspace {
 	t.Helper()
-	var resp domain.ExternalPrincipalAccess
-	doJSON(t, httpClient, http.MethodPost, baseURL+"/external-principal-access", auth, body, &resp)
+	var resp domain.ExternalWorkspace
+	doJSON(t, httpClient, http.MethodPost, baseURL+"/workspaces/"+workspaceID+"/external-workspaces", auth, body, &resp)
 	if resp.ID == "" {
-		t.Fatalf("create external principal access response = %+v", resp)
+		t.Fatalf("create external workspace response = %+v", resp)
+	}
+	return resp
+}
+
+func createExternalMemberViaHTTP(t *testing.T, httpClient *http.Client, baseURL, auth, conversationID string, body map[string]any) domain.ExternalMember {
+	t.Helper()
+	var resp domain.ExternalMember
+	doJSON(t, httpClient, http.MethodPost, baseURL+"/conversations/"+conversationID+"/external-members", auth, body, &resp)
+	if resp.ID == "" {
+		t.Fatalf("create external member response = %+v", resp)
 	}
 	return resp
 }

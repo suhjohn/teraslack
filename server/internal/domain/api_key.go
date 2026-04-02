@@ -82,6 +82,8 @@ type ListAPIKeysParams struct {
 type APIKeyValidation struct {
 	WorkspaceID        string        `json:"workspace_id"`
 	UserID        string        `json:"user_id"`
+	AccountID     string        `json:"account_id,omitempty"`
+	MembershipID  string        `json:"membership_id,omitempty"`
 	PrincipalType PrincipalType `json:"principal_type"`
 	AccountType   AccountType   `json:"account_type,omitempty"`
 	IsBot         bool          `json:"is_bot"`

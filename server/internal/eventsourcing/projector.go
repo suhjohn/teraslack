@@ -62,8 +62,6 @@ func (p *Projector) RebuildAll(ctx context.Context) error {
 		domain.AggregateUser,
 		domain.AggregateConversation,
 		domain.AggregateMessage,
-		domain.AggregatePin,
-		domain.AggregateBookmark,
 		domain.AggregateFile,
 		domain.AggregateSubscription,
 		domain.AggregateAPIKey,
@@ -168,7 +166,7 @@ func sqlcEventFieldsToDomain(
 		EventType:     eventType,
 		AggregateType: aggregateType,
 		AggregateID:   aggregateID,
-		WorkspaceID:        workspaceID,
+		WorkspaceID:   workspaceID,
 		ActorID:       actorID,
 		ShardKey:      shardKey,
 		ShardID:       int(shardID),
@@ -186,10 +184,6 @@ func (p *Projector) truncateProjection(ctx context.Context, q *sqlcgen.Queries, 
 		return q.ProjectorTruncateConversationProjection(ctx)
 	case domain.AggregateMessage:
 		return q.ProjectorTruncateMessageProjection(ctx)
-	case domain.AggregatePin:
-		return q.ProjectorTruncatePinProjection(ctx)
-	case domain.AggregateBookmark:
-		return q.ProjectorTruncateBookmarkProjection(ctx)
 	case domain.AggregateFile:
 		return q.ProjectorTruncateFileProjection(ctx)
 	case domain.AggregateSubscription:
@@ -237,18 +231,6 @@ func (p *Projector) applyEvent(ctx context.Context, q *sqlcgen.Queries, entry do
 	case domain.EventReactionRemoved:
 		return p.applyReactionRemoved(ctx, q, entry)
 
-	// Pin events
-	case domain.EventPinAdded:
-		return p.applyPinAdded(ctx, q, entry)
-	case domain.EventPinRemoved:
-		return p.applyPinRemoved(ctx, q, entry)
-
-	// Bookmark events
-	case domain.EventBookmarkCreated, domain.EventBookmarkUpdated:
-		return p.applyBookmarkUpsert(ctx, q, entry)
-	case domain.EventBookmarkDeleted:
-		return p.applyBookmarkDeleted(ctx, q, entry)
-
 	// File events
 	case domain.EventFileCreated, domain.EventFileUpdated:
 		return p.applyFileUpsert(ctx, q, entry)
@@ -262,9 +244,6 @@ func (p *Projector) applyEvent(ctx context.Context, q *sqlcgen.Queries, entry do
 		return p.applySubscriptionUpsert(ctx, q, entry)
 	case domain.EventSubscriptionDeleted:
 		return p.applySubscriptionDeleted(ctx, q, entry)
-	case domain.EventExternalPrincipalAccessGranted, domain.EventExternalPrincipalAccessUpdated, domain.EventExternalPrincipalAccessRevoked:
-		return p.applyExternalPrincipalAccessUpsert(ctx, q, entry)
-
 	// API Key events
 	case domain.EventAPIKeyCreated, domain.EventAPIKeyUpdated:
 		return p.applyAPIKeyUpsert(ctx, q, entry)
@@ -292,7 +271,7 @@ func (p *Projector) applyUserUpsert(ctx context.Context, q *sqlcgen.Queries, ent
 
 	return q.ProjectorUpsertUser(ctx, sqlcgen.ProjectorUpsertUserParams{
 		ID:            u.ID,
-		WorkspaceID:        u.WorkspaceID,
+		WorkspaceID:   u.WorkspaceID,
 		Name:          u.Name,
 		RealName:      u.RealName,
 		DisplayName:   u.DisplayName,
@@ -332,18 +311,18 @@ func (p *Projector) applyUserRolesUpdated(ctx context.Context, q *sqlcgen.Querie
 	}
 	if err := q.ProjectorDeleteUserRoleAssignments(ctx, sqlcgen.ProjectorDeleteUserRoleAssignmentsParams{
 		WorkspaceID: entry.WorkspaceID,
-		UserID: payload.UserID,
+		UserID:      payload.UserID,
 	}); err != nil {
 		return fmt.Errorf("delete user roles: %w", err)
 	}
 	for _, role := range payload.DelegatedRoles {
 		if err := q.ProjectorInsertUserRoleAssignment(ctx, sqlcgen.ProjectorInsertUserRoleAssignmentParams{
-			ID:         generateProjectionID("URA", entry.ID, string(role)),
-			WorkspaceID:     entry.WorkspaceID,
-			UserID:     payload.UserID,
-			RoleKey:    string(role),
-			AssignedBy: entry.ActorID,
-			CreatedAt:  timeToPgTimestamptz(entry.CreatedAt),
+			ID:          generateProjectionID("URA", entry.ID, string(role)),
+			WorkspaceID: entry.WorkspaceID,
+			UserID:      payload.UserID,
+			RoleKey:     string(role),
+			AssignedBy:  entry.ActorID,
+			CreatedAt:   timeToPgTimestamptz(entry.CreatedAt),
 		}); err != nil {
 			return fmt.Errorf("insert user role: %w", err)
 		}
@@ -361,7 +340,7 @@ func (p *Projector) applyConversationUpsert(ctx context.Context, q *sqlcgen.Quer
 
 	return q.ProjectorUpsertConversation(ctx, sqlcgen.ProjectorUpsertConversationParams{
 		ID:             c.ID,
-		WorkspaceID:         c.WorkspaceID,
+		WorkspaceID:    c.WorkspaceID,
 		Name:           c.Name,
 		Type:           string(c.Type),
 		CreatorID:      c.CreatorID,
@@ -560,77 +539,6 @@ func (p *Projector) applyReactionRemoved(ctx context.Context, q *sqlcgen.Queries
 	})
 }
 
-// --- Pin projections ---
-
-func (p *Projector) applyPinAdded(ctx context.Context, q *sqlcgen.Queries, entry domain.InternalEvent) error {
-	var pin domain.Pin
-	if err := json.Unmarshal(entry.Payload, &pin); err != nil {
-		return fmt.Errorf("unmarshal pin: %w", err)
-	}
-
-	return q.ProjectorUpsertPin(ctx, sqlcgen.ProjectorUpsertPinParams{
-		ChannelID: pin.ChannelID,
-		MessageTs: pin.MessageTS,
-		PinnedBy:  pin.PinnedBy,
-		PinnedAt:  timeToTs(pin.PinnedAt),
-	})
-}
-
-func (p *Projector) applyPinRemoved(ctx context.Context, q *sqlcgen.Queries, entry domain.InternalEvent) error {
-	var data struct {
-		ChannelID string `json:"channel_id"`
-		MessageTS string `json:"message_ts"`
-	}
-	if err := json.Unmarshal(entry.Payload, &data); err != nil {
-		return fmt.Errorf("unmarshal pin removed: %w", err)
-	}
-
-	return q.ProjectorDeletePin(ctx, sqlcgen.ProjectorDeletePinParams{
-		ChannelID: data.ChannelID,
-		MessageTs: data.MessageTS,
-	})
-}
-
-// --- Bookmark projections ---
-
-func (p *Projector) applyBookmarkUpsert(ctx context.Context, q *sqlcgen.Queries, entry domain.InternalEvent) error {
-	var b domain.Bookmark
-	if err := json.Unmarshal(entry.Payload, &b); err != nil {
-		return fmt.Errorf("unmarshal bookmark: %w", err)
-	}
-
-	return q.ProjectorUpsertBookmark(ctx, sqlcgen.ProjectorUpsertBookmarkParams{
-		ID:        b.ID,
-		ChannelID: b.ChannelID,
-		Title:     b.Title,
-		Type:      b.Type,
-		Link:      b.Link,
-		Emoji:     b.Emoji,
-		CreatedBy: b.CreatedBy,
-		UpdatedBy: b.UpdatedBy,
-		CreatedAt: timeToTs(b.CreatedAt),
-		UpdatedAt: timeToTs(b.UpdatedAt),
-	})
-}
-
-func (p *Projector) applyBookmarkDeleted(ctx context.Context, q *sqlcgen.Queries, entry domain.InternalEvent) error {
-	var b domain.Bookmark
-	if err := json.Unmarshal(entry.Payload, &b); err != nil {
-		return fmt.Errorf("unmarshal deleted bookmark: %w", err)
-	}
-	id := b.ID
-	if id == "" {
-		var m map[string]string
-		if err := json.Unmarshal(entry.Payload, &m); err == nil {
-			id = m["bookmark_id"]
-		}
-	}
-	if id == "" {
-		id = entry.AggregateID
-	}
-	return q.ProjectorDeleteBookmark(ctx, id)
-}
-
 // --- File projections ---
 
 func (p *Projector) applyFileUpsert(ctx context.Context, q *sqlcgen.Queries, entry domain.InternalEvent) error {
@@ -651,7 +559,7 @@ func (p *Projector) applyFileUpsert(ctx context.Context, q *sqlcgen.Queries, ent
 
 	return q.ProjectorUpsertFile(ctx, sqlcgen.ProjectorUpsertFileParams{
 		ID:                 f.ID,
-		WorkspaceID:             f.WorkspaceID,
+		WorkspaceID:        f.WorkspaceID,
 		Name:               f.Name,
 		Title:              f.Title,
 		Mimetype:           f.Mimetype,
@@ -702,7 +610,7 @@ func (p *Projector) applySubscriptionUpsert(ctx context.Context, q *sqlcgen.Quer
 
 	return q.ProjectorUpsertSubscription(ctx, sqlcgen.ProjectorUpsertSubscriptionParams{
 		ID:              s.ID,
-		WorkspaceID:          s.WorkspaceID,
+		WorkspaceID:     s.WorkspaceID,
 		Url:             s.URL,
 		EventType:       s.Type,
 		ResourceType:    s.ResourceType,
@@ -732,46 +640,6 @@ func (p *Projector) applySubscriptionDeleted(ctx context.Context, q *sqlcgen.Que
 	return q.ProjectorDeleteSubscription(ctx, id)
 }
 
-func (p *Projector) applyExternalPrincipalAccessUpsert(ctx context.Context, q *sqlcgen.Queries, entry domain.InternalEvent) error {
-	var access domain.ExternalPrincipalAccess
-	if err := json.Unmarshal(entry.Payload, &access); err != nil {
-		return fmt.Errorf("unmarshal external principal access: %w", err)
-	}
-	capsJSON, err := json.Marshal(access.AllowedCapabilities)
-	if err != nil {
-		return fmt.Errorf("marshal external principal capabilities: %w", err)
-	}
-	if err := q.ProjectorUpsertExternalPrincipalAccess(ctx, sqlcgen.ProjectorUpsertExternalPrincipalAccessParams{
-		ID:                  access.ID,
-		HostWorkspaceID:          access.HostWorkspaceID,
-		PrincipalID:         access.PrincipalID,
-		PrincipalType:       string(access.PrincipalType),
-		HomeWorkspaceID:          access.HomeWorkspaceID,
-		AccessMode:          string(access.AccessMode),
-		AllowedCapabilities: capsJSON,
-		GrantedBy:           access.GrantedBy,
-		CreatedAt:           timeToPgTimestamptz(access.CreatedAt),
-		ExpiresAt:           timePtrToPgTimestamptz(access.ExpiresAt),
-		RevokedAt:           timePtrToPgTimestamptz(access.RevokedAt),
-	}); err != nil {
-		return fmt.Errorf("upsert external principal access: %w", err)
-	}
-	if err := q.ProjectorDeleteExternalPrincipalConversationAssignments(ctx, access.ID); err != nil {
-		return fmt.Errorf("delete external principal conversation assignments: %w", err)
-	}
-	for _, conversationID := range access.ConversationIDs {
-		if err := q.ProjectorInsertExternalPrincipalConversationAssignment(ctx, sqlcgen.ProjectorInsertExternalPrincipalConversationAssignmentParams{
-			AccessID:       access.ID,
-			ConversationID: conversationID,
-			GrantedBy:      access.GrantedBy,
-			CreatedAt:      timeToPgTimestamptz(entry.CreatedAt),
-		}); err != nil {
-			return fmt.Errorf("insert external principal conversation assignment: %w", err)
-		}
-	}
-	return nil
-}
-
 func generateProjectionID(prefix string, eventID int64, suffix string) string {
 	if suffix == "" {
 		return fmt.Sprintf("%s_%d", prefix, eventID)
@@ -794,7 +662,7 @@ func (p *Projector) applyAPIKeyUpsert(ctx context.Context, q *sqlcgen.Queries, e
 		KeyHash:           k.KeyHash,
 		KeyPrefix:         k.KeyPrefix,
 		KeyHint:           k.KeyHint,
-		WorkspaceID:            k.WorkspaceID,
+		WorkspaceID:       k.WorkspaceID,
 		Column8:           k.UserID,
 		CreatedBy:         k.CreatedBy,
 		OnBehalfOf:        "",

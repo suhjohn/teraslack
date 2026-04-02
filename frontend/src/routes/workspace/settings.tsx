@@ -10,14 +10,6 @@ import { CodeBlock } from '../../components/ui/code-block'
 import { Input } from '../../components/ui/input'
 import { Select } from '../../components/ui/select'
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '../../components/ui/table'
-import {
   Tabs,
   TabsContent,
   TabsList,
@@ -32,7 +24,6 @@ import {
   useGetWorkspaceBillableInfo,
   useGetWorkspaceBilling,
   useGetWorkspacePreferences,
-  useListWorkspaceProfileFields,
   useTransferPrimaryAdmin,
   useUpdateWorkspace,
 } from '../../lib/openapi'
@@ -42,7 +33,6 @@ import type {
   WorkspaceBillableInfoMap,
   WorkspaceBilling,
   WorkspaceDiscoverability,
-  WorkspaceProfileFieldsCollection,
 } from '../../lib/openapi'
 
 export const Route = createFileRoute('/workspace/settings')({
@@ -77,13 +67,12 @@ function WorkspaceSettingsPage() {
   const billingQuery = useGetWorkspaceBilling<WorkspaceBilling>(workspaceID, {
     query: { enabled: !!workspaceID, retry: false },
   })
-  const preferencesQuery = useGetWorkspacePreferences<FreeFormObject>(workspaceID, {
-    query: { enabled: !!workspaceID, retry: false },
-  })
-  const profileFieldsQuery =
-    useListWorkspaceProfileFields<WorkspaceProfileFieldsCollection>(workspaceID, {
+  const preferencesQuery = useGetWorkspacePreferences<FreeFormObject>(
+    workspaceID,
+    {
       query: { enabled: !!workspaceID, retry: false },
-    })
+    },
+  )
 
   const workspace = workspaceQuery.data
 
@@ -155,10 +144,6 @@ function WorkspaceSettingsPage() {
     <div className="space-y-8">
       <WorkspaceDetails key={workspace.id} workspace={workspace} />
 
-      {profileFieldsQuery.data?.items.length ? (
-        <ProfileFields fields={profileFieldsQuery.data.items} />
-      ) : null}
-
       {hasWorkspaceData ? (
         <WorkspaceData
           activeTab={activeDataTab}
@@ -219,7 +204,6 @@ function CreateWorkspacePanel({
           discoverability,
           default_channels: [],
           preferences: {},
-          profile_fields: [],
           billing: {
             plan: 'free',
             status: 'active',
@@ -409,7 +393,10 @@ function WorkspaceDetails({ workspace }: { workspace: Workspace }) {
             placeholder="workspace-domain"
           />
         </FieldLabel>
-        <Button onClick={() => void save()} disabled={updateWorkspace.isPending}>
+        <Button
+          onClick={() => void save()}
+          disabled={updateWorkspace.isPending}
+        >
           {updateWorkspace.isPending ? 'Saving…' : 'Save'}
         </Button>
       </div>
@@ -479,47 +466,6 @@ function WorkspaceData({
           </TabsContent>
         ))}
       </Tabs>
-    </div>
-  )
-}
-
-function ProfileFields({
-  fields,
-}: {
-  fields: NonNullable<WorkspaceProfileFieldsCollection['items']>
-}) {
-  return (
-    <div>
-      <div className="mb-3">
-        <h2 className="text-sm font-bold text-[var(--ink)]">Profile fields</h2>
-        <p className="mt-0.5 text-xs text-[var(--ink-soft)]">
-          Custom profile metadata configured for this workspace.
-        </p>
-      </div>
-      <div className="overflow-x-auto border border-[var(--line)]">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Label</TableHead>
-              <TableHead>Type</TableHead>
-              <TableHead>Hint</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {fields.map((field, i) => (
-              <TableRow key={i}>
-                <TableCell className="font-medium">{field.label}</TableCell>
-                <TableCell className="text-[var(--ink-soft)]">
-                  {field.type}
-                </TableCell>
-                <TableCell className="text-[var(--ink-soft)]">
-                  {field.hint || '—'}
-                </TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      </div>
     </div>
   )
 }

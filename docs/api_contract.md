@@ -82,6 +82,16 @@ Validation failures may include field-level details:
 - Permission failures return `403`.
 - Request ids are returned in the `X-Request-Id` response header and echoed in error bodies.
 
+## Identity Model
+
+- `accounts` are the canonical cross-workspace identities.
+- `workspace_memberships` are the canonical normal-membership records for a workspace.
+- `/users` is a compatibility view materialized from `accounts + workspace_memberships`.
+- workspace-scoped role and admin rank come from `workspace_memberships`, not from legacy `users` rows.
+- `workspace_external_workspaces` are org-to-org connection records only. They do not grant resource access by themselves.
+- `external_members` are the canonical conversation-scoped cross-workspace grants.
+- Cross-workspace reads and writes must be derived from `external_members`, not from normal workspace membership.
+
 ## Patch Semantics
 
 - `PATCH` means partial update.
@@ -106,7 +116,6 @@ Validation failures may include field-level details:
 - `DELETE /workspaces/{id}/external-workspaces/{external_workspace_id}`
 - `GET /workspaces/{id}/integration-logs`
 - `GET /workspaces/{id}/preferences`
-- `GET /workspaces/{id}/profile-fields`
 
 ### Users
 
@@ -114,6 +123,8 @@ Validation failures may include field-level details:
 - `POST /users`
 - `GET /users/{id}`
 - `PATCH /users/{id}`
+- `/users` remains a compatibility surface keyed by materialized workspace-local `user_id`.
+- Reads and authorization resolve through membership/account identity first, then materialize a compatibility `user_id` only when needed.
 
 ### Conversations
 
@@ -124,14 +135,11 @@ Validation failures may include field-level details:
 - `GET /conversations/{id}/members`
 - `POST /conversations/{id}/members`
 - `DELETE /conversations/{id}/members/{user_id}`
+- `GET /conversations/{id}/external-members`
+- `POST /conversations/{id}/external-members`
+- `PATCH /conversations/{id}/external-members/{external_member_id}`
+- `DELETE /conversations/{id}/external-members/{external_member_id}`
 - `PUT /conversations/{id}/read-state`
-- `GET /conversations/{id}/pins`
-- `POST /conversations/{id}/pins`
-- `DELETE /conversations/{id}/pins/{message_ts}`
-- `GET /conversations/{id}/bookmarks`
-- `POST /conversations/{id}/bookmarks`
-- `PATCH /conversations/{id}/bookmarks/{bookmark_id}`
-- `DELETE /conversations/{id}/bookmarks/{bookmark_id}`
 
 ### Messages
 
@@ -146,9 +154,11 @@ Validation failures may include field-level details:
 ### Files
 
 - `POST /file-uploads`
+- `POST /file-uploads` accepts optional `channel_id`. External shared writes must provide a shared conversation here.
 - `POST /file-uploads/{id}/complete`
 - `GET /files`
 - `POST /files`
+- `POST /files` accepts optional `channel_id`. External shared writes must provide a shared conversation here.
 - `GET /files/{id}`
 - `DELETE /files/{id}`
 - `POST /files/{id}/shares`
@@ -177,4 +187,6 @@ Validation failures may include field-level details:
 ### Events and Search
 
 - `GET /events`
+- `GET /events` accepts optional `workspace_id`. External actors may target a shared host workspace they can access through `external_members`.
 - `POST /search`
+- `POST /search` is workspace-scoped and external actors only receive results from explicitly shared conversations/files.

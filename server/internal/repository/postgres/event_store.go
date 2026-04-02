@@ -37,7 +37,7 @@ func (r *EventStoreRepo) Append(ctx context.Context, event domain.InternalEvent)
 		EventType:     event.EventType,
 		AggregateType: event.AggregateType,
 		AggregateID:   event.AggregateID,
-		WorkspaceID:        event.WorkspaceID,
+		WorkspaceID:   event.WorkspaceID,
 		ActorID:       event.ActorID,
 		ShardKey:      shardKey,
 		ShardID:       int32(shardID),
@@ -129,7 +129,7 @@ func internalEventFieldsToDomain(
 		EventType:     eventType,
 		AggregateType: aggregateType,
 		AggregateID:   aggregateID,
-		WorkspaceID:        workspaceID,
+		WorkspaceID:   workspaceID,
 		ActorID:       actorID,
 		ShardKey:      shardKey,
 		ShardID:       int(shardID),
@@ -172,20 +172,6 @@ func internalEventShardKey(event domain.InternalEvent) string {
 		}
 		if err := json.Unmarshal(event.Payload, &reactionEnvelope); err == nil && reactionEnvelope.Reaction.ChannelID != "" {
 			return reactionEnvelope.Reaction.ChannelID
-		}
-	case domain.AggregateBookmark:
-		var bookmark struct {
-			ChannelID string `json:"channel_id"`
-		}
-		if err := json.Unmarshal(event.Payload, &bookmark); err == nil && bookmark.ChannelID != "" {
-			return bookmark.ChannelID
-		}
-	case domain.AggregatePin:
-		var pin struct {
-			ChannelID string `json:"channel_id"`
-		}
-		if err := json.Unmarshal(event.Payload, &pin); err == nil && pin.ChannelID != "" {
-			return pin.ChannelID
 		}
 	case domain.AggregateFile:
 		if event.EventType == domain.EventFileShared {

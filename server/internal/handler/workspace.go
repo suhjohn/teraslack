@@ -130,6 +130,21 @@ func (h *WorkspaceHandler) ListExternalWorkspaces(w http.ResponseWriter, r *http
 	httputil.WriteCollection(w, http.StatusOK, workspaces, "")
 }
 
+// CreateExternalWorkspace handles POST /workspaces/{id}/external-workspaces.
+func (h *WorkspaceHandler) CreateExternalWorkspace(w http.ResponseWriter, r *http.Request) {
+	var params domain.CreateExternalWorkspaceParams
+	if err := httputil.DecodeJSON(r, &params); err != nil {
+		httputil.WriteError(w, r, domain.ErrInvalidArgument)
+		return
+	}
+	item, err := h.svc.CreateExternalWorkspace(r.Context(), r.PathValue("id"), params)
+	if err != nil {
+		httputil.WriteError(w, r, err)
+		return
+	}
+	httputil.WriteCreated(w, "/workspaces/"+r.PathValue("id")+"/external-workspaces/"+item.ExternalWorkspaceID, item)
+}
+
 // DisconnectExternalWorkspace handles DELETE /workspaces/{id}/external-workspaces/{external_workspace_id}.
 func (h *WorkspaceHandler) DisconnectExternalWorkspace(w http.ResponseWriter, r *http.Request) {
 	if err := h.svc.DisconnectExternalWorkspace(r.Context(), r.PathValue("id"), r.PathValue("external_workspace_id")); err != nil {
@@ -184,14 +199,4 @@ func (h *WorkspaceHandler) Preferences(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	httputil.WriteResource(w, http.StatusOK, prefs)
-}
-
-// ProfileFields handles GET /workspaces/{id}/profile-fields.
-func (h *WorkspaceHandler) ProfileFields(w http.ResponseWriter, r *http.Request) {
-	fields, err := h.svc.WorkspaceProfile(r.Context(), r.PathValue("id"))
-	if err != nil {
-		httputil.WriteError(w, r, err)
-		return
-	}
-	httputil.WriteCollection(w, http.StatusOK, fields, "")
 }

@@ -214,34 +214,37 @@ func (q *Queries) ListAllExternalEvents(ctx context.Context) ([]ExternalEvent, e
 	return items, nil
 }
 
-const listVisibleConversationExternalEventsByAccess = `-- name: ListVisibleConversationExternalEventsByAccess :many
+const listVisibleConversationExternalEventsByExternalMember = `-- name: ListVisibleConversationExternalEventsByExternalMember :many
 SELECT DISTINCT ee.id, ee.workspace_id, ee.type, ee.resource_type, ee.resource_id, ee.occurred_at, ee.payload,
        ee.source_internal_event_id, ee.source_internal_event_ids, ee.dedupe_key, ee.created_at
 FROM external_events ee
 JOIN conversation_event_feed cef ON cef.external_event_id = ee.id
-JOIN external_principal_conversation_assignments eca ON eca.conversation_id = cef.conversation_id
-WHERE eca.access_id = $1
+JOIN external_members em ON em.conversation_id = cef.conversation_id
+WHERE em.account_id = $1
+  AND em.host_workspace_id = $2
   AND ee.workspace_id = $2
   AND ee.id > $3
+  AND em.revoked_at IS NULL
+  AND (em.expires_at IS NULL OR em.expires_at > NOW())
   AND ($5::text IS NULL OR ee.type = $5)
   AND ($6::text IS NULL OR cef.conversation_id = $6)
 ORDER BY ee.id ASC
 LIMIT $4
 `
 
-type ListVisibleConversationExternalEventsByAccessParams struct {
-	AccessID       string      `json:"access_id"`
-	WorkspaceID    string      `json:"workspace_id"`
-	ID             int64       `json:"id"`
-	Limit          int32       `json:"limit"`
-	EventType      pgtype.Text `json:"event_type"`
-	ConversationID pgtype.Text `json:"conversation_id"`
+type ListVisibleConversationExternalEventsByExternalMemberParams struct {
+	AccountID       string      `json:"account_id"`
+	HostWorkspaceID string      `json:"host_workspace_id"`
+	ID              int64       `json:"id"`
+	Limit           int32       `json:"limit"`
+	EventType       pgtype.Text `json:"event_type"`
+	ConversationID  pgtype.Text `json:"conversation_id"`
 }
 
-func (q *Queries) ListVisibleConversationExternalEventsByAccess(ctx context.Context, arg ListVisibleConversationExternalEventsByAccessParams) ([]ExternalEvent, error) {
-	rows, err := q.db.Query(ctx, listVisibleConversationExternalEventsByAccess,
-		arg.AccessID,
-		arg.WorkspaceID,
+func (q *Queries) ListVisibleConversationExternalEventsByExternalMember(ctx context.Context, arg ListVisibleConversationExternalEventsByExternalMemberParams) ([]ExternalEvent, error) {
+	rows, err := q.db.Query(ctx, listVisibleConversationExternalEventsByExternalMember,
+		arg.AccountID,
+		arg.HostWorkspaceID,
 		arg.ID,
 		arg.Limit,
 		arg.EventType,
@@ -277,44 +280,52 @@ func (q *Queries) ListVisibleConversationExternalEventsByAccess(ctx context.Cont
 	return items, nil
 }
 
-const listVisibleExternalEventsByAccessAndResourceTypes = `-- name: ListVisibleExternalEventsByAccessAndResourceTypes :many
+const listVisibleExternalEventsByExternalMemberAndResourceTypes = `-- name: ListVisibleExternalEventsByExternalMemberAndResourceTypes :many
 SELECT DISTINCT ee.id, ee.workspace_id, ee.type, ee.resource_type, ee.resource_id, ee.occurred_at, ee.payload,
        ee.source_internal_event_id, ee.source_internal_event_ids, ee.dedupe_key, ee.created_at
 FROM external_events ee
 LEFT JOIN conversation_event_feed cef
   ON cef.external_event_id = ee.id AND ee.resource_type = 'conversation'
-LEFT JOIN external_principal_conversation_assignments eca_conv
-  ON eca_conv.access_id = $1 AND eca_conv.conversation_id = cef.conversation_id
+LEFT JOIN external_members em_conv
+  ON em_conv.account_id = $1
+ AND em_conv.host_workspace_id = $2
+ AND em_conv.conversation_id = cef.conversation_id
+ AND em_conv.revoked_at IS NULL
+ AND (em_conv.expires_at IS NULL OR em_conv.expires_at > NOW())
 LEFT JOIN file_event_feed fef
   ON fef.external_event_id = ee.id AND ee.resource_type = 'file'
 LEFT JOIN file_channels fc ON fc.file_id = fef.file_id
-LEFT JOIN external_principal_conversation_assignments eca_file
-  ON eca_file.access_id = $1 AND eca_file.conversation_id = fc.channel_id
+LEFT JOIN external_members em_file
+  ON em_file.account_id = $1
+ AND em_file.host_workspace_id = $2
+ AND em_file.conversation_id = fc.channel_id
+ AND em_file.revoked_at IS NULL
+ AND (em_file.expires_at IS NULL OR em_file.expires_at > NOW())
 WHERE ee.workspace_id = $2
   AND ee.id > $3
   AND ee.resource_type = ANY($4::text[])
   AND ($6::text IS NULL OR ee.type = $6)
   AND (
-    (ee.resource_type = 'conversation' AND eca_conv.access_id IS NOT NULL) OR
-    (ee.resource_type = 'file' AND eca_file.access_id IS NOT NULL)
+    (ee.resource_type = 'conversation' AND em_conv.id IS NOT NULL) OR
+    (ee.resource_type = 'file' AND em_file.id IS NOT NULL)
   )
 ORDER BY ee.id ASC
 LIMIT $5
 `
 
-type ListVisibleExternalEventsByAccessAndResourceTypesParams struct {
-	AccessID    string      `json:"access_id"`
-	WorkspaceID string      `json:"workspace_id"`
-	ID          int64       `json:"id"`
-	Column4     []string    `json:"column_4"`
-	Limit       int32       `json:"limit"`
-	EventType   pgtype.Text `json:"event_type"`
+type ListVisibleExternalEventsByExternalMemberAndResourceTypesParams struct {
+	AccountID       string      `json:"account_id"`
+	HostWorkspaceID string      `json:"host_workspace_id"`
+	ID              int64       `json:"id"`
+	Column4         []string    `json:"column_4"`
+	Limit           int32       `json:"limit"`
+	EventType       pgtype.Text `json:"event_type"`
 }
 
-func (q *Queries) ListVisibleExternalEventsByAccessAndResourceTypes(ctx context.Context, arg ListVisibleExternalEventsByAccessAndResourceTypesParams) ([]ExternalEvent, error) {
-	rows, err := q.db.Query(ctx, listVisibleExternalEventsByAccessAndResourceTypes,
-		arg.AccessID,
-		arg.WorkspaceID,
+func (q *Queries) ListVisibleExternalEventsByExternalMemberAndResourceTypes(ctx context.Context, arg ListVisibleExternalEventsByExternalMemberAndResourceTypesParams) ([]ExternalEvent, error) {
+	rows, err := q.db.Query(ctx, listVisibleExternalEventsByExternalMemberAndResourceTypes,
+		arg.AccountID,
+		arg.HostWorkspaceID,
 		arg.ID,
 		arg.Column4,
 		arg.Limit,
@@ -411,35 +422,38 @@ func (q *Queries) ListVisibleExternalEventsByWorkspaceAndResourceTypes(ctx conte
 	return items, nil
 }
 
-const listVisibleFileExternalEventsByAccess = `-- name: ListVisibleFileExternalEventsByAccess :many
+const listVisibleFileExternalEventsByExternalMember = `-- name: ListVisibleFileExternalEventsByExternalMember :many
 SELECT DISTINCT ee.id, ee.workspace_id, ee.type, ee.resource_type, ee.resource_id, ee.occurred_at, ee.payload,
        ee.source_internal_event_id, ee.source_internal_event_ids, ee.dedupe_key, ee.created_at
 FROM external_events ee
 JOIN file_event_feed fef ON fef.external_event_id = ee.id
 JOIN file_channels fc ON fc.file_id = fef.file_id
-JOIN external_principal_conversation_assignments eca ON eca.conversation_id = fc.channel_id
-WHERE eca.access_id = $1
+JOIN external_members em ON em.conversation_id = fc.channel_id
+WHERE em.account_id = $1
+  AND em.host_workspace_id = $2
   AND ee.workspace_id = $2
   AND ee.id > $3
+  AND em.revoked_at IS NULL
+  AND (em.expires_at IS NULL OR em.expires_at > NOW())
   AND ($5::text IS NULL OR ee.type = $5)
   AND ($6::text IS NULL OR fef.file_id = $6)
 ORDER BY ee.id ASC
 LIMIT $4
 `
 
-type ListVisibleFileExternalEventsByAccessParams struct {
-	AccessID    string      `json:"access_id"`
-	WorkspaceID string      `json:"workspace_id"`
-	ID          int64       `json:"id"`
-	Limit       int32       `json:"limit"`
-	EventType   pgtype.Text `json:"event_type"`
-	FileID      pgtype.Text `json:"file_id"`
+type ListVisibleFileExternalEventsByExternalMemberParams struct {
+	AccountID       string      `json:"account_id"`
+	HostWorkspaceID string      `json:"host_workspace_id"`
+	ID              int64       `json:"id"`
+	Limit           int32       `json:"limit"`
+	EventType       pgtype.Text `json:"event_type"`
+	FileID          pgtype.Text `json:"file_id"`
 }
 
-func (q *Queries) ListVisibleFileExternalEventsByAccess(ctx context.Context, arg ListVisibleFileExternalEventsByAccessParams) ([]ExternalEvent, error) {
-	rows, err := q.db.Query(ctx, listVisibleFileExternalEventsByAccess,
-		arg.AccessID,
-		arg.WorkspaceID,
+func (q *Queries) ListVisibleFileExternalEventsByExternalMember(ctx context.Context, arg ListVisibleFileExternalEventsByExternalMemberParams) ([]ExternalEvent, error) {
+	rows, err := q.db.Query(ctx, listVisibleFileExternalEventsByExternalMember,
+		arg.AccountID,
+		arg.HostWorkspaceID,
 		arg.ID,
 		arg.Limit,
 		arg.EventType,

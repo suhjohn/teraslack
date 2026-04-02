@@ -9,6 +9,12 @@ SELECT id, workspace_id, name, title, mimetype, filetype, size, user_id,
        created_at, updated_at
 FROM files WHERE workspace_id = $1 AND id = $2;
 
+-- name: GetFileByID :one
+SELECT id, workspace_id, name, title, mimetype, filetype, size, user_id,
+       url_private, url_private_download, permalink, is_external, external_url,
+       created_at, updated_at
+FROM files WHERE id = $1;
+
 -- name: UpdateFileComplete :exec
 UPDATE files SET title = $3, url_private = $4, url_private_download = $5,
                  permalink = $6, upload_complete = TRUE

@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/suhjohn/teraslack/internal/ctxutil"
 	"github.com/suhjohn/teraslack/internal/domain"
@@ -12,15 +13,23 @@ import (
 )
 
 type ExternalEventService struct {
-	repo repository.ExternalEventRepository
+	repo            repository.ExternalEventRepository
+	externalMembers repository.ExternalMemberRepository
 }
 
 func NewExternalEventService(repo repository.ExternalEventRepository) *ExternalEventService {
 	return &ExternalEventService{repo: repo}
 }
 
+func (s *ExternalEventService) SetExternalMemberRepository(repo repository.ExternalMemberRepository) {
+	s.externalMembers = repo
+}
+
 func (s *ExternalEventService) List(ctx context.Context, params domain.ListExternalEventsParams) (*domain.CursorPage[domain.ExternalEvent], error) {
-	workspaceID := ctxutil.GetWorkspaceID(ctx)
+	workspaceID, err := s.resolveListWorkspace(ctx, params.WorkspaceID)
+	if err != nil {
+		return nil, err
+	}
 	if workspaceID == "" {
 		return nil, fmt.Errorf("workspace_id: %w", domain.ErrInvalidAuth)
 	}
@@ -31,15 +40,24 @@ func (s *ExternalEventService) List(ctx context.Context, params domain.ListExter
 		return nil, err
 	}
 
+	membershipID := ctxutil.GetMembershipID(ctx)
+	if workspaceID != "" && workspaceID != ctxutil.GetWorkspaceID(ctx) {
+		membershipID = ""
+	}
+
 	principal := repository.ExternalEventPrincipal{
-		WorkspaceID:      workspaceID,
-		UserID:      ctxutil.GetActingUserID(ctx),
-		APIKeyID:    ctxutil.GetAPIKeyID(ctx),
-		Permissions: ctxutil.GetPermissions(ctx),
+		WorkspaceID:  workspaceID,
+		UserID:       compatibilityActorID(ctx),
+		AccountID:    ctxutil.GetAccountID(ctx),
+		MembershipID: membershipID,
+		APIKeyID:     ctxutil.GetAPIKeyID(ctx),
+		Permissions:  ctxutil.GetPermissions(ctx),
 	}
 	cursorState := externalEventCursor{
-		WorkspaceID:       principal.WorkspaceID,
+		WorkspaceID:  principal.WorkspaceID,
 		UserID:       principal.UserID,
+		AccountID:    principal.AccountID,
+		MembershipID: principal.MembershipID,
 		APIKeyID:     principal.APIKeyID,
 		Type:         params.Type,
 		ResourceType: params.ResourceType,
@@ -53,6 +71,8 @@ func (s *ExternalEventService) List(ctx context.Context, params domain.ListExter
 		}
 		if decoded.WorkspaceID != cursorState.WorkspaceID ||
 			decoded.UserID != cursorState.UserID ||
+			decoded.AccountID != cursorState.AccountID ||
+			decoded.MembershipID != cursorState.MembershipID ||
 			decoded.APIKeyID != cursorState.APIKeyID ||
 			decoded.Type != cursorState.Type ||
 			decoded.ResourceType != cursorState.ResourceType ||
@@ -80,10 +100,34 @@ func (s *ExternalEventService) List(ctx context.Context, params domain.ListExter
 	return page, nil
 }
 
+func (s *ExternalEventService) resolveListWorkspace(ctx context.Context, requested string) (string, error) {
+	ctxWorkspace := ctxutil.GetWorkspaceID(ctx)
+	requested = strings.TrimSpace(requested)
+	if requested == "" {
+		return resolveWorkspaceID(ctx, requested)
+	}
+	if ctxWorkspace == "" || requested == ctxWorkspace {
+		return resolveWorkspaceID(ctx, requested)
+	}
+	if s.externalMembers == nil || ctxutil.GetAccountID(ctx) == "" {
+		return "", domain.ErrForbidden
+	}
+	items, err := s.externalMembers.ListActiveByAccountAndWorkspace(ctx, ctxutil.GetAccountID(ctx), requested)
+	if err != nil {
+		return "", err
+	}
+	if len(items) == 0 {
+		return "", domain.ErrForbidden
+	}
+	return requested, nil
+}
+
 type externalEventCursor struct {
 	AfterID      int64  `json:"after_id"`
-	WorkspaceID       string `json:"workspace_id"`
+	WorkspaceID  string `json:"workspace_id"`
 	UserID       string `json:"user_id,omitempty"`
+	AccountID    string `json:"account_id,omitempty"`
+	MembershipID string `json:"membership_id,omitempty"`
 	APIKeyID     string `json:"api_key_id,omitempty"`
 	Type         string `json:"type,omitempty"`
 	ResourceType string `json:"resource_type,omitempty"`

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"time"
 
 	"github.com/suhjohn/teraslack/internal/ctxutil"
 	"github.com/suhjohn/teraslack/internal/domain"
@@ -14,12 +15,15 @@ import (
 
 // WorkspaceService contains business logic for Slack-style workspace APIs.
 type WorkspaceService struct {
-	repo      repository.WorkspaceRepository
-	userRepo  repository.UserRepository
-	auditRepo repository.AuthorizationAuditRepository
-	recorder  EventRecorder
-	db        repository.TxBeginner
-	logger    *slog.Logger
+	repo               repository.WorkspaceRepository
+	userRepo           repository.UserRepository
+	accountRepo        repository.AccountRepository
+	membershipRepo     repository.WorkspaceMembershipRepository
+	externalMemberRepo repository.ExternalMemberRepository
+	auditRepo          repository.AuthorizationAuditRepository
+	recorder           EventRecorder
+	db                 repository.TxBeginner
+	logger             *slog.Logger
 }
 
 // NewWorkspaceService creates a new WorkspaceService.
@@ -32,6 +36,15 @@ func NewWorkspaceService(repo repository.WorkspaceRepository, userRepo repositor
 
 func (s *WorkspaceService) SetAuthorizationAuditRepository(repo repository.AuthorizationAuditRepository) {
 	s.auditRepo = repo
+}
+
+func (s *WorkspaceService) SetExternalMemberRepository(repo repository.ExternalMemberRepository) {
+	s.externalMemberRepo = repo
+}
+
+func (s *WorkspaceService) SetIdentityRepositories(accountRepo repository.AccountRepository, membershipRepo repository.WorkspaceMembershipRepository) {
+	s.accountRepo = accountRepo
+	s.membershipRepo = membershipRepo
 }
 
 func (s *WorkspaceService) WorkspaceInfo(ctx context.Context, workspaceID string) (*domain.Workspace, error) {
@@ -48,14 +61,6 @@ func (s *WorkspaceService) WorkspacePreferences(ctx context.Context, workspaceID
 		return nil, err
 	}
 	return decodeWorkspacePreferences(ws.Preferences)
-}
-
-func (s *WorkspaceService) WorkspaceProfile(ctx context.Context, workspaceID string) ([]domain.WorkspaceProfileField, error) {
-	ws, err := s.WorkspaceInfo(ctx, workspaceID)
-	if err != nil {
-		return nil, err
-	}
-	return ws.ProfileFields, nil
 }
 
 func (s *WorkspaceService) WorkspaceBillingInfo(ctx context.Context, workspaceID string) (*domain.WorkspaceBilling, error) {
@@ -124,6 +129,21 @@ func (s *WorkspaceService) TeamExternalWorkspaces(ctx context.Context, workspace
 	return s.repo.ListExternalWorkspaces(ctx, resolved)
 }
 
+func (s *WorkspaceService) CreateExternalWorkspace(ctx context.Context, workspaceID string, params domain.CreateExternalWorkspaceParams) (*domain.ExternalWorkspace, error) {
+	if strings.TrimSpace(params.ExternalWorkspaceID) == "" {
+		return nil, fmt.Errorf("external_workspace_id: %w", domain.ErrInvalidArgument)
+	}
+	resolved, err := s.resolveAdminTargetWorkspaceID(ctx, workspaceID)
+	if err != nil {
+		return nil, err
+	}
+	params.WorkspaceID = resolved
+	params.ExternalWorkspaceID = strings.TrimSpace(params.ExternalWorkspaceID)
+	params.Name = strings.TrimSpace(params.Name)
+	params.ConnectionType = strings.TrimSpace(params.ConnectionType)
+	return s.repo.CreateExternalWorkspace(ctx, params)
+}
+
 func (s *WorkspaceService) DisconnectExternalWorkspace(ctx context.Context, workspaceID, externalWorkspaceID string) error {
 	if externalWorkspaceID == "" {
 		return fmt.Errorf("external_workspace_id: %w", domain.ErrInvalidArgument)
@@ -132,7 +152,15 @@ func (s *WorkspaceService) DisconnectExternalWorkspace(ctx context.Context, work
 	if err != nil {
 		return err
 	}
-	return s.repo.DisconnectExternalWorkspace(ctx, resolved, externalWorkspaceID)
+	if err := s.repo.DisconnectExternalWorkspace(ctx, resolved, externalWorkspaceID); err != nil {
+		return err
+	}
+	if s.externalMemberRepo != nil {
+		if err := s.externalMemberRepo.RevokeByExternalWorkspace(ctx, resolved, externalWorkspaceID, time.Now().UTC()); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (s *WorkspaceService) TransferPrimaryAdmin(ctx context.Context, workspaceID, newPrimaryAdminID string) (*domain.User, error) {
@@ -147,7 +175,7 @@ func (s *WorkspaceService) TransferPrimaryAdmin(ctx context.Context, workspaceID
 	if err != nil {
 		return nil, err
 	}
-	target, err := s.userRepo.Get(ctx, newPrimaryAdminID)
+	target, err := loadUserWithMembership(ctx, s.userRepo, s.membershipRepo, newPrimaryAdminID)
 	if err != nil {
 		return nil, err
 	}
@@ -175,6 +203,15 @@ func (s *WorkspaceService) TransferPrimaryAdmin(ctx context.Context, workspaceID
 	nextPrimary, err := txUsers.Update(ctx, target.ID, domain.UpdateUserParams{AccountType: &primaryType})
 	if err != nil {
 		return nil, err
+	}
+	if s.membershipRepo != nil {
+		txMemberships := s.membershipRepo.WithTx(tx)
+		if _, err := txMemberships.UpdateAccountTypeByLegacyUserID(ctx, previousPrimary.ID, previousPrimary.EffectiveAccountType()); err != nil && err != domain.ErrNotFound {
+			return nil, fmt.Errorf("sync previous primary membership account type: %w", err)
+		}
+		if _, err := txMemberships.UpdateAccountTypeByLegacyUserID(ctx, nextPrimary.ID, nextPrimary.EffectiveAccountType()); err != nil && err != domain.ErrNotFound {
+			return nil, fmt.Errorf("sync next primary membership account type: %w", err)
+		}
 	}
 
 	for _, user := range []*domain.User{previousPrimary, nextPrimary} {
@@ -230,7 +267,7 @@ func (s *WorkspaceService) AdminCreate(ctx context.Context, params domain.Create
 		AggregateType: domain.AggregateWorkspace,
 		AggregateID:   ws.ID,
 		WorkspaceID:   ws.ID,
-		ActorID:       ctxutil.GetActingUserID(ctx),
+		ActorID:       compatibilityActorID(ctx),
 		Payload:       payload,
 	}); err != nil {
 		return nil, fmt.Errorf("record workspace.created event: %w", err)
@@ -250,13 +287,26 @@ func (s *WorkspaceService) AdminCreate(ctx context.Context, params domain.Create
 	if err != nil {
 		return nil, fmt.Errorf("create creator user: %w", err)
 	}
+	if s.accountRepo != nil && s.membershipRepo != nil {
+		accountRepo := s.accountRepo
+		membershipRepo := s.membershipRepo
+		if accountRepo != nil {
+			accountRepo = accountRepo.WithTx(tx)
+		}
+		if membershipRepo != nil {
+			membershipRepo = membershipRepo.WithTx(tx)
+		}
+		if _, _, err := syncIdentityForUser(ctx, accountRepo, membershipRepo, createdUser); err != nil {
+			return nil, fmt.Errorf("sync creator identity: %w", err)
+		}
+	}
 	userPayload, _ := json.Marshal(createdUser)
 	if err := s.recorder.WithTx(tx).Record(ctx, domain.InternalEvent{
 		EventType:     domain.EventUserCreated,
 		AggregateType: domain.AggregateUser,
 		AggregateID:   createdUser.ID,
 		WorkspaceID:   createdUser.WorkspaceID,
-		ActorID:       ctxutil.GetActingUserID(ctx),
+		ActorID:       compatibilityActorID(ctx),
 		Payload:       userPayload,
 	}); err != nil {
 		return nil, fmt.Errorf("record user.created event: %w", err)
@@ -281,28 +331,35 @@ func (s *WorkspaceService) AdminList(ctx context.Context) ([]domain.Workspace, e
 		return []domain.Workspace{*workspace}, nil
 	}
 
-	users, err := s.userRepo.ListByEmail(ctx, actor.Email)
-	if err != nil {
-		return nil, fmt.Errorf("list workspace memberships: %w", err)
+	if s.membershipRepo != nil {
+		accountID := ctxutil.GetAccountID(ctx)
+		if accountID != "" {
+			memberships, membershipErr := s.membershipRepo.ListByAccount(ctx, accountID)
+			if membershipErr != nil {
+				return nil, fmt.Errorf("list workspace memberships: %w", membershipErr)
+			}
+			workspaces := make([]domain.Workspace, 0, len(memberships))
+			seen := make(map[string]struct{}, len(memberships))
+			for _, membership := range memberships {
+				if membership.WorkspaceID == "" {
+					continue
+				}
+				if _, ok := seen[membership.WorkspaceID]; ok {
+					continue
+				}
+				workspace, getErr := s.repo.Get(ctx, membership.WorkspaceID)
+				if getErr != nil {
+					return nil, getErr
+				}
+				workspaces = append(workspaces, *workspace)
+				seen[membership.WorkspaceID] = struct{}{}
+			}
+			if len(workspaces) > 0 {
+				return workspaces, nil
+			}
+		}
 	}
-
-	workspaces := make([]domain.Workspace, 0, len(users))
-	seen := make(map[string]struct{}, len(users))
-	for _, user := range users {
-		if user.WorkspaceID == "" || user.Deleted {
-			continue
-		}
-		if _, ok := seen[user.WorkspaceID]; ok {
-			continue
-		}
-		workspace, getErr := s.repo.Get(ctx, user.WorkspaceID)
-		if getErr != nil {
-			return nil, getErr
-		}
-		workspaces = append(workspaces, *workspace)
-		seen[user.WorkspaceID] = struct{}{}
-	}
-	return workspaces, nil
+	return nil, domain.ErrForbidden
 }
 
 func (s *WorkspaceService) AdminListAdmins(ctx context.Context, workspaceID string) ([]domain.User, error) {
@@ -381,7 +438,7 @@ func (s *WorkspaceService) updateWorkspace(ctx context.Context, workspaceID stri
 		AggregateType: domain.AggregateWorkspace,
 		AggregateID:   ws.ID,
 		WorkspaceID:   ws.ID,
-		ActorID:       ctxutil.GetActingUserID(ctx),
+		ActorID:       compatibilityActorID(ctx),
 		Payload:       payload,
 	}); err != nil {
 		return nil, fmt.Errorf("record workspace.updated event: %w", err)

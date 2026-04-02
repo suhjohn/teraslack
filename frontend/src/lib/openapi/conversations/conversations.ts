@@ -26,9 +26,6 @@ import type {
 
 import type {
   ApiErrorResponseResponse,
-  Bookmark,
-  BookmarkUpdateRequest,
-  BookmarksCollection,
   Conversation,
   ConversationInviteRequest,
   ConversationManagersResponse,
@@ -38,15 +35,15 @@ import type {
   ConversationReadUpdateRequest,
   ConversationUpdateRequest,
   ConversationsCollection,
-  CreateBookmarkRequest,
   CreateConversationRequest,
+  CreateExternalMemberRequest,
+  ExternalMember,
+  ExternalMembersCollection,
   ListConversationMembersParams,
   ListConversationsParams,
   NoContentResponse,
-  Pin,
-  PinCreateRequest,
-  PinsCollection,
-  StringsCollection
+  StringsCollection,
+  UpdateExternalMemberRequest
 } from '../model';
 
 import { orvalFetch } from '../../orval-mutator';
@@ -755,6 +752,371 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       > => {
       return useMutation(getRemoveConversationMemberMutationOptions(options), queryClient);
     }
+    export type listConversationExternalMembersResponse200 = {
+  data: ExternalMembersCollection
+  status: 200
+}
+
+export type listConversationExternalMembersResponseDefault = {
+  data: ApiErrorResponseResponse
+  status: Exclude<HTTPStatusCodes, 200>
+}
+
+export type listConversationExternalMembersResponseSuccess = (listConversationExternalMembersResponse200) & {
+  headers: Headers;
+};
+export type listConversationExternalMembersResponseError = (listConversationExternalMembersResponseDefault) & {
+  headers: Headers;
+};
+
+export type listConversationExternalMembersResponse = (listConversationExternalMembersResponseSuccess | listConversationExternalMembersResponseError)
+
+export const getListConversationExternalMembersUrl = (id: string,) => {
+
+
+
+
+  return `/conversations/${id}/external-members`
+}
+
+export const listConversationExternalMembers = async (id: string, options?: RequestInit): Promise<listConversationExternalMembersResponse> => {
+
+  return orvalFetch<listConversationExternalMembersResponse>(getListConversationExternalMembersUrl(id),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListConversationExternalMembersQueryKey = (id: string,) => {
+    return [
+    `/conversations/${id}/external-members`
+    ] as const;
+    }
+
+
+export const getListConversationExternalMembersQueryOptions = <TData = Awaited<ReturnType<typeof listConversationExternalMembers>>, TError = ErrorType<ApiErrorResponseResponse>>(id: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listConversationExternalMembers>>, TError, TData>>, request?: SecondParameter<typeof orvalFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListConversationExternalMembersQueryKey(id);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listConversationExternalMembers>>> = ({ signal }) => listConversationExternalMembers(id, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: !!(id), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listConversationExternalMembers>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type ListConversationExternalMembersQueryResult = NonNullable<Awaited<ReturnType<typeof listConversationExternalMembers>>>
+export type ListConversationExternalMembersQueryError = ErrorType<ApiErrorResponseResponse>
+
+
+export function useListConversationExternalMembers<TData = Awaited<ReturnType<typeof listConversationExternalMembers>>, TError = ErrorType<ApiErrorResponseResponse>>(
+ id: string, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof listConversationExternalMembers>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listConversationExternalMembers>>,
+          TError,
+          Awaited<ReturnType<typeof listConversationExternalMembers>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof orvalFetch>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useListConversationExternalMembers<TData = Awaited<ReturnType<typeof listConversationExternalMembers>>, TError = ErrorType<ApiErrorResponseResponse>>(
+ id: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listConversationExternalMembers>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listConversationExternalMembers>>,
+          TError,
+          Awaited<ReturnType<typeof listConversationExternalMembers>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof orvalFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useListConversationExternalMembers<TData = Awaited<ReturnType<typeof listConversationExternalMembers>>, TError = ErrorType<ApiErrorResponseResponse>>(
+ id: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listConversationExternalMembers>>, TError, TData>>, request?: SecondParameter<typeof orvalFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+
+export function useListConversationExternalMembers<TData = Awaited<ReturnType<typeof listConversationExternalMembers>>, TError = ErrorType<ApiErrorResponseResponse>>(
+ id: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listConversationExternalMembers>>, TError, TData>>, request?: SecondParameter<typeof orvalFetch>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getListConversationExternalMembersQueryOptions(id,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+export type createConversationExternalMemberResponse201 = {
+  data: ExternalMember
+  status: 201
+}
+
+export type createConversationExternalMemberResponseDefault = {
+  data: ApiErrorResponseResponse
+  status: Exclude<HTTPStatusCodes, 201>
+}
+
+export type createConversationExternalMemberResponseSuccess = (createConversationExternalMemberResponse201) & {
+  headers: Headers;
+};
+export type createConversationExternalMemberResponseError = (createConversationExternalMemberResponseDefault) & {
+  headers: Headers;
+};
+
+export type createConversationExternalMemberResponse = (createConversationExternalMemberResponseSuccess | createConversationExternalMemberResponseError)
+
+export const getCreateConversationExternalMemberUrl = (id: string,) => {
+
+
+
+
+  return `/conversations/${id}/external-members`
+}
+
+export const createConversationExternalMember = async (id: string,
+    createExternalMemberRequest: CreateExternalMemberRequest, options?: RequestInit): Promise<createConversationExternalMemberResponse> => {
+
+  return orvalFetch<createConversationExternalMemberResponse>(getCreateConversationExternalMemberUrl(id),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      createExternalMemberRequest,)
+  }
+);}
+
+
+
+
+export const getCreateConversationExternalMemberMutationOptions = <TError = ErrorType<ApiErrorResponseResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createConversationExternalMember>>, TError,{id: string;data: BodyType<CreateExternalMemberRequest>}, TContext>, request?: SecondParameter<typeof orvalFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createConversationExternalMember>>, TError,{id: string;data: BodyType<CreateExternalMemberRequest>}, TContext> => {
+
+const mutationKey = ['createConversationExternalMember'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createConversationExternalMember>>, {id: string;data: BodyType<CreateExternalMemberRequest>}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  createConversationExternalMember(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreateConversationExternalMemberMutationResult = NonNullable<Awaited<ReturnType<typeof createConversationExternalMember>>>
+    export type CreateConversationExternalMemberMutationBody = BodyType<CreateExternalMemberRequest>
+    export type CreateConversationExternalMemberMutationError = ErrorType<ApiErrorResponseResponse>
+
+    export const useCreateConversationExternalMember = <TError = ErrorType<ApiErrorResponseResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createConversationExternalMember>>, TError,{id: string;data: BodyType<CreateExternalMemberRequest>}, TContext>, request?: SecondParameter<typeof orvalFetch>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof createConversationExternalMember>>,
+        TError,
+        {id: string;data: BodyType<CreateExternalMemberRequest>},
+        TContext
+      > => {
+      return useMutation(getCreateConversationExternalMemberMutationOptions(options), queryClient);
+    }
+    export type updateConversationExternalMemberResponse200 = {
+  data: ExternalMember
+  status: 200
+}
+
+export type updateConversationExternalMemberResponseDefault = {
+  data: ApiErrorResponseResponse
+  status: Exclude<HTTPStatusCodes, 200>
+}
+
+export type updateConversationExternalMemberResponseSuccess = (updateConversationExternalMemberResponse200) & {
+  headers: Headers;
+};
+export type updateConversationExternalMemberResponseError = (updateConversationExternalMemberResponseDefault) & {
+  headers: Headers;
+};
+
+export type updateConversationExternalMemberResponse = (updateConversationExternalMemberResponseSuccess | updateConversationExternalMemberResponseError)
+
+export const getUpdateConversationExternalMemberUrl = (id: string,
+    externalMemberId: string,) => {
+
+
+
+
+  return `/conversations/${id}/external-members/${externalMemberId}`
+}
+
+export const updateConversationExternalMember = async (id: string,
+    externalMemberId: string,
+    updateExternalMemberRequest: UpdateExternalMemberRequest, options?: RequestInit): Promise<updateConversationExternalMemberResponse> => {
+
+  return orvalFetch<updateConversationExternalMemberResponse>(getUpdateConversationExternalMemberUrl(id,externalMemberId),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      updateExternalMemberRequest,)
+  }
+);}
+
+
+
+
+export const getUpdateConversationExternalMemberMutationOptions = <TError = ErrorType<ApiErrorResponseResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateConversationExternalMember>>, TError,{id: string;externalMemberId: string;data: BodyType<UpdateExternalMemberRequest>}, TContext>, request?: SecondParameter<typeof orvalFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateConversationExternalMember>>, TError,{id: string;externalMemberId: string;data: BodyType<UpdateExternalMemberRequest>}, TContext> => {
+
+const mutationKey = ['updateConversationExternalMember'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateConversationExternalMember>>, {id: string;externalMemberId: string;data: BodyType<UpdateExternalMemberRequest>}> = (props) => {
+          const {id,externalMemberId,data} = props ?? {};
+
+          return  updateConversationExternalMember(id,externalMemberId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdateConversationExternalMemberMutationResult = NonNullable<Awaited<ReturnType<typeof updateConversationExternalMember>>>
+    export type UpdateConversationExternalMemberMutationBody = BodyType<UpdateExternalMemberRequest>
+    export type UpdateConversationExternalMemberMutationError = ErrorType<ApiErrorResponseResponse>
+
+    export const useUpdateConversationExternalMember = <TError = ErrorType<ApiErrorResponseResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateConversationExternalMember>>, TError,{id: string;externalMemberId: string;data: BodyType<UpdateExternalMemberRequest>}, TContext>, request?: SecondParameter<typeof orvalFetch>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof updateConversationExternalMember>>,
+        TError,
+        {id: string;externalMemberId: string;data: BodyType<UpdateExternalMemberRequest>},
+        TContext
+      > => {
+      return useMutation(getUpdateConversationExternalMemberMutationOptions(options), queryClient);
+    }
+    export type deleteConversationExternalMemberResponse204 = {
+  data: NoContentResponse
+  status: 204
+}
+
+export type deleteConversationExternalMemberResponseDefault = {
+  data: ApiErrorResponseResponse
+  status: Exclude<HTTPStatusCodes, 204>
+}
+
+export type deleteConversationExternalMemberResponseSuccess = (deleteConversationExternalMemberResponse204) & {
+  headers: Headers;
+};
+export type deleteConversationExternalMemberResponseError = (deleteConversationExternalMemberResponseDefault) & {
+  headers: Headers;
+};
+
+export type deleteConversationExternalMemberResponse = (deleteConversationExternalMemberResponseSuccess | deleteConversationExternalMemberResponseError)
+
+export const getDeleteConversationExternalMemberUrl = (id: string,
+    externalMemberId: string,) => {
+
+
+
+
+  return `/conversations/${id}/external-members/${externalMemberId}`
+}
+
+export const deleteConversationExternalMember = async (id: string,
+    externalMemberId: string, options?: RequestInit): Promise<deleteConversationExternalMemberResponse> => {
+
+  return orvalFetch<deleteConversationExternalMemberResponse>(getDeleteConversationExternalMemberUrl(id,externalMemberId),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+export const getDeleteConversationExternalMemberMutationOptions = <TError = ErrorType<ApiErrorResponseResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteConversationExternalMember>>, TError,{id: string;externalMemberId: string}, TContext>, request?: SecondParameter<typeof orvalFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof deleteConversationExternalMember>>, TError,{id: string;externalMemberId: string}, TContext> => {
+
+const mutationKey = ['deleteConversationExternalMember'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof deleteConversationExternalMember>>, {id: string;externalMemberId: string}> = (props) => {
+          const {id,externalMemberId} = props ?? {};
+
+          return  deleteConversationExternalMember(id,externalMemberId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DeleteConversationExternalMemberMutationResult = NonNullable<Awaited<ReturnType<typeof deleteConversationExternalMember>>>
+
+    export type DeleteConversationExternalMemberMutationError = ErrorType<ApiErrorResponseResponse>
+
+    export const useDeleteConversationExternalMember = <TError = ErrorType<ApiErrorResponseResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteConversationExternalMember>>, TError,{id: string;externalMemberId: string}, TContext>, request?: SecondParameter<typeof orvalFetch>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof deleteConversationExternalMember>>,
+        TError,
+        {id: string;externalMemberId: string},
+        TContext
+      > => {
+      return useMutation(getDeleteConversationExternalMemberMutationOptions(options), queryClient);
+    }
     export type getConversationManagersResponse200 = {
   data: ConversationManagersResponse
   status: 200
@@ -1228,648 +1590,4 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
         TContext
       > => {
       return useMutation(getUpdateConversationReadStateMutationOptions(options), queryClient);
-    }
-    export type listPinsResponse200 = {
-  data: PinsCollection
-  status: 200
-}
-
-export type listPinsResponseDefault = {
-  data: ApiErrorResponseResponse
-  status: Exclude<HTTPStatusCodes, 200>
-}
-
-export type listPinsResponseSuccess = (listPinsResponse200) & {
-  headers: Headers;
-};
-export type listPinsResponseError = (listPinsResponseDefault) & {
-  headers: Headers;
-};
-
-export type listPinsResponse = (listPinsResponseSuccess | listPinsResponseError)
-
-export const getListPinsUrl = (id: string,) => {
-
-
-
-
-  return `/conversations/${id}/pins`
-}
-
-export const listPins = async (id: string, options?: RequestInit): Promise<listPinsResponse> => {
-
-  return orvalFetch<listPinsResponse>(getListPinsUrl(id),
-  {
-    ...options,
-    method: 'GET'
-
-
-  }
-);}
-
-
-
-
-
-export const getListPinsQueryKey = (id: string,) => {
-    return [
-    `/conversations/${id}/pins`
-    ] as const;
-    }
-
-
-export const getListPinsQueryOptions = <TData = Awaited<ReturnType<typeof listPins>>, TError = ErrorType<ApiErrorResponseResponse>>(id: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listPins>>, TError, TData>>, request?: SecondParameter<typeof orvalFetch>}
-) => {
-
-const {query: queryOptions, request: requestOptions} = options ?? {};
-
-  const queryKey =  queryOptions?.queryKey ?? getListPinsQueryKey(id);
-
-
-
-    const queryFn: QueryFunction<Awaited<ReturnType<typeof listPins>>> = ({ signal }) => listPins(id, { signal, ...requestOptions });
-
-
-
-
-
-   return  { queryKey, queryFn, enabled: !!(id), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listPins>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
-}
-
-export type ListPinsQueryResult = NonNullable<Awaited<ReturnType<typeof listPins>>>
-export type ListPinsQueryError = ErrorType<ApiErrorResponseResponse>
-
-
-export function useListPins<TData = Awaited<ReturnType<typeof listPins>>, TError = ErrorType<ApiErrorResponseResponse>>(
- id: string, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof listPins>>, TError, TData>> & Pick<
-        DefinedInitialDataOptions<
-          Awaited<ReturnType<typeof listPins>>,
-          TError,
-          Awaited<ReturnType<typeof listPins>>
-        > , 'initialData'
-      >, request?: SecondParameter<typeof orvalFetch>}
- , queryClient?: QueryClient
-  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
-export function useListPins<TData = Awaited<ReturnType<typeof listPins>>, TError = ErrorType<ApiErrorResponseResponse>>(
- id: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listPins>>, TError, TData>> & Pick<
-        UndefinedInitialDataOptions<
-          Awaited<ReturnType<typeof listPins>>,
-          TError,
-          Awaited<ReturnType<typeof listPins>>
-        > , 'initialData'
-      >, request?: SecondParameter<typeof orvalFetch>}
- , queryClient?: QueryClient
-  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
-export function useListPins<TData = Awaited<ReturnType<typeof listPins>>, TError = ErrorType<ApiErrorResponseResponse>>(
- id: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listPins>>, TError, TData>>, request?: SecondParameter<typeof orvalFetch>}
- , queryClient?: QueryClient
-  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
-
-export function useListPins<TData = Awaited<ReturnType<typeof listPins>>, TError = ErrorType<ApiErrorResponseResponse>>(
- id: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listPins>>, TError, TData>>, request?: SecondParameter<typeof orvalFetch>}
- , queryClient?: QueryClient
- ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
-
-  const queryOptions = getListPinsQueryOptions(id,options)
-
-  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
-
-  return { ...query, queryKey: queryOptions.queryKey };
-}
-
-
-
-
-export type createPinResponse201 = {
-  data: Pin
-  status: 201
-}
-
-export type createPinResponseDefault = {
-  data: ApiErrorResponseResponse
-  status: Exclude<HTTPStatusCodes, 201>
-}
-
-export type createPinResponseSuccess = (createPinResponse201) & {
-  headers: Headers;
-};
-export type createPinResponseError = (createPinResponseDefault) & {
-  headers: Headers;
-};
-
-export type createPinResponse = (createPinResponseSuccess | createPinResponseError)
-
-export const getCreatePinUrl = (id: string,) => {
-
-
-
-
-  return `/conversations/${id}/pins`
-}
-
-export const createPin = async (id: string,
-    pinCreateRequest: PinCreateRequest, options?: RequestInit): Promise<createPinResponse> => {
-
-  return orvalFetch<createPinResponse>(getCreatePinUrl(id),
-  {
-    ...options,
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...options?.headers },
-    body: JSON.stringify(
-      pinCreateRequest,)
-  }
-);}
-
-
-
-
-export const getCreatePinMutationOptions = <TError = ErrorType<ApiErrorResponseResponse>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createPin>>, TError,{id: string;data: BodyType<PinCreateRequest>}, TContext>, request?: SecondParameter<typeof orvalFetch>}
-): UseMutationOptions<Awaited<ReturnType<typeof createPin>>, TError,{id: string;data: BodyType<PinCreateRequest>}, TContext> => {
-
-const mutationKey = ['createPin'];
-const {mutation: mutationOptions, request: requestOptions} = options ?
-      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
-      options
-      : {...options, mutation: {...options.mutation, mutationKey}}
-      : {mutation: { mutationKey, }, request: undefined};
-
-
-
-
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createPin>>, {id: string;data: BodyType<PinCreateRequest>}> = (props) => {
-          const {id,data} = props ?? {};
-
-          return  createPin(id,data,requestOptions)
-        }
-
-
-
-
-
-
-  return  { mutationFn, ...mutationOptions }}
-
-    export type CreatePinMutationResult = NonNullable<Awaited<ReturnType<typeof createPin>>>
-    export type CreatePinMutationBody = BodyType<PinCreateRequest>
-    export type CreatePinMutationError = ErrorType<ApiErrorResponseResponse>
-
-    export const useCreatePin = <TError = ErrorType<ApiErrorResponseResponse>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createPin>>, TError,{id: string;data: BodyType<PinCreateRequest>}, TContext>, request?: SecondParameter<typeof orvalFetch>}
- , queryClient?: QueryClient): UseMutationResult<
-        Awaited<ReturnType<typeof createPin>>,
-        TError,
-        {id: string;data: BodyType<PinCreateRequest>},
-        TContext
-      > => {
-      return useMutation(getCreatePinMutationOptions(options), queryClient);
-    }
-    export type deletePinResponse204 = {
-  data: NoContentResponse
-  status: 204
-}
-
-export type deletePinResponseDefault = {
-  data: ApiErrorResponseResponse
-  status: Exclude<HTTPStatusCodes, 204>
-}
-
-export type deletePinResponseSuccess = (deletePinResponse204) & {
-  headers: Headers;
-};
-export type deletePinResponseError = (deletePinResponseDefault) & {
-  headers: Headers;
-};
-
-export type deletePinResponse = (deletePinResponseSuccess | deletePinResponseError)
-
-export const getDeletePinUrl = (id: string,
-    messageTs: string,) => {
-
-
-
-
-  return `/conversations/${id}/pins/${messageTs}`
-}
-
-export const deletePin = async (id: string,
-    messageTs: string, options?: RequestInit): Promise<deletePinResponse> => {
-
-  return orvalFetch<deletePinResponse>(getDeletePinUrl(id,messageTs),
-  {
-    ...options,
-    method: 'DELETE'
-
-
-  }
-);}
-
-
-
-
-export const getDeletePinMutationOptions = <TError = ErrorType<ApiErrorResponseResponse>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deletePin>>, TError,{id: string;messageTs: string}, TContext>, request?: SecondParameter<typeof orvalFetch>}
-): UseMutationOptions<Awaited<ReturnType<typeof deletePin>>, TError,{id: string;messageTs: string}, TContext> => {
-
-const mutationKey = ['deletePin'];
-const {mutation: mutationOptions, request: requestOptions} = options ?
-      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
-      options
-      : {...options, mutation: {...options.mutation, mutationKey}}
-      : {mutation: { mutationKey, }, request: undefined};
-
-
-
-
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof deletePin>>, {id: string;messageTs: string}> = (props) => {
-          const {id,messageTs} = props ?? {};
-
-          return  deletePin(id,messageTs,requestOptions)
-        }
-
-
-
-
-
-
-  return  { mutationFn, ...mutationOptions }}
-
-    export type DeletePinMutationResult = NonNullable<Awaited<ReturnType<typeof deletePin>>>
-
-    export type DeletePinMutationError = ErrorType<ApiErrorResponseResponse>
-
-    export const useDeletePin = <TError = ErrorType<ApiErrorResponseResponse>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deletePin>>, TError,{id: string;messageTs: string}, TContext>, request?: SecondParameter<typeof orvalFetch>}
- , queryClient?: QueryClient): UseMutationResult<
-        Awaited<ReturnType<typeof deletePin>>,
-        TError,
-        {id: string;messageTs: string},
-        TContext
-      > => {
-      return useMutation(getDeletePinMutationOptions(options), queryClient);
-    }
-    export type listBookmarksResponse200 = {
-  data: BookmarksCollection
-  status: 200
-}
-
-export type listBookmarksResponseDefault = {
-  data: ApiErrorResponseResponse
-  status: Exclude<HTTPStatusCodes, 200>
-}
-
-export type listBookmarksResponseSuccess = (listBookmarksResponse200) & {
-  headers: Headers;
-};
-export type listBookmarksResponseError = (listBookmarksResponseDefault) & {
-  headers: Headers;
-};
-
-export type listBookmarksResponse = (listBookmarksResponseSuccess | listBookmarksResponseError)
-
-export const getListBookmarksUrl = (id: string,) => {
-
-
-
-
-  return `/conversations/${id}/bookmarks`
-}
-
-export const listBookmarks = async (id: string, options?: RequestInit): Promise<listBookmarksResponse> => {
-
-  return orvalFetch<listBookmarksResponse>(getListBookmarksUrl(id),
-  {
-    ...options,
-    method: 'GET'
-
-
-  }
-);}
-
-
-
-
-
-export const getListBookmarksQueryKey = (id: string,) => {
-    return [
-    `/conversations/${id}/bookmarks`
-    ] as const;
-    }
-
-
-export const getListBookmarksQueryOptions = <TData = Awaited<ReturnType<typeof listBookmarks>>, TError = ErrorType<ApiErrorResponseResponse>>(id: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listBookmarks>>, TError, TData>>, request?: SecondParameter<typeof orvalFetch>}
-) => {
-
-const {query: queryOptions, request: requestOptions} = options ?? {};
-
-  const queryKey =  queryOptions?.queryKey ?? getListBookmarksQueryKey(id);
-
-
-
-    const queryFn: QueryFunction<Awaited<ReturnType<typeof listBookmarks>>> = ({ signal }) => listBookmarks(id, { signal, ...requestOptions });
-
-
-
-
-
-   return  { queryKey, queryFn, enabled: !!(id), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listBookmarks>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
-}
-
-export type ListBookmarksQueryResult = NonNullable<Awaited<ReturnType<typeof listBookmarks>>>
-export type ListBookmarksQueryError = ErrorType<ApiErrorResponseResponse>
-
-
-export function useListBookmarks<TData = Awaited<ReturnType<typeof listBookmarks>>, TError = ErrorType<ApiErrorResponseResponse>>(
- id: string, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof listBookmarks>>, TError, TData>> & Pick<
-        DefinedInitialDataOptions<
-          Awaited<ReturnType<typeof listBookmarks>>,
-          TError,
-          Awaited<ReturnType<typeof listBookmarks>>
-        > , 'initialData'
-      >, request?: SecondParameter<typeof orvalFetch>}
- , queryClient?: QueryClient
-  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
-export function useListBookmarks<TData = Awaited<ReturnType<typeof listBookmarks>>, TError = ErrorType<ApiErrorResponseResponse>>(
- id: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listBookmarks>>, TError, TData>> & Pick<
-        UndefinedInitialDataOptions<
-          Awaited<ReturnType<typeof listBookmarks>>,
-          TError,
-          Awaited<ReturnType<typeof listBookmarks>>
-        > , 'initialData'
-      >, request?: SecondParameter<typeof orvalFetch>}
- , queryClient?: QueryClient
-  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
-export function useListBookmarks<TData = Awaited<ReturnType<typeof listBookmarks>>, TError = ErrorType<ApiErrorResponseResponse>>(
- id: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listBookmarks>>, TError, TData>>, request?: SecondParameter<typeof orvalFetch>}
- , queryClient?: QueryClient
-  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
-
-export function useListBookmarks<TData = Awaited<ReturnType<typeof listBookmarks>>, TError = ErrorType<ApiErrorResponseResponse>>(
- id: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listBookmarks>>, TError, TData>>, request?: SecondParameter<typeof orvalFetch>}
- , queryClient?: QueryClient
- ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
-
-  const queryOptions = getListBookmarksQueryOptions(id,options)
-
-  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
-
-  return { ...query, queryKey: queryOptions.queryKey };
-}
-
-
-
-
-export type createBookmarkResponse201 = {
-  data: Bookmark
-  status: 201
-}
-
-export type createBookmarkResponseDefault = {
-  data: ApiErrorResponseResponse
-  status: Exclude<HTTPStatusCodes, 201>
-}
-
-export type createBookmarkResponseSuccess = (createBookmarkResponse201) & {
-  headers: Headers;
-};
-export type createBookmarkResponseError = (createBookmarkResponseDefault) & {
-  headers: Headers;
-};
-
-export type createBookmarkResponse = (createBookmarkResponseSuccess | createBookmarkResponseError)
-
-export const getCreateBookmarkUrl = (id: string,) => {
-
-
-
-
-  return `/conversations/${id}/bookmarks`
-}
-
-export const createBookmark = async (id: string,
-    createBookmarkRequest: CreateBookmarkRequest, options?: RequestInit): Promise<createBookmarkResponse> => {
-
-  return orvalFetch<createBookmarkResponse>(getCreateBookmarkUrl(id),
-  {
-    ...options,
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...options?.headers },
-    body: JSON.stringify(
-      createBookmarkRequest,)
-  }
-);}
-
-
-
-
-export const getCreateBookmarkMutationOptions = <TError = ErrorType<ApiErrorResponseResponse>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createBookmark>>, TError,{id: string;data: BodyType<CreateBookmarkRequest>}, TContext>, request?: SecondParameter<typeof orvalFetch>}
-): UseMutationOptions<Awaited<ReturnType<typeof createBookmark>>, TError,{id: string;data: BodyType<CreateBookmarkRequest>}, TContext> => {
-
-const mutationKey = ['createBookmark'];
-const {mutation: mutationOptions, request: requestOptions} = options ?
-      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
-      options
-      : {...options, mutation: {...options.mutation, mutationKey}}
-      : {mutation: { mutationKey, }, request: undefined};
-
-
-
-
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createBookmark>>, {id: string;data: BodyType<CreateBookmarkRequest>}> = (props) => {
-          const {id,data} = props ?? {};
-
-          return  createBookmark(id,data,requestOptions)
-        }
-
-
-
-
-
-
-  return  { mutationFn, ...mutationOptions }}
-
-    export type CreateBookmarkMutationResult = NonNullable<Awaited<ReturnType<typeof createBookmark>>>
-    export type CreateBookmarkMutationBody = BodyType<CreateBookmarkRequest>
-    export type CreateBookmarkMutationError = ErrorType<ApiErrorResponseResponse>
-
-    export const useCreateBookmark = <TError = ErrorType<ApiErrorResponseResponse>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createBookmark>>, TError,{id: string;data: BodyType<CreateBookmarkRequest>}, TContext>, request?: SecondParameter<typeof orvalFetch>}
- , queryClient?: QueryClient): UseMutationResult<
-        Awaited<ReturnType<typeof createBookmark>>,
-        TError,
-        {id: string;data: BodyType<CreateBookmarkRequest>},
-        TContext
-      > => {
-      return useMutation(getCreateBookmarkMutationOptions(options), queryClient);
-    }
-    export type updateBookmarkResponse200 = {
-  data: Bookmark
-  status: 200
-}
-
-export type updateBookmarkResponseDefault = {
-  data: ApiErrorResponseResponse
-  status: Exclude<HTTPStatusCodes, 200>
-}
-
-export type updateBookmarkResponseSuccess = (updateBookmarkResponse200) & {
-  headers: Headers;
-};
-export type updateBookmarkResponseError = (updateBookmarkResponseDefault) & {
-  headers: Headers;
-};
-
-export type updateBookmarkResponse = (updateBookmarkResponseSuccess | updateBookmarkResponseError)
-
-export const getUpdateBookmarkUrl = (conversationId: string,
-    bookmarkId: string,) => {
-
-
-
-
-  return `/conversations/${conversationId}/bookmarks/${bookmarkId}`
-}
-
-export const updateBookmark = async (conversationId: string,
-    bookmarkId: string,
-    bookmarkUpdateRequest: BookmarkUpdateRequest, options?: RequestInit): Promise<updateBookmarkResponse> => {
-
-  return orvalFetch<updateBookmarkResponse>(getUpdateBookmarkUrl(conversationId,bookmarkId),
-  {
-    ...options,
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json', ...options?.headers },
-    body: JSON.stringify(
-      bookmarkUpdateRequest,)
-  }
-);}
-
-
-
-
-export const getUpdateBookmarkMutationOptions = <TError = ErrorType<ApiErrorResponseResponse>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateBookmark>>, TError,{conversationId: string;bookmarkId: string;data: BodyType<BookmarkUpdateRequest>}, TContext>, request?: SecondParameter<typeof orvalFetch>}
-): UseMutationOptions<Awaited<ReturnType<typeof updateBookmark>>, TError,{conversationId: string;bookmarkId: string;data: BodyType<BookmarkUpdateRequest>}, TContext> => {
-
-const mutationKey = ['updateBookmark'];
-const {mutation: mutationOptions, request: requestOptions} = options ?
-      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
-      options
-      : {...options, mutation: {...options.mutation, mutationKey}}
-      : {mutation: { mutationKey, }, request: undefined};
-
-
-
-
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateBookmark>>, {conversationId: string;bookmarkId: string;data: BodyType<BookmarkUpdateRequest>}> = (props) => {
-          const {conversationId,bookmarkId,data} = props ?? {};
-
-          return  updateBookmark(conversationId,bookmarkId,data,requestOptions)
-        }
-
-
-
-
-
-
-  return  { mutationFn, ...mutationOptions }}
-
-    export type UpdateBookmarkMutationResult = NonNullable<Awaited<ReturnType<typeof updateBookmark>>>
-    export type UpdateBookmarkMutationBody = BodyType<BookmarkUpdateRequest>
-    export type UpdateBookmarkMutationError = ErrorType<ApiErrorResponseResponse>
-
-    export const useUpdateBookmark = <TError = ErrorType<ApiErrorResponseResponse>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateBookmark>>, TError,{conversationId: string;bookmarkId: string;data: BodyType<BookmarkUpdateRequest>}, TContext>, request?: SecondParameter<typeof orvalFetch>}
- , queryClient?: QueryClient): UseMutationResult<
-        Awaited<ReturnType<typeof updateBookmark>>,
-        TError,
-        {conversationId: string;bookmarkId: string;data: BodyType<BookmarkUpdateRequest>},
-        TContext
-      > => {
-      return useMutation(getUpdateBookmarkMutationOptions(options), queryClient);
-    }
-    export type deleteBookmarkResponse204 = {
-  data: NoContentResponse
-  status: 204
-}
-
-export type deleteBookmarkResponseDefault = {
-  data: ApiErrorResponseResponse
-  status: Exclude<HTTPStatusCodes, 204>
-}
-
-export type deleteBookmarkResponseSuccess = (deleteBookmarkResponse204) & {
-  headers: Headers;
-};
-export type deleteBookmarkResponseError = (deleteBookmarkResponseDefault) & {
-  headers: Headers;
-};
-
-export type deleteBookmarkResponse = (deleteBookmarkResponseSuccess | deleteBookmarkResponseError)
-
-export const getDeleteBookmarkUrl = (conversationId: string,
-    bookmarkId: string,) => {
-
-
-
-
-  return `/conversations/${conversationId}/bookmarks/${bookmarkId}`
-}
-
-export const deleteBookmark = async (conversationId: string,
-    bookmarkId: string, options?: RequestInit): Promise<deleteBookmarkResponse> => {
-
-  return orvalFetch<deleteBookmarkResponse>(getDeleteBookmarkUrl(conversationId,bookmarkId),
-  {
-    ...options,
-    method: 'DELETE'
-
-
-  }
-);}
-
-
-
-
-export const getDeleteBookmarkMutationOptions = <TError = ErrorType<ApiErrorResponseResponse>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteBookmark>>, TError,{conversationId: string;bookmarkId: string}, TContext>, request?: SecondParameter<typeof orvalFetch>}
-): UseMutationOptions<Awaited<ReturnType<typeof deleteBookmark>>, TError,{conversationId: string;bookmarkId: string}, TContext> => {
-
-const mutationKey = ['deleteBookmark'];
-const {mutation: mutationOptions, request: requestOptions} = options ?
-      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
-      options
-      : {...options, mutation: {...options.mutation, mutationKey}}
-      : {mutation: { mutationKey, }, request: undefined};
-
-
-
-
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof deleteBookmark>>, {conversationId: string;bookmarkId: string}> = (props) => {
-          const {conversationId,bookmarkId} = props ?? {};
-
-          return  deleteBookmark(conversationId,bookmarkId,requestOptions)
-        }
-
-
-
-
-
-
-  return  { mutationFn, ...mutationOptions }}
-
-    export type DeleteBookmarkMutationResult = NonNullable<Awaited<ReturnType<typeof deleteBookmark>>>
-
-    export type DeleteBookmarkMutationError = ErrorType<ApiErrorResponseResponse>
-
-    export const useDeleteBookmark = <TError = ErrorType<ApiErrorResponseResponse>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteBookmark>>, TError,{conversationId: string;bookmarkId: string}, TContext>, request?: SecondParameter<typeof orvalFetch>}
- , queryClient?: QueryClient): UseMutationResult<
-        Awaited<ReturnType<typeof deleteBookmark>>,
-        TError,
-        {conversationId: string;bookmarkId: string},
-        TContext
-      > => {
-      return useMutation(getDeleteBookmarkMutationOptions(options), queryClient);
     }

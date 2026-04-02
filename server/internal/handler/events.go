@@ -24,6 +24,7 @@ func (h *ExternalEventHandler) List(w http.ResponseWriter, r *http.Request) {
 	page, err := h.svc.List(r.Context(), domain.ListExternalEventsParams{
 		Cursor:       q.Get("after"),
 		Limit:        limit,
+		WorkspaceID:  q.Get("workspace_id"),
 		Type:         q.Get("type"),
 		ResourceType: q.Get("resource_type"),
 		ResourceID:   q.Get("resource_id"),

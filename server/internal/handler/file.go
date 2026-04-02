@@ -4,7 +4,6 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/suhjohn/teraslack/internal/ctxutil"
 	"github.com/suhjohn/teraslack/internal/domain"
 	"github.com/suhjohn/teraslack/internal/service"
 	"github.com/suhjohn/teraslack/pkg/httputil"
@@ -118,7 +117,7 @@ func (h *FileHandler) AddRemoteFile(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteError(w, r, domain.ErrInvalidArgument)
 		return
 	}
-	params.UserID = ctxutil.GetActingUserID(r.Context())
+	params.UserID = service.CompatibilityActorID(r.Context())
 
 	file, err := h.svc.AddRemoteFile(r.Context(), params)
 	if err != nil {

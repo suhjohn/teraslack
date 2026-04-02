@@ -9,7 +9,6 @@ import type { FreeFormObject } from './freeFormObject';
 import type { WorkspaceBilling } from './workspaceBilling';
 import type { WorkspaceDiscoverability } from './workspaceDiscoverability';
 import type { WorkspaceIcon } from './workspaceIcon';
-import type { WorkspaceProfileField } from './workspaceProfileField';
 
 /**
  * A workspace. The top-level organizational unit.
@@ -30,8 +29,6 @@ export interface Workspace {
   /** Conversation IDs that new members are automatically added to. */
   default_channels: string[];
   preferences: FreeFormObject;
-  /** Custom profile fields defined for this workspace. */
-  profile_fields: WorkspaceProfileField[];
   billing: WorkspaceBilling;
   created_at: string;
   updated_at: string;

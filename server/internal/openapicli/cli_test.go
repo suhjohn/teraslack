@@ -18,8 +18,8 @@ func TestNewBuildsCommandSurface(t *testing.T) {
 		t.Fatalf("New() error = %v", err)
 	}
 
-	if cli.operationCnt != 89 {
-		t.Fatalf("operationCnt = %d, want 89", cli.operationCnt)
+	if cli.operationCnt != 75 {
+		t.Fatalf("operationCnt = %d, want 75", cli.operationCnt)
 	}
 
 	assertCommandExists(t, cli, "workspaces", "list")
@@ -35,6 +35,12 @@ func TestNewBuildsCommandSurface(t *testing.T) {
 	assertCommandExists(t, cli, "conversations", "members")
 	assertCommandExists(t, cli, "conversations", "mark-read")
 	assertCommandExists(t, cli, "workspaces", "invite")
+	assertCommandExists(t, cli, "workspaces", "external-workspaces")
+	assertCommandExists(t, cli, "workspaces", "external-workspace")
+	assertCommandExists(t, cli, "conversations", "external-members")
+	assertCommandExists(t, cli, "conversations", "external-member")
+	assertCommandExists(t, cli, "conversations", "update-external-member")
+	assertCommandExists(t, cli, "conversations", "delete-external-member")
 
 	inviteOp := mustOperation(t, cli, "workspaces", "invite")
 	assertBodyFieldExists(t, inviteOp, "email")
@@ -88,7 +94,6 @@ func TestBuildRequestBuildsPathQueryAndBody(t *testing.T) {
 		"discoverability":  stringRef("invite_only"),
 		"default-channels": stringRef("C1,C2"),
 		"preferences":      stringRef("{\"theme\":\"light\"}"),
-		"profile-fields":   stringRef("[]"),
 		"billing-plan":     stringRef("pro"),
 		"billing-status":   stringRef("active"),
 	}, "", "", nil)

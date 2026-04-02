@@ -164,10 +164,6 @@ func WriteError(w http.ResponseWriter, r *http.Request, err error) {
 		status = http.StatusConflict
 		code = "name_taken"
 		message = "The requested name is already in use."
-	case errors.Is(err, domain.ErrAlreadyPinned):
-		status = http.StatusConflict
-		code = "pin_exists"
-		message = "The pin already exists."
 	case errors.Is(err, domain.ErrInvalidAuth):
 		status = http.StatusUnauthorized
 		code = "invalid_authentication"

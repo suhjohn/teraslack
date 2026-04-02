@@ -15,4 +15,6 @@ export interface AddRemoteFileRequest {
   filetype: string;
   /** User adding the file. Defaults to the authenticated user. */
   user_id?: string;
+  /** Conversation to share the remote file into immediately. Required for external shared writes. */
+  channel_id?: string;
 }

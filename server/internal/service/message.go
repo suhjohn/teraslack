@@ -7,20 +7,19 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/suhjohn/teraslack/internal/ctxutil"
 	"github.com/suhjohn/teraslack/internal/domain"
 	"github.com/suhjohn/teraslack/internal/repository"
 )
 
 // MessageService contains business logic for message operations.
 type MessageService struct {
-	repo           repository.MessageRepository
-	convRepo       repository.ConversationRepository
-	access         *ConversationAccessService
-	externalAccess repository.ExternalPrincipalAccessRepository
-	recorder       EventRecorder
-	db             repository.TxBeginner
-	logger         *slog.Logger
+	repo            repository.MessageRepository
+	convRepo        repository.ConversationRepository
+	access          *ConversationAccessService
+	externalMembers repository.ExternalMemberRepository
+	recorder        EventRecorder
+	db              repository.TxBeginner
+	logger          *slog.Logger
 }
 
 // NewMessageService creates a new MessageService.
@@ -35,8 +34,8 @@ func (s *MessageService) SetAccessService(access *ConversationAccessService) {
 	s.access = access
 }
 
-func (s *MessageService) SetExternalAccessRepository(repo repository.ExternalPrincipalAccessRepository) {
-	s.externalAccess = repo
+func (s *MessageService) SetExternalMemberRepository(repo repository.ExternalMemberRepository) {
+	s.externalMembers = repo
 }
 
 func (s *MessageService) PostMessage(ctx context.Context, params domain.PostMessageParams) (*domain.Message, error) {
@@ -47,7 +46,7 @@ func (s *MessageService) PostMessage(ctx context.Context, params domain.PostMess
 		return nil, fmt.Errorf("channel_id: %w", domain.ErrInvalidArgument)
 	}
 	if params.UserID == "" {
-		params.UserID = ctxutil.GetActingUserID(ctx)
+		params.UserID = compatibilityActorID(ctx)
 	}
 	if params.UserID == "" {
 		return nil, fmt.Errorf("user_id: %w", domain.ErrInvalidArgument)
@@ -64,7 +63,7 @@ func (s *MessageService) PostMessage(ctx context.Context, params domain.PostMess
 	if conv.IsArchived {
 		return nil, domain.ErrChannelArchived
 	}
-	if err := ensureExternalSharedConversationAccess(ctx, s.externalAccess, conv, domain.PermissionMessagesWrite, true); err != nil {
+	if _, err := ensureConversationAccess(ctx, s.externalMembers, conv, domain.PermissionMessagesWrite, true); err != nil {
 		return nil, err
 	}
 	if err := s.ensureConversationVisible(ctx, conv, params.UserID); err != nil {
@@ -98,7 +97,7 @@ func (s *MessageService) PostMessage(ctx context.Context, params domain.PostMess
 		EventType:     domain.EventMessagePosted,
 		AggregateType: domain.AggregateMessage,
 		AggregateID:   msg.TS,
-		WorkspaceID:        conv.WorkspaceID,
+		WorkspaceID:   conv.WorkspaceID,
 		Payload:       payload,
 	}); err != nil {
 		return nil, fmt.Errorf("record message.posted event: %w", err)
@@ -122,7 +121,7 @@ func (s *MessageService) GetMessage(ctx context.Context, channelID, ts string) (
 	if err != nil {
 		return nil, fmt.Errorf("channel: %w", err)
 	}
-	if err := ensureExternalSharedConversationAccess(ctx, s.externalAccess, conv, domain.PermissionMessagesRead, false); err != nil {
+	if _, err := ensureConversationAccess(ctx, s.externalMembers, conv, domain.PermissionMessagesRead, false); err != nil {
 		return nil, err
 	}
 	if err := s.ensureConversationVisible(ctx, conv); err != nil {
@@ -144,7 +143,7 @@ func (s *MessageService) UpdateMessage(ctx context.Context, channelID, ts string
 	if err != nil {
 		return nil, fmt.Errorf("channel: %w", err)
 	}
-	if err := ensureExternalSharedConversationAccess(ctx, s.externalAccess, conv, domain.PermissionMessagesWrite, true); err != nil {
+	if _, err := ensureConversationAccess(ctx, s.externalMembers, conv, domain.PermissionMessagesWrite, true); err != nil {
 		return nil, err
 	}
 	if err := s.ensureConversationVisible(ctx, conv); err != nil {
@@ -173,7 +172,7 @@ func (s *MessageService) UpdateMessage(ctx context.Context, channelID, ts string
 		EventType:     domain.EventMessageUpdated,
 		AggregateType: domain.AggregateMessage,
 		AggregateID:   msg.TS,
-		WorkspaceID:        conv.WorkspaceID,
+		WorkspaceID:   conv.WorkspaceID,
 		Payload:       payload,
 	}); err != nil {
 		return nil, fmt.Errorf("record message.updated event: %w", err)
@@ -197,7 +196,7 @@ func (s *MessageService) DeleteMessage(ctx context.Context, channelID, ts string
 	if err != nil {
 		return fmt.Errorf("channel: %w", err)
 	}
-	if err := ensureExternalSharedConversationAccess(ctx, s.externalAccess, conv, domain.PermissionMessagesWrite, true); err != nil {
+	if _, err := ensureConversationAccess(ctx, s.externalMembers, conv, domain.PermissionMessagesWrite, true); err != nil {
 		return err
 	}
 	if err := s.ensureConversationVisible(ctx, conv); err != nil {
@@ -226,7 +225,7 @@ func (s *MessageService) DeleteMessage(ctx context.Context, channelID, ts string
 		EventType:     domain.EventMessageDeleted,
 		AggregateType: domain.AggregateMessage,
 		AggregateID:   ts,
-		WorkspaceID:        conv.WorkspaceID,
+		WorkspaceID:   conv.WorkspaceID,
 		Payload:       payload,
 	}); err != nil {
 		return fmt.Errorf("record message.deleted event: %w", err)
@@ -250,7 +249,7 @@ func (s *MessageService) History(ctx context.Context, params domain.ListMessages
 	if err != nil {
 		return nil, fmt.Errorf("channel: %w", err)
 	}
-	if err := ensureExternalSharedConversationAccess(ctx, s.externalAccess, conv, domain.PermissionMessagesRead, false); err != nil {
+	if _, err := ensureConversationAccess(ctx, s.externalMembers, conv, domain.PermissionMessagesRead, false); err != nil {
 		return nil, err
 	}
 	if err := s.ensureConversationVisible(ctx, conv); err != nil {
@@ -272,7 +271,7 @@ func (s *MessageService) Replies(ctx context.Context, params domain.ListRepliesP
 	if err != nil {
 		return nil, fmt.Errorf("channel: %w", err)
 	}
-	if err := ensureExternalSharedConversationAccess(ctx, s.externalAccess, conv, domain.PermissionMessagesRead, false); err != nil {
+	if _, err := ensureConversationAccess(ctx, s.externalMembers, conv, domain.PermissionMessagesRead, false); err != nil {
 		return nil, err
 	}
 	if err := s.ensureConversationVisible(ctx, conv); err != nil {
@@ -295,7 +294,7 @@ func (s *MessageService) AddReaction(ctx context.Context, params domain.AddReact
 	if err != nil {
 		return fmt.Errorf("channel: %w", err)
 	}
-	if err := ensureExternalSharedConversationAccess(ctx, s.externalAccess, conv, domain.PermissionMessagesWrite, true); err != nil {
+	if _, err := ensureConversationAccess(ctx, s.externalMembers, conv, domain.PermissionMessagesWrite, true); err != nil {
 		return err
 	}
 	if err := s.ensureConversationVisible(ctx, conv, params.UserID); err != nil {
@@ -324,7 +323,7 @@ func (s *MessageService) AddReaction(ctx context.Context, params domain.AddReact
 		EventType:     domain.EventReactionAdded,
 		AggregateType: domain.AggregateMessage,
 		AggregateID:   params.MessageTS,
-		WorkspaceID:        conv.WorkspaceID,
+		WorkspaceID:   conv.WorkspaceID,
 		ActorID:       actorID,
 		Payload:       payload,
 	}); err != nil {
@@ -350,7 +349,7 @@ func (s *MessageService) RemoveReaction(ctx context.Context, params domain.Remov
 	if err != nil {
 		return fmt.Errorf("channel: %w", err)
 	}
-	if err := ensureExternalSharedConversationAccess(ctx, s.externalAccess, conv, domain.PermissionMessagesWrite, true); err != nil {
+	if _, err := ensureConversationAccess(ctx, s.externalMembers, conv, domain.PermissionMessagesWrite, true); err != nil {
 		return err
 	}
 	if err := s.ensureConversationVisible(ctx, conv); err != nil {
@@ -376,7 +375,7 @@ func (s *MessageService) RemoveReaction(ctx context.Context, params domain.Remov
 		EventType:     domain.EventReactionRemoved,
 		AggregateType: domain.AggregateMessage,
 		AggregateID:   params.MessageTS,
-		WorkspaceID:        conv.WorkspaceID,
+		WorkspaceID:   conv.WorkspaceID,
 		ActorID:       actorID,
 		Payload:       payload,
 	}); err != nil {
@@ -398,7 +397,7 @@ func (s *MessageService) GetReactions(ctx context.Context, channelID, messageTS 
 	if err != nil {
 		return nil, fmt.Errorf("channel: %w", err)
 	}
-	if err := ensureExternalSharedConversationAccess(ctx, s.externalAccess, conv, domain.PermissionMessagesRead, false); err != nil {
+	if _, err := ensureConversationAccess(ctx, s.externalMembers, conv, domain.PermissionMessagesRead, false); err != nil {
 		return nil, err
 	}
 	if err := s.ensureConversationVisible(ctx, conv); err != nil {
@@ -412,8 +411,14 @@ func (s *MessageService) ensureConversationVisible(ctx context.Context, conv *do
 	if conv == nil {
 		return domain.ErrNotFound
 	}
-	if err := ensureWorkspaceAccess(ctx, conv.WorkspaceID); err != nil {
+	externalActor, err := isConversationExternalActor(ctx, s.externalMembers, conv)
+	if err != nil {
 		return err
+	}
+	if !externalActor {
+		if err := ensureWorkspaceAccess(ctx, conv.WorkspaceID); err != nil {
+			return err
+		}
 	}
 
 	switch conv.Type {
@@ -421,7 +426,10 @@ func (s *MessageService) ensureConversationVisible(ctx context.Context, conv *do
 		if contextIsWorkspaceAdmin(ctx) {
 			return nil
 		}
-		actorID := ctxutil.GetActingUserID(ctx)
+		if externalActor {
+			return nil
+		}
+		actorID := compatibilityActorID(ctx)
 		if actorID == "" {
 			for _, fallbackActorID := range fallbackActorIDs {
 				if fallbackActorID != "" {
@@ -452,7 +460,7 @@ func ensureMessageEditor(ctx context.Context, msg *domain.Message) error {
 	if isInternalCallWithoutAuth(ctx) {
 		return nil
 	}
-	if ctxutil.GetActingUserID(ctx) == msg.UserID {
+	if compatibilityActorID(ctx) == msg.UserID {
 		return nil
 	}
 	if contextIsWorkspaceAdmin(ctx) {
@@ -468,7 +476,7 @@ func ensureMessageDeleter(ctx context.Context, msg *domain.Message) error {
 	if isInternalCallWithoutAuth(ctx) {
 		return nil
 	}
-	if ctxutil.GetActingUserID(ctx) == msg.UserID {
+	if compatibilityActorID(ctx) == msg.UserID {
 		return nil
 	}
 	if contextIsWorkspaceAdmin(ctx) {

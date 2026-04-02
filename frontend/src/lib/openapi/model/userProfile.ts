@@ -5,7 +5,6 @@
  * Canonical HTTP API for Teraslack.
  * OpenAPI spec version: 1.0.0
  */
-import type { UserProfileFields } from './userProfileFields';
 
 export interface UserProfile {
   title: string;
@@ -18,5 +17,4 @@ export interface UserProfile {
   image_48: string;
   image_192: string;
   image_512: string;
-  fields?: UserProfileFields;
 }

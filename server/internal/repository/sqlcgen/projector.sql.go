@@ -35,16 +35,6 @@ func (q *Queries) ProjectorDeleteConversationManager(ctx context.Context, arg Pr
 	return err
 }
 
-const projectorDeleteExternalPrincipalConversationAssignments = `-- name: ProjectorDeleteExternalPrincipalConversationAssignments :exec
-DELETE FROM external_principal_conversation_assignments
-WHERE access_id = $1
-`
-
-func (q *Queries) ProjectorDeleteExternalPrincipalConversationAssignments(ctx context.Context, accessID string) error {
-	_, err := q.db.Exec(ctx, projectorDeleteExternalPrincipalConversationAssignments, accessID)
-	return err
-}
-
 const projectorDeleteFile = `-- name: ProjectorDeleteFile :exec
 DELETE FROM files WHERE id = $1
 `
@@ -225,28 +215,6 @@ func (q *Queries) ProjectorGetInternalEventsSince(ctx context.Context, id int64)
 	return items, nil
 }
 
-const projectorInsertExternalPrincipalConversationAssignment = `-- name: ProjectorInsertExternalPrincipalConversationAssignment :exec
-INSERT INTO external_principal_conversation_assignments (access_id, conversation_id, granted_by, created_at)
-VALUES ($1, $2, $3, $4)
-`
-
-type ProjectorInsertExternalPrincipalConversationAssignmentParams struct {
-	AccessID       string             `json:"access_id"`
-	ConversationID string             `json:"conversation_id"`
-	GrantedBy      string             `json:"granted_by"`
-	CreatedAt      pgtype.Timestamptz `json:"created_at"`
-}
-
-func (q *Queries) ProjectorInsertExternalPrincipalConversationAssignment(ctx context.Context, arg ProjectorInsertExternalPrincipalConversationAssignmentParams) error {
-	_, err := q.db.Exec(ctx, projectorInsertExternalPrincipalConversationAssignment,
-		arg.AccessID,
-		arg.ConversationID,
-		arg.GrantedBy,
-		arg.CreatedAt,
-	)
-	return err
-}
-
 const projectorInsertUserRoleAssignment = `-- name: ProjectorInsertUserRoleAssignment :exec
 INSERT INTO user_role_assignments (id, workspace_id, user_id, role_key, assigned_by, created_at)
 VALUES ($1, $2, $3, $4, $5, $6)
@@ -402,7 +370,7 @@ func (q *Queries) ProjectorTruncateSubscriptionProjection(ctx context.Context) e
 }
 
 const projectorTruncateUserProjection = `-- name: ProjectorTruncateUserProjection :exec
-TRUNCATE external_principal_conversation_assignments, external_principal_access, user_role_assignments, users CASCADE
+TRUNCATE user_role_assignments, users CASCADE
 `
 
 func (q *Queries) ProjectorTruncateUserProjection(ctx context.Context) error {
@@ -623,55 +591,6 @@ func (q *Queries) ProjectorUpsertConversationPostingPolicy(ctx context.Context, 
 		arg.PolicyJson,
 		arg.UpdatedBy,
 		arg.UpdatedAt,
-	)
-	return err
-}
-
-const projectorUpsertExternalPrincipalAccess = `-- name: ProjectorUpsertExternalPrincipalAccess :exec
-INSERT INTO external_principal_access (
-    id, host_workspace_id, principal_id, principal_type, home_workspace_id, access_mode,
-    allowed_capabilities, granted_by, created_at, expires_at, revoked_at
-)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-ON CONFLICT (id) DO UPDATE SET
-    host_workspace_id = EXCLUDED.host_workspace_id,
-    principal_id = EXCLUDED.principal_id,
-    principal_type = EXCLUDED.principal_type,
-    home_workspace_id = EXCLUDED.home_workspace_id,
-    access_mode = EXCLUDED.access_mode,
-    allowed_capabilities = EXCLUDED.allowed_capabilities,
-    granted_by = EXCLUDED.granted_by,
-    expires_at = EXCLUDED.expires_at,
-    revoked_at = EXCLUDED.revoked_at
-`
-
-type ProjectorUpsertExternalPrincipalAccessParams struct {
-	ID                  string             `json:"id"`
-	HostWorkspaceID     string             `json:"host_workspace_id"`
-	PrincipalID         string             `json:"principal_id"`
-	PrincipalType       string             `json:"principal_type"`
-	HomeWorkspaceID     string             `json:"home_workspace_id"`
-	AccessMode          string             `json:"access_mode"`
-	AllowedCapabilities []byte             `json:"allowed_capabilities"`
-	GrantedBy           string             `json:"granted_by"`
-	CreatedAt           pgtype.Timestamptz `json:"created_at"`
-	ExpiresAt           pgtype.Timestamptz `json:"expires_at"`
-	RevokedAt           pgtype.Timestamptz `json:"revoked_at"`
-}
-
-func (q *Queries) ProjectorUpsertExternalPrincipalAccess(ctx context.Context, arg ProjectorUpsertExternalPrincipalAccessParams) error {
-	_, err := q.db.Exec(ctx, projectorUpsertExternalPrincipalAccess,
-		arg.ID,
-		arg.HostWorkspaceID,
-		arg.PrincipalID,
-		arg.PrincipalType,
-		arg.HomeWorkspaceID,
-		arg.AccessMode,
-		arg.AllowedCapabilities,
-		arg.GrantedBy,
-		arg.CreatedAt,
-		arg.ExpiresAt,
-		arg.RevokedAt,
 	)
 	return err
 }

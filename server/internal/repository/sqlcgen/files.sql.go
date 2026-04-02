@@ -122,6 +122,54 @@ func (q *Queries) GetFile(ctx context.Context, arg GetFileParams) (GetFileRow, e
 	return i, err
 }
 
+const getFileByID = `-- name: GetFileByID :one
+SELECT id, workspace_id, name, title, mimetype, filetype, size, user_id,
+       url_private, url_private_download, permalink, is_external, external_url,
+       created_at, updated_at
+FROM files WHERE id = $1
+`
+
+type GetFileByIDRow struct {
+	ID                 string    `json:"id"`
+	WorkspaceID        string    `json:"workspace_id"`
+	Name               string    `json:"name"`
+	Title              string    `json:"title"`
+	Mimetype           string    `json:"mimetype"`
+	Filetype           string    `json:"filetype"`
+	Size               int64     `json:"size"`
+	UserID             string    `json:"user_id"`
+	UrlPrivate         string    `json:"url_private"`
+	UrlPrivateDownload string    `json:"url_private_download"`
+	Permalink          string    `json:"permalink"`
+	IsExternal         bool      `json:"is_external"`
+	ExternalUrl        string    `json:"external_url"`
+	CreatedAt          time.Time `json:"created_at"`
+	UpdatedAt          time.Time `json:"updated_at"`
+}
+
+func (q *Queries) GetFileByID(ctx context.Context, id string) (GetFileByIDRow, error) {
+	row := q.db.QueryRow(ctx, getFileByID, id)
+	var i GetFileByIDRow
+	err := row.Scan(
+		&i.ID,
+		&i.WorkspaceID,
+		&i.Name,
+		&i.Title,
+		&i.Mimetype,
+		&i.Filetype,
+		&i.Size,
+		&i.UserID,
+		&i.UrlPrivate,
+		&i.UrlPrivateDownload,
+		&i.Permalink,
+		&i.IsExternal,
+		&i.ExternalUrl,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const getFileChannels = `-- name: GetFileChannels :many
 SELECT channel_id FROM file_channels WHERE file_id = $1 ORDER BY shared_at ASC
 `

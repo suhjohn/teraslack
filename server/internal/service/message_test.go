@@ -6,6 +6,7 @@ import (
 	"io"
 	"log/slog"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/suhjohn/teraslack/internal/ctxutil"
@@ -147,9 +148,9 @@ func TestMessageService_History_DeniesPrivateConversationNonMember(t *testing.T)
 		&messageRepoStub{},
 		&conversationRepoStub{
 			conversation: &domain.Conversation{
-				ID:     "G123",
+				ID:          "G123",
 				WorkspaceID: "T123",
-				Type:   domain.ConversationTypePrivateChannel,
+				Type:        domain.ConversationTypePrivateChannel,
 			},
 			isMember: false,
 		},
@@ -174,9 +175,9 @@ func TestMessageService_History_AllowsPublicConversationNonMember(t *testing.T) 
 		repo,
 		&conversationRepoStub{
 			conversation: &domain.Conversation{
-				ID:     "C123",
+				ID:          "C123",
 				WorkspaceID: "T123",
-				Type:   domain.ConversationTypePublicChannel,
+				Type:        domain.ConversationTypePublicChannel,
 			},
 			isMember: false,
 		},
@@ -237,9 +238,9 @@ func TestMessageService_PostMessage_DeniesPrivateConversationNonMember(t *testin
 		},
 		&conversationRepoStub{
 			conversation: &domain.Conversation{
-				ID:     "G123",
+				ID:          "G123",
 				WorkspaceID: "T123",
-				Type:   domain.ConversationTypePrivateChannel,
+				Type:        domain.ConversationTypePrivateChannel,
 			},
 			isMember: false,
 		},
@@ -302,9 +303,9 @@ func TestMessageService_PostMessage_UsesRowOnlyParentLookup(t *testing.T) {
 		msgRepo,
 		&conversationRepoStub{
 			conversation: &domain.Conversation{
-				ID:     "C123",
+				ID:          "C123",
 				WorkspaceID: "T123",
-				Type:   domain.ConversationTypePublicChannel,
+				Type:        domain.ConversationTypePublicChannel,
 			},
 			isMember: true,
 		},
@@ -367,6 +368,94 @@ func TestMessageService_DeleteMessage_AllowsWorkspaceAdmin(t *testing.T) {
 	}
 	if !msgRepo.deleted {
 		t.Fatal("expected message to be deleted by admin")
+	}
+}
+
+func TestMessageService_History_AllowsExternalMemberPrivateConversation(t *testing.T) {
+	repo := &messageRepoStub{
+		historyPage: &domain.CursorPage[domain.Message]{
+			Items: []domain.Message{{TS: "123.456", ChannelID: "G123", UserID: "U123", Text: "hello"}},
+		},
+	}
+	externalMembers := &externalMemberRepoStub{
+		byConversationAccount: map[string]*domain.ExternalMember{
+			"G123|A123": {
+				ID:                  "EM123",
+				ConversationID:      "G123",
+				HostWorkspaceID:     "T123",
+				ExternalWorkspaceID: "T999",
+				AccountID:           "A123",
+				AccessMode:          domain.ExternalPrincipalAccessModeShared,
+				AllowedCapabilities: []string{domain.PermissionMessagesRead},
+			},
+		},
+	}
+	svc := NewMessageService(
+		repo,
+		&conversationRepoStub{
+			conversation: &domain.Conversation{
+				ID:          "G123",
+				WorkspaceID: "T123",
+				Type:        domain.ConversationTypePrivateChannel,
+			},
+			isMember: false,
+		},
+		nil,
+		mockTxBeginner{},
+		slog.New(slog.NewJSONHandler(io.Discard, nil)),
+	)
+	svc.SetExternalMemberRepository(externalMembers)
+
+	ctx := ctxutil.WithUser(context.Background(), "U_EXT", "T999")
+	ctx = ctxutil.WithIdentity(ctx, "A123", "WM_EXT")
+	ctx = ctxutil.WithPrincipal(ctx, domain.PrincipalTypeHuman, domain.AccountTypeMember, false)
+
+	page, err := svc.History(ctx, domain.ListMessagesParams{ChannelID: "G123"})
+	if err != nil {
+		t.Fatalf("History() error = %v", err)
+	}
+	if len(page.Items) != 1 {
+		t.Fatalf("History() items = %d, want 1", len(page.Items))
+	}
+}
+
+func TestMessageService_PostMessage_AllowsExternalMemberParticipant(t *testing.T) {
+	svc := NewMessageService(
+		&messageRepoStub{
+			created: &domain.Message{TS: "123.456", ChannelID: "G123", UserID: "U_EXT", Text: "hello"},
+		},
+		&conversationRepoStub{
+			conversation: &domain.Conversation{
+				ID:          "G123",
+				WorkspaceID: "T123",
+				Type:        domain.ConversationTypePrivateChannel,
+			},
+			isMember: false,
+		},
+		nil,
+		mockTxBeginner{},
+		slog.New(slog.NewJSONHandler(io.Discard, nil)),
+	)
+	svc.SetExternalMemberRepository(&externalMemberRepoStub{
+		byConversationAccount: map[string]*domain.ExternalMember{
+			"G123|A123": {
+				ID:                  "EM123",
+				ConversationID:      "G123",
+				HostWorkspaceID:     "T123",
+				ExternalWorkspaceID: "T999",
+				AccountID:           "A123",
+				AccessMode:          domain.ExternalPrincipalAccessModeShared,
+				AllowedCapabilities: []string{domain.PermissionMessagesRead, domain.PermissionMessagesWrite},
+			},
+		},
+	})
+
+	ctx := ctxutil.WithUser(context.Background(), "U_EXT", "T999")
+	ctx = ctxutil.WithIdentity(ctx, "A123", "WM_EXT")
+	ctx = ctxutil.WithPrincipal(ctx, domain.PrincipalTypeHuman, domain.AccountTypeMember, false)
+
+	if _, err := svc.PostMessage(ctx, domain.PostMessageParams{ChannelID: "G123", Text: "hello"}); err != nil {
+		t.Fatalf("PostMessage() error = %v", err)
 	}
 }
 
@@ -523,4 +612,55 @@ func (r *conversationRepoStub) ListMembers(ctx context.Context, conversationID s
 
 func (r *conversationRepoStub) IsMember(ctx context.Context, conversationID, userID string) (bool, error) {
 	return r.isMember, nil
+}
+
+type externalMemberRepoStub struct {
+	byConversationAccount map[string]*domain.ExternalMember
+}
+
+func (r *externalMemberRepoStub) WithTx(tx pgx.Tx) repository.ExternalMemberRepository { return r }
+
+func (r *externalMemberRepoStub) Create(_ context.Context, _ domain.CreateExternalMemberParams, _ string) (*domain.ExternalMember, error) {
+	return nil, nil
+}
+
+func (r *externalMemberRepoStub) Get(_ context.Context, _ string) (*domain.ExternalMember, error) {
+	return nil, domain.ErrNotFound
+}
+
+func (r *externalMemberRepoStub) GetActiveByConversationAndAccount(_ context.Context, conversationID, accountID string) (*domain.ExternalMember, error) {
+	if r.byConversationAccount == nil {
+		return nil, domain.ErrNotFound
+	}
+	item, ok := r.byConversationAccount[conversationID+"|"+accountID]
+	if !ok {
+		return nil, domain.ErrNotFound
+	}
+	return item, nil
+}
+
+func (r *externalMemberRepoStub) ListActiveByAccountAndWorkspace(_ context.Context, accountID, workspaceID string) ([]domain.ExternalMember, error) {
+	items := make([]domain.ExternalMember, 0)
+	for _, item := range r.byConversationAccount {
+		if item.AccountID == accountID && item.HostWorkspaceID == workspaceID {
+			items = append(items, *item)
+		}
+	}
+	return items, nil
+}
+
+func (r *externalMemberRepoStub) ListByConversation(_ context.Context, _ string) ([]domain.ExternalMember, error) {
+	return nil, nil
+}
+
+func (r *externalMemberRepoStub) Update(_ context.Context, _ string, _ domain.UpdateExternalMemberParams) (*domain.ExternalMember, error) {
+	return nil, nil
+}
+
+func (r *externalMemberRepoStub) Revoke(_ context.Context, _ string, _ time.Time) error {
+	return nil
+}
+
+func (r *externalMemberRepoStub) RevokeByExternalWorkspace(_ context.Context, _, _ string, _ time.Time) error {
+	return nil
 }
