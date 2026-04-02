@@ -28,14 +28,13 @@ type MCPOAuthConfig struct {
 }
 
 type MCPOAuthService struct {
-	repo           repository.MCPOAuthRepository
-	accountRepo    repository.AccountRepository
-	userRepo       repository.UserRepository
-	membershipRepo repository.WorkspaceMembershipRepository
-	db             repository.TxBeginner
-	httpClient     *http.Client
-	logger         *slog.Logger
-	cfg            mcpoauth.TokenConfig
+	repo        repository.MCPOAuthRepository
+	accountRepo repository.AccountRepository
+	userRepo    repository.UserRepository
+	db          repository.TxBeginner
+	httpClient  *http.Client
+	logger      *slog.Logger
+	cfg         mcpoauth.TokenConfig
 }
 
 func NewMCPOAuthService(repo repository.MCPOAuthRepository, userRepo repository.UserRepository, db repository.TxBeginner, logger *slog.Logger, cfg MCPOAuthConfig) *MCPOAuthService {
@@ -61,9 +60,8 @@ func NewMCPOAuthService(repo repository.MCPOAuthRepository, userRepo repository.
 	}
 }
 
-func (s *MCPOAuthService) SetIdentityRepositories(accountRepo repository.AccountRepository, membershipRepo repository.WorkspaceMembershipRepository) {
+func (s *MCPOAuthService) SetIdentityRepositories(accountRepo repository.AccountRepository, _ ...any) {
 	s.accountRepo = accountRepo
-	s.membershipRepo = membershipRepo
 }
 
 func (s *MCPOAuthService) AuthorizationServerMetadata() (*domain.MCPOAuthAuthorizationServerMetadata, error) {
@@ -106,13 +104,13 @@ func (s *MCPOAuthService) BuildAuthorizePrompt(ctx context.Context, auth *domain
 	if err != nil {
 		return nil, err
 	}
-	user, membership, err := resolveAuthContextUser(ctx, nil, s.userRepo, s.accountRepo, s.membershipRepo, auth, nil)
+	user, err := resolveAuthContextUser(ctx, s.userRepo, auth)
 	if err != nil {
 		return nil, oauthInvalidRequest("invalid user session")
 	}
-	workspaceID := auth.WorkspaceID
-	if membership != nil && membership.WorkspaceID != "" {
-		workspaceID = membership.WorkspaceID
+	workspaceID := user.WorkspaceID
+	if workspaceID == "" {
+		workspaceID = auth.WorkspaceID
 	}
 	return &domain.MCPOAuthAuthorizePrompt{
 		Request:         req,
@@ -138,13 +136,13 @@ func (s *MCPOAuthService) CompleteAuthorize(ctx context.Context, auth *domain.Au
 		})
 	}
 
-	user, membership, err := resolveAuthContextUser(ctx, nil, s.userRepo, s.accountRepo, s.membershipRepo, auth, nil)
+	user, err := resolveAuthContextUser(ctx, s.userRepo, auth)
 	if err != nil {
 		return "", oauthInvalidRequest("invalid user session")
 	}
-	workspaceID := auth.WorkspaceID
-	if membership != nil && membership.WorkspaceID != "" {
-		workspaceID = membership.WorkspaceID
+	workspaceID := user.WorkspaceID
+	if workspaceID == "" {
+		workspaceID = auth.WorkspaceID
 	}
 
 	code, rawCode, err := s.repo.CreateAuthorizationCode(ctx, domain.CreateMCPOAuthAuthorizationCodeParams{
@@ -189,7 +187,6 @@ func (s *MCPOAuthService) ValidateAccessToken(ctx context.Context, raw, audience
 		WorkspaceID:   claims.WorkspaceID,
 		UserID:        claims.UserID,
 		AccountID:     claims.AccountID,
-		MembershipID:  claims.MembershipID,
 		PrincipalType: domain.PrincipalType(claims.PrincipalType),
 		AccountType:   domain.AccountType(claims.AccountType),
 		IsBot:         claims.IsBot,
@@ -320,31 +317,18 @@ func (s *MCPOAuthService) issueTokenResponse(ctx context.Context, tx pgx.Tx, cli
 }
 
 func (s *MCPOAuthService) issueTokenResponseWithRefresh(ctx context.Context, tx pgx.Tx, clientID, clientName, workspaceID, userID string, scopes []string, resource string) (*domain.MCPOAuthTokenResponse, *domain.MCPOAuthRefreshToken, error) {
-	user, err := loadUserWithMembership(ctx, s.userRepo.WithTx(tx), txAwareMembershipRepo(s.membershipRepo, tx), userID)
+	user, err := s.userRepo.WithTx(tx).Get(ctx, userID)
 	if err != nil {
 		return nil, nil, fmt.Errorf("load user: %w", err)
 	}
-	var accountID string
-	var membershipID string
-	if s.membershipRepo != nil {
-		membership, membershipErr := s.membershipRepo.WithTx(tx).GetByLegacyUserID(ctx, userID)
-		if membershipErr != nil && membershipErr != domain.ErrNotFound {
-			return nil, nil, fmt.Errorf("load workspace membership: %w", membershipErr)
-		}
-		if membershipErr == nil {
-			accountID = membership.AccountID
-			membershipID = membership.ID
-			if membership.WorkspaceID != "" {
-				workspaceID = membership.WorkspaceID
-			}
-		}
+	if user.WorkspaceID != "" {
+		workspaceID = user.WorkspaceID
 	}
 
 	accessToken, expiresIn, err := mcpoauth.IssueAccessToken(s.cfg, time.Now().UTC(), mcpoauth.AccessTokenClaims{
 		WorkspaceID:   workspaceID,
 		UserID:        user.ID,
-		AccountID:     accountID,
-		MembershipID:  membershipID,
+		AccountID:     user.AccountID,
 		PrincipalType: string(user.PrincipalType),
 		AccountType:   string(user.EffectiveAccountType()),
 		IsBot:         user.IsBot,
@@ -381,13 +365,6 @@ func (s *MCPOAuthService) issueTokenResponseWithRefresh(ctx context.Context, tx 
 	}
 	response.RefreshToken = rawRefresh
 	return response, refresh, nil
-}
-
-func txAwareMembershipRepo(repo repository.WorkspaceMembershipRepository, tx pgx.Tx) repository.WorkspaceMembershipRepository {
-	if repo == nil {
-		return nil
-	}
-	return repo.WithTx(tx)
 }
 
 func (s *MCPOAuthService) validateAuthorizeRequest(ctx context.Context, req domain.MCPOAuthAuthorizeRequest) (*domain.MCPOAuthClientMetadata, []string, error) {

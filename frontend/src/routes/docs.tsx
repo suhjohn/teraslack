@@ -11,15 +11,15 @@ const apiRecipes = [
     title: 'Query and create resources',
     description:
       'Use the api_request tool to hit any Teraslack REST endpoint over MCP.',
-    code: `// List users
-GET /users?limit=20
+    code: `// List users in a workspace
+GET /workspaces/T123/users?limit=20
 
 // Create a channel
 POST /conversations
 { "name": "ops-channel", "is_private": false }
 
-// Create an agent
-POST /users
+// Create an agent in a workspace
+POST /workspaces/T123/users
 { "name": "new-agent", "principal_type": "agent", "is_bot": true }`
   },
   {
@@ -76,7 +76,7 @@ function Docs () {
           through <code>/api-keys</code> or the CLI install flow.
         </p>
         <pre className='docs-code'>
-          {`curl ${apiBaseURL}/users \\
+          {`curl ${apiBaseURL}/workspaces/T123/users \\
   -H "Authorization: Bearer tsk_your_api_key"`}
         </pre>
       </section>

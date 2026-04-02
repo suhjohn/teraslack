@@ -226,21 +226,21 @@ func TestWorkspaceService_AdminCreateRequiresAdmin(t *testing.T) {
 	}
 	createdUser, err := userRepo.GetByTeamEmail(context.Background(), ws.ID, "alice@example.com")
 	if err != nil {
-		t.Fatalf("expected creator membership in new workspace: %v", err)
+		t.Fatalf("expected creator workspace user in new workspace: %v", err)
 	}
 	if createdUser.EffectiveAccountType() != domain.AccountTypePrimaryAdmin {
-		t.Fatalf("expected primary admin membership, got %s", createdUser.EffectiveAccountType())
+		t.Fatalf("expected primary admin workspace user, got %s", createdUser.EffectiveAccountType())
 	}
 }
 
-func TestWorkspaceService_AdminListReturnsWorkspaceMemberships(t *testing.T) {
+func TestWorkspaceService_AdminListReturnsWorkspacesForAccountUsers(t *testing.T) {
 	workspaceRepo := newMockWorkspaceRepo()
 	workspaceRepo.workspaces["T123"] = &domain.Workspace{ID: "T123", Name: "Current"}
 	workspaceRepo.workspaces["T999"] = &domain.Workspace{ID: "T999", Name: "Other"}
 	userRepo := newMockUserRepoTenant()
-	membershipRepo := newMockWorkspaceMembershipRepo()
 	userRepo.users["U123"] = &domain.User{
 		ID:            "U123",
+		AccountID:     "A123",
 		WorkspaceID:   "T123",
 		Name:          "alice",
 		Email:         "alice@example.com",
@@ -249,31 +249,18 @@ func TestWorkspaceService_AdminListReturnsWorkspaceMemberships(t *testing.T) {
 	}
 	userRepo.users["U999"] = &domain.User{
 		ID:            "U999",
+		AccountID:     "A123",
 		WorkspaceID:   "T999",
 		Name:          "alice",
 		Email:         "alice@example.com",
 		PrincipalType: domain.PrincipalTypeHuman,
 		AccountType:   domain.AccountTypeMember,
 	}
-	membershipRepo.byWorkspaceAccount["T123|A123"] = &domain.WorkspaceMembership{
-		ID:          "WM123",
-		AccountID:   "A123",
-		WorkspaceID: "T123",
-		UserID:      "U123",
-		AccountType: domain.AccountTypeAdmin,
-	}
-	membershipRepo.byWorkspaceAccount["T999|A123"] = &domain.WorkspaceMembership{
-		ID:          "WM999",
-		AccountID:   "A123",
-		WorkspaceID: "T999",
-		UserID:      "U999",
-		AccountType: domain.AccountTypeMember,
-	}
 	svc := NewWorkspaceService(workspaceRepo, userRepo, nil, mockTxBeginner{}, nil)
-	svc.SetIdentityRepositories(newMockAccountRepo(), membershipRepo)
+	svc.SetIdentityRepositories(newMockAccountRepo())
 
 	ctx := ctxutil.WithUser(context.Background(), "U123", "T123")
-	ctx = ctxutil.WithIdentity(ctx, "A123", "")
+	ctx = ctxutil.WithIdentity(ctx, "A123")
 
 	workspaces, err := svc.AdminList(ctx)
 	if err != nil {
@@ -287,44 +274,38 @@ func TestWorkspaceService_AdminListReturnsWorkspaceMemberships(t *testing.T) {
 		seen[workspace.ID] = true
 	}
 	if !seen["T123"] || !seen["T999"] {
-		t.Fatalf("expected memberships for T123 and T999, got %+v", workspaces)
+		t.Fatalf("expected account-linked workspace users for T123 and T999, got %+v", workspaces)
 	}
 }
 
-func TestWorkspaceService_AdminListPrefersAccountMemberships(t *testing.T) {
+func TestWorkspaceService_AdminListUsesAccountLinkedUsers(t *testing.T) {
 	workspaceRepo := newMockWorkspaceRepo()
 	workspaceRepo.workspaces["T123"] = &domain.Workspace{ID: "T123", Name: "Current"}
 	workspaceRepo.workspaces["T999"] = &domain.Workspace{ID: "T999", Name: "Other"}
 	userRepo := newMockUserRepoTenant()
 	userRepo.users["U123"] = &domain.User{
 		ID:            "U123",
+		AccountID:     "A123",
 		WorkspaceID:   "T123",
 		Name:          "alice",
 		Email:         "primary@example.com",
 		PrincipalType: domain.PrincipalTypeHuman,
 		AccountType:   domain.AccountTypeMember,
 	}
-	membershipRepo := newMockWorkspaceMembershipRepo()
-	membershipRepo.byUser["U123"] = &domain.WorkspaceMembership{
-		ID:          "WM123",
-		AccountID:   "A123",
-		WorkspaceID: "T123",
-		UserID:      "U123",
-		AccountType: domain.AccountTypeAdmin,
-	}
-	membershipRepo.byWorkspaceAccount["T123|A123"] = membershipRepo.byUser["U123"]
-	membershipRepo.byWorkspaceAccount["T999|A123"] = &domain.WorkspaceMembership{
-		ID:          "WM999",
-		AccountID:   "A123",
-		WorkspaceID: "T999",
-		UserID:      "U999",
-		AccountType: domain.AccountTypeMember,
+	userRepo.users["U999"] = &domain.User{
+		ID:            "U999",
+		AccountID:     "A123",
+		WorkspaceID:   "T999",
+		Name:          "alice",
+		Email:         "primary@example.com",
+		PrincipalType: domain.PrincipalTypeHuman,
+		AccountType:   domain.AccountTypeMember,
 	}
 	svc := NewWorkspaceService(workspaceRepo, userRepo, nil, mockTxBeginner{}, nil)
-	svc.SetIdentityRepositories(nil, membershipRepo)
+	svc.SetIdentityRepositories(nil)
 
 	ctx := ctxutil.WithUser(context.Background(), "U123", "T123")
-	ctx = ctxutil.WithIdentity(ctx, "A123", "WM123")
+	ctx = ctxutil.WithIdentity(ctx, "A123")
 	ctx = ctxutil.WithPrincipal(ctx, domain.PrincipalTypeHuman, domain.AccountTypeAdmin, false)
 
 	workspaces, err := svc.AdminList(ctx)
@@ -339,7 +320,7 @@ func TestWorkspaceService_AdminListPrefersAccountMemberships(t *testing.T) {
 		seen[workspace.ID] = true
 	}
 	if !seen["T123"] || !seen["T999"] {
-		t.Fatalf("expected memberships for T123 and T999, got %+v", workspaces)
+		t.Fatalf("expected account-linked workspace users for T123 and T999, got %+v", workspaces)
 	}
 }
 
@@ -377,11 +358,10 @@ func TestWorkspaceService_DisconnectExternalWorkspaceRevokesExternalMembers(t *t
 	}
 }
 
-func TestWorkspaceService_AdminCreateSyncsIdentityMembership(t *testing.T) {
+func TestWorkspaceService_AdminCreateKeepsCreatorAccountIdentity(t *testing.T) {
 	workspaceRepo := newMockWorkspaceRepo()
 	userRepo := newMockUserRepoTenant()
 	accountRepo := newMockAccountRepo()
-	membershipRepo := newMockWorkspaceMembershipRepo()
 	userRepo.users["U_ADMIN"] = &domain.User{
 		ID:            "U_ADMIN",
 		WorkspaceID:   "T123",
@@ -397,10 +377,10 @@ func TestWorkspaceService_AdminCreateSyncsIdentityMembership(t *testing.T) {
 	}
 	accountRepo.byEmail["alice@example.com"] = accountRepo.byID["A123"]
 	svc := NewWorkspaceService(workspaceRepo, userRepo, nil, mockTxBeginner{}, nil)
-	svc.SetIdentityRepositories(accountRepo, membershipRepo)
+	svc.SetIdentityRepositories(accountRepo)
 
 	ctx := ctxutil.WithUser(context.Background(), "U_ADMIN", "T123")
-	ctx = ctxutil.WithIdentity(ctx, "A123", "WM_ADMIN")
+	ctx = ctxutil.WithIdentity(ctx, "A123")
 	ctx = ctxutil.WithPrincipal(ctx, domain.PrincipalTypeHuman, domain.AccountTypeAdmin, false)
 
 	ws, err := svc.AdminCreate(ctx, domain.CreateWorkspaceParams{Name: "Acme"})
@@ -409,14 +389,10 @@ func TestWorkspaceService_AdminCreateSyncsIdentityMembership(t *testing.T) {
 	}
 	createdUser, err := userRepo.GetByTeamEmail(context.Background(), ws.ID, "alice@example.com")
 	if err != nil {
-		t.Fatalf("expected creator membership in new workspace: %v", err)
+		t.Fatalf("expected creator workspace user in new workspace: %v", err)
 	}
-	membership, err := membershipRepo.GetByLegacyUserID(context.Background(), createdUser.ID)
-	if err != nil {
-		t.Fatalf("expected synced membership for creator: %v", err)
-	}
-	if membership.AccountID != "A123" || membership.WorkspaceID != ws.ID {
-		t.Fatalf("unexpected synced membership: %+v", membership)
+	if createdUser.AccountID != "A123" || createdUser.WorkspaceID != ws.ID {
+		t.Fatalf("unexpected synced identity for creator: %+v", createdUser)
 	}
 }
 
@@ -455,49 +431,51 @@ func TestWorkspaceService_TransferPrimaryAdmin(t *testing.T) {
 	}
 }
 
-func TestWorkspaceService_TransferPrimaryAdminSyncsMemberships(t *testing.T) {
+func TestWorkspaceService_TransferPrimaryAdminRejectsCrossWorkspaceTarget(t *testing.T) {
 	workspaceRepo := newMockWorkspaceRepo()
 	workspaceRepo.workspaces["T123"] = &domain.Workspace{ID: "T123", Name: "Acme"}
 	userRepo := newMockUserRepoTenant()
-	userRepo.users["U_PRIMARY"] = &domain.User{ID: "U_PRIMARY", WorkspaceID: "T123", PrincipalType: domain.PrincipalTypeHuman, AccountType: domain.AccountTypePrimaryAdmin}
-	userRepo.users["U_ADMIN"] = &domain.User{ID: "U_ADMIN", WorkspaceID: "T123", PrincipalType: domain.PrincipalTypeHuman, AccountType: domain.AccountTypeAdmin}
-	membershipRepo := newMockWorkspaceMembershipRepo()
-	membershipRepo.byUser["U_PRIMARY"] = &domain.WorkspaceMembership{
-		ID:          "WM_PRIMARY",
-		AccountID:   "A_PRIMARY",
-		WorkspaceID: "T123",
-		UserID:      "U_PRIMARY",
-		AccountType: domain.AccountTypePrimaryAdmin,
+	userRepo.users["U_PRIMARY"] = &domain.User{
+		ID:            "U_PRIMARY",
+		WorkspaceID:   "T123",
+		PrincipalType: domain.PrincipalTypeHuman,
+		AccountType:   domain.AccountTypePrimaryAdmin,
 	}
-	membershipRepo.byWorkspaceAccount["T123|A_PRIMARY"] = membershipRepo.byUser["U_PRIMARY"]
-	membershipRepo.byUser["U_ADMIN"] = &domain.WorkspaceMembership{
-		ID:          "WM_ADMIN",
-		AccountID:   "A_ADMIN",
-		WorkspaceID: "T123",
-		UserID:      "U_ADMIN",
-		AccountType: domain.AccountTypeAdmin,
+	userRepo.users["U_OTHER"] = &domain.User{
+		ID:            "U_OTHER",
+		WorkspaceID:   "T999",
+		PrincipalType: domain.PrincipalTypeHuman,
+		AccountType:   domain.AccountTypeAdmin,
 	}
-	membershipRepo.byWorkspaceAccount["T123|A_ADMIN"] = membershipRepo.byUser["U_ADMIN"]
 	svc := NewWorkspaceService(workspaceRepo, userRepo, nil, mockTxBeginner{}, nil)
-	svc.SetIdentityRepositories(nil, membershipRepo)
 
 	ctx := ctxutil.WithUser(context.Background(), "U_PRIMARY", "T123")
-	ctx = ctxutil.WithPrincipal(ctx, domain.PrincipalTypeHuman, domain.AccountTypePrimaryAdmin, false)
-	if _, err := svc.TransferPrimaryAdmin(ctx, "T123", "U_ADMIN"); err != nil {
-		t.Fatalf("TransferPrimaryAdmin: %v", err)
+	if _, err := svc.TransferPrimaryAdmin(ctx, "T123", "U_OTHER"); err == nil || !errors.Is(err, domain.ErrForbidden) {
+		t.Fatalf("expected forbidden for cross-workspace transfer target, got %v", err)
 	}
-	primaryMembership, err := membershipRepo.GetByLegacyUserID(context.Background(), "U_PRIMARY")
-	if err != nil {
-		t.Fatalf("expected primary membership: %v", err)
+}
+
+func TestWorkspaceService_TransferPrimaryAdminRejectsNonHumanTarget(t *testing.T) {
+	workspaceRepo := newMockWorkspaceRepo()
+	workspaceRepo.workspaces["T123"] = &domain.Workspace{ID: "T123", Name: "Acme"}
+	userRepo := newMockUserRepoTenant()
+	userRepo.users["U_PRIMARY"] = &domain.User{
+		ID:            "U_PRIMARY",
+		WorkspaceID:   "T123",
+		PrincipalType: domain.PrincipalTypeHuman,
+		AccountType:   domain.AccountTypePrimaryAdmin,
 	}
-	adminMembership, err := membershipRepo.GetByLegacyUserID(context.Background(), "U_ADMIN")
-	if err != nil {
-		t.Fatalf("expected admin membership: %v", err)
+	userRepo.users["U_AGENT"] = &domain.User{
+		ID:            "U_AGENT",
+		WorkspaceID:   "T123",
+		PrincipalType: domain.PrincipalTypeAgent,
+		AccountType:   domain.AccountTypeNone,
+		IsBot:         true,
 	}
-	if primaryMembership.AccountType != domain.AccountTypeAdmin {
-		t.Fatalf("expected previous primary membership to be admin, got %s", primaryMembership.AccountType)
-	}
-	if adminMembership.AccountType != domain.AccountTypePrimaryAdmin {
-		t.Fatalf("expected next primary membership to be primary_admin, got %s", adminMembership.AccountType)
+	svc := NewWorkspaceService(workspaceRepo, userRepo, nil, mockTxBeginner{}, nil)
+
+	ctx := ctxutil.WithUser(context.Background(), "U_PRIMARY", "T123")
+	if _, err := svc.TransferPrimaryAdmin(ctx, "T123", "U_AGENT"); err == nil || !errors.Is(err, domain.ErrForbidden) {
+		t.Fatalf("expected forbidden for non-human transfer target, got %v", err)
 	}
 }

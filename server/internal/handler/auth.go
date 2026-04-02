@@ -1,8 +1,12 @@
 package handler
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
+	"io"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 
@@ -178,22 +182,67 @@ func (h *AuthHandler) CompleteCLIOAuth(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *AuthHandler) Me(w http.ResponseWriter, r *http.Request) {
-	user, err := h.svc.GetCurrentUser(r.Context())
+	account, user, err := h.svc.GetCurrentIdentity(r.Context())
 	if err != nil {
 		httputil.WriteError(w, r, err)
 		return
 	}
 
+	workspaceID := ctxutil.GetWorkspaceID(r.Context())
+	if workspaceID == "" && user != nil {
+		workspaceID = user.WorkspaceID
+	}
+
+	accountID := ctxutil.GetAccountID(r.Context())
+	if accountID == "" {
+		switch {
+		case account != nil:
+			accountID = account.ID
+		case user != nil:
+			accountID = user.AccountID
+		}
+	}
+
+	userID := ctxutil.GetUserID(r.Context())
+	if userID == "" && user != nil {
+		userID = user.ID
+	}
+
+	principalType := ctxutil.GetPrincipalType(r.Context())
+	if principalType == "" {
+		switch {
+		case account != nil:
+			principalType = account.PrincipalType
+		case user != nil:
+			principalType = user.PrincipalType
+		}
+	}
+
+	accountType := ctxutil.GetAccountType(r.Context())
+	if accountType == "" && user != nil {
+		accountType = user.EffectiveAccountType()
+	}
+
+	isBot := ctxutil.GetIsBot(r.Context())
+	if !isBot {
+		switch {
+		case account != nil:
+			isBot = account.IsBot
+		case user != nil:
+			isBot = user.IsBot
+		}
+	}
+
 	httputil.WriteResource(w, http.StatusOK, domain.AuthMeResponse{
-		WorkspaceID:   ctxutil.GetWorkspaceID(r.Context()),
-		AccountID:     ctxutil.GetAccountID(r.Context()),
-		MembershipID:  ctxutil.GetMembershipID(r.Context()),
-		UserID:        ctxutil.GetUserID(r.Context()),
-		PrincipalType: ctxutil.GetPrincipalType(r.Context()),
-		AccountType:   ctxutil.GetAccountType(r.Context()),
-		IsBot:         ctxutil.GetIsBot(r.Context()),
+		WorkspaceID:   workspaceID,
+		AccountID:     accountID,
+		UserID:        userID,
+		PrincipalType: principalType,
+		AccountType:   accountType,
+		IsBot:         isBot,
 		Permissions:   ctxutil.GetPermissions(r.Context()),
 		Scopes:        ctxutil.GetOAuthScopes(r.Context()),
+		Account:       account,
 		User:          user,
 	})
 }
@@ -281,6 +330,10 @@ func AuthMiddleware(authSvc *service.AuthService, apiKeySvc *service.APIKeyServi
 					httputil.WriteErrorResponse(w, r, http.StatusUnauthorized, "invalid_authentication", "Authentication credentials are invalid.")
 					return
 				}
+				if requestedWorkspaceID, nextRequest := requestWorkspaceHint(ctx, r); requestedWorkspaceID != "" {
+					ctx = context.WithValue(ctx, ctxutil.ContextKeyWorkspaceID, requestedWorkspaceID)
+					r = nextRequest
+				}
 
 				validation, err := apiKeySvc.ValidateAPIKey(ctx, token)
 				if err != nil {
@@ -290,7 +343,7 @@ func AuthMiddleware(authSvc *service.AuthService, apiKeySvc *service.APIKeyServi
 
 				ctx = context.WithValue(ctx, ctxutil.ContextKeyWorkspaceID, validation.WorkspaceID)
 				ctx = context.WithValue(ctx, ctxutil.ContextKeyUserID, validation.UserID)
-				ctx = ctxutil.WithIdentity(ctx, validation.AccountID, validation.MembershipID)
+				ctx = ctxutil.WithIdentity(ctx, validation.AccountID)
 				ctx = ctxutil.WithPrincipal(ctx, validation.PrincipalType, validation.AccountType, validation.IsBot)
 				ctx = ctxutil.WithDelegation(ctx, "", validation.KeyID)
 				ctx = ctxutil.WithPermissions(ctx, validation.Permissions)
@@ -311,7 +364,7 @@ func AuthMiddleware(authSvc *service.AuthService, apiKeySvc *service.APIKeyServi
 
 			ctx = context.WithValue(ctx, ctxutil.ContextKeyWorkspaceID, auth.WorkspaceID)
 			ctx = context.WithValue(ctx, ctxutil.ContextKeyUserID, auth.UserID)
-			ctx = ctxutil.WithIdentity(ctx, auth.AccountID, auth.MembershipID)
+			ctx = ctxutil.WithIdentity(ctx, auth.AccountID)
 			ctx = ctxutil.WithPrincipal(ctx, auth.PrincipalType, auth.AccountType, auth.IsBot)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
@@ -348,6 +401,52 @@ func authCredentialFromRequest(r *http.Request) (token string, isAPIKey bool) {
 		return "", false
 	}
 	return cookie.Value, false
+}
+
+func requestWorkspaceHint(ctx context.Context, r *http.Request) (string, *http.Request) {
+	if workspaceID := strings.TrimSpace(r.URL.Query().Get("workspace_id")); workspaceID != "" {
+		return workspaceID, r
+	}
+	if workspaceID := workspaceIDFromPath(r.URL.Path); workspaceID != "" {
+		return workspaceID, r
+	}
+	if r.Body == nil || !strings.Contains(strings.ToLower(r.Header.Get("Content-Type")), "application/json") {
+		return "", r
+	}
+
+	bodyBytes, err := io.ReadAll(r.Body)
+	if err != nil {
+		return "", r
+	}
+	_ = r.Body.Close()
+	nextRequest := r.Clone(ctx)
+	nextRequest.Body = io.NopCloser(bytes.NewReader(bodyBytes))
+	if len(bodyBytes) == 0 {
+		return "", nextRequest
+	}
+
+	var payload map[string]json.RawMessage
+	if err := json.Unmarshal(bodyBytes, &payload); err != nil {
+		return "", nextRequest
+	}
+	if raw, ok := payload["workspace_id"]; ok {
+		var workspaceID string
+		if err := json.Unmarshal(raw, &workspaceID); err == nil {
+			return strings.TrimSpace(workspaceID), nextRequest
+		}
+	}
+	return "", nextRequest
+}
+
+func workspaceIDFromPath(path string) string {
+	parts := strings.Split(strings.Trim(path, "/"), "/")
+	if len(parts) < 2 || parts[0] != "workspaces" {
+		return ""
+	}
+	if slices.Contains([]string{"", "authorization-audit-logs"}, parts[1]) {
+		return ""
+	}
+	return strings.TrimSpace(parts[1])
 }
 
 func expiredCookie(name string) *http.Cookie {

@@ -142,19 +142,12 @@ func TestMCPOAuthService_AuthorizeAndExchangeCode(t *testing.T) {
 	userRepo := newMockUserRepoTenant()
 	userRepo.users["U123"] = &domain.User{
 		ID:            "U123",
+		AccountID:     "A123",
 		WorkspaceID:   "T123",
 		Name:          "Legacy Name",
 		Email:         "member@example.com",
 		PrincipalType: domain.PrincipalTypeHuman,
 		AccountType:   domain.AccountTypeMember,
-	}
-	membershipRepo := newMockWorkspaceMembershipRepo()
-	membershipRepo.byUser["U123"] = &domain.WorkspaceMembership{
-		ID:          "WM123",
-		AccountID:   "A123",
-		WorkspaceID: "T123",
-		UserID:      "U123",
-		AccountType: domain.AccountTypeAdmin,
 	}
 	svc := NewMCPOAuthService(repo, userRepo, mockTxBeginner{}, nil, MCPOAuthConfig{
 		Issuer:     "https://api.teraslack.ai",
@@ -162,7 +155,6 @@ func TestMCPOAuthService_AuthorizeAndExchangeCode(t *testing.T) {
 		SigningKey: "test-signing-key",
 		HTTPClient: clientMeta.Client(),
 	})
-	svc.SetIdentityRepositories(nil, membershipRepo)
 
 	prompt, err := svc.BuildAuthorizePrompt(context.Background(), &domain.AuthContext{
 		WorkspaceID: "T123",
@@ -228,11 +220,11 @@ func TestMCPOAuthService_AuthorizeAndExchangeCode(t *testing.T) {
 	if auth.UserID != "U123" || auth.WorkspaceID != "T123" {
 		t.Fatalf("unexpected auth context: %+v", auth)
 	}
-	if auth.AccountID != "A123" || auth.MembershipID != "WM123" {
+	if auth.AccountID != "A123" {
 		t.Fatalf("unexpected identity context: %+v", auth)
 	}
-	if auth.AccountType != domain.AccountTypeAdmin {
-		t.Fatalf("expected membership-backed account type, got %+v", auth)
+	if auth.AccountType != domain.AccountTypeMember {
+		t.Fatalf("expected canonical user account type, got %+v", auth)
 	}
 	if !containsOAuthValue(auth.Scopes, domain.MCPOAuthScopeTools) || !containsOAuthValue(auth.Permissions, domain.PermissionMessagesRead) {
 		t.Fatalf("unexpected scopes/permissions: %+v", auth)
@@ -328,7 +320,7 @@ func TestMCPOAuthService_BuildAuthorizePrompt_RejectsMismatchedLoopbackRedirectP
 	}
 }
 
-func TestMCPOAuthService_BuildAuthorizePrompt_MaterializesUserlessMembership(t *testing.T) {
+func TestMCPOAuthService_BuildAuthorizePrompt_RejectsUserlessWorkspaceIdentity(t *testing.T) {
 	clientID := ""
 	clientMeta := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte(`{
@@ -347,19 +339,9 @@ func TestMCPOAuthService_BuildAuthorizePrompt_MaterializesUserlessMembership(t *
 	accountRepo.byID["A123"] = &domain.Account{
 		ID:            "A123",
 		Email:         "member@example.com",
-		Name:          "member",
-		RealName:      "Member Example",
-		DisplayName:   "Member",
 		PrincipalType: domain.PrincipalTypeHuman,
 	}
 	accountRepo.byEmail["member@example.com"] = accountRepo.byID["A123"]
-	membershipRepo := newMockWorkspaceMembershipRepo()
-	membershipRepo.byWorkspaceAccount["T123|A123"] = &domain.WorkspaceMembership{
-		ID:          "WM123",
-		AccountID:   "A123",
-		WorkspaceID: "T123",
-		AccountType: domain.AccountTypeMember,
-	}
 
 	svc := NewMCPOAuthService(newMockMCPOAuthRepo(), userRepo, mockTxBeginner{}, nil, MCPOAuthConfig{
 		Issuer:     "https://api.teraslack.ai",
@@ -367,12 +349,11 @@ func TestMCPOAuthService_BuildAuthorizePrompt_MaterializesUserlessMembership(t *
 		SigningKey: "test-signing-key",
 		HTTPClient: clientMeta.Client(),
 	})
-	svc.SetIdentityRepositories(accountRepo, membershipRepo)
+	svc.SetIdentityRepositories(accountRepo)
 
-	prompt, err := svc.BuildAuthorizePrompt(context.Background(), &domain.AuthContext{
-		WorkspaceID:  "T123",
-		AccountID:    "A123",
-		MembershipID: "WM123",
+	_, err := svc.BuildAuthorizePrompt(context.Background(), &domain.AuthContext{
+		WorkspaceID: "T123",
+		AccountID:   "A123",
 	}, domain.MCPOAuthAuthorizeRequest{
 		ResponseType:        "code",
 		ClientID:            clientID,
@@ -383,21 +364,8 @@ func TestMCPOAuthService_BuildAuthorizePrompt_MaterializesUserlessMembership(t *
 		CodeChallengeMethod: "S256",
 		Resource:            "https://mcp.teraslack.ai/mcp",
 	})
-	if err != nil {
-		t.Fatalf("BuildAuthorizePrompt() error = %v", err)
-	}
-	if prompt.UserID == "" {
-		t.Fatal("expected materialized compatibility user")
-	}
-	membership, err := membershipRepo.GetByWorkspaceAndAccount(context.Background(), "T123", "A123")
-	if err != nil {
-		t.Fatalf("expected membership: %v", err)
-	}
-	if membership.UserID == "" {
-		t.Fatalf("expected attached membership user_id, got %+v", membership)
-	}
-	if prompt.UserID != membership.UserID {
-		t.Fatalf("prompt user_id = %q, want %q", prompt.UserID, membership.UserID)
+	if err == nil {
+		t.Fatal("expected invalid user session for account-without-user auth context")
 	}
 }
 

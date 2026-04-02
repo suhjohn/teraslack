@@ -40,28 +40,24 @@ func (s *ExternalEventService) List(ctx context.Context, params domain.ListExter
 		return nil, err
 	}
 
-	membershipID := ctxutil.GetMembershipID(ctx)
-	if workspaceID != "" && workspaceID != ctxutil.GetWorkspaceID(ctx) {
-		membershipID = ""
-	}
-
 	principal := repository.ExternalEventPrincipal{
-		WorkspaceID:  workspaceID,
-		UserID:       compatibilityActorID(ctx),
-		AccountID:    ctxutil.GetAccountID(ctx),
-		MembershipID: membershipID,
-		APIKeyID:     ctxutil.GetAPIKeyID(ctx),
-		Permissions:  ctxutil.GetPermissions(ctx),
+		WorkspaceID:             workspaceID,
+		UserID:                  actorUserID(ctx),
+		AccountID:               ctxutil.GetAccountID(ctx),
+		HasWorkspaceUserContext: hasWorkspaceUserContext(ctx, workspaceID),
+		APIKeyID:                ctxutil.GetAPIKeyID(ctx),
+		Permissions:             ctxutil.GetPermissions(ctx),
 	}
 	cursorState := externalEventCursor{
-		WorkspaceID:  principal.WorkspaceID,
-		UserID:       principal.UserID,
-		AccountID:    principal.AccountID,
-		MembershipID: principal.MembershipID,
-		APIKeyID:     principal.APIKeyID,
-		Type:         params.Type,
-		ResourceType: params.ResourceType,
-		ResourceID:   params.ResourceID,
+		AfterID:                 0,
+		WorkspaceID:             principal.WorkspaceID,
+		UserID:                  principal.UserID,
+		AccountID:               principal.AccountID,
+		HasWorkspaceUserContext: principal.HasWorkspaceUserContext,
+		APIKeyID:                principal.APIKeyID,
+		Type:                    params.Type,
+		ResourceType:            params.ResourceType,
+		ResourceID:              params.ResourceID,
 	}
 
 	if params.Cursor != "" {
@@ -72,7 +68,7 @@ func (s *ExternalEventService) List(ctx context.Context, params domain.ListExter
 		if decoded.WorkspaceID != cursorState.WorkspaceID ||
 			decoded.UserID != cursorState.UserID ||
 			decoded.AccountID != cursorState.AccountID ||
-			decoded.MembershipID != cursorState.MembershipID ||
+			decoded.HasWorkspaceUserContext != cursorState.HasWorkspaceUserContext ||
 			decoded.APIKeyID != cursorState.APIKeyID ||
 			decoded.Type != cursorState.Type ||
 			decoded.ResourceType != cursorState.ResourceType ||
@@ -123,15 +119,15 @@ func (s *ExternalEventService) resolveListWorkspace(ctx context.Context, request
 }
 
 type externalEventCursor struct {
-	AfterID      int64  `json:"after_id"`
-	WorkspaceID  string `json:"workspace_id"`
-	UserID       string `json:"user_id,omitempty"`
-	AccountID    string `json:"account_id,omitempty"`
-	MembershipID string `json:"membership_id,omitempty"`
-	APIKeyID     string `json:"api_key_id,omitempty"`
-	Type         string `json:"type,omitempty"`
-	ResourceType string `json:"resource_type,omitempty"`
-	ResourceID   string `json:"resource_id,omitempty"`
+	AfterID                 int64  `json:"after_id"`
+	WorkspaceID             string `json:"workspace_id"`
+	UserID                  string `json:"user_id,omitempty"`
+	AccountID               string `json:"account_id,omitempty"`
+	HasWorkspaceUserContext bool   `json:"workspace_user_context,omitempty"`
+	APIKeyID                string `json:"api_key_id,omitempty"`
+	Type                    string `json:"type,omitempty"`
+	ResourceType            string `json:"resource_type,omitempty"`
+	ResourceID              string `json:"resource_id,omitempty"`
 }
 
 func encodeExternalEventCursor(cursor externalEventCursor) (string, error) {

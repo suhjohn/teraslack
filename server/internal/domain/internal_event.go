@@ -25,6 +25,7 @@ const InternalEventShardCount = 16
 // Aggregate type constants.
 const (
 	AggregateWorkspace    = "workspace"
+	// AggregateUser remains the workspace-local user aggregate used by product events.
 	AggregateUser         = "user"
 	AggregateConversation = "conversation"
 	AggregateMessage      = "message"

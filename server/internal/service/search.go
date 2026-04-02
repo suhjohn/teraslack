@@ -230,7 +230,7 @@ func (s *SearchService) resolveSearchWorkspace(ctx context.Context, requested st
 }
 
 func (s *SearchService) searchVisibilityScope(ctx context.Context, workspaceID string) (searchVisibilityScope, error) {
-	if ctxutil.GetMembershipID(ctx) != "" {
+	if hasWorkspaceUserContext(ctx, workspaceID) {
 		return searchVisibilityScope{}, nil
 	}
 	if s.externalMembers != nil && ctxutil.GetAccountID(ctx) != "" {

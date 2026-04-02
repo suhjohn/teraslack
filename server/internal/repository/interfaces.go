@@ -36,7 +36,7 @@ type WorkspaceInviteRepository interface {
 	WithTx(tx pgx.Tx) WorkspaceInviteRepository
 	Create(ctx context.Context, params domain.CreateWorkspaceInviteParams, tokenHash string) (*domain.WorkspaceInvite, error)
 	GetByTokenHash(ctx context.Context, tokenHash string) (*domain.WorkspaceInvite, error)
-	MarkAccepted(ctx context.Context, id, acceptedByAccountID, acceptedByMembershipID string, acceptedAt time.Time) error
+	MarkAccepted(ctx context.Context, id, acceptedByAccountID string, acceptedAt time.Time) error
 }
 
 type AccountRepository interface {
@@ -46,22 +46,13 @@ type AccountRepository interface {
 	GetByEmail(ctx context.Context, email string) (*domain.Account, error)
 }
 
-type WorkspaceMembershipRepository interface {
-	WithTx(tx pgx.Tx) WorkspaceMembershipRepository
-	Create(ctx context.Context, params domain.CreateWorkspaceMembershipParams) (*domain.WorkspaceMembership, error)
-	GetByWorkspaceAndAccount(ctx context.Context, workspaceID, accountID string) (*domain.WorkspaceMembership, error)
-	GetByLegacyUserID(ctx context.Context, userID string) (*domain.WorkspaceMembership, error)
-	ListByAccount(ctx context.Context, accountID string) ([]domain.WorkspaceMembership, error)
-	ListByWorkspace(ctx context.Context, workspaceID string) ([]domain.WorkspaceMembership, error)
-	AttachUser(ctx context.Context, id, userID string) (*domain.WorkspaceMembership, error)
-	UpdateAccountTypeByLegacyUserID(ctx context.Context, userID string, accountType domain.AccountType) (*domain.WorkspaceMembership, error)
-}
-
 // UserRepository defines data access operations for users.
 type UserRepository interface {
 	WithTx(tx pgx.Tx) UserRepository
 	Create(ctx context.Context, params domain.CreateUserParams) (*domain.User, error)
 	Get(ctx context.Context, id string) (*domain.User, error)
+	GetByWorkspaceAndAccount(ctx context.Context, workspaceID, accountID string) (*domain.User, error)
+	ListByAccount(ctx context.Context, accountID string) ([]domain.User, error)
 	Update(ctx context.Context, id string, params domain.UpdateUserParams) (*domain.User, error)
 	List(ctx context.Context, params domain.ListUsersParams) (*domain.CursorPage[domain.User], error)
 }
@@ -235,10 +226,10 @@ type ExternalEventRepository interface {
 }
 
 type ExternalEventPrincipal struct {
-	WorkspaceID  string
-	UserID       string
-	AccountID    string
-	MembershipID string
-	APIKeyID     string
-	Permissions  []string
+	WorkspaceID             string
+	UserID                  string
+	AccountID               string
+	HasWorkspaceUserContext bool
+	APIKeyID                string
+	Permissions             []string
 }

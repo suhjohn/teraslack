@@ -21,7 +21,6 @@ type WorkspaceInviteService struct {
 	repo        repository.WorkspaceInviteRepository
 	userRepo    repository.UserRepository
 	accountRepo repository.AccountRepository
-	memberRepo  repository.WorkspaceMembershipRepository
 	auditRepo   repository.AuthorizationAuditRepository
 	recorder    EventRecorder
 	db          repository.TxBeginner
@@ -45,13 +44,12 @@ func (s *WorkspaceInviteService) SetAuthorizationAuditRepository(repo repository
 	s.auditRepo = repo
 }
 
-func (s *WorkspaceInviteService) SetIdentityRepositories(accountRepo repository.AccountRepository, membershipRepo repository.WorkspaceMembershipRepository) {
+func (s *WorkspaceInviteService) SetIdentityRepositories(accountRepo repository.AccountRepository, _ ...any) {
 	s.accountRepo = accountRepo
-	s.memberRepo = membershipRepo
 }
 
 func (s *WorkspaceInviteService) Create(ctx context.Context, workspaceID, email string) (*domain.CreateWorkspaceInviteResult, error) {
-	if s.repo == nil || s.accountRepo == nil || s.memberRepo == nil {
+	if s.repo == nil || s.accountRepo == nil {
 		return nil, fmt.Errorf("invite repo: %w", domain.ErrInvalidArgument)
 	}
 	email = strings.TrimSpace(strings.ToLower(email))
@@ -72,10 +70,10 @@ func (s *WorkspaceInviteService) Create(ctx context.Context, workspaceID, email 
 	}
 	account, err := s.accountRepo.GetByEmail(ctx, email)
 	if err == nil {
-		if _, membershipErr := s.memberRepo.GetByWorkspaceAndAccount(ctx, resolvedWorkspaceID, account.ID); membershipErr == nil {
+		if _, userErr := s.userRepo.GetByWorkspaceAndAccount(ctx, resolvedWorkspaceID, account.ID); userErr == nil {
 			return nil, domain.ErrAlreadyExists
-		} else if membershipErr != domain.ErrNotFound {
-			return nil, membershipErr
+		} else if userErr != domain.ErrNotFound {
+			return nil, userErr
 		}
 	} else if err != domain.ErrNotFound {
 		return nil, err
@@ -103,7 +101,7 @@ func (s *WorkspaceInviteService) Create(ctx context.Context, workspaceID, email 
 }
 
 func (s *WorkspaceInviteService) Accept(ctx context.Context, code string) (*domain.AcceptWorkspaceInviteResult, error) {
-	if s.repo == nil || s.userRepo == nil || s.db == nil || s.accountRepo == nil || s.memberRepo == nil {
+	if s.repo == nil || s.userRepo == nil || s.db == nil || s.accountRepo == nil {
 		return nil, fmt.Errorf("invite service: %w", domain.ErrInvalidArgument)
 	}
 	code = strings.TrimSpace(code)
@@ -128,7 +126,6 @@ func (s *WorkspaceInviteService) Accept(ctx context.Context, code string) (*doma
 	inviteRepo := s.repo.WithTx(tx)
 	userRepo := s.userRepo.WithTx(tx)
 	accountRepo := s.accountRepo.WithTx(tx)
-	memberRepo := s.memberRepo.WithTx(tx)
 
 	invite, err := inviteRepo.GetByTokenHash(ctx, crypto.HashToken(code))
 	if err != nil {
@@ -145,7 +142,7 @@ func (s *WorkspaceInviteService) Accept(ctx context.Context, code string) (*doma
 	if err != nil {
 		return nil, err
 	}
-	targetUser, membership, err := ensureInviteMembership(ctx, userRepo, memberRepo, account, invite.WorkspaceID)
+	targetUser, err := ensureInviteUser(ctx, userRepo, account, invite.WorkspaceID, s.recorder.WithTx(tx))
 	if err != nil {
 		return nil, err
 	}
@@ -154,18 +151,16 @@ func (s *WorkspaceInviteService) Accept(ctx context.Context, code string) (*doma
 	}
 
 	acceptedAt := time.Now().UTC()
-	if err := inviteRepo.MarkAccepted(ctx, invite.ID, account.ID, membership.ID, acceptedAt); err != nil {
+	if err := inviteRepo.MarkAccepted(ctx, invite.ID, account.ID, acceptedAt); err != nil {
 		return nil, err
 	}
 
 	invite.AcceptedByAccountID = account.ID
-	invite.AcceptedByMembershipID = membership.ID
 	invite.AcceptedAt = &acceptedAt
 	invite.UpdatedAt = acceptedAt
 
 	auditPayload := map[string]any{
-		"accepted_via":  "api",
-		"membership_id": membership.ID,
+		"accepted_via": "api",
 	}
 	if targetUser != nil {
 		auditPayload["user_id"] = targetUser.ID
@@ -179,9 +174,8 @@ func (s *WorkspaceInviteService) Accept(ctx context.Context, code string) (*doma
 	}
 
 	return &domain.AcceptWorkspaceInviteResult{
-		Invite:     invite,
-		User:       targetUser,
-		Membership: membership,
+		Invite: invite,
+		User:   targetUser,
 	}, nil
 }
 
@@ -216,32 +210,16 @@ func resolveInviteActorAccount(ctx context.Context, accountRepo repository.Accou
 	return resolveOrCreateAccountForUser(ctx, accountRepo, actor)
 }
 
-func ensureInviteMembership(ctx context.Context, userRepo repository.UserRepository, memberRepo repository.WorkspaceMembershipRepository, account *domain.Account, workspaceID string) (*domain.User, *domain.WorkspaceMembership, error) {
-	if userRepo == nil || memberRepo == nil || account == nil || workspaceID == "" {
-		return nil, nil, fmt.Errorf("invite membership: %w", domain.ErrInvalidArgument)
+func ensureInviteUser(ctx context.Context, userRepo repository.UserRepository, account *domain.Account, workspaceID string, recorder EventRecorder) (*domain.User, error) {
+	if userRepo == nil || account == nil || workspaceID == "" {
+		return nil, fmt.Errorf("invite user: %w", domain.ErrInvalidArgument)
 	}
-
-	membership, err := memberRepo.GetByWorkspaceAndAccount(ctx, workspaceID, account.ID)
-	if err != nil && err != domain.ErrNotFound {
-		return nil, nil, err
+	user, err := userRepo.GetByWorkspaceAndAccount(ctx, workspaceID, account.ID)
+	if err == nil {
+		return user, nil
 	}
-	if membership != nil {
-		if membership.UserID == "" {
-			return nil, membership, nil
-		}
-		user, err := userRepo.Get(ctx, membership.UserID)
-		if err != nil {
-			return nil, nil, err
-		}
-		return user, membership, nil
+	if err != domain.ErrNotFound {
+		return nil, err
 	}
-	membership, err = memberRepo.Create(ctx, domain.CreateWorkspaceMembershipParams{
-		AccountID:   account.ID,
-		WorkspaceID: workspaceID,
-		AccountType: domain.AccountTypeMember,
-	})
-	if err != nil {
-		return nil, nil, err
-	}
-	return nil, membership, nil
+	return createWorkspaceUserForAccount(ctx, userRepo, account, workspaceID, domain.AccountTypeMember, recorder)
 }

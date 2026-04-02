@@ -13,7 +13,6 @@ import (
 type RoleService struct {
 	repo      repository.RoleAssignmentRepository
 	userRepo  repository.UserRepository
-	membershipRepo repository.WorkspaceMembershipRepository
 	auditRepo repository.AuthorizationAuditRepository
 	recorder  EventRecorder
 	db        repository.TxBeginner
@@ -37,15 +36,13 @@ func (s *RoleService) SetAuthorizationAuditRepository(repo repository.Authorizat
 	s.auditRepo = repo
 }
 
-func (s *RoleService) SetIdentityRepositories(membershipRepo repository.WorkspaceMembershipRepository) {
-	s.membershipRepo = membershipRepo
-}
+func (s *RoleService) SetIdentityRepositories(_ ...any) {}
 
 func (s *RoleService) ListUserRoles(ctx context.Context, userID string) ([]domain.DelegatedRole, error) {
 	if userID == "" {
 		return nil, fmt.Errorf("user_id: %w", domain.ErrInvalidArgument)
 	}
-	target, err := loadUserWithMembership(ctx, s.userRepo, s.membershipRepo, userID)
+	target, err := loadUser(ctx, s.userRepo, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -62,7 +59,7 @@ func (s *RoleService) SetUserRoles(ctx context.Context, userID string, roles []d
 	if userID == "" {
 		return nil, fmt.Errorf("user_id: %w", domain.ErrInvalidArgument)
 	}
-	target, err := loadUserWithMembership(ctx, s.userRepo, s.membershipRepo, userID)
+	target, err := loadUser(ctx, s.userRepo, userID)
 	if err != nil {
 		return nil, err
 	}

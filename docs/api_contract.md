@@ -85,12 +85,15 @@ Validation failures may include field-level details:
 ## Identity Model
 
 - `accounts` are the canonical cross-workspace identities.
-- `workspace_memberships` are the canonical normal-membership records for a workspace.
-- `/users` is a compatibility view materialized from `accounts + workspace_memberships`.
-- workspace-scoped role and admin rank come from `workspace_memberships`, not from legacy `users` rows.
+- `users` are the canonical workspace-local identity, access, and persona records.
+- Each workspace may have at most one `users` row for a given `(account_id, workspace_id)` pair.
+- Workspace-scoped role and admin rank come from `users.account_type`.
+- Product actor references remain workspace-local and continue to use `user_id`.
+- Message authorship, reactions, file ownership, conversation membership, delegated roles, conversation managers, and posting-policy user allowlists all stay keyed by workspace `user_id`.
+- Public event resources remain product-friendly and user-based even though auth resolution is account-first internally.
 - `workspace_external_workspaces` are org-to-org connection records only. They do not grant resource access by themselves.
 - `external_members` are the canonical conversation-scoped cross-workspace grants.
-- Cross-workspace reads and writes must be derived from `external_members`, not from normal workspace membership.
+- Cross-workspace reads and writes must be derived from `external_members`, not from normal workspace-local membership.
 
 ## Patch Semantics
 
@@ -119,12 +122,15 @@ Validation failures may include field-level details:
 
 ### Users
 
-- `GET /users`
-- `POST /users`
-- `GET /users/{id}`
-- `PATCH /users/{id}`
-- `/users` remains a compatibility surface keyed by materialized workspace-local `user_id`.
-- Reads and authorization resolve through membership/account identity first, then materialize a compatibility `user_id` only when needed.
+- Workspace-local users are the canonical actor surface.
+- Product and admin flows use `/workspaces/{workspace_id}/users` as the canonical user surface.
+- Reads and authorization resolve account-first, then through the selected workspace-local `User`.
+- `GET /workspaces/{id}/users`
+- `POST /workspaces/{id}/users`
+- `GET /workspaces/{id}/users/{user_id}`
+- `PATCH /workspaces/{id}/users/{user_id}`
+- `GET /workspaces/{id}/users/{user_id}/roles`
+- `PUT /workspaces/{id}/users/{user_id}/roles`
 
 ### Conversations
 

@@ -380,19 +380,19 @@ func (q *Queries) ProjectorTruncateUserProjection(ctx context.Context) error {
 
 const projectorUpsertAPIKey = `-- name: ProjectorUpsertAPIKey :exec
 INSERT INTO api_keys (id, name, description, key_hash, key_prefix, key_hint,
-    workspace_id, principal_id, created_by, on_behalf_of, type, environment,
-    permissions, expires_at, last_used_at, request_count, revoked, revoked_at,
-    rotated_to_id, grace_period_ends_at, created_at, updated_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7, NULLIF($8, ''), $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)
+    scope, workspace_id, owner_account_id, workspace_ids, created_by, on_behalf_of,
+    type, environment, permissions, expires_at, last_used_at, request_count,
+    revoked, revoked_at, rotated_to_id, grace_period_ends_at, created_at, updated_at)
+VALUES ($1, $2, $3, $4, $5, $6, $7, NULLIF($8, ''), NULLIF($9, ''), $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24)
 ON CONFLICT (id) DO UPDATE SET
     name = EXCLUDED.name, description = EXCLUDED.description,
     key_hash = EXCLUDED.key_hash, key_prefix = EXCLUDED.key_prefix, key_hint = EXCLUDED.key_hint,
-    workspace_id = EXCLUDED.workspace_id, principal_id = EXCLUDED.principal_id,
+    scope = EXCLUDED.scope, workspace_id = EXCLUDED.workspace_id,
+    owner_account_id = EXCLUDED.owner_account_id, workspace_ids = EXCLUDED.workspace_ids,
     created_by = EXCLUDED.created_by, on_behalf_of = EXCLUDED.on_behalf_of,
-    type = EXCLUDED.type, environment = EXCLUDED.environment,
-    permissions = EXCLUDED.permissions, expires_at = EXCLUDED.expires_at,
-    last_used_at = EXCLUDED.last_used_at, request_count = EXCLUDED.request_count,
-    revoked = EXCLUDED.revoked, revoked_at = EXCLUDED.revoked_at,
+    type = EXCLUDED.type, environment = EXCLUDED.environment, permissions = EXCLUDED.permissions,
+    expires_at = EXCLUDED.expires_at, last_used_at = EXCLUDED.last_used_at,
+    request_count = EXCLUDED.request_count, revoked = EXCLUDED.revoked, revoked_at = EXCLUDED.revoked_at,
     rotated_to_id = EXCLUDED.rotated_to_id, grace_period_ends_at = EXCLUDED.grace_period_ends_at,
     updated_at = EXCLUDED.updated_at
 `
@@ -404,8 +404,10 @@ type ProjectorUpsertAPIKeyParams struct {
 	KeyHash           string      `json:"key_hash"`
 	KeyPrefix         string      `json:"key_prefix"`
 	KeyHint           string      `json:"key_hint"`
-	WorkspaceID       string      `json:"workspace_id"`
+	Scope             string      `json:"scope"`
 	Column8           interface{} `json:"column_8"`
+	Column9           interface{} `json:"column_9"`
+	WorkspaceIds      []string    `json:"workspace_ids"`
 	CreatedBy         string      `json:"created_by"`
 	OnBehalfOf        string      `json:"on_behalf_of"`
 	Type              string      `json:"type"`
@@ -430,8 +432,10 @@ func (q *Queries) ProjectorUpsertAPIKey(ctx context.Context, arg ProjectorUpsert
 		arg.KeyHash,
 		arg.KeyPrefix,
 		arg.KeyHint,
-		arg.WorkspaceID,
+		arg.Scope,
 		arg.Column8,
+		arg.Column9,
+		arg.WorkspaceIds,
 		arg.CreatedBy,
 		arg.OnBehalfOf,
 		arg.Type,

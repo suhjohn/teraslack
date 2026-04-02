@@ -12,15 +12,14 @@ import (
 )
 
 type ConversationAccessService struct {
-	repo          repository.ConversationAccessRepository
-	convRepo      repository.ConversationRepository
-	userRepo      repository.UserRepository
-	membershipRepo repository.WorkspaceMembershipRepository
-	roleRepo      repository.RoleAssignmentRepository
-	auditRepo     repository.AuthorizationAuditRepository
-	recorder      EventRecorder
-	db            repository.TxBeginner
-	logger        *slog.Logger
+	repo      repository.ConversationAccessRepository
+	convRepo  repository.ConversationRepository
+	userRepo  repository.UserRepository
+	roleRepo  repository.RoleAssignmentRepository
+	auditRepo repository.AuthorizationAuditRepository
+	recorder  EventRecorder
+	db        repository.TxBeginner
+	logger    *slog.Logger
 }
 
 func NewConversationAccessService(
@@ -36,13 +35,13 @@ func NewConversationAccessService(
 		recorder = noopRecorder{}
 	}
 	return &ConversationAccessService{
-		repo:          repo,
-		convRepo:      convRepo,
-		userRepo:      userRepo,
-		roleRepo:      roleRepo,
-		recorder:      recorder,
-		db:            db,
-		logger:        logger,
+		repo:     repo,
+		convRepo: convRepo,
+		userRepo: userRepo,
+		roleRepo: roleRepo,
+		recorder: recorder,
+		db:       db,
+		logger:   logger,
 	}
 }
 
@@ -50,9 +49,7 @@ func (s *ConversationAccessService) SetAuthorizationAuditRepository(repo reposit
 	s.auditRepo = repo
 }
 
-func (s *ConversationAccessService) SetIdentityRepositories(membershipRepo repository.WorkspaceMembershipRepository) {
-	s.membershipRepo = membershipRepo
-}
+func (s *ConversationAccessService) SetIdentityRepositories(_ ...any) {}
 
 func (s *ConversationAccessService) ListManagers(ctx context.Context, conversationID string) ([]string, error) {
 	if conversationID == "" {
@@ -98,7 +95,7 @@ func (s *ConversationAccessService) SetManagers(ctx context.Context, conversatio
 	if err != nil {
 		return nil, err
 	}
-	assignedBy := compatibilityActorID(ctx)
+	assignedBy := actorUserID(ctx)
 	if assignedBy == "" {
 		assignedBy = conv.CreatorID
 	}
@@ -133,7 +130,7 @@ func (s *ConversationAccessService) SetManagers(ctx context.Context, conversatio
 			EventType:     domain.EventConversationManagerAdded,
 			AggregateType: domain.AggregateConversation,
 			AggregateID:   conversationID,
-			WorkspaceID:        conv.WorkspaceID,
+			WorkspaceID:   conv.WorkspaceID,
 			ActorID:       assignedBy,
 			Payload:       payload,
 		}); err != nil {
@@ -149,7 +146,7 @@ func (s *ConversationAccessService) SetManagers(ctx context.Context, conversatio
 			EventType:     domain.EventConversationManagerRemoved,
 			AggregateType: domain.AggregateConversation,
 			AggregateID:   conversationID,
-			WorkspaceID:        conv.WorkspaceID,
+			WorkspaceID:   conv.WorkspaceID,
 			ActorID:       assignedBy,
 			Payload:       payload,
 		}); err != nil {
@@ -211,7 +208,7 @@ func (s *ConversationAccessService) SetPostingPolicy(ctx context.Context, policy
 		return nil, err
 	}
 
-	policy.UpdatedBy = compatibilityActorID(ctx)
+	policy.UpdatedBy = actorUserID(ctx)
 	if policy.UpdatedBy == "" {
 		policy.UpdatedBy = conv.CreatorID
 	}
@@ -231,7 +228,7 @@ func (s *ConversationAccessService) SetPostingPolicy(ctx context.Context, policy
 		EventType:     domain.EventConversationPostingPolicyUpdated,
 		AggregateType: domain.AggregateConversation,
 		AggregateID:   policy.ConversationID,
-		WorkspaceID:        conv.WorkspaceID,
+		WorkspaceID:   conv.WorkspaceID,
 		ActorID:       policy.UpdatedBy,
 		Payload:       payload,
 	}); err != nil {
@@ -257,7 +254,7 @@ func (s *ConversationAccessService) CanManageConversation(ctx context.Context, c
 	if isInternalCallWithoutAuth(ctx) {
 		return nil
 	}
-	if actorID := compatibilityActorID(ctx); actorID != "" && actorID == conv.CreatorID {
+	if actorID := actorUserID(ctx); actorID != "" && actorID == conv.CreatorID {
 		return nil
 	}
 	if actor, err := loadActingUser(ctx, s.userRepo); err == nil && defaultAuthorizer.IsWorkspaceAdminAccount(actor.EffectiveAccountType()) {
@@ -286,7 +283,7 @@ func (s *ConversationAccessService) CanArchiveConversation(ctx context.Context, 
 	if isInternalCallWithoutAuth(ctx) {
 		return nil
 	}
-	if actorID := compatibilityActorID(ctx); actorID != "" && actorID == conv.CreatorID {
+	if actorID := actorUserID(ctx); actorID != "" && actorID == conv.CreatorID {
 		return nil
 	}
 	if actor, err := loadActingUser(ctx, s.userRepo); err == nil && defaultAuthorizer.IsWorkspaceAdminAccount(actor.EffectiveAccountType()) {
@@ -316,7 +313,7 @@ func (s *ConversationAccessService) CanPost(ctx context.Context, conv *domain.Co
 		return nil
 	}
 	if actorID == "" {
-		actorID = compatibilityActorID(ctx)
+		actorID = actorUserID(ctx)
 	}
 	if actorID == "" {
 		return domain.ErrForbidden
@@ -380,7 +377,7 @@ func (s *ConversationAccessService) ensureConversationVisible(ctx context.Contex
 		if contextIsWorkspaceAdmin(ctx) {
 			return nil
 		}
-		actorID := compatibilityActorID(ctx)
+		actorID := actorUserID(ctx)
 		if actorID == "" {
 			return domain.ErrForbidden
 		}
@@ -431,7 +428,7 @@ func (s *ConversationAccessService) actorCanAdministerConversation(ctx context.C
 }
 
 func (s *ConversationAccessService) isActorConversationManager(ctx context.Context, conversationID string) (bool, error) {
-	actorID := compatibilityActorID(ctx)
+	actorID := actorUserID(ctx)
 	if actorID == "" {
 		return false, nil
 	}
@@ -448,7 +445,7 @@ func (s *ConversationAccessService) normalizeManagerUserIDs(ctx context.Context,
 		if _, ok := seen[userID]; ok {
 			continue
 		}
-		user, err := loadUserWithMembership(ctx, s.userRepo, s.membershipRepo, userID)
+		user, err := loadUser(ctx, s.userRepo, userID)
 		if err != nil {
 			return nil, fmt.Errorf("manager user %s: %w", userID, err)
 		}
@@ -483,7 +480,7 @@ func (s *ConversationAccessService) validatePostingPolicy(ctx context.Context, w
 		}
 	}
 	for _, userID := range policy.AllowedUserIDs {
-		user, err := loadUserWithMembership(ctx, s.userRepo, s.membershipRepo, userID)
+		user, err := loadUser(ctx, s.userRepo, userID)
 		if err != nil {
 			return fmt.Errorf("allowed_user_ids: %w", err)
 		}
@@ -498,7 +495,7 @@ func (s *ConversationAccessService) actorMatchesCustomPostingPolicy(ctx context.
 	if containsString(policy.AllowedUserIDs, actorID) {
 		return true, nil
 	}
-	actor, err := loadUserWithMembership(ctx, s.userRepo, s.membershipRepo, actorID)
+	actor, err := loadUser(ctx, s.userRepo, actorID)
 	if err != nil {
 		return false, err
 	}

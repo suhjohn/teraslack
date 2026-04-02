@@ -65,8 +65,8 @@ func TestComposeE2E_AgentSessionFlow(t *testing.T) {
 
 	_, agentAKey := createAPIKeyViaHTTP(t, httpClient, baseURL, ownerToken, domain.CreateAPIKeyParams{
 		Name:        "Agent A Key",
+		Scope:       domain.APIKeyScopeWorkspaceSystem,
 		WorkspaceID: owner.WorkspaceID,
-		UserID:      agentA.ID,
 		CreatedBy:   owner.ID,
 		Permissions: []string{
 			domain.PermissionMessagesRead,
@@ -77,8 +77,8 @@ func TestComposeE2E_AgentSessionFlow(t *testing.T) {
 	})
 	_, agentBKey := createAPIKeyViaHTTP(t, httpClient, baseURL, ownerToken, domain.CreateAPIKeyParams{
 		Name:        "Agent B Key",
+		Scope:       domain.APIKeyScopeWorkspaceSystem,
 		WorkspaceID: owner.WorkspaceID,
-		UserID:      agentB.ID,
 		CreatedBy:   owner.ID,
 		Permissions: []string{
 			domain.PermissionMessagesRead,
@@ -201,7 +201,7 @@ func createSessionToken(t *testing.T, ctx context.Context, pool *pgxpool.Pool, w
 func createUserViaHTTP(t *testing.T, httpClient *http.Client, baseURL, token string, params domain.CreateUserParams) domain.User {
 	t.Helper()
 	var resp domain.User
-	doJSON(t, httpClient, http.MethodPost, baseURL+"/users", token, params, &resp)
+	doJSON(t, httpClient, http.MethodPost, baseURL+"/workspaces/"+params.WorkspaceID+"/users", token, params, &resp)
 	if resp.ID == "" {
 		t.Fatalf("create user response = %+v", resp)
 	}

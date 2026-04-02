@@ -42,8 +42,8 @@ func TestComposeE2E_ExternalEventsPaginationAndFiltering(t *testing.T) {
 
 	_, agentAKey := createAPIKeyViaHTTP(t, httpClient, baseURL, ownerToken, domain.CreateAPIKeyParams{
 		Name:        "Events A Key",
+		Scope:       domain.APIKeyScopeWorkspaceSystem,
 		WorkspaceID: owner.WorkspaceID,
-		UserID:      agentA.ID,
 		CreatedBy:   owner.ID,
 		Permissions: []string{
 			domain.PermissionMessagesRead,
@@ -200,8 +200,8 @@ func TestComposeE2E_WebhookExternalEventDelivery(t *testing.T) {
 
 	_, agentAKey := createAPIKeyViaHTTP(t, httpClient, baseURL, ownerToken, domain.CreateAPIKeyParams{
 		Name:        "Webhook A Key",
+		Scope:       domain.APIKeyScopeWorkspaceSystem,
 		WorkspaceID: owner.WorkspaceID,
-		UserID:      agentA.ID,
 		CreatedBy:   owner.ID,
 		Permissions: []string{
 			domain.PermissionMessagesRead,
@@ -318,8 +318,8 @@ func TestComposeE2E_ExternalEventsHonorAPIKeyReadPermissions(t *testing.T) {
 
 	_, writerKey := createAPIKeyViaHTTP(t, httpClient, baseURL, ownerToken, domain.CreateAPIKeyParams{
 		Name:        "Events Writer Key",
+		Scope:       domain.APIKeyScopeWorkspaceSystem,
 		WorkspaceID: owner.WorkspaceID,
-		UserID:      agent.ID,
 		CreatedBy:   owner.ID,
 		Permissions: []string{
 			domain.PermissionMessagesRead,
@@ -329,8 +329,8 @@ func TestComposeE2E_ExternalEventsHonorAPIKeyReadPermissions(t *testing.T) {
 	})
 	_, limitedKey := createAPIKeyViaHTTP(t, httpClient, baseURL, ownerToken, domain.CreateAPIKeyParams{
 		Name:        "Events Limited Key",
+		Scope:       domain.APIKeyScopeWorkspaceSystem,
 		WorkspaceID: owner.WorkspaceID,
-		UserID:      agent.ID,
 		CreatedBy:   owner.ID,
 		Permissions: []string{
 			domain.PermissionConversationsCreate,

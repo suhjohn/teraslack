@@ -24,15 +24,17 @@ func (m *mockAPIKeyRepo) WithTx(_ pgx.Tx) repository.APIKeyRepository { return m
 
 func (m *mockAPIKeyRepo) Create(_ context.Context, params domain.CreateAPIKeyParams) (*domain.APIKey, string, error) {
 	key := &domain.APIKey{
-		ID:          "AK123",
-		Name:        params.Name,
-		Description: params.Description,
-		WorkspaceID:      params.WorkspaceID,
-		UserID:      params.UserID,
-		CreatedBy:   params.CreatedBy,
-		Permissions: params.Permissions,
-		CreatedAt:   time.Now().UTC(),
-		UpdatedAt:   time.Now().UTC(),
+		ID:           "AK123",
+		Name:         params.Name,
+		Description:  params.Description,
+		Scope:        params.Scope,
+		WorkspaceID:  params.WorkspaceID,
+		AccountID:    params.AccountID,
+		WorkspaceIDs: params.WorkspaceIDs,
+		CreatedBy:    params.CreatedBy,
+		Permissions:  params.Permissions,
+		CreatedAt:    time.Now().UTC(),
+		UpdatedAt:    time.Now().UTC(),
 	}
 	m.keys[key.ID] = key
 	return key, "sk_test", nil
@@ -56,11 +58,32 @@ func (m *mockAPIKeyRepo) GetByHash(_ context.Context, _ string) (*domain.APIKey,
 func (m *mockAPIKeyRepo) List(_ context.Context, params domain.ListAPIKeysParams) (*domain.CursorPage[domain.APIKey], error) {
 	items := make([]domain.APIKey, 0, len(m.keys))
 	for _, key := range m.keys {
-		if key.WorkspaceID != params.WorkspaceID {
+		if params.Scope != "" && key.Scope != params.Scope {
 			continue
 		}
-		if params.UserID != "" && key.UserID != params.UserID {
+		if params.AccountID != "" && key.AccountID != params.AccountID {
 			continue
+		}
+		if params.WorkspaceID != "" {
+			switch key.Scope {
+			case domain.APIKeyScopeWorkspaceSystem:
+				if key.WorkspaceID != params.WorkspaceID {
+					continue
+				}
+			case domain.APIKeyScopeAccount:
+				if len(key.WorkspaceIDs) > 0 {
+					matches := false
+					for _, workspaceID := range key.WorkspaceIDs {
+						if workspaceID == params.WorkspaceID {
+							matches = true
+							break
+						}
+					}
+					if !matches {
+						continue
+					}
+				}
+			}
 		}
 		items = append(items, *key)
 	}
@@ -72,8 +95,17 @@ func (m *mockAPIKeyRepo) Update(_ context.Context, id string, params domain.Upda
 	if !ok {
 		return nil, domain.ErrNotFound
 	}
+	if params.Name != nil {
+		key.Name = *params.Name
+	}
+	if params.Description != nil {
+		key.Description = *params.Description
+	}
 	if params.Permissions != nil {
 		key.Permissions = *params.Permissions
+	}
+	if params.WorkspaceIDs != nil {
+		key.WorkspaceIDs = *params.WorkspaceIDs
 	}
 	return key, nil
 }
@@ -101,188 +133,222 @@ func (m *mockAPIKeyRepo) SetRotated(_ context.Context, oldKeyID, newKeyID string
 
 func (m *mockAPIKeyRepo) UpdateUsage(_ context.Context, _ string) error { return nil }
 
-func TestAPIKeyService_CreateRestrictsMemberToSelfAndMemberPermissions(t *testing.T) {
+func accountActorContext(userID, accountID, workspaceID string, accountType domain.AccountType) context.Context {
+	ctx := ctxutil.WithUser(context.Background(), userID, workspaceID)
+	ctx = ctxutil.WithIdentity(ctx, accountID)
+	ctx = ctxutil.WithPrincipal(ctx, domain.PrincipalTypeHuman, accountType, false)
+	return ctx
+}
+
+func TestAPIKeyService_CreateAccountKeyRestrictsToActorAccount(t *testing.T) {
 	repo := newMockAPIKeyRepo()
 	userRepo := newMockUserRepoTenant()
-	userRepo.users["U_MEMBER"] = &domain.User{ID: "U_MEMBER", WorkspaceID: "T123", PrincipalType: domain.PrincipalTypeHuman, AccountType: domain.AccountTypeMember}
-	userRepo.users["U_OTHER"] = &domain.User{ID: "U_OTHER", WorkspaceID: "T123", PrincipalType: domain.PrincipalTypeHuman, AccountType: domain.AccountTypeMember}
+	userRepo.users["U_MEMBER"] = &domain.User{
+		ID:            "U_MEMBER",
+		AccountID:     "A_MEMBER",
+		WorkspaceID:   "T123",
+		PrincipalType: domain.PrincipalTypeHuman,
+		AccountType:   domain.AccountTypeMember,
+	}
 	svc := NewAPIKeyService(repo, userRepo, nil, mockTxBeginner{}, nil)
 
-	ctx := ctxutil.WithUser(context.Background(), "U_MEMBER", "T123")
+	ctx := accountActorContext("U_MEMBER", "A_MEMBER", "T123", domain.AccountTypeMember)
 	if _, _, err := svc.Create(ctx, domain.CreateAPIKeyParams{
 		Name:        "self",
-		WorkspaceID:      "T123",
-		UserID:      "U_MEMBER",
+		Scope:       domain.APIKeyScopeAccount,
+		AccountID:   "A_MEMBER",
 		Permissions: []string{domain.PermissionMessagesRead},
 	}); err != nil {
-		t.Fatalf("member self key should succeed: %v", err)
+		t.Fatalf("member account key should succeed: %v", err)
 	}
 
 	if _, _, err := svc.Create(ctx, domain.CreateAPIKeyParams{
 		Name:        "other",
-		WorkspaceID:      "T123",
-		UserID:      "U_OTHER",
+		Scope:       domain.APIKeyScopeAccount,
+		AccountID:   "A_OTHER",
 		Permissions: []string{domain.PermissionMessagesRead},
 	}); err == nil || !errors.Is(err, domain.ErrForbidden) {
-		t.Fatalf("expected forbidden for member creating key for another user, got %v", err)
+		t.Fatalf("expected forbidden for foreign account key create, got %v", err)
 	}
+}
 
+func TestAPIKeyService_CreateAccountKeyRestrictsMemberPermissions(t *testing.T) {
+	repo := newMockAPIKeyRepo()
+	userRepo := newMockUserRepoTenant()
+	userRepo.users["U_MEMBER"] = &domain.User{
+		ID:            "U_MEMBER",
+		AccountID:     "A_MEMBER",
+		WorkspaceID:   "T123",
+		PrincipalType: domain.PrincipalTypeHuman,
+		AccountType:   domain.AccountTypeMember,
+	}
+	svc := NewAPIKeyService(repo, userRepo, nil, mockTxBeginner{}, nil)
+
+	ctx := accountActorContext("U_MEMBER", "A_MEMBER", "T123", domain.AccountTypeMember)
 	if _, _, err := svc.Create(ctx, domain.CreateAPIKeyParams{
 		Name:        "elevated",
-		WorkspaceID:      "T123",
-		UserID:      "U_MEMBER",
+		Scope:       domain.APIKeyScopeAccount,
+		AccountID:   "A_MEMBER",
 		Permissions: []string{domain.PermissionUsersCreate},
 	}); err == nil || !errors.Is(err, domain.ErrForbidden) {
 		t.Fatalf("expected forbidden for member elevated permission, got %v", err)
 	}
 }
 
-func TestAPIKeyService_CreateAllowsMemberOwnedAgentKeys(t *testing.T) {
+func TestAPIKeyService_AdminCanCreateWorkspaceSystemKey(t *testing.T) {
 	repo := newMockAPIKeyRepo()
 	userRepo := newMockUserRepoTenant()
-	userRepo.users["U_MEMBER"] = &domain.User{ID: "U_MEMBER", WorkspaceID: "T123", PrincipalType: domain.PrincipalTypeHuman, AccountType: domain.AccountTypeMember}
-	userRepo.users["U_AGENT"] = &domain.User{ID: "U_AGENT", WorkspaceID: "T123", PrincipalType: domain.PrincipalTypeAgent, OwnerID: "U_MEMBER", IsBot: true}
-	userRepo.users["U_OTHER_AGENT"] = &domain.User{ID: "U_OTHER_AGENT", WorkspaceID: "T123", PrincipalType: domain.PrincipalTypeAgent, OwnerID: "U_OTHER", IsBot: true}
+	userRepo.users["U_ADMIN"] = &domain.User{
+		ID:            "U_ADMIN",
+		AccountID:     "A_ADMIN",
+		WorkspaceID:   "T123",
+		PrincipalType: domain.PrincipalTypeHuman,
+		AccountType:   domain.AccountTypeAdmin,
+	}
 	svc := NewAPIKeyService(repo, userRepo, nil, mockTxBeginner{}, nil)
 
-	ctx := ctxutil.WithUser(context.Background(), "U_MEMBER", "T123")
-	ctx = ctxutil.WithPrincipal(ctx, domain.PrincipalTypeHuman, domain.AccountTypeMember, false)
-
+	ctx := accountActorContext("U_ADMIN", "A_ADMIN", "T123", domain.AccountTypeAdmin)
 	key, _, err := svc.Create(ctx, domain.CreateAPIKeyParams{
-		Name:        "owned-agent",
-		WorkspaceID: "T123",
-		UserID:      "U_AGENT",
-		Permissions: []string{"*"},
-	})
-	if err != nil {
-		t.Fatalf("member owned agent key should succeed: %v", err)
-	}
-	if key.CreatedBy != "U_MEMBER" {
-		t.Fatalf("created_by = %q, want U_MEMBER", key.CreatedBy)
-	}
-
-	if _, _, err := svc.Create(ctx, domain.CreateAPIKeyParams{
-		Name:        "foreign-agent",
-		WorkspaceID: "T123",
-		UserID:      "U_OTHER_AGENT",
-		Permissions: []string{"*"},
-	}); err == nil || !errors.Is(err, domain.ErrForbidden) {
-		t.Fatalf("expected forbidden for foreign agent key create, got %v", err)
-	}
-}
-
-func TestAPIKeyService_AdminCanManageMemberKeys(t *testing.T) {
-	repo := newMockAPIKeyRepo()
-	repo.keys["AK1"] = &domain.APIKey{ID: "AK1", WorkspaceID: "T123", UserID: "U_MEMBER", Permissions: []string{domain.PermissionMessagesRead}}
-	userRepo := newMockUserRepoTenant()
-	userRepo.users["U_ADMIN"] = &domain.User{ID: "U_ADMIN", WorkspaceID: "T123", PrincipalType: domain.PrincipalTypeHuman, AccountType: domain.AccountTypeAdmin}
-	userRepo.users["U_MEMBER"] = &domain.User{ID: "U_MEMBER", WorkspaceID: "T123", PrincipalType: domain.PrincipalTypeHuman, AccountType: domain.AccountTypeMember}
-	svc := NewAPIKeyService(repo, userRepo, nil, mockTxBeginner{}, nil)
-
-	ctx := ctxutil.WithUser(context.Background(), "U_ADMIN", "T123")
-	if err := svc.Revoke(ctx, "AK1"); err != nil {
-		t.Fatalf("admin revoke should succeed: %v", err)
-	}
-}
-
-func TestAPIKeyService_AdminCanCreateSystemKey(t *testing.T) {
-	repo := newMockAPIKeyRepo()
-	userRepo := newMockUserRepoTenant()
-	userRepo.users["U_ADMIN"] = &domain.User{ID: "U_ADMIN", WorkspaceID: "T123", PrincipalType: domain.PrincipalTypeHuman, AccountType: domain.AccountTypeAdmin}
-	svc := NewAPIKeyService(repo, userRepo, nil, mockTxBeginner{}, nil)
-
-	ctx := ctxutil.WithUser(context.Background(), "U_ADMIN", "T123")
-	key, _, err := svc.Create(ctx, domain.CreateAPIKeyParams{
-		Name:   "system",
+		Name:        "system",
+		Scope:       domain.APIKeyScopeWorkspaceSystem,
 		WorkspaceID: "T123",
 	})
 	if err != nil {
-		t.Fatalf("admin system key should succeed: %v", err)
+		t.Fatalf("workspace system key should succeed: %v", err)
 	}
-	if key.UserID != "" {
-		t.Fatalf("expected empty user id for system key, got %q", key.UserID)
+	if key.Scope != domain.APIKeyScopeWorkspaceSystem {
+		t.Fatalf("scope = %q, want workspace_system", key.Scope)
 	}
-	if key.CreatedBy != "U_ADMIN" {
-		t.Fatalf("expected created_by to default to admin actor, got %q", key.CreatedBy)
+	if key.WorkspaceID != "T123" {
+		t.Fatalf("workspace_id = %q, want T123", key.WorkspaceID)
 	}
-}
-
-func TestAPIKeyService_SystemKeyRequiresCreatorWithoutAuth(t *testing.T) {
-	repo := newMockAPIKeyRepo()
-	userRepo := newMockUserRepoTenant()
-	svc := NewAPIKeyService(repo, userRepo, nil, mockTxBeginner{}, nil)
-
-	if _, _, err := svc.Create(context.Background(), domain.CreateAPIKeyParams{
-		Name:   "system",
-		WorkspaceID: "T123",
-	}); err == nil || !errors.Is(err, domain.ErrInvalidArgument) {
-		t.Fatalf("expected invalid argument for missing created_by, got %v", err)
+	if key.AccountID != "" {
+		t.Fatalf("account_id = %q, want empty", key.AccountID)
 	}
 }
 
-func TestAPIKeyService_ValidateAPIKeyIncludesMembershipIdentity(t *testing.T) {
+func TestAPIKeyService_WorkspaceSystemKeyRequiresAdmin(t *testing.T) {
 	repo := newMockAPIKeyRepo()
-	repo.keys["AK1"] = &domain.APIKey{
-		ID:          "AK1",
-		WorkspaceID: "T123",
-		UserID:      "U_MEMBER",
-		Permissions: []string{domain.PermissionMessagesRead},
-	}
 	userRepo := newMockUserRepoTenant()
 	userRepo.users["U_MEMBER"] = &domain.User{
 		ID:            "U_MEMBER",
+		AccountID:     "A_MEMBER",
 		WorkspaceID:   "T123",
 		PrincipalType: domain.PrincipalTypeHuman,
 		AccountType:   domain.AccountTypeMember,
 	}
-	membershipRepo := newMockWorkspaceMembershipRepo()
-	membershipRepo.byUser["U_MEMBER"] = &domain.WorkspaceMembership{
-		ID:          "WM123",
-		AccountID:   "A123",
-		WorkspaceID: "T123",
-		UserID:      "U_MEMBER",
-		AccountType: domain.AccountTypeAdmin,
-	}
 	svc := NewAPIKeyService(repo, userRepo, nil, mockTxBeginner{}, nil)
-	svc.SetIdentityRepositories(membershipRepo)
 
-	validation, err := svc.ValidateAPIKey(context.Background(), "sk_test_value")
-	if err != nil {
-		t.Fatalf("ValidateAPIKey() error = %v", err)
-	}
-	if validation.AccountID != "A123" || validation.MembershipID != "WM123" {
-		t.Fatalf("unexpected validation identity: %+v", validation)
-	}
-	if validation.AccountType != domain.AccountTypeAdmin {
-		t.Fatalf("expected membership account type override, got %s", validation.AccountType)
+	ctx := accountActorContext("U_MEMBER", "A_MEMBER", "T123", domain.AccountTypeMember)
+	if _, _, err := svc.Create(ctx, domain.CreateAPIKeyParams{
+		Name:        "system",
+		Scope:       domain.APIKeyScopeWorkspaceSystem,
+		WorkspaceID: "T123",
+	}); err == nil || !errors.Is(err, domain.ErrForbidden) {
+		t.Fatalf("expected forbidden for member workspace-system key, got %v", err)
 	}
 }
 
-func TestAPIKeyService_CreateUsesMembershipAccountTypeForPermissionValidation(t *testing.T) {
+func TestAPIKeyService_ValidateAccountKeyUsesRequestedWorkspaceUser(t *testing.T) {
 	repo := newMockAPIKeyRepo()
-	userRepo := newMockUserRepoTenant()
-	userRepo.users["U_ADMIN"] = &domain.User{ID: "U_ADMIN", WorkspaceID: "T123", PrincipalType: domain.PrincipalTypeHuman, AccountType: domain.AccountTypeAdmin}
-	userRepo.users["U_TARGET"] = &domain.User{ID: "U_TARGET", WorkspaceID: "T123", PrincipalType: domain.PrincipalTypeHuman, AccountType: domain.AccountTypeAdmin}
-	membershipRepo := newMockWorkspaceMembershipRepo()
-	membershipRepo.byUser["U_TARGET"] = &domain.WorkspaceMembership{
-		ID:          "WM_TARGET",
-		AccountID:   "A_TARGET",
-		WorkspaceID: "T123",
-		UserID:      "U_TARGET",
-		AccountType: domain.AccountTypeMember,
+	repo.keys["AK1"] = &domain.APIKey{
+		ID:          "AK1",
+		Scope:       domain.APIKeyScopeAccount,
+		AccountID:   "A123",
+		Permissions: []string{domain.PermissionMessagesRead},
 	}
-	membershipRepo.byWorkspaceAccount["T123|A_TARGET"] = membershipRepo.byUser["U_TARGET"]
+	userRepo := &mockUserRepoMap{users: map[string]*domain.User{
+		"U1": {
+			ID:            "U1",
+			AccountID:     "A123",
+			WorkspaceID:   "T123",
+			PrincipalType: domain.PrincipalTypeHuman,
+			AccountType:   domain.AccountTypeMember,
+		},
+		"U2": {
+			ID:            "U2",
+			AccountID:     "A123",
+			WorkspaceID:   "T456",
+			PrincipalType: domain.PrincipalTypeHuman,
+			AccountType:   domain.AccountTypeAdmin,
+		},
+	}}
 	svc := NewAPIKeyService(repo, userRepo, nil, mockTxBeginner{}, nil)
-	svc.SetIdentityRepositories(membershipRepo)
 
-	ctx := ctxutil.WithUser(context.Background(), "U_ADMIN", "T123")
-	ctx = ctxutil.WithPrincipal(ctx, domain.PrincipalTypeHuman, domain.AccountTypeAdmin, false)
-	if _, _, err := svc.Create(ctx, domain.CreateAPIKeyParams{
-		Name:        "target",
+	ctx := context.WithValue(context.Background(), ctxutil.ContextKeyWorkspaceID, "T456")
+	validation, err := svc.ValidateAPIKey(ctx, "sk_test_value")
+	if err != nil {
+		t.Fatalf("ValidateAPIKey() error = %v", err)
+	}
+	if validation.WorkspaceID != "T456" || validation.UserID != "U2" {
+		t.Fatalf("unexpected validation identity: %+v", validation)
+	}
+	if validation.AccountType != domain.AccountTypeAdmin {
+		t.Fatalf("account_type = %q, want admin", validation.AccountType)
+	}
+}
+
+func TestAPIKeyService_ValidateAccountKeyRejectsAmbiguousWorkspace(t *testing.T) {
+	repo := newMockAPIKeyRepo()
+	repo.keys["AK1"] = &domain.APIKey{
+		ID:          "AK1",
+		Scope:       domain.APIKeyScopeAccount,
+		AccountID:   "A123",
+		Permissions: []string{domain.PermissionMessagesRead},
+	}
+	userRepo := &mockUserRepoMap{users: map[string]*domain.User{
+		"U1": {ID: "U1", AccountID: "A123", WorkspaceID: "T123", PrincipalType: domain.PrincipalTypeHuman, AccountType: domain.AccountTypeMember},
+		"U2": {ID: "U2", AccountID: "A123", WorkspaceID: "T456", PrincipalType: domain.PrincipalTypeHuman, AccountType: domain.AccountTypeAdmin},
+	}}
+	svc := NewAPIKeyService(repo, userRepo, nil, mockTxBeginner{}, nil)
+
+	if _, err := svc.ValidateAPIKey(context.Background(), "sk_test_value"); err == nil || !errors.Is(err, domain.ErrInvalidAuth) {
+		t.Fatalf("expected invalid auth for ambiguous workspace resolution, got %v", err)
+	}
+}
+
+func TestAPIKeyService_ValidateAccountKeyHonorsWorkspaceAllowlist(t *testing.T) {
+	repo := newMockAPIKeyRepo()
+	repo.keys["AK1"] = &domain.APIKey{
+		ID:           "AK1",
+		Scope:        domain.APIKeyScopeAccount,
+		AccountID:    "A123",
+		WorkspaceIDs: []string{"T123"},
+		Permissions:  []string{domain.PermissionMessagesRead},
+	}
+	userRepo := &mockUserRepoMap{users: map[string]*domain.User{
+		"U1": {ID: "U1", AccountID: "A123", WorkspaceID: "T123", PrincipalType: domain.PrincipalTypeHuman, AccountType: domain.AccountTypeMember},
+		"U2": {ID: "U2", AccountID: "A123", WorkspaceID: "T456", PrincipalType: domain.PrincipalTypeHuman, AccountType: domain.AccountTypeAdmin},
+	}}
+	svc := NewAPIKeyService(repo, userRepo, nil, mockTxBeginner{}, nil)
+
+	ctx := context.WithValue(context.Background(), ctxutil.ContextKeyWorkspaceID, "T456")
+	if _, err := svc.ValidateAPIKey(ctx, "sk_test_value"); err == nil || !errors.Is(err, domain.ErrInvalidAuth) {
+		t.Fatalf("expected invalid auth for disallowed workspace, got %v", err)
+	}
+}
+
+func TestAPIKeyService_ValidateWorkspaceSystemKeyDoesNotRequireUser(t *testing.T) {
+	repo := newMockAPIKeyRepo()
+	repo.keys["AK_SYSTEM"] = &domain.APIKey{
+		ID:          "AK_SYSTEM",
+		Scope:       domain.APIKeyScopeWorkspaceSystem,
 		WorkspaceID: "T123",
-		UserID:      "U_TARGET",
-		Permissions: []string{domain.PermissionUsersCreate},
-	}); err == nil || !errors.Is(err, domain.ErrForbidden) {
-		t.Fatalf("expected member-scoped permission validation to reject elevated permission, got %v", err)
+		Permissions: []string{domain.PermissionMessagesRead},
+	}
+	svc := NewAPIKeyService(repo, &mockUserRepoDefault{}, nil, mockTxBeginner{}, nil)
+
+	validation, err := svc.ValidateAPIKey(context.Background(), "sk_test_system")
+	if err != nil {
+		t.Fatalf("ValidateAPIKey() error = %v", err)
+	}
+	if validation.WorkspaceID != "T123" {
+		t.Fatalf("workspace_id = %q, want T123", validation.WorkspaceID)
+	}
+	if validation.UserID != "" {
+		t.Fatalf("user_id = %q, want empty", validation.UserID)
+	}
+	if validation.PrincipalType != domain.PrincipalTypeSystem {
+		t.Fatalf("principal_type = %q, want %q", validation.PrincipalType, domain.PrincipalTypeSystem)
 	}
 }

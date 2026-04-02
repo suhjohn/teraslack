@@ -92,29 +92,19 @@ func TestRoleService_ListUserRoles_AllowsSelf(t *testing.T) {
 	}
 }
 
-func TestRoleService_UsesMembershipAccountTypeForTargetAuthorization(t *testing.T) {
+func TestRoleService_UsesCanonicalUserAccountTypeForTargetAuthorization(t *testing.T) {
 	roleRepo := newMockRoleAssignmentRepo()
 	roleRepo.roles["U_ADMIN"] = []domain.DelegatedRole{domain.DelegatedRoleRolesAdmin}
 	userRepo := newMockUserRepoTenant()
 	userRepo.users["U_ADMIN"] = &domain.User{ID: "U_ADMIN", WorkspaceID: "T123", PrincipalType: domain.PrincipalTypeHuman, AccountType: domain.AccountTypeAdmin}
-	userRepo.users["U_TARGET"] = &domain.User{ID: "U_TARGET", WorkspaceID: "T123", PrincipalType: domain.PrincipalTypeHuman, AccountType: domain.AccountTypeAdmin}
-	membershipRepo := newMockWorkspaceMembershipRepo()
-	membershipRepo.byUser["U_TARGET"] = &domain.WorkspaceMembership{
-		ID:          "WM_TARGET",
-		AccountID:   "A_TARGET",
-		WorkspaceID: "T123",
-		UserID:      "U_TARGET",
-		AccountType: domain.AccountTypeMember,
-	}
-	membershipRepo.byWorkspaceAccount["T123|A_TARGET"] = membershipRepo.byUser["U_TARGET"]
+	userRepo.users["U_TARGET"] = &domain.User{ID: "U_TARGET", WorkspaceID: "T123", PrincipalType: domain.PrincipalTypeHuman, AccountType: domain.AccountTypeMember}
 	svc := NewRoleService(roleRepo, userRepo)
-	svc.SetIdentityRepositories(membershipRepo)
 
 	ctx := ctxutil.WithUser(context.Background(), "U_ADMIN", "T123")
 	ctx = ctxutil.WithPrincipal(ctx, domain.PrincipalTypeHuman, domain.AccountTypeAdmin, false)
 	roles, err := svc.SetUserRoles(ctx, "U_TARGET", []domain.DelegatedRole{domain.DelegatedRoleIntegrationsAdmin})
 	if err != nil {
-		t.Fatalf("expected membership-backed member target to be manageable: %v", err)
+		t.Fatalf("expected canonical member target to be manageable: %v", err)
 	}
 	if len(roles) != 1 || roles[0] != domain.DelegatedRoleIntegrationsAdmin {
 		t.Fatalf("unexpected roles: %+v", roles)

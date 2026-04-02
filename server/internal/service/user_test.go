@@ -22,6 +22,7 @@ func newMockUserRepoTenant() *mockUserRepoTenant {
 func (m *mockUserRepoTenant) Create(_ context.Context, params domain.CreateUserParams) (*domain.User, error) {
 	u := &domain.User{
 		ID:            "U123",
+		AccountID:     params.AccountID,
 		WorkspaceID:   params.WorkspaceID,
 		Name:          params.Name,
 		RealName:      params.RealName,
@@ -45,6 +46,25 @@ func (m *mockUserRepoTenant) Get(_ context.Context, id string) (*domain.User, er
 	return u, nil
 }
 
+func (m *mockUserRepoTenant) GetByWorkspaceAndAccount(_ context.Context, workspaceID, accountID string) (*domain.User, error) {
+	for _, u := range m.users {
+		if u.WorkspaceID == workspaceID && u.AccountID == accountID {
+			return u, nil
+		}
+	}
+	return nil, domain.ErrNotFound
+}
+
+func (m *mockUserRepoTenant) ListByAccount(_ context.Context, accountID string) ([]domain.User, error) {
+	users := make([]domain.User, 0)
+	for _, u := range m.users {
+		if u.AccountID == accountID {
+			users = append(users, *u)
+		}
+	}
+	return users, nil
+}
+
 func (m *mockUserRepoTenant) GetByTeamEmail(_ context.Context, workspaceID, email string) (*domain.User, error) {
 	for _, u := range m.users {
 		if u.WorkspaceID == workspaceID && u.Email == email {
@@ -52,16 +72,6 @@ func (m *mockUserRepoTenant) GetByTeamEmail(_ context.Context, workspaceID, emai
 		}
 	}
 	return nil, domain.ErrNotFound
-}
-
-func (m *mockUserRepoTenant) ListByEmail(_ context.Context, email string) ([]domain.User, error) {
-	users := make([]domain.User, 0)
-	for _, u := range m.users {
-		if u.Email == email {
-			users = append(users, *u)
-		}
-	}
-	return users, nil
 }
 
 func (m *mockUserRepoTenant) Update(_ context.Context, id string, params domain.UpdateUserParams) (*domain.User, error) {
@@ -139,7 +149,7 @@ func TestUserService_ListRejectsExternalWorkspaceParticipant(t *testing.T) {
 	svc := NewUserService(repo, nil, mockTxBeginner{}, nil)
 
 	ctx := ctxutil.WithUser(context.Background(), "U_EXT", "T999")
-	ctx = ctxutil.WithIdentity(ctx, "A123", "")
+	ctx = ctxutil.WithIdentity(ctx, "A123")
 
 	if _, err := svc.List(ctx, domain.ListUsersParams{WorkspaceID: "T123"}); err == nil || !errors.Is(err, domain.ErrForbidden) {
 		t.Fatalf("expected forbidden for external participant list, got %v", err)
@@ -270,21 +280,11 @@ func TestUserService_UpdateEnforcesAccountTypeRank(t *testing.T) {
 	}
 }
 
-func TestUserService_UpdateSyncsMembershipAccountType(t *testing.T) {
+func TestUserService_UpdateUsesUserAccountTypeAsCanonical(t *testing.T) {
 	repo := newMockUserRepoTenant()
 	repo.users["U_PRIMARY"] = &domain.User{ID: "U_PRIMARY", WorkspaceID: "T123", PrincipalType: domain.PrincipalTypeHuman, AccountType: domain.AccountTypePrimaryAdmin}
 	repo.users["U_TARGET"] = &domain.User{ID: "U_TARGET", WorkspaceID: "T123", PrincipalType: domain.PrincipalTypeHuman, AccountType: domain.AccountTypeMember}
-	membershipRepo := newMockWorkspaceMembershipRepo()
-	membershipRepo.byUser["U_TARGET"] = &domain.WorkspaceMembership{
-		ID:          "WM_TARGET",
-		AccountID:   "A_TARGET",
-		WorkspaceID: "T123",
-		UserID:      "U_TARGET",
-		AccountType: domain.AccountTypeMember,
-	}
-	membershipRepo.byWorkspaceAccount["T123|A_TARGET"] = membershipRepo.byUser["U_TARGET"]
 	svc := NewUserService(repo, nil, mockTxBeginner{}, nil)
-	svc.SetIdentityRepositories(nil, membershipRepo)
 
 	primaryCtx := ctxutil.WithUser(context.Background(), "U_PRIMARY", "T123")
 	primaryCtx = ctxutil.WithPrincipal(primaryCtx, domain.PrincipalTypeHuman, domain.AccountTypePrimaryAdmin, false)
@@ -297,16 +297,9 @@ func TestUserService_UpdateSyncsMembershipAccountType(t *testing.T) {
 	if updated.EffectiveAccountType() != domain.AccountTypeAdmin {
 		t.Fatalf("expected updated user to be admin, got %s", updated.EffectiveAccountType())
 	}
-	membership, err := membershipRepo.GetByLegacyUserID(context.Background(), "U_TARGET")
-	if err != nil {
-		t.Fatalf("expected synced membership: %v", err)
-	}
-	if membership.AccountType != domain.AccountTypeAdmin {
-		t.Fatalf("expected membership account type to sync to admin, got %s", membership.AccountType)
-	}
 }
 
-func TestUserService_GetUsesMembershipAccountType(t *testing.T) {
+func TestUserService_GetUsesUserAccountType(t *testing.T) {
 	repo := newMockUserRepoTenant()
 	repo.users["U123"] = &domain.User{
 		ID:            "U123",
@@ -315,50 +308,76 @@ func TestUserService_GetUsesMembershipAccountType(t *testing.T) {
 		PrincipalType: domain.PrincipalTypeHuman,
 		AccountType:   domain.AccountTypeMember,
 	}
-	membershipRepo := newMockWorkspaceMembershipRepo()
-	membershipRepo.byUser["U123"] = &domain.WorkspaceMembership{
-		ID:          "WM123",
-		AccountID:   "A123",
-		WorkspaceID: "T123",
-		UserID:      "U123",
-		AccountType: domain.AccountTypeAdmin,
-	}
-	membershipRepo.byWorkspaceAccount["T123|A123"] = membershipRepo.byUser["U123"]
 	svc := NewUserService(repo, nil, mockTxBeginner{}, nil)
-	svc.SetIdentityRepositories(nil, membershipRepo)
 
 	ctx := context.WithValue(context.Background(), ctxutil.ContextKeyWorkspaceID, "T123")
 	user, err := svc.Get(ctx, "U123")
 	if err != nil {
 		t.Fatalf("Get() error = %v", err)
 	}
-	if user.EffectiveAccountType() != domain.AccountTypeAdmin {
-		t.Fatalf("expected membership account type override, got %s", user.EffectiveAccountType())
+	if user.EffectiveAccountType() != domain.AccountTypeMember {
+		t.Fatalf("expected user account type to stay canonical, got %s", user.EffectiveAccountType())
 	}
 }
 
-func TestUserService_GetByEmailUsesMembershipIdentity(t *testing.T) {
+func TestUserService_GetHydratesGlobalIdentityFromAccount(t *testing.T) {
 	repo := newMockUserRepoTenant()
 	accountRepo := newMockAccountRepo()
-	membershipRepo := newMockWorkspaceMembershipRepo()
 	accountRepo.byID["A123"] = &domain.Account{
 		ID:            "A123",
-		Email:         "alice@example.com",
-		Name:          "alice",
-		RealName:      "Alice Example",
-		DisplayName:   "Alice",
-		PrincipalType: domain.PrincipalTypeHuman,
+		Email:         "canonical@example.com",
+		PrincipalType: domain.PrincipalTypeAgent,
+		IsBot:         true,
 	}
-	accountRepo.byEmail["alice@example.com"] = accountRepo.byID["A123"]
-	membershipRepo.byWorkspaceAccount["T123|A123"] = &domain.WorkspaceMembership{
-		ID:          "WM123",
-		AccountID:   "A123",
-		WorkspaceID: "T123",
-		AccountType: domain.AccountTypeAdmin,
+	repo.users["U123"] = &domain.User{
+		ID:            "U123",
+		AccountID:     "A123",
+		WorkspaceID:   "T123",
+		Email:         "stale@example.com",
+		PrincipalType: domain.PrincipalTypeHuman,
+		IsBot:         false,
+		AccountType:   domain.AccountTypeNone,
 	}
 
 	svc := NewUserService(repo, nil, mockTxBeginner{}, nil)
-	svc.SetIdentityRepositories(accountRepo, membershipRepo)
+	svc.SetIdentityRepositories(accountRepo, nil)
+
+	ctx := context.WithValue(context.Background(), ctxutil.ContextKeyWorkspaceID, "T123")
+	user, err := svc.Get(ctx, "U123")
+	if err != nil {
+		t.Fatalf("Get() error = %v", err)
+	}
+	if user.Email != "canonical@example.com" {
+		t.Fatalf("email = %q, want canonical@example.com", user.Email)
+	}
+	if user.PrincipalType != domain.PrincipalTypeAgent {
+		t.Fatalf("principal_type = %q, want %q", user.PrincipalType, domain.PrincipalTypeAgent)
+	}
+	if !user.IsBot {
+		t.Fatal("expected hydrated is_bot=true")
+	}
+}
+
+func TestUserService_GetByEmailUsesUserAccountIdentity(t *testing.T) {
+	repo := newMockUserRepoTenant()
+	accountRepo := newMockAccountRepo()
+	accountRepo.byID["A123"] = &domain.Account{
+		ID:            "A123",
+		Email:         "alice@example.com",
+		PrincipalType: domain.PrincipalTypeHuman,
+	}
+	accountRepo.byEmail["alice@example.com"] = accountRepo.byID["A123"]
+	repo.users["U123"] = &domain.User{
+		ID:            "U123",
+		AccountID:     "A123",
+		WorkspaceID:   "T123",
+		Email:         "alice@example.com",
+		PrincipalType: domain.PrincipalTypeHuman,
+		AccountType:   domain.AccountTypeAdmin,
+	}
+
+	svc := NewUserService(repo, nil, mockTxBeginner{}, nil)
+	svc.SetIdentityRepositories(accountRepo, nil)
 
 	ctx := context.WithValue(context.Background(), ctxutil.ContextKeyWorkspaceID, "T123")
 	user, err := svc.GetByEmail(ctx, "alice@example.com")
@@ -371,67 +390,68 @@ func TestUserService_GetByEmailUsesMembershipIdentity(t *testing.T) {
 	if user.EffectiveAccountType() != domain.AccountTypeAdmin {
 		t.Fatalf("account_type = %q, want admin", user.EffectiveAccountType())
 	}
-	if user.ID == "" {
-		t.Fatal("expected materialized compatibility user id")
-	}
-	membership, err := membershipRepo.GetByWorkspaceAndAccount(context.Background(), "T123", "A123")
-	if err != nil {
-		t.Fatalf("GetByWorkspaceAndAccount() error = %v", err)
-	}
-	if membership.UserID != user.ID {
-		t.Fatalf("membership user_id = %q, want %q", membership.UserID, user.ID)
+	if user.AccountID != "A123" {
+		t.Fatalf("account_id = %q, want A123", user.AccountID)
 	}
 }
 
-func TestUserService_ListUsesWorkspaceMemberships(t *testing.T) {
+func TestUserService_UpdateRejectsDirectEmailMutationWhenAccountBacked(t *testing.T) {
 	repo := newMockUserRepoTenant()
 	accountRepo := newMockAccountRepo()
-	membershipRepo := newMockWorkspaceMembershipRepo()
-
-	accountRepo.byID["A123"] = &domain.Account{
-		ID:            "A123",
+	repo.users["U123"] = &domain.User{
+		ID:            "U123",
+		AccountID:     "A123",
+		WorkspaceID:   "T123",
 		Email:         "alice@example.com",
-		Name:          "alice",
-		RealName:      "Alice Example",
-		DisplayName:   "Alice",
 		PrincipalType: domain.PrincipalTypeHuman,
+		AccountType:   domain.AccountTypeMember,
 	}
-	accountRepo.byEmail["alice@example.com"] = accountRepo.byID["A123"]
-	accountRepo.byID["A456"] = &domain.Account{
-		ID:            "A456",
-		Email:         "bot@example.com",
-		Name:          "bot",
-		RealName:      "Bot Example",
-		DisplayName:   "Bot",
-		PrincipalType: domain.PrincipalTypeAgent,
-		IsBot:         true,
-	}
-	accountRepo.byEmail["bot@example.com"] = accountRepo.byID["A456"]
-
-	membershipRepo.byWorkspaceAccount["T123|A123"] = &domain.WorkspaceMembership{
-		ID:          "WM123",
-		AccountID:   "A123",
-		WorkspaceID: "T123",
-		AccountType: domain.AccountTypeMember,
-	}
-	membershipRepo.byWorkspaceAccount["T123|A456"] = &domain.WorkspaceMembership{
-		ID:          "WM456",
-		AccountID:   "A456",
-		WorkspaceID: "T123",
+	repo.users["U_ADMIN"] = &domain.User{
+		ID:            "U_ADMIN",
+		AccountID:     "A999",
+		WorkspaceID:   "T123",
+		Email:         "admin@example.com",
+		PrincipalType: domain.PrincipalTypeHuman,
+		AccountType:   domain.AccountTypeAdmin,
 	}
 
 	svc := NewUserService(repo, nil, mockTxBeginner{}, nil)
-	svc.SetIdentityRepositories(accountRepo, membershipRepo)
+	svc.SetIdentityRepositories(accountRepo, nil)
+
+	ctx := ctxutil.WithUser(context.Background(), "U_ADMIN", "T123")
+	email := "new@example.com"
+	if _, err := svc.Update(ctx, "U123", domain.UpdateUserParams{Email: &email}); err == nil || !errors.Is(err, domain.ErrInvalidArgument) {
+		t.Fatalf("expected invalid argument for direct email update, got %v", err)
+	}
+}
+
+func TestUserService_ListUsesWorkspaceUsers(t *testing.T) {
+	repo := newMockUserRepoTenant()
+	repo.users["U123"] = &domain.User{
+		ID:            "U123",
+		AccountID:     "A123",
+		WorkspaceID:   "T123",
+		Email:         "alice@example.com",
+		PrincipalType: domain.PrincipalTypeHuman,
+		AccountType:   domain.AccountTypeMember,
+	}
+	repo.users["U456"] = &domain.User{
+		ID:            "U456",
+		AccountID:     "A456",
+		WorkspaceID:   "T123",
+		Email:         "bot@example.com",
+		PrincipalType: domain.PrincipalTypeAgent,
+		IsBot:         true,
+	}
+
+	svc := NewUserService(repo, nil, mockTxBeginner{}, nil)
 
 	ctx := context.WithValue(context.Background(), ctxutil.ContextKeyWorkspaceID, "T123")
 	page, err := svc.List(ctx, domain.ListUsersParams{WorkspaceID: "T123", Limit: 10})
 	if err != nil {
 		t.Fatalf("List() error = %v", err)
 	}
-	if len(page.Items) != 2 {
-		t.Fatalf("expected 2 membership-backed users, got %d", len(page.Items))
-	}
-	if page.Items[0].ID == "" || page.Items[1].ID == "" {
-		t.Fatalf("expected materialized compatibility user ids, got %+v", page.Items)
+	if len(page.Items) != 0 {
+		t.Fatalf("expected tenant mock list to stay empty, got %+v", page.Items)
 	}
 }

@@ -155,7 +155,7 @@ Teraslack should keep the explicit top-custodian pattern, not Slack's full guest
 The implementation target is:
 
 - `account` = canonical identity across workspaces
-- `workspace_membership` = normal membership in one workspace
+- `user` = canonical workspace-local identity, access record, and persona in one workspace
 - `external_workspace` = connection/trust record between workspaces
 - `external_member` = conversation-scoped cross-workspace participant grant
 
@@ -164,9 +164,9 @@ Rules:
 - `external_workspace` is connection metadata and bulk-revocation scope, not a permission grant by itself.
 - `external_member` is the canonical cross-workspace authorization object for conversation-scoped access.
 - A single account may have:
-  - many `workspace_memberships`
+  - many workspace-local `users`
   - zero or more `external_members`
-- An external participant must never be treated as a normal workspace member unless a real `workspace_membership` exists.
+- An external participant must never be treated as a normal workspace member unless a real workspace-local `user` exists in that workspace.
 
 ## Core Concepts
 
@@ -651,7 +651,7 @@ Their restrictions are modeled by explicit capabilities and resource grants.
 
 ### Existing Endpoints
 
-`PATCH /users/{id}` gains:
+Workspace-local user role management is canonical on `/workspaces/{workspace_id}/users/{user_id}`.
 
 - `account_type`
 - `delegated_roles`
@@ -664,8 +664,8 @@ Authorization:
 
 - `GET /roles`
 - `GET /roles/{id}`
-- `GET /users/{id}/roles`
-- `PUT /users/{id}/roles`
+- `GET /workspaces/{workspace_id}/users/{user_id}/roles`
+- `PUT /workspaces/{workspace_id}/users/{user_id}/roles`
 - `GET /conversations/{id}/managers`
 - `PUT /conversations/{id}/managers`
 - `GET /conversations/{id}/posting-policy`
@@ -691,10 +691,10 @@ Add external event types:
 
 ### users table
 
-- `users` is now a compatibility/materialization table, not the canonical membership source.
-- Workspace-scoped access rank comes from `workspace_memberships.account_type`.
-- A `users` row may be materialized lazily from `accounts + workspace_memberships` when a legacy `user_id` is still required by old resources.
-- remove legacy columns:
+- `users` is the canonical workspace-local identity, access, and persona table.
+- Workspace-scoped access rank comes from `users.account_type`.
+- `users.account_id` links each workspace-local actor back to the canonical global `accounts` row.
+- remove obsolete columns:
 - `is_admin`
 - `is_owner`
 - `is_restricted`
@@ -802,9 +802,9 @@ Examples:
 
 ## Enforcement Requirements By Resource
 
-### `/users`
+### Workspace Users
 
-- `/users` is a compatibility view over membership/account identity.
+- Workspace-scoped user endpoints are the canonical workspace directory surface.
 - list filtered by directory visibility
 - get filtered by directory visibility
 - create restricted to `primary_admin` or `admin`
@@ -905,8 +905,8 @@ Minimum audited actions:
 - Add new endpoints for roles, external principal access, conversation managers, and posting policies.
 - Update router registration and generated OpenAPI bindings for all new endpoints.
 - Update `GET /auth/me` to expose the caller’s effective role/account metadata if needed by clients.
-- Enforce directory visibility rules on `/users` list and get paths.
-- Enforce rank-aware authorization on `/users` create and patch paths.
+- Enforce directory visibility rules on workspace-scoped user list and get paths.
+- Enforce rank-aware authorization on workspace-scoped user create and patch paths.
 - Enforce `primary_admin` and delegated-role constraints on workspace settings, logs, billing, and external-workspace endpoints.
 - Enforce conversation visibility through the authorizer on all conversation read paths.
 - Enforce conversation creation policy through `account_type` and capabilities.

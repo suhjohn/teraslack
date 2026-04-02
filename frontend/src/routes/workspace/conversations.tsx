@@ -81,7 +81,8 @@ function ConversationsPage() {
     { query: { enabled: !!workspaceID, retry: false } },
   )
   const usersQuery = useListUsers<UsersCollection>(
-    { workspace_id: workspaceID, limit: 200 },
+    workspaceID,
+    { limit: 200 },
     { query: { enabled: !!workspaceID, retry: false, staleTime: 30_000 } },
   )
 
@@ -1157,13 +1158,7 @@ function MembersPanel({
 }
 
 export function getExternalMemberLabel(member: ExternalMember) {
-  return (
-    member.account?.display_name ||
-    member.account?.real_name ||
-    member.account?.name ||
-    member.account?.email ||
-    member.account_id
-  )
+  return member.account?.email || member.account_id
 }
 
 export function getExternalWorkspaceLabel(

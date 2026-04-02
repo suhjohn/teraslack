@@ -46,7 +46,7 @@ func (s *MessageService) PostMessage(ctx context.Context, params domain.PostMess
 		return nil, fmt.Errorf("channel_id: %w", domain.ErrInvalidArgument)
 	}
 	if params.UserID == "" {
-		params.UserID = compatibilityActorID(ctx)
+		params.UserID = actorUserID(ctx)
 	}
 	if params.UserID == "" {
 		return nil, fmt.Errorf("user_id: %w", domain.ErrInvalidArgument)
@@ -429,7 +429,7 @@ func (s *MessageService) ensureConversationVisible(ctx context.Context, conv *do
 		if externalActor {
 			return nil
 		}
-		actorID := compatibilityActorID(ctx)
+		actorID := actorUserID(ctx)
 		if actorID == "" {
 			for _, fallbackActorID := range fallbackActorIDs {
 				if fallbackActorID != "" {
@@ -460,7 +460,7 @@ func ensureMessageEditor(ctx context.Context, msg *domain.Message) error {
 	if isInternalCallWithoutAuth(ctx) {
 		return nil
 	}
-	if compatibilityActorID(ctx) == msg.UserID {
+	if actorUserID(ctx) == msg.UserID {
 		return nil
 	}
 	if contextIsWorkspaceAdmin(ctx) {
@@ -476,7 +476,7 @@ func ensureMessageDeleter(ctx context.Context, msg *domain.Message) error {
 	if isInternalCallWithoutAuth(ctx) {
 		return nil
 	}
-	if compatibilityActorID(ctx) == msg.UserID {
+	if actorUserID(ctx) == msg.UserID {
 		return nil
 	}
 	if contextIsWorkspaceAdmin(ctx) {

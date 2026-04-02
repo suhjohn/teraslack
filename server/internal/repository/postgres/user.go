@@ -43,7 +43,8 @@ func (r *UserRepo) Create(ctx context.Context, params domain.CreateUserParams) (
 
 	row, err := r.q.CreateUser(ctx, sqlcgen.CreateUserParams{
 		ID:            id,
-		WorkspaceID:        params.WorkspaceID,
+		AccountID:     stringToText(params.AccountID),
+		WorkspaceID:   params.WorkspaceID,
 		Name:          params.Name,
 		RealName:      params.RealName,
 		DisplayName:   params.DisplayName,
@@ -70,6 +71,36 @@ func (r *UserRepo) Get(ctx context.Context, id string) (*domain.User, error) {
 		return nil, fmt.Errorf("get user: %w", err)
 	}
 	return userFieldsToDomain(getUserRowToFields(row))
+}
+
+func (r *UserRepo) GetByWorkspaceAndAccount(ctx context.Context, workspaceID, accountID string) (*domain.User, error) {
+	row, err := r.q.GetUserByWorkspaceAndAccount(ctx, sqlcgen.GetUserByWorkspaceAndAccountParams{
+		WorkspaceID: workspaceID,
+		AccountID:   stringToText(accountID),
+	})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, domain.ErrNotFound
+		}
+		return nil, fmt.Errorf("get user by workspace and account: %w", err)
+	}
+	return userFieldsToDomain(getUserByWorkspaceAndAccountRowToFields(row))
+}
+
+func (r *UserRepo) ListByAccount(ctx context.Context, accountID string) ([]domain.User, error) {
+	rows, err := r.q.ListUsersByAccount(ctx, stringToText(accountID))
+	if err != nil {
+		return nil, fmt.Errorf("list users by account: %w", err)
+	}
+	users := make([]domain.User, 0, len(rows))
+	for _, row := range rows {
+		user, convErr := userFieldsToDomain(listUsersByAccountRowToFields(row))
+		if convErr != nil {
+			return nil, fmt.Errorf("convert user: %w", convErr)
+		}
+		users = append(users, *user)
+	}
+	return users, nil
 }
 
 func (r *UserRepo) Update(ctx context.Context, id string, params domain.UpdateUserParams) (*domain.User, error) {

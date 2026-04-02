@@ -1,0 +1,5 @@
+ALTER TABLE ONLY public.accounts
+	DROP COLUMN IF EXISTS name,
+	DROP COLUMN IF EXISTS real_name,
+	DROP COLUMN IF EXISTS display_name,
+	DROP COLUMN IF EXISTS profile;

@@ -35,9 +35,11 @@ func IsValidDelegatedRole(role DelegatedRole) bool {
 	}
 }
 
-// User represents a workspace principal (human, agent, or system).
+// User represents the workspace-local identity, access record, and persona.
+// The linked Account remains the canonical global auth identity.
 type User struct {
 	ID            string        `json:"id"`
+	AccountID     string        `json:"account_id,omitempty"`
 	WorkspaceID   string        `json:"workspace_id"`
 	Name          string        `json:"name"`
 	RealName      string        `json:"real_name"`
@@ -69,6 +71,7 @@ type UserProfile struct {
 
 // CreateUserParams holds the parameters for creating a new user.
 type CreateUserParams struct {
+	AccountID     string        `json:"account_id,omitempty"`
 	WorkspaceID   string        `json:"workspace_id"`
 	Name          string        `json:"name"`
 	RealName      string        `json:"real_name"`

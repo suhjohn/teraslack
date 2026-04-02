@@ -374,7 +374,7 @@ function WorkspaceSwitcher({
         className="flex w-full items-center gap-2 rounded-none border border-[var(--sys-home-border)] bg-[var(--sys-home-bg)] px-3 py-2.5 text-left sys-hover"
       >
         <div className="flex h-6 w-6 flex-none items-center justify-center border border-[var(--sys-home-border)] bg-[var(--sys-home-bg)] text-xs font-bold text-[var(--sys-home-fg)]">
-          {active?.name?.charAt(0).toUpperCase() ?? '?'}
+          {active ? active.name.charAt(0).toUpperCase() : '?'}
         </div>
         <span className="min-w-0 flex-1 truncate text-[12px] font-bold uppercase tracking-[0.04em] text-[var(--sys-home-fg)]">
           {active?.name ?? 'Select workspace'}

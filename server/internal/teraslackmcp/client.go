@@ -70,9 +70,10 @@ func (c *Client) AuthMe(ctx context.Context) (*domain.AuthContext, error) {
 	return &resp, nil
 }
 
-func (c *Client) GetUser(ctx context.Context, userID string) (*domain.User, error) {
+func (c *Client) GetUser(ctx context.Context, workspaceID, userID string) (*domain.User, error) {
 	var resp domain.User
-	if err := c.doJSON(ctx, http.MethodGet, "/users/"+url.PathEscape(strings.TrimSpace(userID)), nil, nil, &resp); err != nil {
+	path := "/workspaces/" + url.PathEscape(strings.TrimSpace(workspaceID)) + "/users/" + url.PathEscape(strings.TrimSpace(userID))
+	if err := c.doJSON(ctx, http.MethodGet, path, nil, nil, &resp); err != nil {
 		return nil, err
 	}
 	return &resp, nil
@@ -80,9 +81,6 @@ func (c *Client) GetUser(ctx context.Context, userID string) (*domain.User, erro
 
 func (c *Client) ListUsers(ctx context.Context, workspaceID, cursor, email string, limit int) (*userPage, error) {
 	query := url.Values{}
-	if workspaceID != "" {
-		query.Set("workspace_id", workspaceID)
-	}
 	if cursor != "" {
 		query.Set("cursor", cursor)
 	}
@@ -94,7 +92,8 @@ func (c *Client) ListUsers(ctx context.Context, workspaceID, cursor, email strin
 	}
 
 	var resp userPage
-	if err := c.doJSON(ctx, http.MethodGet, "/users", query, nil, &resp); err != nil {
+	path := "/workspaces/" + url.PathEscape(strings.TrimSpace(workspaceID)) + "/users"
+	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &resp); err != nil {
 		return nil, err
 	}
 	if resp.Items == nil {
@@ -104,8 +103,18 @@ func (c *Client) ListUsers(ctx context.Context, workspaceID, cursor, email strin
 }
 
 func (c *Client) CreateUser(ctx context.Context, params domain.CreateUserParams) (*domain.User, error) {
+	workspaceID := strings.TrimSpace(params.WorkspaceID)
+	if workspaceID == "" {
+		auth, err := c.AuthMe(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("resolve workspace for create user: %w", err)
+		}
+		workspaceID = strings.TrimSpace(auth.WorkspaceID)
+		params.WorkspaceID = workspaceID
+	}
 	var resp domain.User
-	if err := c.doJSON(ctx, http.MethodPost, "/users", nil, params, &resp); err != nil {
+	path := "/workspaces/" + url.PathEscape(workspaceID) + "/users"
+	if err := c.doJSON(ctx, http.MethodPost, path, nil, params, &resp); err != nil {
 		return nil, err
 	}
 	return &resp, nil

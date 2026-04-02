@@ -80,10 +80,10 @@ func TestComposeE2E_CodexPeerChat(t *testing.T) {
 	})
 
 	_, agentAKey := createAPIKeyViaHTTP(t, httpClient, baseURL, ownerToken, domain.CreateAPIKeyParams{
-		Name:      "Codex A Key",
+		Name:        "Codex A Key",
+		Scope:       domain.APIKeyScopeWorkspaceSystem,
 		WorkspaceID: owner.WorkspaceID,
-		UserID:    agentA.ID,
-		CreatedBy: owner.ID,
+		CreatedBy:   owner.ID,
 		Permissions: []string{
 			domain.PermissionMessagesRead,
 			domain.PermissionMessagesWrite,
@@ -92,10 +92,10 @@ func TestComposeE2E_CodexPeerChat(t *testing.T) {
 		},
 	})
 	_, agentBKey := createAPIKeyViaHTTP(t, httpClient, baseURL, ownerToken, domain.CreateAPIKeyParams{
-		Name:      "Codex B Key",
+		Name:        "Codex B Key",
+		Scope:       domain.APIKeyScopeWorkspaceSystem,
 		WorkspaceID: owner.WorkspaceID,
-		UserID:    agentB.ID,
-		CreatedBy: owner.ID,
+		CreatedBy:   owner.ID,
 		Permissions: []string{
 			domain.PermissionMessagesRead,
 			domain.PermissionMessagesWrite,
@@ -116,7 +116,7 @@ func TestComposeE2E_CodexPeerChat(t *testing.T) {
 	senderMCP := startTeraslackMCPHTTPServer(t, teraslackmcp.Config{
 		BaseURL:       baseURL,
 		APIKey:        agentAKey,
-		WorkspaceID:        owner.WorkspaceID,
+		WorkspaceID:   owner.WorkspaceID,
 		UserID:        agentA.ID,
 		UserName:      agentA.Name,
 		UserEmail:     agentA.Email,
@@ -129,7 +129,7 @@ func TestComposeE2E_CodexPeerChat(t *testing.T) {
 	receiverMCP := startTeraslackMCPHTTPServer(t, teraslackmcp.Config{
 		BaseURL:       baseURL,
 		APIKey:        agentBKey,
-		WorkspaceID:        owner.WorkspaceID,
+		WorkspaceID:   owner.WorkspaceID,
 		UserID:        agentB.ID,
 		UserName:      agentB.Name,
 		UserEmail:     agentB.Email,

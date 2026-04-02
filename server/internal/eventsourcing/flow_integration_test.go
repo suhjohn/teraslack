@@ -52,6 +52,7 @@ func setupAllServices(t *testing.T) *testEnv {
 	msgRepo := pgRepo.NewMessageRepo(pool)
 	fileRepo := pgRepo.NewFileRepo(pool)
 	authRepo := pgRepo.NewAuthRepo(pool)
+	accountRepo := pgRepo.NewAccountRepo(pool)
 	workspaceRepo := pgRepo.NewWorkspaceRepo(pool)
 	workspaceInviteRepo := pgRepo.NewWorkspaceInviteRepo(pool)
 	eventRepo := pgRepo.NewEventRepo(pool, encryptor)
@@ -59,21 +60,27 @@ func setupAllServices(t *testing.T) *testEnv {
 	eventStoreRepo := pgRepo.NewEventStoreRepo(pool)
 	recorder := service.NewEventRecorder(eventStoreRepo)
 
+	userSvc := service.NewUserService(userRepo, recorder, pool, logger)
+	userSvc.SetIdentityRepositories(accountRepo)
+
+	authSvc := service.NewAuthService(authRepo, userRepo, workspaceRepo, workspaceInviteRepo, recorder, pool, logger, service.AuthConfig{
+		BaseURL:     "http://localhost:8080",
+		StateSecret: "test-state-secret",
+		HTTPClient:  nil,
+	})
+	authSvc.SetIdentityRepositories(accountRepo)
+
 	return &testEnv{
 		pool:        pool,
-		userSvc:     service.NewUserService(userRepo, recorder, pool, logger),
+		userSvc:     userSvc,
 		convSvc:     service.NewConversationService(convRepo, userRepo, recorder, pool, logger),
 		convReadSvc: service.NewConversationReadService(convReadRepo, convRepo),
 		msgSvc:      service.NewMessageService(msgRepo, convRepo, recorder, pool, logger),
 		fileSvc:     service.NewFileService(fileRepo, nil, "", "http://localhost:8080", recorder, pool, logger),
-		authSvc: service.NewAuthService(authRepo, userRepo, workspaceRepo, workspaceInviteRepo, recorder, pool, logger, service.AuthConfig{
-			BaseURL:     "http://localhost:8080",
-			StateSecret: "test-state-secret",
-			HTTPClient:  nil,
-		}),
-		eventSvc:  service.NewEventService(eventRepo, userRepo, recorder, pool, logger),
-		apiKeySvc: service.NewAPIKeyService(apiKeyRepo, userRepo, recorder, pool, logger),
-		projector: eventsourcing.NewProjector(pool, logger),
+		authSvc:     authSvc,
+		eventSvc:    service.NewEventService(eventRepo, userRepo, recorder, pool, logger),
+		apiKeySvc:   service.NewAPIKeyService(apiKeyRepo, userRepo, recorder, pool, logger),
+		projector:   eventsourcing.NewProjector(pool, logger),
 	}
 }
 
@@ -537,7 +544,7 @@ func TestFlow_ChannelLifecycle(t *testing.T) {
 //  1. Create a human user.
 //  2. Create an agent user owned by the human (principal_type=agent, owner_id=human).
 //  3. Create a live API key for the agent with on_behalf_of=human — verify sk_ prefix.
-//  4. Validate the API key — verify principal_id=agent, on_behalf_of=human.
+//  4. Validate the API key — verify the workspace actor resolves to the agent.
 //  5. Get the key — verify key_hash is redacted (empty).
 //  6. Update the key description — verify.
 //  7. List keys for the workspace — verify count=1.
@@ -578,9 +585,12 @@ func TestFlow_AgentDelegation(t *testing.T) {
 
 	// Create API key with delegation
 	key, rawKey, err := env.apiKeySvc.Create(ctx, domain.CreateAPIKeyParams{
-		Name: "agent-key", WorkspaceID: workspaceID, UserID: agent.ID,
-		CreatedBy:   human.ID,
-		Permissions: []string{"read", "write"},
+		Name:         "agent-key",
+		Scope:        domain.APIKeyScopeAccount,
+		AccountID:    agent.AccountID,
+		WorkspaceIDs: []string{workspaceID},
+		CreatedBy:    human.ID,
+		Permissions:  []string{"read", "write"},
 	})
 	if err != nil {
 		t.Fatalf("create key: %v", err)
@@ -656,7 +666,10 @@ func TestFlow_AgentDelegation(t *testing.T) {
 	// --- Unhappy paths ---
 	// Nonexistent principal
 	_, _, err = env.apiKeySvc.Create(ctx, domain.CreateAPIKeyParams{
-		Name: "bad", WorkspaceID: workspaceID, UserID: "nonexistent",
+		Name:         "bad",
+		Scope:        domain.APIKeyScopeAccount,
+		AccountID:    "A_DOES_NOT_EXIST",
+		WorkspaceIDs: []string{workspaceID},
 	})
 	if err == nil {
 		t.Error("nonexistent principal: expected error")
@@ -664,7 +677,9 @@ func TestFlow_AgentDelegation(t *testing.T) {
 
 	// Empty name
 	_, _, err = env.apiKeySvc.Create(ctx, domain.CreateAPIKeyParams{
-		WorkspaceID: workspaceID, UserID: agent.ID,
+		Scope:        domain.APIKeyScopeAccount,
+		AccountID:    agent.AccountID,
+		WorkspaceIDs: []string{workspaceID},
 	})
 	if !errors.Is(err, domain.ErrInvalidArgument) {
 		t.Errorf("empty name: got %v", err)
@@ -724,7 +739,10 @@ func TestFlow_KeyRotation(t *testing.T) {
 	}
 
 	oldKey, oldRaw, err := env.apiKeySvc.Create(ctx, domain.CreateAPIKeyParams{
-		Name: "rotate-me", WorkspaceID: workspaceID, UserID: user.ID,
+		Name:         "rotate-me",
+		Scope:        domain.APIKeyScopeAccount,
+		AccountID:    user.AccountID,
+		WorkspaceIDs: []string{workspaceID},
 	})
 	if err != nil {
 		t.Fatalf("create key: %v", err)
@@ -1494,7 +1512,10 @@ func TestFlow_CrossCuttingConsistency(t *testing.T) {
 	}
 
 	_, _, err = env.apiKeySvc.Create(ctx, domain.CreateAPIKeyParams{
-		Name: "cc-key", WorkspaceID: workspaceID, UserID: user.ID,
+		Name:         "cc-key",
+		Scope:        domain.APIKeyScopeAccount,
+		AccountID:    user.AccountID,
+		WorkspaceIDs: []string{workspaceID},
 	})
 	if err != nil {
 		t.Fatalf("api key: %v", err)
@@ -2191,7 +2212,10 @@ func TestFlow_ConcurrentEdgeCases(t *testing.T) {
 
 	// Create + immediately revoke API key
 	key, rawKey, err := env.apiKeySvc.Create(ctx, domain.CreateAPIKeyParams{
-		Name: "ephemeral", WorkspaceID: workspaceID, UserID: user.ID,
+		Name:         "ephemeral",
+		Scope:        domain.APIKeyScopeAccount,
+		AccountID:    user.AccountID,
+		WorkspaceIDs: []string{workspaceID},
 	})
 	if err != nil {
 		t.Fatalf("create key: %v", err)
@@ -2206,16 +2230,21 @@ func TestFlow_ConcurrentEdgeCases(t *testing.T) {
 
 	// Update user and verify lookup
 	newName := "updated-conc"
-	env.userSvc.Update(ctx, user.ID, domain.UpdateUserParams{RealName: &newName})
-	byEmail, _ := env.userSvc.GetByEmail(ctxutil.WithUser(ctx, user.ID, workspaceID), "conc@example.com")
+	if _, err := env.userSvc.Update(ctx, user.ID, domain.UpdateUserParams{RealName: &newName}); err != nil {
+		t.Fatalf("update user: %v", err)
+	}
+	byEmail, err := env.userSvc.GetByEmail(ctxutil.WithUser(ctx, user.ID, workspaceID), "conc@example.com")
+	if err != nil {
+		t.Fatalf("get user by email: %v", err)
+	}
 	if byEmail.RealName != "updated-conc" {
 		t.Errorf("real_name = %q", byEmail.RealName)
 	}
 
 	// Total event consistency
 	total := countEvents(t, env)
-	if total < 20 {
-		t.Errorf("total events = %d, want >= 20", total)
+	if total < 18 {
+		t.Errorf("total events = %d, want >= 18", total)
 	}
 
 	// Rebuild after rapid ops
@@ -2246,8 +2275,9 @@ func TestFlow_ConcurrentEdgeCases(t *testing.T) {
 //  4. Get user by email — verify same ID.
 //  5. Update real_name — verify.
 //  6. Update display_name — verify.
-//  7. Update email — verify.
-//  8. Verify old email lookup returns ErrNotFound; new email resolves to same user.
+//  7. Attempt to update email through UserService — verify it is rejected because
+//     account email is canonical.
+//  8. Verify the canonical account email lookup still resolves to the same user.
 //  9. Promote to admin (account_type=admin) — verify.
 //
 // 10. Soft-delete the user (deleted=true) — verify.
@@ -2334,27 +2364,20 @@ func TestFlow_UserProfileManagement(t *testing.T) {
 		t.Errorf("display_name = %q", updated.DisplayName)
 	}
 
-	// Step 6: Update email
+	// Step 6: Account email is canonical; user-local email updates are rejected.
 	newEmail := "newemail@example.com"
-	updated, err = env.userSvc.Update(ctx, user.ID, domain.UpdateUserParams{Email: &newEmail})
-	if err != nil {
-		t.Fatalf("update email: %v", err)
-	}
-	if updated.Email != "newemail@example.com" {
-		t.Errorf("email = %q", updated.Email)
+	_, err = env.userSvc.Update(ctx, user.ID, domain.UpdateUserParams{Email: &newEmail})
+	if !errors.Is(err, domain.ErrInvalidArgument) {
+		t.Fatalf("update email: got %v, want invalid argument", err)
 	}
 
-	// Step 7: Verify old email lookup fails, new one works
-	_, err = env.userSvc.GetByEmail(emailCtx, "full@example.com")
-	if !errors.Is(err, domain.ErrNotFound) {
-		t.Errorf("old email should not resolve: got %v", err)
-	}
-	byEmail, err = env.userSvc.GetByEmail(emailCtx, "newemail@example.com")
+	// Step 7: Canonical account email remains stable for workspace-local lookup.
+	byEmail, err = env.userSvc.GetByEmail(emailCtx, "full@example.com")
 	if err != nil {
-		t.Fatalf("new email lookup: %v", err)
+		t.Fatalf("canonical email lookup: %v", err)
 	}
 	if byEmail.ID != user.ID {
-		t.Error("new email should resolve to same user")
+		t.Error("canonical email should resolve to same user")
 	}
 
 	// Step 8: Promote to admin
@@ -2456,9 +2479,9 @@ func TestFlow_UserProfileManagement(t *testing.T) {
 	if userCreated != 3 {
 		t.Errorf("user.created = %d, want 3", userCreated)
 	}
-	// real_name + display_name + email + admin + delete + reactivate + profile = 7
-	if userUpdated < 7 {
-		t.Errorf("user.updated = %d, want >= 7", userUpdated)
+	// real_name + display_name + admin + delete + reactivate + profile = 6
+	if userUpdated < 6 {
+		t.Errorf("user.updated = %d, want >= 6", userUpdated)
 	}
 }
 
@@ -3029,8 +3052,11 @@ func TestFlow_MultipleAPIKeys(t *testing.T) {
 
 	// Create live key with read/write permissions
 	liveKey, liveRaw, err := env.apiKeySvc.Create(ctx, domain.CreateAPIKeyParams{
-		Name: "production", WorkspaceID: workspaceID, UserID: user.ID,
-		Permissions: []string{"read", "write"},
+		Name:         "production",
+		Scope:        domain.APIKeyScopeAccount,
+		AccountID:    user.AccountID,
+		WorkspaceIDs: []string{workspaceID},
+		Permissions:  []string{"read", "write"},
 	})
 	if err != nil {
 		t.Fatalf("create live key: %v", err)
@@ -3041,8 +3067,11 @@ func TestFlow_MultipleAPIKeys(t *testing.T) {
 
 	// Create test key with read-only permissions
 	testKey, testRaw, err := env.apiKeySvc.Create(ctx, domain.CreateAPIKeyParams{
-		Name: "staging", WorkspaceID: workspaceID, UserID: user.ID,
-		Permissions: []string{"read"},
+		Name:         "staging",
+		Scope:        domain.APIKeyScopeAccount,
+		AccountID:    user.AccountID,
+		WorkspaceIDs: []string{workspaceID},
+		Permissions:  []string{"read"},
 	})
 	if err != nil {
 		t.Fatalf("create test key: %v", err)
@@ -3053,8 +3082,11 @@ func TestFlow_MultipleAPIKeys(t *testing.T) {
 
 	// Create restricted key
 	restrictedKey, restrictedRaw, err := env.apiKeySvc.Create(ctx, domain.CreateAPIKeyParams{
-		Name: "ci-deploy", WorkspaceID: workspaceID, UserID: user.ID,
-		Permissions: []string{"deploy"},
+		Name:         "ci-deploy",
+		Scope:        domain.APIKeyScopeAccount,
+		AccountID:    user.AccountID,
+		WorkspaceIDs: []string{workspaceID},
+		Permissions:  []string{"deploy"},
 	})
 	if err != nil {
 		t.Fatalf("create restricted key: %v", err)
@@ -3409,7 +3441,7 @@ func TestFlow_ComplexProjectionRebuild(t *testing.T) {
 
 	// API key
 	apiKey, apiKeyRaw, _ := env.apiKeySvc.Create(ctx, domain.CreateAPIKeyParams{
-		Name: "rebuild-key", WorkspaceID: workspaceID, UserID: admin.ID,
+		Name: "rebuild-key", Scope: domain.APIKeyScopeWorkspaceSystem, WorkspaceID: workspaceID, CreatedBy: admin.ID,
 		Permissions: []string{"read", "write"},
 	})
 
@@ -3421,8 +3453,8 @@ func TestFlow_ComplexProjectionRebuild(t *testing.T) {
 
 	// Count events before rebuild.
 	eventsBefore := countEvents(t, env)
-	if eventsBefore < 14 {
-		t.Errorf("events before rebuild = %d, want >= 14", eventsBefore)
+	if eventsBefore < 12 {
+		t.Errorf("events before rebuild = %d, want >= 12", eventsBefore)
 	}
 
 	// Perform full rebuild
@@ -3491,7 +3523,8 @@ func TestFlow_ComplexProjectionRebuild(t *testing.T) {
 	}
 
 	// Verify API key still validates
-	akVal, err := env.apiKeySvc.ValidateAPIKey(ctx, apiKeyRaw)
+	akCtx := context.WithValue(ctx, ctxutil.ContextKeyWorkspaceID, workspaceID)
+	akVal, err := env.apiKeySvc.ValidateAPIKey(akCtx, apiKeyRaw)
 	if err != nil {
 		t.Fatalf("api key invalid after rebuild: %v", err)
 	}

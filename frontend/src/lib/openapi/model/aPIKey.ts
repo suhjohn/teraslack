@@ -7,7 +7,7 @@
  */
 
 /**
- * An API key used to authenticate requests. Keys are scoped to a workspace and optionally to a specific user.
+ * An API key used to authenticate requests. Keys are either account-scoped or workspace-system-scoped.
  */
 export interface APIKey {
   /** Unique API key identifier. */
@@ -22,11 +22,14 @@ export interface APIKey {
   key_prefix: string;
   /** Masked version of the key shown in the UI (e.g. "tsk_abc...xyz"). */
   key_hint: string;
-  /** Workspace this key is scoped to. */
-  workspace_id: string;
-  /** User this key acts on behalf of. Empty for workspace-level keys. */
-  user_id: string;
-  /** User who created this key. */
+  scope: 'account' | 'workspace_system';
+  /** Workspace this key is pinned to when `scope` is `workspace_system`. */
+  workspace_id?: string;
+  /** Account that owns this key when `scope` is `account`. */
+  account_id?: string;
+  /** Optional workspace allowlist for account-scoped keys. Empty means all workspaces where the account has a user. */
+  workspace_ids?: string[];
+  /** Workspace user who created this key. */
   created_by: string;
   /** List of permission strings granted to this key. */
   permissions: string[];

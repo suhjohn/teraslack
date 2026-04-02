@@ -46,13 +46,12 @@ func (m *mockWorkspaceInviteRepo) GetByTokenHash(_ context.Context, tokenHash st
 	return invite, nil
 }
 
-func (m *mockWorkspaceInviteRepo) MarkAccepted(_ context.Context, id, acceptedByAccountID, acceptedByMembershipID string, acceptedAt time.Time) error {
+func (m *mockWorkspaceInviteRepo) MarkAccepted(_ context.Context, id, acceptedByAccountID string, acceptedAt time.Time) error {
 	for _, invite := range m.invites {
 		if invite.ID != id {
 			continue
 		}
 		invite.AcceptedByAccountID = acceptedByAccountID
-		invite.AcceptedByMembershipID = acceptedByMembershipID
 		invite.AcceptedAt = &acceptedAt
 		invite.UpdatedAt = acceptedAt
 		return nil
@@ -64,7 +63,6 @@ func TestWorkspaceInviteService_AcceptCreatesMembershipInInvitedWorkspace(t *tes
 	inviteRepo := newMockWorkspaceInviteRepo()
 	userRepo := newMockUserRepoTenant()
 	accountRepo := newMockAccountRepo()
-	membershipRepo := newMockWorkspaceMembershipRepo()
 	code := "invite_accept"
 
 	userRepo.users["U_ACTOR"] = &domain.User{
@@ -89,7 +87,7 @@ func TestWorkspaceInviteService_AcceptCreatesMembershipInInvitedWorkspace(t *tes
 	}
 
 	svc := NewWorkspaceInviteService(inviteRepo, userRepo, nil, mockTxBeginner{}, "https://teraslack.ai")
-	svc.SetIdentityRepositories(accountRepo, membershipRepo)
+	svc.SetIdentityRepositories(accountRepo)
 	ctx := ctxutil.WithUser(context.Background(), "U_ACTOR", "T_CURRENT")
 	ctx = ctxutil.WithPrincipal(ctx, domain.PrincipalTypeHuman, domain.AccountTypeMember, false)
 
@@ -97,33 +95,32 @@ func TestWorkspaceInviteService_AcceptCreatesMembershipInInvitedWorkspace(t *tes
 	if err != nil {
 		t.Fatalf("Accept() error = %v", err)
 	}
-	if result.Invite.AcceptedByAccountID == "" || result.Invite.AcceptedByMembershipID == "" || result.Invite.AcceptedAt == nil {
+	if result.Invite.AcceptedByAccountID == "" || result.Invite.AcceptedAt == nil {
 		t.Fatalf("expected accepted invite, got %+v", result.Invite)
 	}
-	if result.User != nil {
-		t.Fatalf("expected no compatibility user on explicit invite accept, got %+v", result.User)
+	if result.User == nil {
+		t.Fatalf("expected workspace user to be created on invite accept, got %+v", result)
 	}
 	account, err := accountRepo.GetByEmail(context.Background(), "alice@example.com")
 	if err != nil {
 		t.Fatalf("expected account for accepted invite: %v", err)
 	}
-	membership, err := membershipRepo.GetByWorkspaceAndAccount(context.Background(), "T_INVITED", account.ID)
+	user, err := userRepo.GetByWorkspaceAndAccount(context.Background(), "T_INVITED", account.ID)
 	if err != nil {
-		t.Fatalf("expected membership in invited workspace: %v", err)
+		t.Fatalf("expected user in invited workspace: %v", err)
 	}
-	if membership.UserID != "" {
-		t.Fatalf("expected membership without user_id, got %+v", membership)
+	if user.ID != result.User.ID {
+		t.Fatalf("expected accepted user to be persisted, got result=%+v repo=%+v", result.User, user)
 	}
-	if result.Membership == nil || result.Membership.ID != membership.ID {
-		t.Fatalf("expected membership in response, got %+v", result.Membership)
+	if user.AccountID != account.ID {
+		t.Fatalf("expected accepted user to link account %s, got %+v", account.ID, user)
 	}
 }
 
-func TestWorkspaceInviteService_AcceptReusesExistingMembership(t *testing.T) {
+func TestWorkspaceInviteService_AcceptReusesExistingUser(t *testing.T) {
 	inviteRepo := newMockWorkspaceInviteRepo()
 	userRepo := newMockUserRepoTenant()
 	accountRepo := newMockAccountRepo()
-	membershipRepo := newMockWorkspaceMembershipRepo()
 	code := "invite_existing_member"
 
 	userRepo.users["U_ACTOR"] = &domain.User{
@@ -146,14 +143,6 @@ func TestWorkspaceInviteService_AcceptReusesExistingMembership(t *testing.T) {
 		PrincipalType: domain.PrincipalTypeHuman,
 	}
 	accountRepo.byEmail["alice@example.com"] = accountRepo.byID["A123"]
-	membershipRepo.byWorkspaceAccount["T_INVITED|A123"] = &domain.WorkspaceMembership{
-		ID:          "WM_INVITED",
-		AccountID:   "A123",
-		WorkspaceID: "T_INVITED",
-		UserID:      "U_EXISTING",
-		AccountType: domain.AccountTypeMember,
-	}
-	membershipRepo.byUser["U_EXISTING"] = membershipRepo.byWorkspaceAccount["T_INVITED|A123"]
 	inviteRepo.invites[crypto.HashToken(code)] = &domain.WorkspaceInvite{
 		ID:          "WI1",
 		WorkspaceID: "T_INVITED",
@@ -165,25 +154,24 @@ func TestWorkspaceInviteService_AcceptReusesExistingMembership(t *testing.T) {
 	}
 
 	svc := NewWorkspaceInviteService(inviteRepo, userRepo, nil, mockTxBeginner{}, "")
-	svc.SetIdentityRepositories(accountRepo, membershipRepo)
+	svc.SetIdentityRepositories(accountRepo)
 	ctx := ctxutil.WithUser(context.Background(), "U_ACTOR", "T_CURRENT")
-	ctx = ctxutil.WithIdentity(ctx, "A123", "")
+	ctx = ctxutil.WithIdentity(ctx, "A123")
 	ctx = ctxutil.WithPrincipal(ctx, domain.PrincipalTypeHuman, domain.AccountTypeMember, false)
 
 	result, err := svc.Accept(ctx, code)
 	if err != nil {
 		t.Fatalf("Accept() error = %v", err)
 	}
-	if result.User.ID != "U_EXISTING" {
+	if result.User.ID != "U123" {
 		t.Fatalf("expected existing invited member to be reused, got %+v", result.User)
 	}
 }
 
-func TestWorkspaceInviteService_AcceptDoesNotAttachLegacyEmailUserWithoutMembership(t *testing.T) {
+func TestWorkspaceInviteService_AcceptCreatesWorkspaceUserForExistingAccount(t *testing.T) {
 	inviteRepo := newMockWorkspaceInviteRepo()
 	userRepo := newMockUserRepoTenant()
 	accountRepo := newMockAccountRepo()
-	membershipRepo := newMockWorkspaceMembershipRepo()
 	code := "invite_existing_user"
 
 	userRepo.users["U_ACTOR"] = &domain.User{
@@ -217,24 +205,24 @@ func TestWorkspaceInviteService_AcceptDoesNotAttachLegacyEmailUserWithoutMembers
 	}
 
 	svc := NewWorkspaceInviteService(inviteRepo, userRepo, nil, mockTxBeginner{}, "")
-	svc.SetIdentityRepositories(accountRepo, membershipRepo)
+	svc.SetIdentityRepositories(accountRepo)
 	ctx := ctxutil.WithUser(context.Background(), "U_ACTOR", "T_CURRENT")
-	ctx = ctxutil.WithIdentity(ctx, "A123", "")
+	ctx = ctxutil.WithIdentity(ctx, "A123")
 	ctx = ctxutil.WithPrincipal(ctx, domain.PrincipalTypeHuman, domain.AccountTypeMember, false)
 
 	result, err := svc.Accept(ctx, code)
 	if err != nil {
 		t.Fatalf("Accept() error = %v", err)
 	}
-	if result.User != nil {
-		t.Fatalf("expected no compatibility user reuse, got %+v", result.User)
+	if result.User == nil {
+		t.Fatalf("expected workspace user to be created, got %+v", result)
 	}
-	membership, err := membershipRepo.GetByWorkspaceAndAccount(context.Background(), "T_INVITED", "A123")
+	user, err := userRepo.GetByWorkspaceAndAccount(context.Background(), "T_INVITED", "A123")
 	if err != nil {
-		t.Fatalf("expected membership to be created: %v", err)
+		t.Fatalf("expected workspace user to be created: %v", err)
 	}
-	if membership.UserID != "" {
-		t.Fatalf("membership user_id = %q, want empty compatibility user", membership.UserID)
+	if user.ID != result.User.ID {
+		t.Fatalf("expected created user to match response, got %+v %+v", user, result.User)
 	}
 }
 
@@ -242,7 +230,6 @@ func TestWorkspaceInviteService_AcceptRejectsMismatchedEmail(t *testing.T) {
 	inviteRepo := newMockWorkspaceInviteRepo()
 	userRepo := newMockUserRepoTenant()
 	accountRepo := newMockAccountRepo()
-	membershipRepo := newMockWorkspaceMembershipRepo()
 	code := "invite_mismatch"
 
 	userRepo.users["U_ACTOR"] = &domain.User{
@@ -263,7 +250,7 @@ func TestWorkspaceInviteService_AcceptRejectsMismatchedEmail(t *testing.T) {
 	}
 
 	svc := NewWorkspaceInviteService(inviteRepo, userRepo, nil, mockTxBeginner{}, "")
-	svc.SetIdentityRepositories(accountRepo, membershipRepo)
+	svc.SetIdentityRepositories(accountRepo)
 	ctx := ctxutil.WithUser(context.Background(), "U_ACTOR", "T_CURRENT")
 	ctx = ctxutil.WithPrincipal(ctx, domain.PrincipalTypeHuman, domain.AccountTypeMember, false)
 
@@ -276,7 +263,6 @@ func TestWorkspaceInviteService_CreateReturnsRawCode(t *testing.T) {
 	inviteRepo := newMockWorkspaceInviteRepo()
 	userRepo := newMockUserRepoTenant()
 	accountRepo := newMockAccountRepo()
-	membershipRepo := newMockWorkspaceMembershipRepo()
 	userRepo.users["U_ADMIN"] = &domain.User{
 		ID:            "U_ADMIN",
 		WorkspaceID:   "T123",
@@ -286,7 +272,7 @@ func TestWorkspaceInviteService_CreateReturnsRawCode(t *testing.T) {
 	}
 
 	svc := NewWorkspaceInviteService(inviteRepo, userRepo, nil, mockTxBeginner{}, "https://teraslack.ai")
-	svc.SetIdentityRepositories(accountRepo, membershipRepo)
+	svc.SetIdentityRepositories(accountRepo)
 	ctx := ctxutil.WithUser(context.Background(), "U_ADMIN", "T123")
 	ctx = ctxutil.WithPrincipal(ctx, domain.PrincipalTypeHuman, domain.AccountTypeAdmin, false)
 

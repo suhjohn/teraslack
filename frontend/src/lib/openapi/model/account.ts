@@ -6,18 +6,12 @@
  * OpenAPI spec version: 1.0.0
  */
 import type { PrincipalType } from './principalType';
-import type { UserProfile } from './userProfile';
-
 export interface Account {
   id: string;
   principal_type: PrincipalType;
-  name: string;
-  real_name: string;
-  display_name: string;
   email: string;
   is_bot: boolean;
   deleted: boolean;
-  profile: UserProfile;
   created_at: string;
   updated_at: string;
 }

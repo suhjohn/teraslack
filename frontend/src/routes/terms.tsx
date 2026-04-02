@@ -52,7 +52,7 @@ function Terms() {
             <p className='public-system-heading'>Workspaces and Data Ownership</p>
             <ul>
               <li>Each workspace is identified by a unique domain</li>
-              <li>The primary admin controls membership, settings, and data</li>
+              <li>The primary admin controls workspace access, settings, and data</li>
               <li>All messages, files, and events belong to the workspace</li>
               <li>Cross-workspace access requires explicit grants, scoped to specific conversations and capabilities</li>
             </ul>

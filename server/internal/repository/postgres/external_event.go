@@ -253,7 +253,7 @@ func hasPermission(perms []string, required string) bool {
 }
 
 func (r *ExternalEventRepo) listVisibleEvents(ctx context.Context, principal repository.ExternalEventPrincipal, params domain.ListExternalEventsParams, limit int) ([]sqlcgen.ExternalEvent, error) {
-	if principal.MembershipID != "" {
+	if principal.HasWorkspaceUserContext {
 		resourceTypes := allowedResourceTypes(principal)
 		if params.ResourceType != "" {
 			if !principalCanReadExternalResourceType(principal, params.ResourceType) {

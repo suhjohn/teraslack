@@ -37,14 +37,13 @@ func (r *AuthRepo) CreateSession(ctx context.Context, params domain.CreateAuthSe
 	}
 
 	row, err := r.q.CreateAuthSession(ctx, sqlcgen.CreateAuthSessionParams{
-		ID:           id,
-		WorkspaceID:  params.WorkspaceID,
-		AccountID:    stringToText(params.AccountID),
-		MembershipID: stringToText(params.MembershipID),
-		UserID:       stringToText(params.UserID),
-		SessionHash:  crypto.HashToken(raw),
-		Provider:     string(params.Provider),
-		ExpiresAt:    params.ExpiresAt,
+		ID:          id,
+		WorkspaceID: params.WorkspaceID,
+		AccountID:   stringToText(params.AccountID),
+		UserID:      stringToText(params.UserID),
+		SessionHash: crypto.HashToken(raw),
+		Provider:    string(params.Provider),
+		ExpiresAt:   params.ExpiresAt,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("insert auth session: %w", err)
@@ -151,7 +150,6 @@ func (r *AuthRepo) UpsertOAuthAccount(ctx context.Context, params domain.UpsertO
 		ID:              generateID("OA"),
 		WorkspaceID:     params.WorkspaceID,
 		AccountID:       stringToText(params.AccountID),
-		MembershipID:    stringToText(params.MembershipID),
 		UserID:          stringToText(params.UserID),
 		Provider:        string(params.Provider),
 		ProviderSubject: params.ProviderSubject,

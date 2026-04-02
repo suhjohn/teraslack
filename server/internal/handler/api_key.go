@@ -33,7 +33,7 @@ func (h *APIKeyHandler) Create(w http.ResponseWriter, r *http.Request) {
 		params.WorkspaceID = ctxutil.GetWorkspaceID(r.Context())
 	}
 	// Always track the authenticated actor who created the key.
-	if actorID := service.CompatibilityActorID(r.Context()); actorID != "" {
+	if actorID := service.ActorUserID(r.Context()); actorID != "" {
 		params.CreatedBy = actorID
 	}
 
@@ -72,9 +72,9 @@ func (h *APIKeyHandler) List(w http.ResponseWriter, r *http.Request) {
 	limit, _ := strconv.Atoi(q.Get("limit"))
 	params := domain.ListAPIKeysParams{
 		WorkspaceID: ctxutil.GetWorkspaceID(r.Context()),
-		UserID: q.Get("user_id"),
-		Cursor: q.Get("cursor"),
-		Limit:  limit,
+		AccountID:   q.Get("account_id"),
+		Cursor:      q.Get("cursor"),
+		Limit:       limit,
 	}
 	if q.Get("include_revoked") == "true" {
 		params.IncludeRevoked = true

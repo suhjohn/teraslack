@@ -13,4 +13,6 @@ export interface UpdateAPIKeyRequest {
   description?: string;
   /** New permission set (replaces existing permissions entirely). */
   permissions?: string[];
+  /** Optional replacement allowlist for account-scoped keys. Empty means all eligible workspaces. */
+  workspace_ids?: string[];
 }

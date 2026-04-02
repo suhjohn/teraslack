@@ -24,11 +24,14 @@ import {
   useGetWorkspaceBillableInfo,
   useGetWorkspaceBilling,
   useGetWorkspacePreferences,
+  useListUsers,
   useTransferPrimaryAdmin,
   useUpdateWorkspace,
 } from '../../lib/openapi'
 import type {
   FreeFormObject,
+  User,
+  UsersCollection,
   Workspace,
   WorkspaceBillableInfoMap,
   WorkspaceBilling,
@@ -46,6 +49,10 @@ export const Route = createFileRoute('/workspace/settings')({
 })
 
 type WorkspaceDataTab = 'billable' | 'billing' | 'preferences'
+
+function getUserLabel(user: User) {
+  return user.display_name || user.real_name || user.name || user.email || user.id
+}
 
 function WorkspaceSettingsPage() {
   const navigate = useNavigate({ from: '/workspace/settings' })
@@ -89,8 +96,8 @@ function WorkspaceSettingsPage() {
             replace: true,
           })
         }
-        onCreated={async (workspaceID) => {
-          await selectWorkspace(workspaceID)
+        onCreated={async (nextWorkspaceID) => {
+          await selectWorkspace(nextWorkspaceID)
           void navigate({
             to: '/workspace/settings',
             search: { create: false },
@@ -476,15 +483,27 @@ function TransferPrimaryAdmin({ workspaceID }: { workspaceID: string }) {
   const [error, setError] = useState('')
   const [success, setSuccess] = useState(false)
   const transfer = useTransferPrimaryAdmin()
+  const usersQuery = useListUsers<UsersCollection>(
+    workspaceID,
+    { limit: 200 },
+    { query: { enabled: !!workspaceID, retry: false, staleTime: 30_000 } },
+  )
+
+  const eligibleUsers =
+    usersQuery.data?.items.filter(
+      (user) => !user.deleted && user.principal_type === 'human',
+    ) ?? []
+  const selectedUser =
+    eligibleUsers.find((user) => user.id === targetUserID) ?? null
 
   async function handleTransfer() {
-    if (!targetUserID.trim()) return
+    if (!targetUserID) return
     setError('')
     setSuccess(false)
     try {
       await transfer.mutateAsync({
         id: workspaceID,
-        data: { user_id: targetUserID.trim() },
+        data: { user_id: targetUserID },
       })
       setSuccess(true)
       setTargetUserID('')
@@ -518,21 +537,45 @@ function TransferPrimaryAdmin({ workspaceID }: { workspaceID: string }) {
       ) : null}
 
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
-        <FieldLabel className="min-w-0 flex-1" label="Target user ID">
-          <Input
+        <FieldLabel
+          className="min-w-0 flex-1"
+          label="Target workspace user"
+          description="Only active human users in this workspace can receive the role."
+        >
+          <Select
             value={targetUserID}
             onChange={(e) => setTargetUserID(e.target.value)}
-            placeholder="U12345678"
-          />
+            disabled={usersQuery.isFetching || transfer.isPending}
+          >
+            <option value="">
+              {usersQuery.isFetching
+                ? 'Loading workspace users…'
+                : eligibleUsers.length
+                  ? 'Select a workspace user'
+                  : 'No eligible users found'}
+            </option>
+            {eligibleUsers.map((user) => (
+              <option key={user.id} value={user.id}>
+                {getUserLabel(user)} ({user.id})
+              </option>
+            ))}
+          </Select>
         </FieldLabel>
         <Button
           variant="destructive"
           onClick={() => void handleTransfer()}
-          disabled={transfer.isPending || !targetUserID.trim()}
+          disabled={transfer.isPending || !targetUserID}
         >
           {transfer.isPending ? 'Transferring…' : 'Transfer'}
         </Button>
       </div>
+
+      {selectedUser ? (
+        <p className="text-xs text-[var(--ink-soft)]">
+          Selected: {getUserLabel(selectedUser)}
+          {selectedUser.email ? ` · ${selectedUser.email}` : ''}
+        </p>
+      ) : null}
     </div>
   )
 }

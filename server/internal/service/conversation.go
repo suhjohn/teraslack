@@ -18,7 +18,6 @@ import (
 type ConversationService struct {
 	repo            repository.ConversationRepository
 	userRepo        repository.UserRepository
-	membershipRepo  repository.WorkspaceMembershipRepository
 	externalMembers repository.ExternalMemberRepository
 	access          *ConversationAccessService
 	recorder        EventRecorder
@@ -38,9 +37,7 @@ func (s *ConversationService) SetAccessService(access *ConversationAccessService
 	s.access = access
 }
 
-func (s *ConversationService) SetIdentityRepositories(membershipRepo repository.WorkspaceMembershipRepository) {
-	s.membershipRepo = membershipRepo
-}
+func (s *ConversationService) SetIdentityRepositories(_ ...any) {}
 
 func (s *ConversationService) SetExternalMemberRepository(repo repository.ExternalMemberRepository) {
 	s.externalMembers = repo
@@ -68,7 +65,7 @@ func (s *ConversationService) Create(ctx context.Context, params domain.CreateCo
 	}
 
 	// Verify creator exists
-	creator, err := loadUserWithMembership(ctx, s.userRepo, s.membershipRepo, params.CreatorID)
+	creator, err := loadUser(ctx, s.userRepo, params.CreatorID)
 	if err != nil {
 		return nil, fmt.Errorf("creator: %w", err)
 	}
@@ -82,7 +79,7 @@ func (s *ConversationService) Create(ctx context.Context, params domain.CreateCo
 		if userID == params.CreatorID {
 			return nil, fmt.Errorf("user_ids: %w", domain.ErrInvalidArgument)
 		}
-		user, err := loadUserWithMembership(ctx, s.userRepo, s.membershipRepo, userID)
+		user, err := loadUser(ctx, s.userRepo, userID)
 		if err != nil {
 			return nil, fmt.Errorf("user_id %s: %w", userID, err)
 		}
@@ -183,7 +180,7 @@ func (s *ConversationService) Update(ctx context.Context, id string, params doma
 		AggregateType: domain.AggregateConversation,
 		AggregateID:   conv.ID,
 		WorkspaceID:   conv.WorkspaceID,
-		ActorID:       compatibilityActorID(ctx),
+		ActorID:       actorUserID(ctx),
 		Payload:       payload,
 	}); err != nil {
 		return nil, fmt.Errorf("record conversation.updated event: %w", err)
@@ -229,7 +226,7 @@ func (s *ConversationService) Archive(ctx context.Context, id string) error {
 		AggregateType: domain.AggregateConversation,
 		AggregateID:   id,
 		WorkspaceID:   conv.WorkspaceID,
-		ActorID:       compatibilityActorID(ctx),
+		ActorID:       actorUserID(ctx),
 		Payload:       payload,
 	}); err != nil {
 		return fmt.Errorf("record conversation.archived event: %w", err)
@@ -275,7 +272,7 @@ func (s *ConversationService) Unarchive(ctx context.Context, id string) error {
 		AggregateType: domain.AggregateConversation,
 		AggregateID:   id,
 		WorkspaceID:   conv.WorkspaceID,
-		ActorID:       compatibilityActorID(ctx),
+		ActorID:       actorUserID(ctx),
 		Payload:       payload,
 	}); err != nil {
 		return fmt.Errorf("record conversation.unarchived event: %w", err)
@@ -402,7 +399,7 @@ func (s *ConversationService) List(ctx context.Context, params domain.ListConver
 	if externalList {
 		return s.listExternalMemberConversations(ctx, params)
 	}
-	params.UserID = compatibilityActorID(ctx)
+	params.UserID = actorUserID(ctx)
 	page, err := s.repo.List(ctx, params)
 	if err != nil {
 		return nil, err
@@ -562,7 +559,7 @@ func (s *ConversationService) Invite(ctx context.Context, conversationID, userID
 		AggregateType: domain.AggregateConversation,
 		AggregateID:   conversationID,
 		WorkspaceID:   conv.WorkspaceID,
-		ActorID:       compatibilityActorID(ctx),
+		ActorID:       actorUserID(ctx),
 		Payload:       payload,
 	}); err != nil {
 		return fmt.Errorf("record member_joined event: %w", err)
@@ -614,7 +611,7 @@ func (s *ConversationService) Kick(ctx context.Context, conversationID, userID s
 		AggregateType: domain.AggregateConversation,
 		AggregateID:   conversationID,
 		WorkspaceID:   conv.WorkspaceID,
-		ActorID:       compatibilityActorID(ctx),
+		ActorID:       actorUserID(ctx),
 		Payload:       payload,
 	}); err != nil {
 		return fmt.Errorf("record member_left event: %w", err)

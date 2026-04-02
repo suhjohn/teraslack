@@ -95,7 +95,6 @@ func TestAuthRepo_CreateSession_DoesNotPersistRawToken(t *testing.T) {
 			"AS123",
 			"T123",
 			"A123",
-			"WM123",
 			"U123",
 			"hash-123",
 			"github",
@@ -107,12 +106,11 @@ func TestAuthRepo_CreateSession_DoesNotPersistRawToken(t *testing.T) {
 	repo := NewAuthRepo(db)
 
 	session, err := repo.CreateSession(context.Background(), domain.CreateAuthSessionParams{
-		WorkspaceID:  "T123",
-		AccountID:    "A123",
-		MembershipID: "WM123",
-		UserID:       "U123",
-		Provider:     domain.AuthProviderGitHub,
-		ExpiresAt:    timeNow(),
+		WorkspaceID: "T123",
+		AccountID:   "A123",
+		UserID:      "U123",
+		Provider:    domain.AuthProviderGitHub,
+		ExpiresAt:   timeNow(),
 	})
 	if err != nil {
 		t.Fatalf("CreateSession: %v", err)
@@ -128,5 +126,52 @@ func TestAuthRepo_CreateSession_DoesNotPersistRawToken(t *testing.T) {
 		if ok && strings.HasPrefix(s, "sess_") {
 			t.Fatalf("raw session token leaked into SQL args at position %d: %q", i, s)
 		}
+	}
+	if !strings.Contains(db.sql, "account_id") || !strings.Contains(db.sql, "user_id") {
+		t.Fatalf("auth session insert should persist canonical account_id/user_id columns, got SQL %q", db.sql)
+	}
+	if strings.Contains(db.sql, "membership_id") {
+		t.Fatalf("auth session insert still references removed membership_id column: %q", db.sql)
+	}
+	if session.AccountID != "A123" || session.UserID != "U123" {
+		t.Fatalf("unexpected canonical session identity: %+v", session)
+	}
+}
+
+func TestAuthRepo_UpsertOAuthAccount_UsesCanonicalIdentityColumns(t *testing.T) {
+	db := &captureDB{
+		rowValues: []any{
+			"OA123",
+			"T123",
+			"A123",
+			"U123",
+			"github",
+			"provider-user-123",
+			"member@example.com",
+			time.Time{},
+			time.Time{},
+		},
+	}
+	repo := NewAuthRepo(db)
+
+	account, err := repo.UpsertOAuthAccount(context.Background(), domain.UpsertOAuthAccountParams{
+		WorkspaceID:     "T123",
+		AccountID:       "A123",
+		UserID:          "U123",
+		Provider:        domain.AuthProviderGitHub,
+		ProviderSubject: "provider-user-123",
+		Email:           "member@example.com",
+	})
+	if err != nil {
+		t.Fatalf("UpsertOAuthAccount: %v", err)
+	}
+	if !strings.Contains(db.sql, "account_id") || !strings.Contains(db.sql, "user_id") {
+		t.Fatalf("oauth account upsert should persist canonical account_id/user_id columns, got SQL %q", db.sql)
+	}
+	if strings.Contains(db.sql, "membership_id") {
+		t.Fatalf("oauth account upsert still references removed membership_id column: %q", db.sql)
+	}
+	if account.AccountID != "A123" || account.UserID != "U123" {
+		t.Fatalf("unexpected canonical oauth identity: %+v", account)
 	}
 }

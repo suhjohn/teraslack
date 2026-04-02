@@ -1,3 +1,4 @@
+import type { HTMLAttributes, ReactNode } from 'react'
 import {
   createContext,
   useCallback,
@@ -5,8 +6,6 @@ import {
   useEffect,
   useRef,
   useState,
-  type HTMLAttributes,
-  type ReactNode,
 } from 'react'
 import { cn } from '../../lib/utils'
 

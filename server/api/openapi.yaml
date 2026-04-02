@@ -337,12 +337,13 @@ paths:
                 $ref: "#/components/schemas/AcceptWorkspaceInviteResponse"
         default:
           $ref: "#/components/responses/ApiErrorResponse"
-  /users:
+  /workspaces/{id}/users:
     get:
       tags: [Users]
       operationId: listUsers
+      description: Canonical workspace-local user directory for the selected workspace. Top-level /users routes are not part of the public API.
       parameters:
-        - $ref: "#/components/parameters/WorkspaceIDQuery"
+        - $ref: "#/components/parameters/WorkspaceIDPath"
         - $ref: "#/components/parameters/CursorQuery"
         - $ref: "#/components/parameters/LimitQuery"
         - name: email
@@ -352,7 +353,7 @@ paths:
             type: string
       responses:
         "200":
-          description: Users.
+          description: Workspace-local users for the requested workspace.
           content:
             application/json:
               schema:
@@ -362,6 +363,9 @@ paths:
     post:
       tags: [Users]
       operationId: createUser
+      description: Create a workspace-local user in the selected workspace.
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceIDPath"
       requestBody:
         required: true
         content:
@@ -370,7 +374,7 @@ paths:
               $ref: "#/components/schemas/CreateUserRequest"
       responses:
         "201":
-          description: User created.
+          description: Workspace-local user created.
           headers:
             Location:
               $ref: "#/components/headers/Location"
@@ -380,15 +384,17 @@ paths:
                 $ref: "#/components/schemas/User"
         default:
           $ref: "#/components/responses/ApiErrorResponse"
-  /users/{id}:
+  /workspaces/{id}/users/{user_id}:
     get:
       tags: [Users]
       operationId: getUser
+      description: Read a workspace-local user from the canonical workspace-scoped user surface.
       parameters:
-        - $ref: "#/components/parameters/UserIDPath"
+        - $ref: "#/components/parameters/WorkspaceIDPath"
+        - $ref: "#/components/parameters/UserIDPathNamed"
       responses:
         "200":
-          description: User.
+          description: Workspace-local user.
           content:
             application/json:
               schema:
@@ -398,8 +404,10 @@ paths:
     patch:
       tags: [Users]
       operationId: updateUser
+      description: Update a workspace-local user in the selected workspace.
       parameters:
-        - $ref: "#/components/parameters/UserIDPath"
+        - $ref: "#/components/parameters/WorkspaceIDPath"
+        - $ref: "#/components/parameters/UserIDPathNamed"
       requestBody:
         required: true
         content:
@@ -408,19 +416,21 @@ paths:
               $ref: "#/components/schemas/UpdateUserRequest"
       responses:
         "200":
-          description: User updated.
+          description: Workspace-local user updated.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/User"
         default:
           $ref: "#/components/responses/ApiErrorResponse"
-  /users/{id}/roles:
+  /workspaces/{id}/users/{user_id}/roles:
     get:
       tags: [Users]
       operationId: getUserRoles
+      description: Read delegated roles for a workspace-local user.
       parameters:
-        - $ref: "#/components/parameters/UserIDPath"
+        - $ref: "#/components/parameters/WorkspaceIDPath"
+        - $ref: "#/components/parameters/UserIDPathNamed"
       responses:
         "200":
           description: Delegated roles for the user.
@@ -433,8 +443,10 @@ paths:
     put:
       tags: [Users]
       operationId: updateUserRoles
+      description: Replace delegated roles for a workspace-local user.
       parameters:
-        - $ref: "#/components/parameters/UserIDPath"
+        - $ref: "#/components/parameters/WorkspaceIDPath"
+        - $ref: "#/components/parameters/UserIDPathNamed"
       requestBody:
         required: true
         content:
@@ -1289,11 +1301,17 @@ paths:
       operationId: listApiKeys
       parameters:
         - $ref: "#/components/parameters/WorkspaceIDQuery"
-        - name: user_id
+        - name: account_id
           in: query
-          description: Filter API keys owned by this user.
+          description: Filter account-scoped API keys owned by this account.
           schema:
             type: string
+        - name: scope
+          in: query
+          description: Filter keys to a single scope.
+          schema:
+            type: string
+            enum: [account, workspace_system]
         - name: include_revoked
           in: query
           description: When true, include revoked API keys in results.
@@ -1819,13 +1837,9 @@ components:
         [
           id,
           principal_type,
-          name,
-          real_name,
-          display_name,
           email,
           is_bot,
           deleted,
-          profile,
           created_at,
           updated_at,
         ]
@@ -1834,42 +1848,12 @@ components:
           type: string
         principal_type:
           $ref: "#/components/schemas/PrincipalType"
-        name:
-          type: string
-        real_name:
-          type: string
-        display_name:
-          type: string
         email:
           type: string
         is_bot:
           type: boolean
         deleted:
           type: boolean
-        profile:
-          $ref: "#/components/schemas/UserProfile"
-        created_at:
-          type: string
-          format: date-time
-        updated_at:
-          type: string
-          format: date-time
-    WorkspaceMembership:
-      type: object
-      required:
-        [id, account_id, workspace_id, created_at, updated_at]
-      properties:
-        id:
-          type: string
-        account_id:
-          type: string
-        workspace_id:
-          type: string
-        user_id:
-          type: string
-          description: Workspace-local compatibility user row, materialized lazily when needed.
-        account_type:
-          $ref: "#/components/schemas/AccountType"
         created_at:
           type: string
           format: date-time
@@ -2289,12 +2273,9 @@ components:
         account_id:
           type: string
           description: Canonical account identity for the session actor.
-        membership_id:
-          type: string
-          description: Workspace membership identity for the session actor.
         user_id:
           type: string
-          description: Compatibility workspace-local user identity when materialized.
+          description: Workspace-local user identity for the selected workspace context.
         provider:
           $ref: "#/components/schemas/AuthProvider"
         token:
@@ -2341,9 +2322,6 @@ components:
         accepted_by_account_id:
           type: string
           description: Canonical account that accepted the invite.
-        accepted_by_membership_id:
-          type: string
-          description: Workspace membership created or reused by invite acceptance.
         expires_at:
           type: string
           format: date-time
@@ -2387,14 +2365,12 @@ components:
           description: Raw invite code returned when the invite was created.
     AcceptWorkspaceInviteResponse:
       type: object
-      required: [invite, membership]
+      required: [invite]
       properties:
         invite:
           $ref: "#/components/schemas/WorkspaceInvite"
         user:
           $ref: "#/components/schemas/User"
-        membership:
-          $ref: "#/components/schemas/WorkspaceMembership"
     AuthSignupRequest:
       type: object
       required: [email]
@@ -2428,7 +2404,7 @@ components:
           description: Six-digit verification code.
     AuthMeResponse:
       type: object
-      description: The authenticated identity of the current request.
+      description: The authenticated identity of the current request, with canonical account data plus selected workspace user context when available.
       required: [workspace_id, principal_type, is_bot]
       properties:
         workspace_id:
@@ -2437,12 +2413,9 @@ components:
         account_id:
           type: string
           description: Canonical account identity of the caller.
-        membership_id:
-          type: string
-          description: Workspace membership identity of the caller when the caller is a member.
         user_id:
           type: string
-          description: Compatibility workspace-local user identity of the caller when materialized.
+          description: Workspace-local user identity of the caller in the selected workspace context.
         principal_type:
           $ref: "#/components/schemas/PrincipalType"
         account_type:
@@ -2460,18 +2433,19 @@ components:
           description: OAuth scopes associated with the current request when applicable.
           items:
             type: string
+        account:
+          $ref: "#/components/schemas/Account"
         user:
           $ref: "#/components/schemas/User"
     APIKey:
       type: object
-      description: An API key used to authenticate requests. Keys are scoped to a workspace and optionally to a specific user.
+      description: An API key used to authenticate requests. Keys are either account-scoped or workspace-system-scoped.
       required:
         - id
         - name
+        - scope
         - key_prefix
         - key_hint
-        - workspace_id
-        - user_id
         - created_by
         - permissions
         - request_count
@@ -2497,15 +2471,22 @@ components:
         key_hint:
           type: string
           description: Masked version of the key shown in the UI (e.g. "tsk_abc...xyz").
+        scope:
+          $ref: "#/components/schemas/APIKeyScope"
         workspace_id:
           type: string
-          description: Workspace this key is scoped to.
-        user_id:
+          description: Workspace this key is pinned to when `scope` is `workspace_system`.
+        account_id:
           type: string
-          description: User this key acts on behalf of. Empty for workspace-level keys.
+          description: Account that owns this key when `scope` is `account`.
+        workspace_ids:
+          type: array
+          description: Optional workspace allowlist for account-scoped keys. Empty means all workspaces where the account has a user.
+          items:
+            type: string
         created_by:
           type: string
-          description: User who created this key.
+          description: Workspace user who created this key.
         permissions:
           type: array
           description: List of permission strings granted to this key.
@@ -3092,7 +3073,7 @@ components:
           description: Pagination cursor from a previous search response.
     CreateAPIKeyRequest:
       type: object
-      required: [name, workspace_id]
+      required: [name, scope]
       properties:
         name:
           type: string
@@ -3100,12 +3081,19 @@ components:
         description:
           type: string
           description: Optional longer description of the key's purpose.
+        scope:
+          $ref: "#/components/schemas/APIKeyScope"
         workspace_id:
           type: string
-          description: Workspace to scope this key to.
-        user_id:
+          description: Required when `scope` is `workspace_system`. Also accepted as the explicit request workspace context for account-scoped keys.
+        account_id:
           type: string
-          description: User this key acts on behalf of. Omit for workspace-level keys.
+          description: Optional explicit account owner for internal account-scoped key creation. Authenticated requests default to the current account.
+        workspace_ids:
+          type: array
+          description: Optional allowlist for account-scoped keys. Omit or pass an empty array to allow every workspace where the account has a user.
+          items:
+            type: string
         created_by:
           type: string
           description: User creating the key. Defaults to the authenticated user.
@@ -3131,6 +3119,11 @@ components:
           description: New permission set (replaces existing permissions entirely).
           items:
             type: string
+        workspace_ids:
+          type: array
+          description: Optional replacement allowlist for account-scoped keys. Empty means all eligible workspaces.
+          items:
+            type: string
     RotateAPIKeyRequest:
       type: object
       properties:
@@ -3147,6 +3140,9 @@ components:
         secret:
           type: string
           description: The full API key secret. Store this securely — it cannot be retrieved again.
+    APIKeyScope:
+      type: string
+      enum: [account, workspace_system]
     WorkspacesCollection:
       type: object
       required: [items]

@@ -13,13 +13,9 @@ import (
 type Account struct {
 	ID            string    `json:"id"`
 	PrincipalType string    `json:"principal_type"`
-	Name          string    `json:"name"`
-	RealName      string    `json:"real_name"`
-	DisplayName   string    `json:"display_name"`
 	Email         string    `json:"email"`
 	IsBot         bool      `json:"is_bot"`
 	Deleted       bool      `json:"deleted"`
-	Profile       []byte    `json:"profile"`
 	CreatedAt     time.Time `json:"created_at"`
 	UpdatedAt     time.Time `json:"updated_at"`
 }
@@ -31,8 +27,7 @@ type ApiKey struct {
 	KeyHash           string      `json:"key_hash"`
 	KeyPrefix         string      `json:"key_prefix"`
 	KeyHint           string      `json:"key_hint"`
-	WorkspaceID       string      `json:"workspace_id"`
-	PrincipalID       pgtype.Text `json:"principal_id"`
+	WorkspaceID       pgtype.Text `json:"workspace_id"`
 	CreatedBy         string      `json:"created_by"`
 	OnBehalfOf        string      `json:"on_behalf_of"`
 	Type              string      `json:"type"`
@@ -47,19 +42,21 @@ type ApiKey struct {
 	GracePeriodEndsAt *time.Time  `json:"grace_period_ends_at"`
 	CreatedAt         time.Time   `json:"created_at"`
 	UpdatedAt         time.Time   `json:"updated_at"`
+	Scope             string      `json:"scope"`
+	OwnerAccountID    pgtype.Text `json:"owner_account_id"`
+	WorkspaceIds      []string    `json:"workspace_ids"`
 }
 
 type AuthSession struct {
-	ID           string      `json:"id"`
-	WorkspaceID  string      `json:"workspace_id"`
-	UserID       pgtype.Text `json:"user_id"`
-	SessionHash  string      `json:"session_hash"`
-	Provider     string      `json:"provider"`
-	ExpiresAt    time.Time   `json:"expires_at"`
-	RevokedAt    *time.Time  `json:"revoked_at"`
-	CreatedAt    time.Time   `json:"created_at"`
-	AccountID    pgtype.Text `json:"account_id"`
-	MembershipID pgtype.Text `json:"membership_id"`
+	ID          string      `json:"id"`
+	WorkspaceID string      `json:"workspace_id"`
+	UserID      pgtype.Text `json:"user_id"`
+	SessionHash string      `json:"session_hash"`
+	Provider    string      `json:"provider"`
+	ExpiresAt   time.Time   `json:"expires_at"`
+	RevokedAt   *time.Time  `json:"revoked_at"`
+	CreatedAt   time.Time   `json:"created_at"`
+	AccountID   pgtype.Text `json:"account_id"`
 }
 
 type AuthorizationAuditLog struct {
@@ -303,7 +300,6 @@ type OauthAccount struct {
 	CreatedAt       time.Time   `json:"created_at"`
 	UpdatedAt       time.Time   `json:"updated_at"`
 	AccountID       pgtype.Text `json:"account_id"`
-	MembershipID    pgtype.Text `json:"membership_id"`
 }
 
 type OauthAuthorizationCode struct {
@@ -371,20 +367,21 @@ type ThreadParticipant struct {
 }
 
 type User struct {
-	ID            string    `json:"id"`
-	WorkspaceID   string    `json:"workspace_id"`
-	Name          string    `json:"name"`
-	RealName      string    `json:"real_name"`
-	DisplayName   string    `json:"display_name"`
-	Email         string    `json:"email"`
-	IsBot         bool      `json:"is_bot"`
-	AccountType   string    `json:"account_type"`
-	Deleted       bool      `json:"deleted"`
-	Profile       []byte    `json:"profile"`
-	CreatedAt     time.Time `json:"created_at"`
-	UpdatedAt     time.Time `json:"updated_at"`
-	PrincipalType string    `json:"principal_type"`
-	OwnerID       string    `json:"owner_id"`
+	ID            string      `json:"id"`
+	WorkspaceID   string      `json:"workspace_id"`
+	Name          string      `json:"name"`
+	RealName      string      `json:"real_name"`
+	DisplayName   string      `json:"display_name"`
+	Email         string      `json:"email"`
+	IsBot         bool        `json:"is_bot"`
+	AccountType   string      `json:"account_type"`
+	Deleted       bool        `json:"deleted"`
+	Profile       []byte      `json:"profile"`
+	CreatedAt     time.Time   `json:"created_at"`
+	UpdatedAt     time.Time   `json:"updated_at"`
+	PrincipalType string      `json:"principal_type"`
+	OwnerID       string      `json:"owner_id"`
+	AccountID     pgtype.Text `json:"account_id"`
 }
 
 type UserEventFeed struct {
@@ -441,26 +438,15 @@ type WorkspaceExternalWorkspace struct {
 }
 
 type WorkspaceInvite struct {
-	ID                     string      `json:"id"`
-	WorkspaceID            string      `json:"workspace_id"`
-	Email                  string      `json:"email"`
-	InvitedBy              string      `json:"invited_by"`
-	TokenHash              string      `json:"token_hash"`
-	AcceptedByUserID       pgtype.Text `json:"accepted_by_user_id"`
-	ExpiresAt              time.Time   `json:"expires_at"`
-	AcceptedAt             *time.Time  `json:"accepted_at"`
-	CreatedAt              time.Time   `json:"created_at"`
-	UpdatedAt              time.Time   `json:"updated_at"`
-	AcceptedByAccountID    pgtype.Text `json:"accepted_by_account_id"`
-	AcceptedByMembershipID pgtype.Text `json:"accepted_by_membership_id"`
-}
-
-type WorkspaceMembership struct {
-	ID          string      `json:"id"`
-	AccountID   string      `json:"account_id"`
-	WorkspaceID string      `json:"workspace_id"`
-	UserID      pgtype.Text `json:"user_id"`
-	AccountType string      `json:"account_type"`
-	CreatedAt   time.Time   `json:"created_at"`
-	UpdatedAt   time.Time   `json:"updated_at"`
+	ID                  string      `json:"id"`
+	WorkspaceID         string      `json:"workspace_id"`
+	Email               string      `json:"email"`
+	InvitedBy           string      `json:"invited_by"`
+	TokenHash           string      `json:"token_hash"`
+	AcceptedByUserID    pgtype.Text `json:"accepted_by_user_id"`
+	ExpiresAt           time.Time   `json:"expires_at"`
+	AcceptedAt          *time.Time  `json:"accepted_at"`
+	CreatedAt           time.Time   `json:"created_at"`
+	UpdatedAt           time.Time   `json:"updated_at"`
+	AcceptedByAccountID pgtype.Text `json:"accepted_by_account_id"`
 }

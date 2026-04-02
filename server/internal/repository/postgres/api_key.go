@@ -47,9 +47,6 @@ func (r *APIKeyRepo) Create(ctx context.Context, params domain.CreateAPIKeyParam
 	keyHint := rawKey[len(rawKey)-4:]
 
 	createdBy := params.CreatedBy
-	if createdBy == "" {
-		createdBy = params.UserID
-	}
 
 	permissions := params.Permissions
 	if permissions == nil {
@@ -67,20 +64,22 @@ func (r *APIKeyRepo) Create(ctx context.Context, params domain.CreateAPIKeyParam
 	}
 
 	row, err := r.q.CreateAPIKey(ctx, sqlcgen.CreateAPIKeyParams{
-		ID:          id,
-		Name:        params.Name,
-		Description: params.Description,
-		KeyHash:     keyHash,
-		KeyPrefix:   prefix,
-		KeyHint:     keyHint,
-		WorkspaceID:      params.WorkspaceID,
-		Column8:     params.UserID,
-		CreatedBy:   createdBy,
-		OnBehalfOf:  "",
-		Type:        "persistent",
-		Environment: "live",
-		Permissions: permissions,
-		ExpiresAt:   expiresAt,
+		ID:           id,
+		Name:         params.Name,
+		Description:  params.Description,
+		KeyHash:      keyHash,
+		KeyPrefix:    prefix,
+		KeyHint:      keyHint,
+		Scope:        string(params.Scope),
+		Column8:      stringToText(params.WorkspaceID),
+		Column9:      stringToText(params.AccountID),
+		WorkspaceIds: params.WorkspaceIDs,
+		CreatedBy:    createdBy,
+		OnBehalfOf:   "",
+		Type:         "persistent",
+		Environment:  "live",
+		Permissions:  permissions,
+		ExpiresAt:    expiresAt,
 	})
 	if err != nil {
 		return nil, "", fmt.Errorf("insert api key: %w", err)
@@ -123,59 +122,33 @@ func (r *APIKeyRepo) List(ctx context.Context, params domain.ListAPIKeysParams) 
 
 	rows := make([]any, 0, limit+1)
 
-	if params.UserID != "" {
-		if params.IncludeRevoked {
-			queryRows, err := r.q.ListAPIKeysByPrincipalIncludeRevoked(ctx, sqlcgen.ListAPIKeysByPrincipalIncludeRevokedParams{
-				WorkspaceID:      params.WorkspaceID,
-				PrincipalID: stringToText(params.UserID),
-				ID:          params.Cursor,
-				Limit:       int32(limit + 1),
-			})
-			if err != nil {
-				return nil, fmt.Errorf("list api keys: %w", err)
-			}
-			for _, row := range queryRows {
-				rows = append(rows, row)
-			}
-		} else {
-			queryRows, err := r.q.ListAPIKeysByPrincipal(ctx, sqlcgen.ListAPIKeysByPrincipalParams{
-				WorkspaceID:      params.WorkspaceID,
-				PrincipalID: stringToText(params.UserID),
-				ID:          params.Cursor,
-				Limit:       int32(limit + 1),
-			})
-			if err != nil {
-				return nil, fmt.Errorf("list api keys: %w", err)
-			}
-			for _, row := range queryRows {
-				rows = append(rows, row)
-			}
+	if params.IncludeRevoked {
+		queryRows, err := r.q.ListAPIKeysIncludeRevoked(ctx, sqlcgen.ListAPIKeysIncludeRevokedParams{
+			Column1: params.WorkspaceID,
+			Column2: params.AccountID,
+			Column3: string(params.Scope),
+			ID:      params.Cursor,
+			Limit:   int32(limit + 1),
+		})
+		if err != nil {
+			return nil, fmt.Errorf("list api keys: %w", err)
+		}
+		for _, row := range queryRows {
+			rows = append(rows, row)
 		}
 	} else {
-		if params.IncludeRevoked {
-			queryRows, err := r.q.ListAPIKeysIncludeRevoked(ctx, sqlcgen.ListAPIKeysIncludeRevokedParams{
-				WorkspaceID: params.WorkspaceID,
-				ID:     params.Cursor,
-				Limit:  int32(limit + 1),
-			})
-			if err != nil {
-				return nil, fmt.Errorf("list api keys: %w", err)
-			}
-			for _, row := range queryRows {
-				rows = append(rows, row)
-			}
-		} else {
-			queryRows, err := r.q.ListAPIKeys(ctx, sqlcgen.ListAPIKeysParams{
-				WorkspaceID: params.WorkspaceID,
-				ID:     params.Cursor,
-				Limit:  int32(limit + 1),
-			})
-			if err != nil {
-				return nil, fmt.Errorf("list api keys: %w", err)
-			}
-			for _, row := range queryRows {
-				rows = append(rows, row)
-			}
+		queryRows, err := r.q.ListAPIKeys(ctx, sqlcgen.ListAPIKeysParams{
+			Column1: params.WorkspaceID,
+			Column2: params.AccountID,
+			Column3: string(params.Scope),
+			ID:      params.Cursor,
+			Limit:   int32(limit + 1),
+		})
+		if err != nil {
+			return nil, fmt.Errorf("list api keys: %w", err)
+		}
+		for _, row := range queryRows {
+			rows = append(rows, row)
 		}
 	}
 
@@ -225,12 +198,17 @@ func (r *APIKeyRepo) Update(ctx context.Context, id string, params domain.Update
 	if params.Permissions != nil {
 		perms = *params.Permissions
 	}
+	workspaceIDs := existing.WorkspaceIDs
+	if params.WorkspaceIDs != nil {
+		workspaceIDs = *params.WorkspaceIDs
+	}
 
 	row, err := r.q.UpdateAPIKey(ctx, sqlcgen.UpdateAPIKeyParams{
-		ID:          id,
-		Name:        name,
-		Description: desc,
-		Permissions: perms,
+		ID:           id,
+		Name:         name,
+		Description:  desc,
+		Permissions:  perms,
+		WorkspaceIds: workspaceIDs,
 	})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {

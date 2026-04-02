@@ -70,8 +70,8 @@ func (s *EventService) CreateSubscription(ctx context.Context, params domain.Cre
 		EventType:     domain.EventSubscriptionCreated,
 		AggregateType: domain.AggregateSubscription,
 		AggregateID:   sub.ID,
-		WorkspaceID:        sub.WorkspaceID,
-		ActorID:       compatibilityActorID(ctx),
+		WorkspaceID:   sub.WorkspaceID,
+		ActorID:       actorUserID(ctx),
 		Payload:       payload,
 	}); err != nil {
 		return nil, fmt.Errorf("record event_subscription.created event: %w", err)
@@ -138,8 +138,8 @@ func (s *EventService) UpdateSubscription(ctx context.Context, id string, params
 		EventType:     domain.EventSubscriptionUpdated,
 		AggregateType: domain.AggregateSubscription,
 		AggregateID:   sub.ID,
-		WorkspaceID:        sub.WorkspaceID,
-		ActorID:       compatibilityActorID(ctx),
+		WorkspaceID:   sub.WorkspaceID,
+		ActorID:       actorUserID(ctx),
 		Payload:       payload,
 	}); err != nil {
 		return nil, fmt.Errorf("record event_subscription.updated event: %w", err)
@@ -183,8 +183,8 @@ func (s *EventService) DeleteSubscription(ctx context.Context, id string) error 
 		EventType:     domain.EventSubscriptionDeleted,
 		AggregateType: domain.AggregateSubscription,
 		AggregateID:   id,
-		WorkspaceID:        sub.WorkspaceID,
-		ActorID:       compatibilityActorID(ctx),
+		WorkspaceID:   sub.WorkspaceID,
+		ActorID:       actorUserID(ctx),
 		Payload:       payload,
 	}); err != nil {
 		return fmt.Errorf("record event_subscription.deleted event: %w", err)

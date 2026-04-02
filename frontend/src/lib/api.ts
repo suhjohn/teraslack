@@ -12,11 +12,24 @@ export type CollectionResponse<T> = {
 export type AuthContext = {
   workspace_id: string
   account_id?: string
-  membership_id?: string
   user_id?: string
   principal_type: 'human' | 'agent' | 'system' | string
   account_type?: 'primary_admin' | 'admin' | 'member' | ''
   is_bot: boolean
+  permissions?: string[]
+  scopes?: string[]
+  account?: Account
+  user?: User
+}
+
+export type Account = {
+  id: string
+  email: string
+  principal_type: string
+  is_bot: boolean
+  deleted: boolean
+  created_at: string
+  updated_at: string
 }
 
 export type Workspace = {
@@ -32,6 +45,7 @@ export type Workspace = {
 
 export type User = {
   id: string
+  account_id?: string
   workspace_id: string
   name: string
   real_name: string

@@ -776,7 +776,7 @@ func (s *Server) userByID(ctx context.Context, userID string) (domain.User, erro
 		return user, nil
 	}
 
-	found, err := s.client.GetUser(ctx, userID)
+	found, err := s.client.GetUser(ctx, s.auth.WorkspaceID, userID)
 	if err != nil {
 		return domain.User{}, err
 	}

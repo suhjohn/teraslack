@@ -73,24 +73,23 @@ type oauthProfile struct {
 }
 
 type AuthService struct {
-	repo           repository.AuthRepository
-	userRepo       repository.UserRepository
-	accountRepo    repository.AccountRepository
-	membershipRepo repository.WorkspaceMembershipRepository
-	workspaceRepo  repository.WorkspaceRepository
-	inviteRepo     repository.WorkspaceInviteRepository
-	auditRepo      repository.AuthorizationAuditRepository
-	recorder       EventRecorder
-	db             repository.TxBeginner
-	logger         *slog.Logger
-	httpClient     *http.Client
-	baseURL        string
-	frontendURL    string
-	stateSecret    []byte
-	github         oauthProviderConfig
-	google         oauthProviderConfig
-	emailSender    AuthEmailSender
-	emailCodeTTL   time.Duration
+	repo          repository.AuthRepository
+	userRepo      repository.UserRepository
+	accountRepo   repository.AccountRepository
+	workspaceRepo repository.WorkspaceRepository
+	inviteRepo    repository.WorkspaceInviteRepository
+	auditRepo     repository.AuthorizationAuditRepository
+	recorder      EventRecorder
+	db            repository.TxBeginner
+	logger        *slog.Logger
+	httpClient    *http.Client
+	baseURL       string
+	frontendURL   string
+	stateSecret   []byte
+	github        oauthProviderConfig
+	google        oauthProviderConfig
+	emailSender   AuthEmailSender
+	emailCodeTTL  time.Duration
 }
 
 func NewAuthService(repo repository.AuthRepository, userRepo repository.UserRepository, workspaceRepo repository.WorkspaceRepository, inviteRepo repository.WorkspaceInviteRepository, recorder EventRecorder, db repository.TxBeginner, logger *slog.Logger, cfg AuthConfig) *AuthService {
@@ -114,19 +113,18 @@ func NewAuthService(repo repository.AuthRepository, userRepo repository.UserRepo
 		})
 	}
 	return &AuthService{
-		repo:           repo,
-		userRepo:       userRepo,
-		accountRepo:    nil,
-		membershipRepo: nil,
-		workspaceRepo:  workspaceRepo,
-		inviteRepo:     inviteRepo,
-		recorder:       recorder,
-		db:             db,
-		logger:         logger,
-		httpClient:     httpClient,
-		baseURL:        strings.TrimRight(cfg.BaseURL, "/"),
-		frontendURL:    strings.TrimRight(cfg.FrontendURL, "/"),
-		stateSecret:    []byte(cfg.StateSecret),
+		repo:          repo,
+		userRepo:      userRepo,
+		accountRepo:   nil,
+		workspaceRepo: workspaceRepo,
+		inviteRepo:    inviteRepo,
+		recorder:      recorder,
+		db:            db,
+		logger:        logger,
+		httpClient:    httpClient,
+		baseURL:       strings.TrimRight(cfg.BaseURL, "/"),
+		frontendURL:   strings.TrimRight(cfg.FrontendURL, "/"),
+		stateSecret:   []byte(cfg.StateSecret),
 		github: oauthProviderConfig{
 			ClientID:     cfg.GitHubOAuthClientID,
 			ClientSecret: cfg.GitHubOAuthClientSecret,
@@ -144,41 +142,74 @@ func (s *AuthService) SetAuthorizationAuditRepository(repo repository.Authorizat
 	s.auditRepo = repo
 }
 
-func (s *AuthService) SetIdentityRepositories(accountRepo repository.AccountRepository, membershipRepo repository.WorkspaceMembershipRepository) {
+func (s *AuthService) SetIdentityRepositories(accountRepo repository.AccountRepository, _ ...any) {
 	s.accountRepo = accountRepo
-	s.membershipRepo = membershipRepo
+}
+
+func (s *AuthService) GetCurrentIdentity(ctx context.Context) (*domain.Account, *domain.User, error) {
+	var user *domain.User
+	userID := strings.TrimSpace(ctxutil.GetUserID(ctx))
+	switch {
+	case userID != "":
+		resolvedUser, err := s.userRepo.Get(ctx, userID)
+		if err != nil {
+			if errors.Is(err, domain.ErrNotFound) {
+				break
+			}
+			return nil, nil, err
+		}
+		user = resolvedUser
+	case s.accountRepo != nil:
+		workspaceID := strings.TrimSpace(ctxutil.GetWorkspaceID(ctx))
+		accountID := strings.TrimSpace(ctxutil.GetAccountID(ctx))
+		if workspaceID != "" && accountID != "" {
+			resolvedUser, err := s.userRepo.GetByWorkspaceAndAccount(ctx, workspaceID, accountID)
+			if err != nil {
+				if !errors.Is(err, domain.ErrNotFound) {
+					return nil, nil, err
+				}
+			} else {
+				user = resolvedUser
+			}
+		}
+	}
+
+	if s.accountRepo == nil {
+		return nil, user, nil
+	}
+
+	accountID := strings.TrimSpace(ctxutil.GetAccountID(ctx))
+	if accountID == "" && user != nil {
+		accountID = strings.TrimSpace(user.AccountID)
+	}
+	if accountID == "" {
+		return nil, user, nil
+	}
+
+	account, err := s.accountRepo.Get(ctx, accountID)
+	if err != nil {
+		if errors.Is(err, domain.ErrNotFound) {
+			return nil, user, nil
+		}
+		return nil, nil, err
+	}
+	return account, applyAccountIdentityToUser(user, account), nil
+}
+
+func (s *AuthService) GetCurrentAccount(ctx context.Context) (*domain.Account, error) {
+	account, _, err := s.GetCurrentIdentity(ctx)
+	return account, err
 }
 
 func (s *AuthService) GetCurrentUser(ctx context.Context) (*domain.User, error) {
-	userID := strings.TrimSpace(ctxutil.GetUserID(ctx))
-	if userID != "" {
-		user, err := loadUserWithMembership(ctx, s.userRepo, s.membershipRepo, userID)
-		if err != nil {
-			if errors.Is(err, domain.ErrNotFound) {
-				return nil, nil
-			}
-			return nil, err
-		}
-		return user, nil
-	}
-	if s.accountRepo == nil || s.membershipRepo == nil {
-		return nil, nil
-	}
-	user, _, err := resolveAuthContextUser(ctx, nil, s.userRepo, s.accountRepo, s.membershipRepo, &domain.AuthContext{
-		WorkspaceID:  ctxutil.GetWorkspaceID(ctx),
-		AccountID:    ctxutil.GetAccountID(ctx),
-		MembershipID: ctxutil.GetMembershipID(ctx),
-	}, s.recorder)
+	_, user, err := s.GetCurrentIdentity(ctx)
 	if err != nil {
-		if errors.Is(err, domain.ErrNotFound) || errors.Is(err, domain.ErrInvalidAuth) {
-			return nil, nil
-		}
 		return nil, err
 	}
 	return user, nil
 }
 
-func (s *AuthService) createSessionParamsForUser(ctx context.Context, workspaceID string, user *domain.User, provider domain.AuthProvider, expiresAt time.Time) (domain.CreateAuthSessionParams, error) {
+func (s *AuthService) createSessionParamsForUser(workspaceID string, user *domain.User, provider domain.AuthProvider, expiresAt time.Time) (domain.CreateAuthSessionParams, error) {
 	params := domain.CreateAuthSessionParams{
 		WorkspaceID: workspaceID,
 		Provider:    provider,
@@ -188,28 +219,16 @@ func (s *AuthService) createSessionParamsForUser(ctx context.Context, workspaceI
 		return params, fmt.Errorf("user: %w", domain.ErrInvalidArgument)
 	}
 	params.UserID = user.ID
-	if s.membershipRepo == nil {
-		return params, nil
+	if user.AccountID != "" {
+		params.AccountID = user.AccountID
 	}
-	membership, err := s.membershipRepo.GetByLegacyUserID(ctx, user.ID)
-	if err != nil {
-		if errors.Is(err, domain.ErrNotFound) {
-			return params, nil
-		}
-		return params, err
-	}
-	params.AccountID = membership.AccountID
-	params.MembershipID = membership.ID
-	if membership.WorkspaceID != "" {
-		params.WorkspaceID = membership.WorkspaceID
-	}
-	if membership.UserID != "" {
-		params.UserID = membership.UserID
+	if user.WorkspaceID != "" {
+		params.WorkspaceID = user.WorkspaceID
 	}
 	return params, nil
 }
 
-func (s *AuthService) oauthAccountParamsForUser(ctx context.Context, workspaceID string, user *domain.User, provider domain.AuthProvider, providerSubject, email string) (domain.UpsertOAuthAccountParams, error) {
+func (s *AuthService) oauthAccountParamsForUser(workspaceID string, user *domain.User, provider domain.AuthProvider, providerSubject, email string) (domain.UpsertOAuthAccountParams, error) {
 	params := domain.UpsertOAuthAccountParams{
 		WorkspaceID:     workspaceID,
 		Provider:        provider,
@@ -220,23 +239,11 @@ func (s *AuthService) oauthAccountParamsForUser(ctx context.Context, workspaceID
 		return params, fmt.Errorf("user: %w", domain.ErrInvalidArgument)
 	}
 	params.UserID = user.ID
-	if s.membershipRepo == nil {
-		return params, nil
+	if user.AccountID != "" {
+		params.AccountID = user.AccountID
 	}
-	membership, err := s.membershipRepo.GetByLegacyUserID(ctx, user.ID)
-	if err != nil {
-		if errors.Is(err, domain.ErrNotFound) {
-			return params, nil
-		}
-		return params, err
-	}
-	params.AccountID = membership.AccountID
-	params.MembershipID = membership.ID
-	if membership.WorkspaceID != "" {
-		params.WorkspaceID = membership.WorkspaceID
-	}
-	if membership.UserID != "" {
-		params.UserID = membership.UserID
+	if user.WorkspaceID != "" {
+		params.WorkspaceID = user.WorkspaceID
 	}
 	return params, nil
 }
@@ -329,7 +336,7 @@ func (s *AuthService) Verify(ctx context.Context, params domain.VerifyParams) (*
 		return nil, err
 	}
 
-	sessionParams, err := s.createSessionParamsForUser(ctx, workspaceID, user, domain.AuthProviderEmail, time.Now().UTC().Add(authSessionTTL))
+	sessionParams, err := s.createSessionParamsForUser(workspaceID, user, domain.AuthProviderEmail, time.Now().UTC().Add(authSessionTTL))
 	if err != nil {
 		return nil, fmt.Errorf("build email auth session: %w", err)
 	}
@@ -457,7 +464,7 @@ func (s *AuthService) CompleteOAuth(ctx context.Context, params domain.CompleteO
 		return nil, fmt.Errorf("resolve oauth login: %w", err)
 	}
 
-	sessionParams, err := s.createSessionParamsForUser(ctx, workspaceID, user, params.Provider, time.Now().UTC().Add(authSessionTTL))
+	sessionParams, err := s.createSessionParamsForUser(workspaceID, user, params.Provider, time.Now().UTC().Add(authSessionTTL))
 	if err != nil {
 		return nil, fmt.Errorf("build oauth session: %w", err)
 	}
@@ -490,61 +497,37 @@ func (s *AuthService) ValidateSession(ctx context.Context, bearerToken string) (
 		return nil, domain.ErrSessionRevoked
 	}
 
-	if session.AccountID != "" && s.accountRepo != nil && s.membershipRepo != nil {
-		user, membership, err := resolveAuthContextUser(ctx, nil, s.userRepo, s.accountRepo, s.membershipRepo, &domain.AuthContext{
-			WorkspaceID:  session.WorkspaceID,
-			UserID:       session.UserID,
-			AccountID:    session.AccountID,
-			MembershipID: session.MembershipID,
-		}, s.recorder)
-		if err == nil {
-			auth := &domain.AuthContext{
-				WorkspaceID:   session.WorkspaceID,
-				UserID:        user.ID,
-				AccountID:     session.AccountID,
-				MembershipID:  session.MembershipID,
-				PrincipalType: user.PrincipalType,
-				AccountType:   user.EffectiveAccountType(),
-				IsBot:         user.IsBot,
-			}
-			if membership != nil {
-				auth.AccountID = membership.AccountID
-				auth.MembershipID = membership.ID
-				if membership.WorkspaceID != "" {
-					auth.WorkspaceID = membership.WorkspaceID
-				}
-			}
-			return auth, nil
-		}
-		if !errors.Is(err, domain.ErrNotFound) && !errors.Is(err, domain.ErrInvalidAuth) {
-			return nil, err
-		}
+	var user *domain.User
+	switch {
+	case session.UserID != "":
+		user, err = s.userRepo.Get(ctx, session.UserID)
+	case session.AccountID != "" && session.WorkspaceID != "":
+		user, err = s.userRepo.GetByWorkspaceAndAccount(ctx, session.WorkspaceID, session.AccountID)
+	default:
+		return nil, domain.ErrInvalidAuth
 	}
-
-	user, err := loadUserWithMembership(ctx, s.userRepo, s.membershipRepo, session.UserID)
 	if err != nil {
 		return nil, err
+	}
+	var account *domain.Account
+	if s.accountRepo != nil && strings.TrimSpace(user.AccountID) != "" {
+		account, err = s.accountRepo.Get(ctx, user.AccountID)
+		if err != nil && err != domain.ErrNotFound {
+			return nil, err
+		}
+		user = applyAccountIdentityToUser(user, account)
 	}
 
 	auth := &domain.AuthContext{
 		WorkspaceID:   session.WorkspaceID,
-		UserID:        session.UserID,
+		UserID:        user.ID,
+		AccountID:     user.AccountID,
 		PrincipalType: user.PrincipalType,
 		AccountType:   user.EffectiveAccountType(),
 		IsBot:         user.IsBot,
 	}
-	if s.membershipRepo != nil {
-		membership, membershipErr := s.membershipRepo.GetByLegacyUserID(ctx, session.UserID)
-		if membershipErr == nil {
-			auth.AccountID = membership.AccountID
-			auth.MembershipID = membership.ID
-			auth.WorkspaceID = membership.WorkspaceID
-			if membership.AccountType != "" {
-				auth.AccountType = membership.AccountType
-			}
-		} else if !errors.Is(membershipErr, domain.ErrNotFound) {
-			return nil, membershipErr
-		}
+	if user.WorkspaceID != "" {
+		auth.WorkspaceID = user.WorkspaceID
 	}
 
 	return auth, nil
@@ -573,9 +556,6 @@ func (s *AuthService) RevokeSession(ctx context.Context, bearerToken string) err
 	auditPayload := map[string]any{}
 	if session.AccountID != "" {
 		auditPayload["account_id"] = session.AccountID
-	}
-	if session.MembershipID != "" {
-		auditPayload["membership_id"] = session.MembershipID
 	}
 	if session.UserID != "" {
 		auditPayload["user_id"] = session.UserID
@@ -608,53 +588,25 @@ func (s *AuthService) SwitchWorkspace(ctx context.Context, bearerToken, targetWo
 	}
 
 	var currentUser *domain.User
-	if s.accountRepo != nil && s.membershipRepo != nil {
-		currentUser, _, err = resolveAuthContextUser(ctx, nil, s.userRepo, s.accountRepo, s.membershipRepo, &domain.AuthContext{
-			WorkspaceID:  currentSession.WorkspaceID,
-			UserID:       currentSession.UserID,
-			AccountID:    currentSession.AccountID,
-			MembershipID: currentSession.MembershipID,
-		}, s.recorder)
-		if err != nil {
-			return nil, err
-		}
-	} else {
-		currentUser, err = loadUserWithMembership(ctx, s.userRepo, s.membershipRepo, currentSession.UserID)
-		if err != nil {
-			return nil, err
-		}
+	switch {
+	case currentSession.UserID != "":
+		currentUser, err = s.userRepo.Get(ctx, currentSession.UserID)
+	case currentSession.AccountID != "" && currentSession.WorkspaceID != "":
+		currentUser, err = s.userRepo.GetByWorkspaceAndAccount(ctx, currentSession.WorkspaceID, currentSession.AccountID)
+	default:
+		return nil, domain.ErrInvalidAuth
+	}
+	if err != nil {
+		return nil, err
 	}
 	if currentUser.PrincipalType != domain.PrincipalTypeHuman || currentUser.Deleted || currentUser.Email == "" {
 		return nil, domain.ErrForbidden
 	}
 
-	targetUserID := ""
-	if s.membershipRepo != nil {
-		currentMembership, membershipErr := s.membershipRepo.GetByLegacyUserID(ctx, currentSession.UserID)
-		if membershipErr != nil {
-			return nil, membershipErr
-		}
-		targetMembership, membershipErr := s.membershipRepo.GetByWorkspaceAndAccount(ctx, targetWorkspaceID, currentMembership.AccountID)
-		if membershipErr != nil {
-			return nil, membershipErr
-		}
-		if targetMembership.UserID == "" {
-			if s.accountRepo == nil {
-				return nil, fmt.Errorf("account repo: %w", domain.ErrInvalidArgument)
-			}
-			targetUser, attachedMembership, materializeErr := ensureMembershipUser(ctx, nil, s.userRepo, s.accountRepo, s.membershipRepo, targetMembership, s.recorder)
-			if materializeErr != nil {
-				return nil, materializeErr
-			}
-			targetMembership = attachedMembership
-			targetUserID = targetUser.ID
-		} else {
-			targetUserID = targetMembership.UserID
-		}
-	} else {
+	if currentUser.AccountID == "" {
 		return nil, domain.ErrForbidden
 	}
-	targetUser, err := loadUserWithMembership(ctx, s.userRepo, s.membershipRepo, targetUserID)
+	targetUser, err := s.userRepo.GetByWorkspaceAndAccount(ctx, targetWorkspaceID, currentUser.AccountID)
 	if err != nil {
 		return nil, err
 	}
@@ -673,7 +625,7 @@ func (s *AuthService) SwitchWorkspace(ctx context.Context, bearerToken, targetWo
 		return nil, err
 	}
 
-	sessionParams, err := s.createSessionParamsForUser(ctx, targetWorkspaceID, targetUser, currentSession.Provider, time.Now().UTC().Add(authSessionTTL))
+	sessionParams, err := s.createSessionParamsForUser(targetWorkspaceID, targetUser, currentSession.Provider, time.Now().UTC().Add(authSessionTTL))
 	if err != nil {
 		return nil, fmt.Errorf("build switched session: %w", err)
 	}
@@ -711,16 +663,12 @@ func (s *AuthService) resolveOAuthUser(
 	if account != nil {
 		switch {
 		case account.UserID != "":
-			user, err = loadUserWithMembership(ctx, userRepo, s.membershipRepo, account.UserID)
+			user, err = userRepo.Get(ctx, account.UserID)
 			if err != nil {
 				return nil, err
 			}
-		case account.AccountID != "" && s.accountRepo != nil && s.membershipRepo != nil:
-			membership, err := s.membershipRepo.GetByWorkspaceAndAccount(ctx, workspaceID, account.AccountID)
-			if err != nil {
-				return nil, err
-			}
-			user, _, err = ensureMembershipUser(ctx, tx, userRepo, s.accountRepo, s.membershipRepo, membership, s.recorder)
+		case account.AccountID != "":
+			user, err = userRepo.GetByWorkspaceAndAccount(ctx, workspaceID, account.AccountID)
 			if err != nil {
 				return nil, err
 			}
@@ -728,30 +676,25 @@ func (s *AuthService) resolveOAuthUser(
 			return nil, domain.ErrNotFound
 		}
 	} else {
-		if s.accountRepo != nil && s.membershipRepo != nil {
+		if s.accountRepo != nil {
 			accountRepo := s.accountRepo
-			membershipRepo := s.membershipRepo
 			if tx != nil {
 				accountRepo = accountRepo.WithTx(tx)
-				membershipRepo = membershipRepo.WithTx(tx)
 			}
 			account, accountErr := resolveOrCreateOAuthInviteAccount(ctx, accountRepo, profile)
 			if accountErr != nil {
 				return nil, accountErr
 			}
-			membership, membershipErr := membershipRepo.GetByWorkspaceAndAccount(ctx, workspaceID, account.ID)
-			if membershipErr == nil {
-				user, _, err = ensureMembershipUser(ctx, tx, userRepo, accountRepo, membershipRepo, membership, s.recorder)
-				if err != nil {
-					return nil, err
-				}
-			} else if membershipErr == domain.ErrNotFound {
+			user, err = userRepo.GetByWorkspaceAndAccount(ctx, workspaceID, account.ID)
+			if err == nil {
+				// existing workspace-local user
+			} else if errors.Is(err, domain.ErrNotFound) {
 				user, err = s.createOAuthUser(ctx, tx, userRepo, workspaceID, profile, domain.AccountTypeMember)
 				if err != nil {
 					return nil, err
 				}
 			} else {
-				return nil, membershipErr
+				return nil, err
 			}
 		} else {
 			user, err = s.createOAuthUser(ctx, tx, userRepo, workspaceID, profile, domain.AccountTypeMember)
@@ -765,7 +708,7 @@ func (s *AuthService) resolveOAuthUser(
 		return nil, domain.ErrForbidden
 	}
 
-	oauthParams, err := s.oauthAccountParamsForUser(ctx, workspaceID, user, provider, profile.Subject, profile.Email)
+	oauthParams, err := s.oauthAccountParamsForUser(workspaceID, user, provider, profile.Subject, profile.Email)
 	if err != nil {
 		return nil, err
 	}
@@ -814,7 +757,7 @@ func (s *AuthService) resolveOAuthLogin(
 	if workspaceID, user, err := s.resolveExistingAccountLogin(ctx, tx, userRepo, profile.Email); err != nil {
 		return "", nil, err
 	} else if user != nil {
-		oauthParams, err := s.oauthAccountParamsForUser(ctx, workspaceID, user, provider, profile.Subject, profile.Email)
+		oauthParams, err := s.oauthAccountParamsForUser(workspaceID, user, provider, profile.Subject, profile.Email)
 		if err != nil {
 			return "", nil, err
 		}
@@ -832,7 +775,7 @@ func (s *AuthService) resolveOAuthLogin(
 	if err != nil {
 		return "", nil, err
 	}
-	oauthParams, err := s.oauthAccountParamsForUser(ctx, workspace.ID, user, provider, profile.Subject, profile.Email)
+	oauthParams, err := s.oauthAccountParamsForUser(workspace.ID, user, provider, profile.Subject, profile.Email)
 	if err != nil {
 		return "", nil, err
 	}
@@ -876,15 +819,13 @@ func (s *AuthService) resolveExistingAccountLogin(
 	userRepo repository.UserRepository,
 	email string,
 ) (string, *domain.User, error) {
-	if s.accountRepo == nil || s.membershipRepo == nil {
+	if s.accountRepo == nil {
 		return "", nil, nil
 	}
 
 	accountRepo := s.accountRepo
-	membershipRepo := s.membershipRepo
 	if tx != nil {
 		accountRepo = accountRepo.WithTx(tx)
-		membershipRepo = membershipRepo.WithTx(tx)
 	}
 
 	account, err := accountRepo.GetByEmail(ctx, email)
@@ -898,29 +839,15 @@ func (s *AuthService) resolveExistingAccountLogin(
 		return "", nil, nil
 	}
 
-	memberships, err := membershipRepo.ListByAccount(ctx, account.ID)
+	users, err := userRepo.ListByAccount(ctx, account.ID)
 	if err != nil {
 		return "", nil, err
 	}
-	for _, membership := range memberships {
-		if membership.UserID == "" {
-			user, attachedMembership, materializeErr := ensureMembershipUser(ctx, tx, userRepo, accountRepo, membershipRepo, &membership, s.recorder)
-			if materializeErr != nil {
-				return "", nil, materializeErr
-			}
-			return attachedMembership.WorkspaceID, user, nil
-		}
-		user, userErr := userRepo.Get(ctx, membership.UserID)
-		if userErr != nil {
-			if errors.Is(userErr, domain.ErrNotFound) {
-				continue
-			}
-			return "", nil, userErr
-		}
+	for _, user := range users {
 		if user.Deleted || user.PrincipalType != domain.PrincipalTypeHuman {
 			continue
 		}
-		return membership.WorkspaceID, user, nil
+		return user.WorkspaceID, &user, nil
 	}
 	return "", nil, nil
 }
@@ -949,40 +876,34 @@ func (s *AuthService) resolveInviteOAuthLogin(
 		return "", nil, domain.ErrForbidden
 	}
 
-	if s.accountRepo != nil && s.membershipRepo != nil {
+	if s.accountRepo != nil {
 		accountRepo := s.accountRepo
-		membershipRepo := s.membershipRepo
 		if tx != nil {
 			accountRepo = accountRepo.WithTx(tx)
-			membershipRepo = membershipRepo.WithTx(tx)
 		}
 		account, err := resolveOrCreateOAuthInviteAccount(ctx, accountRepo, profile)
 		if err != nil {
 			return "", nil, err
 		}
-		membership, err := membershipRepo.GetByWorkspaceAndAccount(ctx, invite.WorkspaceID, account.ID)
-		if err != nil && err != domain.ErrNotFound {
-			return "", nil, err
-		}
-		if membership != nil {
-			user, attachedMembership, err := ensureMembershipUser(ctx, tx, userRepo, accountRepo, membershipRepo, membership, s.recorder)
-			if err != nil {
-				return "", nil, err
-			}
+		user, err := userRepo.GetByWorkspaceAndAccount(ctx, invite.WorkspaceID, account.ID)
+		if err == nil {
 			if user.Deleted || user.PrincipalType != domain.PrincipalTypeHuman {
 				return "", nil, domain.ErrForbidden
 			}
-			oauthParams, err := s.oauthAccountParamsForUser(ctx, invite.WorkspaceID, user, provider, profile.Subject, profile.Email)
+			oauthParams, err := s.oauthAccountParamsForUser(invite.WorkspaceID, user, provider, profile.Subject, profile.Email)
 			if err != nil {
 				return "", nil, err
 			}
 			if _, err := authRepo.UpsertOAuthAccount(ctx, oauthParams); err != nil {
 				return "", nil, err
 			}
-			if err := inviteRepo.MarkAccepted(ctx, invite.ID, account.ID, attachedMembership.ID, time.Now().UTC()); err != nil {
+			if err := inviteRepo.MarkAccepted(ctx, invite.ID, account.ID, time.Now().UTC()); err != nil {
 				return "", nil, err
 			}
 			return invite.WorkspaceID, user, nil
+		}
+		if err != domain.ErrNotFound {
+			return "", nil, err
 		}
 	}
 
@@ -990,18 +911,10 @@ func (s *AuthService) resolveInviteOAuthLogin(
 	if err != nil {
 		return "", nil, err
 	}
-	if s.membershipRepo == nil {
-		return "", nil, fmt.Errorf("membership repo: %w", domain.ErrInvalidArgument)
+	if strings.TrimSpace(user.AccountID) == "" {
+		return "", nil, fmt.Errorf("account_id: %w", domain.ErrInvalidAuth)
 	}
-	membershipRepo := s.membershipRepo
-	if tx != nil {
-		membershipRepo = membershipRepo.WithTx(tx)
-	}
-	membership, err := membershipRepo.GetByLegacyUserID(ctx, user.ID)
-	if err != nil {
-		return "", nil, err
-	}
-	if err := inviteRepo.MarkAccepted(ctx, invite.ID, membership.AccountID, membership.ID, time.Now().UTC()); err != nil {
+	if err := inviteRepo.MarkAccepted(ctx, invite.ID, user.AccountID, time.Now().UTC()); err != nil {
 		return "", nil, err
 	}
 	return invite.WorkspaceID, user, nil
@@ -1028,9 +941,6 @@ func resolveOrCreateOAuthInviteAccount(ctx context.Context, accountRepo reposito
 	}
 	return accountRepo.Create(ctx, domain.CreateAccountParams{
 		PrincipalType: domain.PrincipalTypeHuman,
-		Name:          name,
-		RealName:      realName,
-		DisplayName:   realName,
 		Email:         profile.Email,
 	})
 }
@@ -1044,8 +954,21 @@ func (s *AuthService) createOAuthUser(ctx context.Context, tx pgx.Tx, userRepo r
 	if realName == "" {
 		realName = name
 	}
+	var accountID string
+	if s.accountRepo != nil {
+		accountRepo := s.accountRepo
+		if tx != nil {
+			accountRepo = accountRepo.WithTx(tx)
+		}
+		account, err := resolveOrCreateOAuthInviteAccount(ctx, accountRepo, profile)
+		if err != nil {
+			return nil, err
+		}
+		accountID = account.ID
+	}
 
 	user, err := userRepo.Create(ctx, domain.CreateUserParams{
+		AccountID:     accountID,
 		WorkspaceID:   workspaceID,
 		Name:          name,
 		RealName:      realName,
@@ -1059,15 +982,17 @@ func (s *AuthService) createOAuthUser(ctx context.Context, tx pgx.Tx, userRepo r
 	if err != nil {
 		return nil, err
 	}
-	if s.accountRepo != nil && s.membershipRepo != nil {
+	if s.accountRepo != nil {
 		accountRepo := s.accountRepo
-		membershipRepo := s.membershipRepo
 		if tx != nil {
 			accountRepo = accountRepo.WithTx(tx)
-			membershipRepo = membershipRepo.WithTx(tx)
 		}
-		if _, _, err := syncIdentityForUser(ctx, accountRepo, membershipRepo, user); err != nil {
+		account, err := ensureAccountForUser(ctx, accountRepo, user)
+		if err != nil {
 			return nil, fmt.Errorf("sync identity for oauth user: %w", err)
+		}
+		if account != nil && user.AccountID == "" {
+			user.AccountID = account.ID
 		}
 	}
 
@@ -1077,7 +1002,7 @@ func (s *AuthService) createOAuthUser(ctx context.Context, tx pgx.Tx, userRepo r
 		AggregateType: domain.AggregateUser,
 		AggregateID:   user.ID,
 		WorkspaceID:   user.WorkspaceID,
-		ActorID:       compatibilityActorID(ctx),
+		ActorID:       actorUserID(ctx),
 		Payload:       payload,
 	}); err != nil {
 		return nil, fmt.Errorf("record user.created event: %w", err)

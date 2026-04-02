@@ -20,8 +20,6 @@ export interface WorkspaceInvite {
   invited_by: string;
   /** Canonical account that accepted the invite. */
   accepted_by_account_id?: string;
-  /** Workspace membership created or reused by invite acceptance. */
-  accepted_by_membership_id?: string;
   /** When the invite expires. */
   expires_at: string;
   /** When the invite was accepted. */

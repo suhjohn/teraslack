@@ -32,14 +32,14 @@ func recordAuthorizationAudit(ctx context.Context, repo repository.Authorization
 		return err
 	}
 	_, err = auditRepo.Create(ctx, domain.CreateAuthorizationAuditLogParams{
-		WorkspaceID:     workspaceID,
-		ActorID:    actor.CompatibilityUserID(),
-		APIKeyID:   ctxutil.GetAPIKeyID(ctx),
-		OnBehalfOf: ctxutil.GetOnBehalfOf(ctx),
-		Action:     action,
-		Resource:   resource,
-		ResourceID: resourceID,
-		Metadata:   metadataJSON,
+		WorkspaceID: workspaceID,
+		ActorID:     actor.UserID,
+		APIKeyID:    ctxutil.GetAPIKeyID(ctx),
+		OnBehalfOf:  ctxutil.GetOnBehalfOf(ctx),
+		Action:      action,
+		Resource:    resource,
+		ResourceID:  resourceID,
+		Metadata:    metadataJSON,
 	})
 	return err
 }

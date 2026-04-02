@@ -95,11 +95,11 @@ func timeToPgTimestamptz(t *time.Time) pgtype.Timestamptz {
 
 // userFields is a common struct for user row conversion.
 type userFields struct {
-	ID, WorkspaceID, Name, RealName, DisplayName, Email string
-	PrincipalType, OwnerID, AccountType                 string
-	IsBot, Deleted                                      bool
-	Profile                                             []byte
-	CreatedAt, UpdatedAt                                time.Time
+	ID, AccountID, WorkspaceID, Name, RealName, DisplayName, Email string
+	PrincipalType, OwnerID, AccountType                            string
+	IsBot, Deleted                                                 bool
+	Profile                                                        []byte
+	CreatedAt, UpdatedAt                                           time.Time
 }
 
 func userFieldsToDomain(u userFields) (*domain.User, error) {
@@ -111,6 +111,7 @@ func userFieldsToDomain(u userFields) (*domain.User, error) {
 	}
 	return &domain.User{
 		ID:            u.ID,
+		AccountID:     u.AccountID,
 		WorkspaceID:   u.WorkspaceID,
 		Name:          u.Name,
 		RealName:      u.RealName,
@@ -129,7 +130,7 @@ func userFieldsToDomain(u userFields) (*domain.User, error) {
 
 func createUserRowToFields(r sqlcgen.CreateUserRow) userFields {
 	return userFields{
-		ID: r.ID, WorkspaceID: r.WorkspaceID, Name: r.Name, RealName: r.RealName,
+		ID: r.ID, AccountID: textToString(r.AccountID), WorkspaceID: r.WorkspaceID, Name: r.Name, RealName: r.RealName,
 		DisplayName: r.DisplayName, Email: r.Email, PrincipalType: r.PrincipalType,
 		OwnerID: r.OwnerID, AccountType: r.AccountType, IsBot: r.IsBot, Deleted: r.Deleted, Profile: r.Profile,
 		CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt,
@@ -138,7 +139,16 @@ func createUserRowToFields(r sqlcgen.CreateUserRow) userFields {
 
 func getUserRowToFields(r sqlcgen.GetUserRow) userFields {
 	return userFields{
-		ID: r.ID, WorkspaceID: r.WorkspaceID, Name: r.Name, RealName: r.RealName,
+		ID: r.ID, AccountID: textToString(r.AccountID), WorkspaceID: r.WorkspaceID, Name: r.Name, RealName: r.RealName,
+		DisplayName: r.DisplayName, Email: r.Email, PrincipalType: r.PrincipalType,
+		OwnerID: r.OwnerID, AccountType: r.AccountType, IsBot: r.IsBot, Deleted: r.Deleted, Profile: r.Profile,
+		CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt,
+	}
+}
+
+func getUserByWorkspaceAndAccountRowToFields(r sqlcgen.GetUserByWorkspaceAndAccountRow) userFields {
+	return userFields{
+		ID: r.ID, AccountID: textToString(r.AccountID), WorkspaceID: r.WorkspaceID, Name: r.Name, RealName: r.RealName,
 		DisplayName: r.DisplayName, Email: r.Email, PrincipalType: r.PrincipalType,
 		OwnerID: r.OwnerID, AccountType: r.AccountType, IsBot: r.IsBot, Deleted: r.Deleted, Profile: r.Profile,
 		CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt,
@@ -147,7 +157,7 @@ func getUserRowToFields(r sqlcgen.GetUserRow) userFields {
 
 func updateUserRowToFields(r sqlcgen.UpdateUserRow) userFields {
 	return userFields{
-		ID: r.ID, WorkspaceID: r.WorkspaceID, Name: r.Name, RealName: r.RealName,
+		ID: r.ID, AccountID: textToString(r.AccountID), WorkspaceID: r.WorkspaceID, Name: r.Name, RealName: r.RealName,
 		DisplayName: r.DisplayName, Email: r.Email, PrincipalType: r.PrincipalType,
 		OwnerID: r.OwnerID, AccountType: r.AccountType, IsBot: r.IsBot, Deleted: r.Deleted, Profile: r.Profile,
 		CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt,
@@ -156,7 +166,16 @@ func updateUserRowToFields(r sqlcgen.UpdateUserRow) userFields {
 
 func listUserRowToFields(r sqlcgen.ListUsersRow) userFields {
 	return userFields{
-		ID: r.ID, WorkspaceID: r.WorkspaceID, Name: r.Name, RealName: r.RealName,
+		ID: r.ID, AccountID: textToString(r.AccountID), WorkspaceID: r.WorkspaceID, Name: r.Name, RealName: r.RealName,
+		DisplayName: r.DisplayName, Email: r.Email, PrincipalType: r.PrincipalType,
+		OwnerID: r.OwnerID, AccountType: r.AccountType, IsBot: r.IsBot, Deleted: r.Deleted, Profile: r.Profile,
+		CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt,
+	}
+}
+
+func listUsersByAccountRowToFields(r sqlcgen.ListUsersByAccountRow) userFields {
+	return userFields{
+		ID: r.ID, AccountID: textToString(r.AccountID), WorkspaceID: r.WorkspaceID, Name: r.Name, RealName: r.RealName,
 		DisplayName: r.DisplayName, Email: r.Email, PrincipalType: r.PrincipalType,
 		OwnerID: r.OwnerID, AccountType: r.AccountType, IsBot: r.IsBot, Deleted: r.Deleted, Profile: r.Profile,
 		CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt,
@@ -166,30 +185,28 @@ func listUserRowToFields(r sqlcgen.ListUsersRow) userFields {
 func apiKeyToDomain(row any) *domain.APIKey {
 	switch k := row.(type) {
 	case sqlcgen.ApiKey:
-		return apiKeyFieldsToDomain(k.ID, k.Name, k.Description, k.KeyHash, k.KeyPrefix, k.KeyHint, k.WorkspaceID, k.PrincipalID.String, k.CreatedBy, k.Permissions, k.ExpiresAt, k.LastUsedAt, k.RequestCount, k.Revoked, k.RevokedAt, k.RotatedToID, k.GracePeriodEndsAt, k.CreatedAt, k.UpdatedAt)
+		return apiKeyFieldsToDomain(k.ID, k.Name, k.Description, k.KeyHash, k.KeyPrefix, k.KeyHint, k.Scope, k.WorkspaceID.String, k.OwnerAccountID.String, k.WorkspaceIds, k.CreatedBy, k.Permissions, k.ExpiresAt, k.LastUsedAt, k.RequestCount, k.Revoked, k.RevokedAt, k.RotatedToID, k.GracePeriodEndsAt, k.CreatedAt, k.UpdatedAt)
 	case sqlcgen.CreateAPIKeyRow:
-		return apiKeyFieldsToDomain(k.ID, k.Name, k.Description, k.KeyHash, k.KeyPrefix, k.KeyHint, k.WorkspaceID, k.PrincipalID, k.CreatedBy, k.Permissions, k.ExpiresAt, k.LastUsedAt, k.RequestCount, k.Revoked, k.RevokedAt, k.RotatedToID, k.GracePeriodEndsAt, k.CreatedAt, k.UpdatedAt)
+		return apiKeyFieldsToDomain(k.ID, k.Name, k.Description, k.KeyHash, k.KeyPrefix, k.KeyHint, k.Scope, k.WorkspaceID, k.OwnerAccountID, k.WorkspaceIds, k.CreatedBy, k.Permissions, k.ExpiresAt, k.LastUsedAt, k.RequestCount, k.Revoked, k.RevokedAt, k.RotatedToID, k.GracePeriodEndsAt, k.CreatedAt, k.UpdatedAt)
 	case sqlcgen.GetAPIKeyRow:
-		return apiKeyFieldsToDomain(k.ID, k.Name, k.Description, k.KeyHash, k.KeyPrefix, k.KeyHint, k.WorkspaceID, k.PrincipalID, k.CreatedBy, k.Permissions, k.ExpiresAt, k.LastUsedAt, k.RequestCount, k.Revoked, k.RevokedAt, k.RotatedToID, k.GracePeriodEndsAt, k.CreatedAt, k.UpdatedAt)
+		return apiKeyFieldsToDomain(k.ID, k.Name, k.Description, k.KeyHash, k.KeyPrefix, k.KeyHint, k.Scope, k.WorkspaceID, k.OwnerAccountID, k.WorkspaceIds, k.CreatedBy, k.Permissions, k.ExpiresAt, k.LastUsedAt, k.RequestCount, k.Revoked, k.RevokedAt, k.RotatedToID, k.GracePeriodEndsAt, k.CreatedAt, k.UpdatedAt)
 	case sqlcgen.GetAPIKeyByHashRow:
-		return apiKeyFieldsToDomain(k.ID, k.Name, k.Description, k.KeyHash, k.KeyPrefix, k.KeyHint, k.WorkspaceID, k.PrincipalID, k.CreatedBy, k.Permissions, k.ExpiresAt, k.LastUsedAt, k.RequestCount, k.Revoked, k.RevokedAt, k.RotatedToID, k.GracePeriodEndsAt, k.CreatedAt, k.UpdatedAt)
+		return apiKeyFieldsToDomain(k.ID, k.Name, k.Description, k.KeyHash, k.KeyPrefix, k.KeyHint, k.Scope, k.WorkspaceID, k.OwnerAccountID, k.WorkspaceIds, k.CreatedBy, k.Permissions, k.ExpiresAt, k.LastUsedAt, k.RequestCount, k.Revoked, k.RevokedAt, k.RotatedToID, k.GracePeriodEndsAt, k.CreatedAt, k.UpdatedAt)
 	case sqlcgen.ListAPIKeysRow:
-		return apiKeyFieldsToDomain(k.ID, k.Name, k.Description, k.KeyHash, k.KeyPrefix, k.KeyHint, k.WorkspaceID, k.PrincipalID, k.CreatedBy, k.Permissions, k.ExpiresAt, k.LastUsedAt, k.RequestCount, k.Revoked, k.RevokedAt, k.RotatedToID, k.GracePeriodEndsAt, k.CreatedAt, k.UpdatedAt)
+		return apiKeyFieldsToDomain(k.ID, k.Name, k.Description, k.KeyHash, k.KeyPrefix, k.KeyHint, k.Scope, k.WorkspaceID, k.OwnerAccountID, k.WorkspaceIds, k.CreatedBy, k.Permissions, k.ExpiresAt, k.LastUsedAt, k.RequestCount, k.Revoked, k.RevokedAt, k.RotatedToID, k.GracePeriodEndsAt, k.CreatedAt, k.UpdatedAt)
 	case sqlcgen.ListAPIKeysIncludeRevokedRow:
-		return apiKeyFieldsToDomain(k.ID, k.Name, k.Description, k.KeyHash, k.KeyPrefix, k.KeyHint, k.WorkspaceID, k.PrincipalID, k.CreatedBy, k.Permissions, k.ExpiresAt, k.LastUsedAt, k.RequestCount, k.Revoked, k.RevokedAt, k.RotatedToID, k.GracePeriodEndsAt, k.CreatedAt, k.UpdatedAt)
-	case sqlcgen.ListAPIKeysByPrincipalRow:
-		return apiKeyFieldsToDomain(k.ID, k.Name, k.Description, k.KeyHash, k.KeyPrefix, k.KeyHint, k.WorkspaceID, k.PrincipalID, k.CreatedBy, k.Permissions, k.ExpiresAt, k.LastUsedAt, k.RequestCount, k.Revoked, k.RevokedAt, k.RotatedToID, k.GracePeriodEndsAt, k.CreatedAt, k.UpdatedAt)
-	case sqlcgen.ListAPIKeysByPrincipalIncludeRevokedRow:
-		return apiKeyFieldsToDomain(k.ID, k.Name, k.Description, k.KeyHash, k.KeyPrefix, k.KeyHint, k.WorkspaceID, k.PrincipalID, k.CreatedBy, k.Permissions, k.ExpiresAt, k.LastUsedAt, k.RequestCount, k.Revoked, k.RevokedAt, k.RotatedToID, k.GracePeriodEndsAt, k.CreatedAt, k.UpdatedAt)
+		return apiKeyFieldsToDomain(k.ID, k.Name, k.Description, k.KeyHash, k.KeyPrefix, k.KeyHint, k.Scope, k.WorkspaceID, k.OwnerAccountID, k.WorkspaceIds, k.CreatedBy, k.Permissions, k.ExpiresAt, k.LastUsedAt, k.RequestCount, k.Revoked, k.RevokedAt, k.RotatedToID, k.GracePeriodEndsAt, k.CreatedAt, k.UpdatedAt)
 	case sqlcgen.UpdateAPIKeyRow:
-		return apiKeyFieldsToDomain(k.ID, k.Name, k.Description, k.KeyHash, k.KeyPrefix, k.KeyHint, k.WorkspaceID, k.PrincipalID, k.CreatedBy, k.Permissions, k.ExpiresAt, k.LastUsedAt, k.RequestCount, k.Revoked, k.RevokedAt, k.RotatedToID, k.GracePeriodEndsAt, k.CreatedAt, k.UpdatedAt)
+		return apiKeyFieldsToDomain(k.ID, k.Name, k.Description, k.KeyHash, k.KeyPrefix, k.KeyHint, k.Scope, k.WorkspaceID, k.OwnerAccountID, k.WorkspaceIds, k.CreatedBy, k.Permissions, k.ExpiresAt, k.LastUsedAt, k.RequestCount, k.Revoked, k.RevokedAt, k.RotatedToID, k.GracePeriodEndsAt, k.CreatedAt, k.UpdatedAt)
 	default:
 		panic("unsupported api key row type")
 	}
 }
 
 func apiKeyFieldsToDomain(
-	id, name, description, keyHash, keyPrefix, keyHint, workspaceID, principalID, createdBy string,
+	id, name, description, keyHash, keyPrefix, keyHint, scope, workspaceID, accountID string,
+	workspaceIDs []string,
+	createdBy string,
 	permissions []string,
 	expiresAt, lastUsedAt any,
 	requestCount int64,
@@ -205,8 +222,10 @@ func apiKeyFieldsToDomain(
 		KeyHash:           keyHash,
 		KeyPrefix:         keyPrefix,
 		KeyHint:           keyHint,
+		Scope:             domain.APIKeyScope(scope),
 		WorkspaceID:       workspaceID,
-		UserID:            principalID,
+		AccountID:         accountID,
+		WorkspaceIDs:      workspaceIDs,
 		CreatedBy:         createdBy,
 		Permissions:       permissions,
 		ExpiresAt:         tsToTimePtr(expiresAt),
@@ -469,27 +488,25 @@ func authSessionToDomain(row any) *domain.AuthSession {
 	switch s := row.(type) {
 	case sqlcgen.CreateAuthSessionRow:
 		return &domain.AuthSession{
-			ID:           s.ID,
-			WorkspaceID:  s.WorkspaceID,
-			AccountID:    textToString(s.AccountID),
-			MembershipID: textToString(s.MembershipID),
-			UserID:       textToString(s.UserID),
-			Provider:     domain.AuthProvider(s.Provider),
-			ExpiresAt:    tsToTime(s.ExpiresAt),
-			RevokedAt:    tsToTimePtr(s.RevokedAt),
-			CreatedAt:    tsToTime(s.CreatedAt),
+			ID:          s.ID,
+			WorkspaceID: s.WorkspaceID,
+			AccountID:   textToString(s.AccountID),
+			UserID:      textToString(s.UserID),
+			Provider:    domain.AuthProvider(s.Provider),
+			ExpiresAt:   tsToTime(s.ExpiresAt),
+			RevokedAt:   tsToTimePtr(s.RevokedAt),
+			CreatedAt:   tsToTime(s.CreatedAt),
 		}
 	case sqlcgen.GetAuthSessionByHashRow:
 		return &domain.AuthSession{
-			ID:           s.ID,
-			WorkspaceID:  s.WorkspaceID,
-			AccountID:    textToString(s.AccountID),
-			MembershipID: textToString(s.MembershipID),
-			UserID:       textToString(s.UserID),
-			Provider:     domain.AuthProvider(s.Provider),
-			ExpiresAt:    tsToTime(s.ExpiresAt),
-			RevokedAt:    tsToTimePtr(s.RevokedAt),
-			CreatedAt:    tsToTime(s.CreatedAt),
+			ID:          s.ID,
+			WorkspaceID: s.WorkspaceID,
+			AccountID:   textToString(s.AccountID),
+			UserID:      textToString(s.UserID),
+			Provider:    domain.AuthProvider(s.Provider),
+			ExpiresAt:   tsToTime(s.ExpiresAt),
+			RevokedAt:   tsToTimePtr(s.RevokedAt),
+			CreatedAt:   tsToTime(s.CreatedAt),
 		}
 	default:
 		return &domain.AuthSession{}
@@ -503,7 +520,6 @@ func oauthAccountToDomain(row any) *domain.OAuthAccount {
 			ID:              a.ID,
 			WorkspaceID:     a.WorkspaceID,
 			AccountID:       textToString(a.AccountID),
-			MembershipID:    textToString(a.MembershipID),
 			UserID:          textToString(a.UserID),
 			Provider:        domain.AuthProvider(a.Provider),
 			ProviderSubject: a.ProviderSubject,
@@ -516,7 +532,6 @@ func oauthAccountToDomain(row any) *domain.OAuthAccount {
 			ID:              a.ID,
 			WorkspaceID:     a.WorkspaceID,
 			AccountID:       textToString(a.AccountID),
-			MembershipID:    textToString(a.MembershipID),
 			UserID:          textToString(a.UserID),
 			Provider:        domain.AuthProvider(a.Provider),
 			ProviderSubject: a.ProviderSubject,
@@ -529,7 +544,6 @@ func oauthAccountToDomain(row any) *domain.OAuthAccount {
 			ID:              a.ID,
 			WorkspaceID:     a.WorkspaceID,
 			AccountID:       textToString(a.AccountID),
-			MembershipID:    textToString(a.MembershipID),
 			UserID:          textToString(a.UserID),
 			Provider:        domain.AuthProvider(a.Provider),
 			ProviderSubject: a.ProviderSubject,

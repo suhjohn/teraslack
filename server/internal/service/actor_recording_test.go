@@ -57,7 +57,7 @@ func (r *capturingAuthorizationAuditRepo) List(_ context.Context, params domain.
 
 func TestRequireWorkspaceAdminActor_AllowsMembershipOnlyActor(t *testing.T) {
 	ctx := ctxutil.WithUser(context.Background(), "", "T123")
-	ctx = ctxutil.WithIdentity(ctx, "A123", "WM123")
+	ctx = ctxutil.WithIdentity(ctx, "A123")
 	ctx = ctxutil.WithPrincipal(ctx, domain.PrincipalTypeHuman, domain.AccountTypeAdmin, false)
 
 	actor, err := requireWorkspaceAdminActor(ctx, newMockUserRepoTenant())
@@ -77,7 +77,7 @@ func TestEventRecorder_RecordAddsCanonicalActorMetadata(t *testing.T) {
 	recorder := NewEventRecorder(store)
 
 	ctx := ctxutil.WithUser(context.Background(), "U123", "T123")
-	ctx = ctxutil.WithIdentity(ctx, "A123", "WM123")
+	ctx = ctxutil.WithIdentity(ctx, "A123")
 
 	if err := recorder.Record(ctx, domain.InternalEvent{
 		EventType:     domain.EventWorkspaceUpdated,
@@ -102,15 +102,15 @@ func TestEventRecorder_RecordAddsCanonicalActorMetadata(t *testing.T) {
 	if metadata["actor_account_id"] != "A123" {
 		t.Fatalf("actor_account_id = %q, want A123", metadata["actor_account_id"])
 	}
-	if metadata["actor_membership_id"] != "WM123" {
-		t.Fatalf("actor_membership_id = %q, want WM123", metadata["actor_membership_id"])
+	if _, ok := metadata["actor_membership_id"]; ok {
+		t.Fatalf("actor_membership_id should be absent, got %q", metadata["actor_membership_id"])
 	}
 }
 
 func TestRecordAuthorizationAuditAddsCanonicalActorMetadata(t *testing.T) {
 	repo := &capturingAuthorizationAuditRepo{}
 	ctx := ctxutil.WithUser(context.Background(), "U123", "T123")
-	ctx = ctxutil.WithIdentity(ctx, "A123", "WM123")
+	ctx = ctxutil.WithIdentity(ctx, "A123")
 
 	if err := recordAuthorizationAudit(ctx, repo, nil, "T123", "test.action", "conversation", "C123", map[string]any{
 		"note": "ok",
@@ -131,8 +131,8 @@ func TestRecordAuthorizationAuditAddsCanonicalActorMetadata(t *testing.T) {
 	if metadata["actor_account_id"] != "A123" {
 		t.Fatalf("actor_account_id = %#v, want A123", metadata["actor_account_id"])
 	}
-	if metadata["actor_membership_id"] != "WM123" {
-		t.Fatalf("actor_membership_id = %#v, want WM123", metadata["actor_membership_id"])
+	if _, ok := metadata["actor_membership_id"]; ok {
+		t.Fatalf("actor_membership_id should be absent, got %#v", metadata["actor_membership_id"])
 	}
 	if metadata["note"] != "ok" {
 		t.Fatalf("note = %#v, want ok", metadata["note"])

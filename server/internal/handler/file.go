@@ -117,7 +117,7 @@ func (h *FileHandler) AddRemoteFile(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteError(w, r, domain.ErrInvalidArgument)
 		return
 	}
-	params.UserID = service.CompatibilityActorID(r.Context())
+	params.UserID = service.ActorUserID(r.Context())
 
 	file, err := h.svc.AddRemoteFile(r.Context(), params)
 	if err != nil {

@@ -11,10 +11,13 @@ export interface CreateAPIKeyRequest {
   name: string;
   /** Optional longer description of the key's purpose. */
   description?: string;
-  /** Workspace to scope this key to. */
-  workspace_id: string;
-  /** User this key acts on behalf of. Omit for workspace-level keys. */
-  user_id?: string;
+  scope: 'account' | 'workspace_system';
+  /** Required when `scope` is `workspace_system`. Also accepted as the explicit request workspace context for account-scoped keys. */
+  workspace_id?: string;
+  /** Optional explicit account owner for internal account-scoped key creation. Authenticated requests default to the current account. */
+  account_id?: string;
+  /** Optional allowlist for account-scoped keys. Omit or pass an empty array to allow every workspace where the account has a user. */
+  workspace_ids?: string[];
   /** User creating the key. Defaults to the authenticated user. */
   created_by?: string;
   /** Permission strings to grant (e.g. "messages:write", "conversations:read"). Omit for full access. */

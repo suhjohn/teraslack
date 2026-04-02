@@ -11,11 +11,11 @@ import (
 )
 
 type ExternalMemberService struct {
-	repo         repository.ExternalMemberRepository
-	accountRepo  repository.AccountRepository
-	convRepo     repository.ConversationRepository
+	repo          repository.ExternalMemberRepository
+	accountRepo   repository.AccountRepository
+	convRepo      repository.ConversationRepository
 	workspaceRepo repository.WorkspaceRepository
-	accessSvc    *ConversationAccessService
+	accessSvc     *ConversationAccessService
 }
 
 func NewExternalMemberService(
@@ -63,7 +63,7 @@ func (s *ExternalMemberService) Create(ctx context.Context, conversationID strin
 		return nil, err
 	}
 	params.AccountID = account.ID
-	params.InvitedBy = compatibilityActorID(ctx)
+	params.InvitedBy = actorUserID(ctx)
 	params.AllowedCapabilities = normalizeExternalMemberCapabilities(params.AccessMode, params.AllowedCapabilities)
 	item, err := s.repo.Create(ctx, params, conv.WorkspaceID)
 	if err != nil {

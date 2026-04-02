@@ -101,9 +101,9 @@ func (b *mockBackend) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			UserID:      "U_ACTOR",
 			Permissions: []string{"*"},
 		})
-	case r.Method == http.MethodGet && r.URL.Path == "/users/U_ACTOR":
+	case r.Method == http.MethodGet && r.URL.Path == "/workspaces/T_TEST/users/U_ACTOR":
 		writeJSON(w, domain.User{ID: "U_ACTOR", Name: "actor", Email: "actor@example.com"})
-	case r.Method == http.MethodGet && r.URL.Path == "/users/U_PEER":
+	case r.Method == http.MethodGet && r.URL.Path == "/workspaces/T_TEST/users/U_PEER":
 		writeJSON(w, domain.User{ID: "U_PEER", Name: "peer", Email: "peer@example.com"})
 	case r.Method == http.MethodPost && r.URL.Path == "/conversations":
 		writeJSON(w, b.conversation)

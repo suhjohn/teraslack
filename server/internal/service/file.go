@@ -297,7 +297,7 @@ func (s *FileService) List(ctx context.Context, params domain.ListFilesParams) (
 	if params.WorkspaceID == "" {
 		return nil, fmt.Errorf("workspace_id: %w", domain.ErrInvalidArgument)
 	}
-	if ctxutil.GetMembershipID(ctx) == "" && ctxutil.GetAccountID(ctx) != "" && params.ChannelID == "" {
+	if !hasWorkspaceUserContext(ctx, params.WorkspaceID) && ctxutil.GetAccountID(ctx) != "" && params.ChannelID == "" {
 		return nil, domain.ErrForbidden
 	}
 	return s.repo.List(ctx, params)
@@ -447,7 +447,7 @@ func fileContext(ctx context.Context) (workspaceID, userID string, err error) {
 	if err != nil {
 		return "", "", err
 	}
-	userID = compatibilityActorID(ctx)
+	userID = actorUserID(ctx)
 	if userID == "" {
 		return "", "", fmt.Errorf("user_id: %w", domain.ErrInvalidArgument)
 	}
@@ -455,11 +455,24 @@ func fileContext(ctx context.Context) (workspaceID, userID string, err error) {
 }
 
 func (s *FileService) resolveCreateContext(ctx context.Context, channelID string) (workspaceID, userID string, external bool, err error) {
-	userID = compatibilityActorID(ctx)
+	userID = actorUserID(ctx)
 	if userID == "" {
 		return "", "", false, fmt.Errorf("user_id: %w", domain.ErrInvalidArgument)
 	}
-	if ctxutil.GetMembershipID(ctx) != "" || ctxutil.GetAccountID(ctx) == "" {
+	ctxWorkspaceID := ctxutil.GetWorkspaceID(ctx)
+	if channelID != "" && ctxutil.GetAccountID(ctx) != "" {
+		member, err := activeExternalMember(ctx, s.externalMembers, channelID)
+		if err != nil {
+			return "", "", true, err
+		}
+		if member != nil && (ctxWorkspaceID == "" || member.HostWorkspaceID != ctxWorkspaceID || !hasWorkspaceUserContext(ctx, member.HostWorkspaceID)) {
+			if !capabilityAllowed(member.AllowedCapabilities, domain.PermissionFilesWrite) || member.AccessMode == domain.ExternalPrincipalAccessModeSharedReadOnly {
+				return "", "", true, domain.ErrForbidden
+			}
+			return member.HostWorkspaceID, userID, true, nil
+		}
+	}
+	if hasWorkspaceUserContext(ctx, ctxWorkspaceID) || ctxutil.GetAccountID(ctx) == "" {
 		workspaceID, err = fileTeamContext(ctx)
 		if err != nil {
 			return "", "", false, err
@@ -486,7 +499,7 @@ func ensureFileOwnerOrAdmin(ctx context.Context, ownerUserID string) error {
 	if isInternalCallWithoutAuth(ctx) {
 		return nil
 	}
-	actorID := compatibilityActorID(ctx)
+	actorID := actorUserID(ctx)
 	if actorID != "" && actorID == ownerUserID {
 		return nil
 	}

@@ -141,7 +141,7 @@ func (h *MessageHandler) AddReaction(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteError(w, r, domain.ErrInvalidArgument)
 		return
 	}
-	if actorID := service.CompatibilityActorID(r.Context()); actorID != "" {
+	if actorID := service.ActorUserID(r.Context()); actorID != "" {
 		req.UserID = actorID
 	}
 
@@ -164,7 +164,7 @@ func (h *MessageHandler) RemoveReaction(w http.ResponseWriter, r *http.Request) 
 	channelID := r.PathValue("conversation_id")
 	messageTS := r.PathValue("message_ts")
 	name := r.PathValue("reaction_name")
-	userID := service.CompatibilityActorID(r.Context())
+	userID := service.ActorUserID(r.Context())
 
 	err := h.svc.RemoveReaction(r.Context(), domain.RemoveReactionParams{
 		ChannelID: channelID,

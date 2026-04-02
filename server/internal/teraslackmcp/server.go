@@ -469,19 +469,19 @@ func (s *Server) tools() []map[string]any {
 				"additionalProperties": false,
 			},
 		},
-			{
-				"name":        "send_message",
-				"description": "Send a message to a Teraslack conversation as the active identity. Prefer conversation_id; channel_id is accepted as an alias.",
-				"inputSchema": map[string]any{
-					"type": "object",
-					"properties": map[string]any{
-						"conversation_id": map[string]any{
-							"type": "string",
-						},
-						"channel_id": map[string]any{
-							"type": "string",
-						},
-						"text": map[string]any{
+		{
+			"name":        "send_message",
+			"description": "Send a message to a Teraslack conversation as the active identity. Prefer conversation_id; channel_id is accepted as an alias.",
+			"inputSchema": map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"conversation_id": map[string]any{
+						"type": "string",
+					},
+					"channel_id": map[string]any{
+						"type": "string",
+					},
+					"text": map[string]any{
 						"type": "string",
 					},
 					"metadata": map[string]any{
@@ -492,19 +492,19 @@ func (s *Server) tools() []map[string]any {
 				"additionalProperties": false,
 			},
 		},
-			{
-				"name":        "list_messages",
-				"description": "List recent messages in a Teraslack conversation. Prefer conversation_id; channel_id is accepted as an alias.",
-				"inputSchema": map[string]any{
-					"type": "object",
-					"properties": map[string]any{
-						"conversation_id": map[string]any{
-							"type": "string",
-						},
-						"channel_id": map[string]any{
-							"type": "string",
-						},
-						"limit": map[string]any{
+		{
+			"name":        "list_messages",
+			"description": "List recent messages in a Teraslack conversation. Prefer conversation_id; channel_id is accepted as an alias.",
+			"inputSchema": map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"conversation_id": map[string]any{
+						"type": "string",
+					},
+					"channel_id": map[string]any{
+						"type": "string",
+					},
+					"limit": map[string]any{
 						"type":    "integer",
 						"minimum": 1,
 						"maximum": 100,
@@ -542,20 +542,20 @@ func (s *Server) tools() []map[string]any {
 				"additionalProperties": false,
 			},
 		},
-			{
-				"name":        "subscribe_conversation",
-				"description": "Create a future-only event subscription for a Teraslack conversation and return a cursor-backed subscription id. Prefer conversation_id; channel_id is accepted as an alias.",
-				"inputSchema": map[string]any{
-					"type": "object",
-					"properties": map[string]any{
-						"conversation_id": map[string]any{
-							"type": "string",
-						},
-						"channel_id": map[string]any{
-							"type": "string",
-						},
+		{
+			"name":        "subscribe_conversation",
+			"description": "Create a future-only event subscription for a Teraslack conversation and return a cursor-backed subscription id. Prefer conversation_id; channel_id is accepted as an alias.",
+			"inputSchema": map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"conversation_id": map[string]any{
+						"type": "string",
 					},
-					"additionalProperties": false,
+					"channel_id": map[string]any{
+						"type": "string",
+					},
+				},
+				"additionalProperties": false,
 			},
 		},
 		{
@@ -679,19 +679,19 @@ func (s *Server) tools() []map[string]any {
 				"additionalProperties": false,
 			},
 		},
-			{
-				"name":        "wait_for_message",
-				"description": "Wait until a matching message appears in a Teraslack conversation. Prefer conversation_id; channel_id is accepted as an alias.",
-				"inputSchema": map[string]any{
-					"type": "object",
-					"properties": map[string]any{
-						"conversation_id": map[string]any{
-							"type": "string",
-						},
-						"channel_id": map[string]any{
-							"type": "string",
-						},
-						"text": map[string]any{
+		{
+			"name":        "wait_for_message",
+			"description": "Wait until a matching message appears in a Teraslack conversation. Prefer conversation_id; channel_id is accepted as an alias.",
+			"inputSchema": map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"conversation_id": map[string]any{
+						"type": "string",
+					},
+					"channel_id": map[string]any{
+						"type": "string",
+					},
+					"text": map[string]any{
 						"type": "string",
 					},
 					"contains_text": map[string]any{
@@ -831,10 +831,11 @@ func (s *Server) handleRegister(ctx context.Context, args map[string]any) (strin
 	}
 
 	key, secret, err := provisioner.CreateAPIKey(ctx, domain.CreateAPIKeyParams{
-		Name:        apiKeyName,
-		UserID:      user.ID,
-		Permissions: permissions,
-		ExpiresIn:   strings.TrimSpace(stringArg(args, "expires_in", "")),
+		Name:         apiKeyName,
+		AccountID:    user.AccountID,
+		WorkspaceIDs: []string{user.WorkspaceID},
+		Permissions:  permissions,
+		ExpiresIn:    strings.TrimSpace(stringArg(args, "expires_in", "")),
 	})
 	if err != nil {
 		return "", fmt.Errorf("create API key for user %q (%s): %w", user.Name, user.ID, err)
@@ -864,10 +865,12 @@ func (s *Server) handleRegister(ctx context.Context, args map[string]any) (strin
 			"is_bot":         user.IsBot,
 		},
 		"api_key": map[string]any{
-			"id":           key.ID,
-			"workspace_id": key.WorkspaceID,
-			"user_id":      key.UserID,
-			"permissions":  key.Permissions,
+			"id":               key.ID,
+			"scope":            key.Scope,
+			"workspace_id":     key.WorkspaceID,
+			"owner_account_id": key.AccountID,
+			"workspace_ids":    key.WorkspaceIDs,
+			"permissions":      key.Permissions,
 		},
 	})
 }
@@ -1289,14 +1292,14 @@ func (s *Server) handleNextEvent(ctx context.Context, args map[string]any) (stri
 				continue
 			}
 
-				result := map[string]any{
-					"status":          "received",
-					"subscription_id": subscriptionID,
-					"conversation_id": subscription.ChannelID,
-					"channel_id":      subscription.ChannelID,
-					"cursor":          cursor,
-					"event":           event,
-				}
+			result := map[string]any{
+				"status":          "received",
+				"subscription_id": subscriptionID,
+				"conversation_id": subscription.ChannelID,
+				"channel_id":      subscription.ChannelID,
+				"cursor":          cursor,
+				"event":           event,
+			}
 			if summary, ok := s.messageSummaryFromEvent(subscription.State, event); ok {
 				result["message"] = summary
 			}
@@ -1592,7 +1595,7 @@ func (s *Server) hydrateState(ctx context.Context, state sessionState, persist f
 		state.UserID = auth.UserID
 	}
 	if state.UserID != "" && (state.UserName == "" || state.UserEmail == "") {
-		user, err := state.client.GetUser(ctx, state.UserID)
+		user, err := state.client.GetUser(ctx, state.WorkspaceID, state.UserID)
 		if err == nil {
 			if state.UserName == "" {
 				state.UserName = user.Name
@@ -1783,9 +1786,10 @@ func (s *Server) issueSessionStateForUser(ctx context.Context, owner sessionStat
 	}
 
 	key, secret, err := provisioner.CreateAPIKey(ctx, domain.CreateAPIKeyParams{
-		Name:        keyName,
-		UserID:      user.ID,
-		Permissions: []string{"*"},
+		Name:         keyName,
+		AccountID:    user.AccountID,
+		WorkspaceIDs: []string{user.WorkspaceID},
+		Permissions:  []string{"*"},
 	})
 	if err != nil {
 		return sessionState{}, err

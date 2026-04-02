@@ -81,20 +81,20 @@ func TestExternalEventService_ListRejectsCursorPrincipalMismatch(t *testing.T) {
 	svc := NewExternalEventService(&externalEventRepoStub{})
 
 	cursor, err := encodeExternalEventCursor(externalEventCursor{
-		AfterID:      41,
-		WorkspaceID:  "T123",
-		UserID:       "U123",
-		AccountID:    "A123",
-		MembershipID: "WM123",
-		Type:         domain.EventTypeConversationMessageCreated,
-		ResourceType: domain.ResourceTypeConversation,
-		ResourceID:   "C123",
+		AfterID:                 41,
+		WorkspaceID:             "T123",
+		UserID:                  "U123",
+		AccountID:               "A123",
+		HasWorkspaceUserContext: true,
+		Type:                    domain.EventTypeConversationMessageCreated,
+		ResourceType:            domain.ResourceTypeConversation,
+		ResourceID:              "C123",
 	})
 	if err != nil {
 		t.Fatalf("encode cursor: %v", err)
 	}
 
-	ctx := ctxutil.WithIdentity(ctxutil.WithUser(context.Background(), "U999", "T123"), "A123", "WM123")
+	ctx := ctxutil.WithIdentity(ctxutil.WithUser(context.Background(), "U999", "T123"), "A123")
 	if _, err := svc.List(ctx, domain.ListExternalEventsParams{
 		Cursor:       cursor,
 		Type:         domain.EventTypeConversationMessageCreated,
@@ -220,7 +220,7 @@ func TestExternalEventService_ListReturnsResumeCursorOnTerminalPage(t *testing.T
 		},
 	})
 
-	ctx := ctxutil.WithIdentity(ctxutil.WithUser(context.Background(), "U123", "T123"), "A123", "WM123")
+	ctx := ctxutil.WithIdentity(ctxutil.WithUser(context.Background(), "U123", "T123"), "A123")
 	page, err := svc.List(ctx, domain.ListExternalEventsParams{
 		Type:         domain.EventTypeConversationMessageCreated,
 		ResourceType: domain.ResourceTypeConversation,
@@ -237,20 +237,20 @@ func TestExternalEventService_ListReturnsResumeCursorOnTerminalPage(t *testing.T
 	if err != nil {
 		t.Fatalf("decode next cursor: %v", err)
 	}
-	if decoded.AfterID != 41 || decoded.WorkspaceID != "T123" || decoded.UserID != "U123" || decoded.AccountID != "A123" || decoded.MembershipID != "WM123" {
+	if decoded.AfterID != 41 || decoded.WorkspaceID != "T123" || decoded.UserID != "U123" || decoded.AccountID != "A123" || !decoded.HasWorkspaceUserContext {
 		t.Fatalf("unexpected cursor state: %+v", decoded)
 	}
 }
 
-func TestExternalEventService_ListPassesMembershipIdentityToRepository(t *testing.T) {
+func TestExternalEventService_ListPassesWorkspaceUserIdentityToRepository(t *testing.T) {
 	repo := &externalEventRepoStub{}
 	svc := NewExternalEventService(repo)
 
-	ctx := ctxutil.WithIdentity(ctxutil.WithUser(context.Background(), "U123", "T123"), "A123", "WM123")
+	ctx := ctxutil.WithIdentity(ctxutil.WithUser(context.Background(), "U123", "T123"), "A123")
 	if _, err := svc.List(ctx, domain.ListExternalEventsParams{ResourceType: domain.ResourceTypeConversation}); err != nil {
 		t.Fatalf("list external events: %v", err)
 	}
-	if repo.lastPrincipal.AccountID != "A123" || repo.lastPrincipal.MembershipID != "WM123" {
+	if repo.lastPrincipal.AccountID != "A123" || !repo.lastPrincipal.HasWorkspaceUserContext {
 		t.Fatalf("unexpected principal: %+v", repo.lastPrincipal)
 	}
 }
@@ -264,15 +264,15 @@ func TestExternalEventService_ListAllowsRequestedSharedWorkspace(t *testing.T) {
 		},
 	})
 
-	ctx := ctxutil.WithIdentity(ctxutil.WithUser(context.Background(), "U123", "T123"), "A123", "")
+	ctx := ctxutil.WithIdentity(ctxutil.WithUser(context.Background(), "U123", "T123"), "A123")
 	if _, err := svc.List(ctx, domain.ListExternalEventsParams{WorkspaceID: "T999"}); err != nil {
 		t.Fatalf("list external events: %v", err)
 	}
 	if repo.lastPrincipal.WorkspaceID != "T999" {
 		t.Fatalf("unexpected workspace id: %+v", repo.lastPrincipal)
 	}
-	if repo.lastPrincipal.MembershipID != "" {
-		t.Fatalf("expected shared workspace request to clear membership context, got %+v", repo.lastPrincipal)
+	if repo.lastPrincipal.HasWorkspaceUserContext {
+		t.Fatalf("expected shared workspace request to clear workspace-user context, got %+v", repo.lastPrincipal)
 	}
 }
 
@@ -281,7 +281,7 @@ func TestExternalEventService_ListRejectsUnsharedRequestedWorkspace(t *testing.T
 	svc := NewExternalEventService(repo)
 	svc.SetExternalMemberRepository(&externalEventExternalMemberRepoStub{})
 
-	ctx := ctxutil.WithIdentity(ctxutil.WithUser(context.Background(), "U123", "T123"), "A123", "")
+	ctx := ctxutil.WithIdentity(ctxutil.WithUser(context.Background(), "U123", "T123"), "A123")
 	if _, err := svc.List(ctx, domain.ListExternalEventsParams{WorkspaceID: "T999"}); !errors.Is(err, domain.ErrForbidden) {
 		t.Fatalf("expected forbidden, got %v", err)
 	}

@@ -34,7 +34,7 @@ func NewEventRecorder(store repository.InternalEventStoreRepository) EventRecord
 func (r *eventRecorder) Record(ctx context.Context, event domain.InternalEvent) error {
 	actor := actorFromContext(ctx)
 	if event.ActorID == "" {
-		event.ActorID = actor.CompatibilityUserID()
+		event.ActorID = actor.UserID
 	}
 	metadata, err := mergeActorMetadata(event.Metadata, actor)
 	if err != nil {

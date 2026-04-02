@@ -5,21 +5,20 @@
  * Canonical HTTP API for Teraslack.
  * OpenAPI spec version: 1.0.0
  */
+import type { Account } from './account';
 import type { AccountType } from './accountType';
 import type { PrincipalType } from './principalType';
 import type { User } from './user';
 
 /**
- * The authenticated identity of the current request.
+ * The authenticated identity of the current request, with canonical account data plus selected workspace user context when available.
  */
 export interface AuthMeResponse {
   /** Workspace the caller is authenticated in. */
   workspace_id: string;
   /** Canonical account identity of the caller. */
   account_id?: string;
-  /** Workspace membership identity of the caller when the caller is a member. */
-  membership_id?: string;
-  /** Compatibility workspace-local user identity of the caller when materialized. */
+  /** Workspace-local user identity of the caller in the selected workspace context. */
   user_id?: string;
   principal_type: PrincipalType;
   account_type?: AccountType;
@@ -29,5 +28,6 @@ export interface AuthMeResponse {
   permissions?: string[];
   /** OAuth scopes associated with the current request when applicable. */
   scopes?: string[];
+  account?: Account;
   user?: User;
 }

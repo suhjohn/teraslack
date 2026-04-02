@@ -23,11 +23,8 @@ func TestGetActingUserID(t *testing.T) {
 }
 
 func TestWithIdentity(t *testing.T) {
-	ctx := WithIdentity(context.Background(), "A123", "WM123")
+	ctx := WithIdentity(context.Background(), "A123")
 	if got := GetAccountID(ctx); got != "A123" {
 		t.Fatalf("expected A123, got %q", got)
-	}
-	if got := GetMembershipID(ctx); got != "WM123" {
-		t.Fatalf("expected WM123, got %q", got)
 	}
 }

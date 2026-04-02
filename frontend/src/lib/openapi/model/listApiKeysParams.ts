@@ -15,9 +15,13 @@ export type ListApiKeysParams = {
  */
 workspace_id?: WorkspaceIDQueryParameter;
 /**
- * Filter API keys owned by this user.
+ * Filter account-scoped API keys owned by this account.
  */
-user_id?: string;
+account_id?: string;
+/**
+ * Filter keys to a single scope.
+ */
+scope?: 'account' | 'workspace_system';
 /**
  * When true, include revoked API keys in results.
  */

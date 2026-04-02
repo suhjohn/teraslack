@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -120,5 +121,93 @@ func TestExternalMemberService_CreateRejectsDisconnectedExternalWorkspace(t *tes
 		AccessMode:          domain.ExternalPrincipalAccessModeShared,
 	}); err == nil {
 		t.Fatal("expected disconnected external workspace to be rejected")
+	}
+}
+
+func TestExternalMemberService_CreateIgnoresForgedAdminContext(t *testing.T) {
+	repo := &capturingExternalMemberRepo{}
+	accountRepo := newMockAccountRepo()
+	convRepo := &conversationRepoStub{
+		conversation: &domain.Conversation{ID: "C123", WorkspaceID: "T123", Type: domain.ConversationTypePublicChannel},
+	}
+	workspaceRepo := newMockWorkspaceRepo()
+	workspaceRepo.externalWorkspaces["T123|T999"] = &domain.ExternalWorkspace{
+		ID:                  "EW123",
+		ExternalWorkspaceID: "T999",
+		Name:                "External",
+		Connected:           true,
+	}
+	userRepo := &mockUserRepoMap{
+		users: map[string]*domain.User{
+			"U_ACTOR": {ID: "U_ACTOR", WorkspaceID: "T123", PrincipalType: domain.PrincipalTypeHuman, AccountType: domain.AccountTypeMember},
+		},
+	}
+	accessSvc := NewConversationAccessService(
+		&conversationAccessRepoStub{},
+		convRepo,
+		userRepo,
+		&roleAssignmentRepoStub{},
+		nil,
+		mockTxBeginner{},
+		nil,
+	)
+	svc := NewExternalMemberService(repo, accountRepo, convRepo, workspaceRepo)
+	svc.SetConversationAccessService(accessSvc)
+
+	ctx := ctxutil.WithUser(context.Background(), "U_ACTOR", "T123")
+	ctx = ctxutil.WithPrincipal(ctx, domain.PrincipalTypeHuman, domain.AccountTypeAdmin, false)
+
+	if _, err := svc.Create(ctx, "C123", domain.CreateExternalMemberParams{
+		ExternalWorkspaceID: "T999",
+		Email:               "user@example.com",
+		AccessMode:          domain.ExternalPrincipalAccessModeSharedReadOnly,
+	}); !errors.Is(err, domain.ErrForbidden) {
+		t.Fatalf("Create() error = %v, want forbidden", err)
+	}
+}
+
+func TestExternalMemberService_CreateUsesCanonicalWorkspaceAdminUser(t *testing.T) {
+	repo := &capturingExternalMemberRepo{}
+	accountRepo := newMockAccountRepo()
+	convRepo := &conversationRepoStub{
+		conversation: &domain.Conversation{ID: "C123", WorkspaceID: "T123", Type: domain.ConversationTypePublicChannel},
+	}
+	workspaceRepo := newMockWorkspaceRepo()
+	workspaceRepo.externalWorkspaces["T123|T999"] = &domain.ExternalWorkspace{
+		ID:                  "EW123",
+		ExternalWorkspaceID: "T999",
+		Name:                "External",
+		Connected:           true,
+	}
+	userRepo := &mockUserRepoMap{
+		users: map[string]*domain.User{
+			"U_ACTOR": {ID: "U_ACTOR", WorkspaceID: "T123", PrincipalType: domain.PrincipalTypeHuman, AccountType: domain.AccountTypeAdmin},
+		},
+	}
+	accessSvc := NewConversationAccessService(
+		&conversationAccessRepoStub{},
+		convRepo,
+		userRepo,
+		&roleAssignmentRepoStub{},
+		nil,
+		mockTxBeginner{},
+		nil,
+	)
+	svc := NewExternalMemberService(repo, accountRepo, convRepo, workspaceRepo)
+	svc.SetConversationAccessService(accessSvc)
+
+	ctx := ctxutil.WithUser(context.Background(), "U_ACTOR", "T123")
+	ctx = ctxutil.WithPrincipal(ctx, domain.PrincipalTypeHuman, domain.AccountTypeMember, false)
+
+	item, err := svc.Create(ctx, "C123", domain.CreateExternalMemberParams{
+		ExternalWorkspaceID: "T999",
+		Email:               "user@example.com",
+		AccessMode:          domain.ExternalPrincipalAccessModeSharedReadOnly,
+	})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	if item.Account == nil || item.Account.Email != "user@example.com" {
+		t.Fatalf("expected resolved account, got %+v", item.Account)
 	}
 }

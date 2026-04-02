@@ -7,6 +7,7 @@ import (
 
 const (
 	ResourceTypeWorkspace    = "workspace"
+	// ResourceTypeUser refers to the workspace-local User resource exposed in product surfaces.
 	ResourceTypeUser         = "user"
 	ResourceTypeConversation = "conversation"
 	ResourceTypeFile         = "file"

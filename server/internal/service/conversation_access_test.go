@@ -97,10 +97,10 @@ func TestConversationAccessService_SetManagers_AllowsChannelsAdminOnPrivateChann
 	repo := &conversationAccessRepoStub{}
 	convRepo := &conversationRepoStub{
 		conversation: &domain.Conversation{
-			ID:        "G123",
-			WorkspaceID:    "T123",
-			Type:      domain.ConversationTypePrivateChannel,
-			CreatorID: "U_CREATOR",
+			ID:          "G123",
+			WorkspaceID: "T123",
+			Type:        domain.ConversationTypePrivateChannel,
+			CreatorID:   "U_CREATOR",
 		},
 		isMember: true,
 	}
@@ -204,21 +204,12 @@ func TestMessageService_PostMessage_AllowsConversationManagerWhenRestricted(t *t
 	}
 }
 
-func TestConversationAccessService_CustomPolicyUsesMembershipAccountType(t *testing.T) {
+func TestConversationAccessService_CustomPolicyUsesCanonicalUserAccountType(t *testing.T) {
 	userRepo := &mockUserRepoMap{
 		users: map[string]*domain.User{
-			"U123": {ID: "U123", WorkspaceID: "T123", PrincipalType: domain.PrincipalTypeHuman, AccountType: domain.AccountTypeMember},
+			"U123": {ID: "U123", WorkspaceID: "T123", PrincipalType: domain.PrincipalTypeHuman, AccountType: domain.AccountTypeAdmin},
 		},
 	}
-	membershipRepo := newMockWorkspaceMembershipRepo()
-	membershipRepo.byUser["U123"] = &domain.WorkspaceMembership{
-		ID:          "WM123",
-		AccountID:   "A123",
-		WorkspaceID: "T123",
-		UserID:      "U123",
-		AccountType: domain.AccountTypeAdmin,
-	}
-	membershipRepo.byWorkspaceAccount["T123|A123"] = membershipRepo.byUser["U123"]
 	svc := NewConversationAccessService(
 		&conversationAccessRepoStub{},
 		&conversationRepoStub{conversation: &domain.Conversation{ID: "C123", WorkspaceID: "T123", Type: domain.ConversationTypePublicChannel}},
@@ -228,7 +219,6 @@ func TestConversationAccessService_CustomPolicyUsesMembershipAccountType(t *test
 		mockTxBeginner{},
 		nil,
 	)
-	svc.SetIdentityRepositories(membershipRepo)
 
 	ctx := ctxutil.WithUser(context.Background(), "U123", "T123")
 	ctx = ctxutil.WithPrincipal(ctx, domain.PrincipalTypeHuman, domain.AccountTypeAdmin, false)
@@ -241,6 +231,78 @@ func TestConversationAccessService_CustomPolicyUsesMembershipAccountType(t *test
 		t.Fatalf("actorMatchesCustomPostingPolicy() error = %v", err)
 	}
 	if !allowed {
-		t.Fatal("expected membership-backed admin account type to satisfy custom policy")
+		t.Fatal("expected canonical admin account type to satisfy custom policy")
+	}
+}
+
+func TestConversationAccessService_SetManagersIgnoresForgedAdminContext(t *testing.T) {
+	repo := &conversationAccessRepoStub{}
+	convRepo := &conversationRepoStub{
+		conversation: &domain.Conversation{
+			ID:          "C123",
+			WorkspaceID: "T123",
+			Type:        domain.ConversationTypePublicChannel,
+			CreatorID:   "U_CREATOR",
+		},
+	}
+	userRepo := &mockUserRepoMap{
+		users: map[string]*domain.User{
+			"U_ACTOR": {ID: "U_ACTOR", WorkspaceID: "T123", PrincipalType: domain.PrincipalTypeHuman, AccountType: domain.AccountTypeMember},
+			"U_MGR":   {ID: "U_MGR", WorkspaceID: "T123", PrincipalType: domain.PrincipalTypeHuman, AccountType: domain.AccountTypeMember},
+		},
+	}
+	svc := NewConversationAccessService(
+		repo,
+		convRepo,
+		userRepo,
+		&roleAssignmentRepoStub{},
+		nil,
+		mockTxBeginner{},
+		nil,
+	)
+
+	ctx := ctxutil.WithUser(context.Background(), "U_ACTOR", "T123")
+	ctx = ctxutil.WithPrincipal(ctx, domain.PrincipalTypeHuman, domain.AccountTypeAdmin, false)
+
+	if _, err := svc.SetManagers(ctx, "C123", []string{"U_MGR"}); !errors.Is(err, domain.ErrForbidden) {
+		t.Fatalf("SetManagers() error = %v, want forbidden", err)
+	}
+}
+
+func TestConversationAccessService_SetManagersUsesCanonicalWorkspaceAdminUser(t *testing.T) {
+	repo := &conversationAccessRepoStub{}
+	convRepo := &conversationRepoStub{
+		conversation: &domain.Conversation{
+			ID:          "C123",
+			WorkspaceID: "T123",
+			Type:        domain.ConversationTypePublicChannel,
+			CreatorID:   "U_CREATOR",
+		},
+	}
+	userRepo := &mockUserRepoMap{
+		users: map[string]*domain.User{
+			"U_ACTOR": {ID: "U_ACTOR", WorkspaceID: "T123", PrincipalType: domain.PrincipalTypeHuman, AccountType: domain.AccountTypeAdmin},
+			"U_MGR":   {ID: "U_MGR", WorkspaceID: "T123", PrincipalType: domain.PrincipalTypeHuman, AccountType: domain.AccountTypeMember},
+		},
+	}
+	svc := NewConversationAccessService(
+		repo,
+		convRepo,
+		userRepo,
+		&roleAssignmentRepoStub{},
+		nil,
+		mockTxBeginner{},
+		nil,
+	)
+
+	ctx := ctxutil.WithUser(context.Background(), "U_ACTOR", "T123")
+	ctx = ctxutil.WithPrincipal(ctx, domain.PrincipalTypeHuman, domain.AccountTypeMember, false)
+
+	got, err := svc.SetManagers(ctx, "C123", []string{"U_MGR"})
+	if err != nil {
+		t.Fatalf("SetManagers() error = %v", err)
+	}
+	if len(got) != 1 || got[0] != "U_MGR" {
+		t.Fatalf("SetManagers() managers = %v, want [U_MGR]", got)
 	}
 }

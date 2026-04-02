@@ -8,49 +8,54 @@ package sqlcgen
 import (
 	"context"
 	"time"
+
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const createUser = `-- name: CreateUser :one
-INSERT INTO users (id, workspace_id, name, real_name, display_name, email, principal_type, owner_id, is_bot, account_type, profile)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-RETURNING id, workspace_id, name, real_name, display_name, email, principal_type, owner_id, is_bot, account_type,
+INSERT INTO users (id, account_id, workspace_id, name, real_name, display_name, email, principal_type, owner_id, is_bot, account_type, profile)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+RETURNING id, account_id, workspace_id, name, real_name, display_name, email, principal_type, owner_id, is_bot, account_type,
           deleted, profile, created_at, updated_at
 `
 
 type CreateUserParams struct {
-	ID            string `json:"id"`
-	WorkspaceID   string `json:"workspace_id"`
-	Name          string `json:"name"`
-	RealName      string `json:"real_name"`
-	DisplayName   string `json:"display_name"`
-	Email         string `json:"email"`
-	PrincipalType string `json:"principal_type"`
-	OwnerID       string `json:"owner_id"`
-	IsBot         bool   `json:"is_bot"`
-	AccountType   string `json:"account_type"`
-	Profile       []byte `json:"profile"`
+	ID            string      `json:"id"`
+	AccountID     pgtype.Text `json:"account_id"`
+	WorkspaceID   string      `json:"workspace_id"`
+	Name          string      `json:"name"`
+	RealName      string      `json:"real_name"`
+	DisplayName   string      `json:"display_name"`
+	Email         string      `json:"email"`
+	PrincipalType string      `json:"principal_type"`
+	OwnerID       string      `json:"owner_id"`
+	IsBot         bool        `json:"is_bot"`
+	AccountType   string      `json:"account_type"`
+	Profile       []byte      `json:"profile"`
 }
 
 type CreateUserRow struct {
-	ID            string    `json:"id"`
-	WorkspaceID   string    `json:"workspace_id"`
-	Name          string    `json:"name"`
-	RealName      string    `json:"real_name"`
-	DisplayName   string    `json:"display_name"`
-	Email         string    `json:"email"`
-	PrincipalType string    `json:"principal_type"`
-	OwnerID       string    `json:"owner_id"`
-	IsBot         bool      `json:"is_bot"`
-	AccountType   string    `json:"account_type"`
-	Deleted       bool      `json:"deleted"`
-	Profile       []byte    `json:"profile"`
-	CreatedAt     time.Time `json:"created_at"`
-	UpdatedAt     time.Time `json:"updated_at"`
+	ID            string      `json:"id"`
+	AccountID     pgtype.Text `json:"account_id"`
+	WorkspaceID   string      `json:"workspace_id"`
+	Name          string      `json:"name"`
+	RealName      string      `json:"real_name"`
+	DisplayName   string      `json:"display_name"`
+	Email         string      `json:"email"`
+	PrincipalType string      `json:"principal_type"`
+	OwnerID       string      `json:"owner_id"`
+	IsBot         bool        `json:"is_bot"`
+	AccountType   string      `json:"account_type"`
+	Deleted       bool        `json:"deleted"`
+	Profile       []byte      `json:"profile"`
+	CreatedAt     time.Time   `json:"created_at"`
+	UpdatedAt     time.Time   `json:"updated_at"`
 }
 
 func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (CreateUserRow, error) {
 	row := q.db.QueryRow(ctx, createUser,
 		arg.ID,
+		arg.AccountID,
 		arg.WorkspaceID,
 		arg.Name,
 		arg.RealName,
@@ -65,6 +70,7 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (CreateU
 	var i CreateUserRow
 	err := row.Scan(
 		&i.ID,
+		&i.AccountID,
 		&i.WorkspaceID,
 		&i.Name,
 		&i.RealName,
@@ -83,26 +89,27 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (CreateU
 }
 
 const getUser = `-- name: GetUser :one
-SELECT id, workspace_id, name, real_name, display_name, email, principal_type, owner_id, is_bot,
+SELECT id, account_id, workspace_id, name, real_name, display_name, email, principal_type, owner_id, is_bot,
        account_type, deleted, profile, created_at, updated_at
 FROM users WHERE id = $1
 `
 
 type GetUserRow struct {
-	ID            string    `json:"id"`
-	WorkspaceID   string    `json:"workspace_id"`
-	Name          string    `json:"name"`
-	RealName      string    `json:"real_name"`
-	DisplayName   string    `json:"display_name"`
-	Email         string    `json:"email"`
-	PrincipalType string    `json:"principal_type"`
-	OwnerID       string    `json:"owner_id"`
-	IsBot         bool      `json:"is_bot"`
-	AccountType   string    `json:"account_type"`
-	Deleted       bool      `json:"deleted"`
-	Profile       []byte    `json:"profile"`
-	CreatedAt     time.Time `json:"created_at"`
-	UpdatedAt     time.Time `json:"updated_at"`
+	ID            string      `json:"id"`
+	AccountID     pgtype.Text `json:"account_id"`
+	WorkspaceID   string      `json:"workspace_id"`
+	Name          string      `json:"name"`
+	RealName      string      `json:"real_name"`
+	DisplayName   string      `json:"display_name"`
+	Email         string      `json:"email"`
+	PrincipalType string      `json:"principal_type"`
+	OwnerID       string      `json:"owner_id"`
+	IsBot         bool        `json:"is_bot"`
+	AccountType   string      `json:"account_type"`
+	Deleted       bool        `json:"deleted"`
+	Profile       []byte      `json:"profile"`
+	CreatedAt     time.Time   `json:"created_at"`
+	UpdatedAt     time.Time   `json:"updated_at"`
 }
 
 func (q *Queries) GetUser(ctx context.Context, id string) (GetUserRow, error) {
@@ -110,6 +117,60 @@ func (q *Queries) GetUser(ctx context.Context, id string) (GetUserRow, error) {
 	var i GetUserRow
 	err := row.Scan(
 		&i.ID,
+		&i.AccountID,
+		&i.WorkspaceID,
+		&i.Name,
+		&i.RealName,
+		&i.DisplayName,
+		&i.Email,
+		&i.PrincipalType,
+		&i.OwnerID,
+		&i.IsBot,
+		&i.AccountType,
+		&i.Deleted,
+		&i.Profile,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const getUserByWorkspaceAndAccount = `-- name: GetUserByWorkspaceAndAccount :one
+SELECT id, account_id, workspace_id, name, real_name, display_name, email, principal_type, owner_id, is_bot,
+       account_type, deleted, profile, created_at, updated_at
+FROM users
+WHERE workspace_id = $1 AND account_id = $2
+`
+
+type GetUserByWorkspaceAndAccountParams struct {
+	WorkspaceID string      `json:"workspace_id"`
+	AccountID   pgtype.Text `json:"account_id"`
+}
+
+type GetUserByWorkspaceAndAccountRow struct {
+	ID            string      `json:"id"`
+	AccountID     pgtype.Text `json:"account_id"`
+	WorkspaceID   string      `json:"workspace_id"`
+	Name          string      `json:"name"`
+	RealName      string      `json:"real_name"`
+	DisplayName   string      `json:"display_name"`
+	Email         string      `json:"email"`
+	PrincipalType string      `json:"principal_type"`
+	OwnerID       string      `json:"owner_id"`
+	IsBot         bool        `json:"is_bot"`
+	AccountType   string      `json:"account_type"`
+	Deleted       bool        `json:"deleted"`
+	Profile       []byte      `json:"profile"`
+	CreatedAt     time.Time   `json:"created_at"`
+	UpdatedAt     time.Time   `json:"updated_at"`
+}
+
+func (q *Queries) GetUserByWorkspaceAndAccount(ctx context.Context, arg GetUserByWorkspaceAndAccountParams) (GetUserByWorkspaceAndAccountRow, error) {
+	row := q.db.QueryRow(ctx, getUserByWorkspaceAndAccount, arg.WorkspaceID, arg.AccountID)
+	var i GetUserByWorkspaceAndAccountRow
+	err := row.Scan(
+		&i.ID,
+		&i.AccountID,
 		&i.WorkspaceID,
 		&i.Name,
 		&i.RealName,
@@ -128,7 +189,7 @@ func (q *Queries) GetUser(ctx context.Context, id string) (GetUserRow, error) {
 }
 
 const listUsers = `-- name: ListUsers :many
-SELECT id, workspace_id, name, real_name, display_name, email, principal_type, owner_id, is_bot,
+SELECT id, account_id, workspace_id, name, real_name, display_name, email, principal_type, owner_id, is_bot,
        account_type, deleted, profile, created_at, updated_at
 FROM users
 WHERE workspace_id = $1 AND id >= $2
@@ -143,20 +204,21 @@ type ListUsersParams struct {
 }
 
 type ListUsersRow struct {
-	ID            string    `json:"id"`
-	WorkspaceID   string    `json:"workspace_id"`
-	Name          string    `json:"name"`
-	RealName      string    `json:"real_name"`
-	DisplayName   string    `json:"display_name"`
-	Email         string    `json:"email"`
-	PrincipalType string    `json:"principal_type"`
-	OwnerID       string    `json:"owner_id"`
-	IsBot         bool      `json:"is_bot"`
-	AccountType   string    `json:"account_type"`
-	Deleted       bool      `json:"deleted"`
-	Profile       []byte    `json:"profile"`
-	CreatedAt     time.Time `json:"created_at"`
-	UpdatedAt     time.Time `json:"updated_at"`
+	ID            string      `json:"id"`
+	AccountID     pgtype.Text `json:"account_id"`
+	WorkspaceID   string      `json:"workspace_id"`
+	Name          string      `json:"name"`
+	RealName      string      `json:"real_name"`
+	DisplayName   string      `json:"display_name"`
+	Email         string      `json:"email"`
+	PrincipalType string      `json:"principal_type"`
+	OwnerID       string      `json:"owner_id"`
+	IsBot         bool        `json:"is_bot"`
+	AccountType   string      `json:"account_type"`
+	Deleted       bool        `json:"deleted"`
+	Profile       []byte      `json:"profile"`
+	CreatedAt     time.Time   `json:"created_at"`
+	UpdatedAt     time.Time   `json:"updated_at"`
 }
 
 func (q *Queries) ListUsers(ctx context.Context, arg ListUsersParams) ([]ListUsersRow, error) {
@@ -170,6 +232,69 @@ func (q *Queries) ListUsers(ctx context.Context, arg ListUsersParams) ([]ListUse
 		var i ListUsersRow
 		if err := rows.Scan(
 			&i.ID,
+			&i.AccountID,
+			&i.WorkspaceID,
+			&i.Name,
+			&i.RealName,
+			&i.DisplayName,
+			&i.Email,
+			&i.PrincipalType,
+			&i.OwnerID,
+			&i.IsBot,
+			&i.AccountType,
+			&i.Deleted,
+			&i.Profile,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listUsersByAccount = `-- name: ListUsersByAccount :many
+SELECT id, account_id, workspace_id, name, real_name, display_name, email, principal_type, owner_id, is_bot,
+       account_type, deleted, profile, created_at, updated_at
+FROM users
+WHERE account_id = $1
+ORDER BY workspace_id ASC, id ASC
+`
+
+type ListUsersByAccountRow struct {
+	ID            string      `json:"id"`
+	AccountID     pgtype.Text `json:"account_id"`
+	WorkspaceID   string      `json:"workspace_id"`
+	Name          string      `json:"name"`
+	RealName      string      `json:"real_name"`
+	DisplayName   string      `json:"display_name"`
+	Email         string      `json:"email"`
+	PrincipalType string      `json:"principal_type"`
+	OwnerID       string      `json:"owner_id"`
+	IsBot         bool        `json:"is_bot"`
+	AccountType   string      `json:"account_type"`
+	Deleted       bool        `json:"deleted"`
+	Profile       []byte      `json:"profile"`
+	CreatedAt     time.Time   `json:"created_at"`
+	UpdatedAt     time.Time   `json:"updated_at"`
+}
+
+func (q *Queries) ListUsersByAccount(ctx context.Context, accountID pgtype.Text) ([]ListUsersByAccountRow, error) {
+	rows, err := q.db.Query(ctx, listUsersByAccount, accountID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListUsersByAccountRow{}
+	for rows.Next() {
+		var i ListUsersByAccountRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.AccountID,
 			&i.WorkspaceID,
 			&i.Name,
 			&i.RealName,
@@ -198,7 +323,7 @@ const updateUser = `-- name: UpdateUser :one
 UPDATE users
 SET real_name = $2, display_name = $3, email = $4, account_type = $5, deleted = $6, profile = $7
 WHERE id = $1
-RETURNING id, workspace_id, name, real_name, display_name, email, principal_type, owner_id, is_bot, account_type,
+RETURNING id, account_id, workspace_id, name, real_name, display_name, email, principal_type, owner_id, is_bot, account_type,
           deleted, profile, created_at, updated_at
 `
 
@@ -213,20 +338,21 @@ type UpdateUserParams struct {
 }
 
 type UpdateUserRow struct {
-	ID            string    `json:"id"`
-	WorkspaceID   string    `json:"workspace_id"`
-	Name          string    `json:"name"`
-	RealName      string    `json:"real_name"`
-	DisplayName   string    `json:"display_name"`
-	Email         string    `json:"email"`
-	PrincipalType string    `json:"principal_type"`
-	OwnerID       string    `json:"owner_id"`
-	IsBot         bool      `json:"is_bot"`
-	AccountType   string    `json:"account_type"`
-	Deleted       bool      `json:"deleted"`
-	Profile       []byte    `json:"profile"`
-	CreatedAt     time.Time `json:"created_at"`
-	UpdatedAt     time.Time `json:"updated_at"`
+	ID            string      `json:"id"`
+	AccountID     pgtype.Text `json:"account_id"`
+	WorkspaceID   string      `json:"workspace_id"`
+	Name          string      `json:"name"`
+	RealName      string      `json:"real_name"`
+	DisplayName   string      `json:"display_name"`
+	Email         string      `json:"email"`
+	PrincipalType string      `json:"principal_type"`
+	OwnerID       string      `json:"owner_id"`
+	IsBot         bool        `json:"is_bot"`
+	AccountType   string      `json:"account_type"`
+	Deleted       bool        `json:"deleted"`
+	Profile       []byte      `json:"profile"`
+	CreatedAt     time.Time   `json:"created_at"`
+	UpdatedAt     time.Time   `json:"updated_at"`
 }
 
 func (q *Queries) UpdateUser(ctx context.Context, arg UpdateUserParams) (UpdateUserRow, error) {
@@ -242,6 +368,7 @@ func (q *Queries) UpdateUser(ctx context.Context, arg UpdateUserParams) (UpdateU
 	var i UpdateUserRow
 	err := row.Scan(
 		&i.ID,
+		&i.AccountID,
 		&i.WorkspaceID,
 		&i.Name,
 		&i.RealName,

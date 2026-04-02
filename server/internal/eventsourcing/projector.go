@@ -662,8 +662,10 @@ func (p *Projector) applyAPIKeyUpsert(ctx context.Context, q *sqlcgen.Queries, e
 		KeyHash:           k.KeyHash,
 		KeyPrefix:         k.KeyPrefix,
 		KeyHint:           k.KeyHint,
-		WorkspaceID:       k.WorkspaceID,
-		Column8:           k.UserID,
+		Scope:             string(k.Scope),
+		Column8:           nilIfEmpty(k.WorkspaceID),
+		Column9:           nilIfEmpty(k.AccountID),
+		WorkspaceIds:      k.WorkspaceIDs,
 		CreatedBy:         k.CreatedBy,
 		OnBehalfOf:        "",
 		Type:              "persistent",
@@ -679,6 +681,13 @@ func (p *Projector) applyAPIKeyUpsert(ctx context.Context, q *sqlcgen.Queries, e
 		CreatedAt:         timeToTs(k.CreatedAt),
 		UpdatedAt:         timeToTs(k.UpdatedAt),
 	})
+}
+
+func nilIfEmpty(value string) any {
+	if value == "" {
+		return nil
+	}
+	return value
 }
 
 func (p *Projector) applyAPIKeyRotated(ctx context.Context, q *sqlcgen.Queries, entry domain.InternalEvent) error {

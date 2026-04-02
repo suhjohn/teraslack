@@ -58,3 +58,41 @@ func TestRequirePrimaryAdminActor_AllowsSystemPrincipal(t *testing.T) {
 		t.Fatalf("actor principal_type = %q, want %q", actor.PrincipalType, domain.PrincipalTypeSystem)
 	}
 }
+
+func TestRequireWorkspaceAdminActorUsesCanonicalWorkspaceUserOverContextClaims(t *testing.T) {
+	userRepo := newMockUserRepoTenant()
+	userRepo.users["U123"] = &domain.User{
+		ID:            "U123",
+		WorkspaceID:   "T123",
+		PrincipalType: domain.PrincipalTypeHuman,
+		AccountType:   domain.AccountTypeMember,
+	}
+
+	ctx := ctxutil.WithUser(context.Background(), "U123", "T123")
+	ctx = ctxutil.WithPrincipal(ctx, domain.PrincipalTypeHuman, domain.AccountTypeAdmin, false)
+
+	if _, err := requireWorkspaceAdminActor(ctx, userRepo); !errors.Is(err, domain.ErrForbidden) {
+		t.Fatalf("requireWorkspaceAdminActor() error = %v, want forbidden", err)
+	}
+}
+
+func TestRequireWorkspaceAdminActorAllowsCanonicalWorkspaceAdminUserDespiteStaleContext(t *testing.T) {
+	userRepo := newMockUserRepoTenant()
+	userRepo.users["U123"] = &domain.User{
+		ID:            "U123",
+		WorkspaceID:   "T123",
+		PrincipalType: domain.PrincipalTypeHuman,
+		AccountType:   domain.AccountTypeAdmin,
+	}
+
+	ctx := ctxutil.WithUser(context.Background(), "U123", "T123")
+	ctx = ctxutil.WithPrincipal(ctx, domain.PrincipalTypeHuman, domain.AccountTypeMember, false)
+
+	actor, err := requireWorkspaceAdminActor(ctx, userRepo)
+	if err != nil {
+		t.Fatalf("requireWorkspaceAdminActor() error = %v", err)
+	}
+	if actor.EffectiveAccountType() != domain.AccountTypeAdmin {
+		t.Fatalf("actor effective_account_type = %q, want %q", actor.EffectiveAccountType(), domain.AccountTypeAdmin)
+	}
+}

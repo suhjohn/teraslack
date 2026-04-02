@@ -7,10 +7,8 @@
  */
 import type { User } from './user';
 import type { WorkspaceInvite } from './workspaceInvite';
-import type { WorkspaceMembership } from './workspaceMembership';
 
 export interface AcceptWorkspaceInviteResponse {
   invite: WorkspaceInvite;
   user?: User;
-  membership: WorkspaceMembership;
 }

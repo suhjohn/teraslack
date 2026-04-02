@@ -227,7 +227,7 @@ func TestSearchService_Search_AllowsExternalMemberSharedWorkspace(t *testing.T) 
 		},
 	})
 
-	ctx := ctxutil.WithIdentity(ctxutil.WithUser(context.Background(), "U_EXT", "T999"), "A123", "")
+	ctx := ctxutil.WithIdentity(ctxutil.WithUser(context.Background(), "U_EXT", "T999"), "A123")
 	results, err := svc.Search(ctx, domain.SearchParams{
 		WorkspaceID: "T123",
 		Query:       "shared",

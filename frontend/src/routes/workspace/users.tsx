@@ -44,7 +44,8 @@ function UsersPage() {
   const deferredSearch = useDeferredValue(userSearch.trim().toLowerCase())
 
   const usersQuery = useListUsers<UsersCollection>(
-    workspaceID ? { workspace_id: workspaceID, limit: 200 } : undefined,
+    workspaceID,
+    { limit: 200 },
     { query: { enabled: !!workspaceID, retry: false } },
   )
   const users = usersQuery.data?.items ?? []
@@ -233,11 +234,12 @@ function AccountTypeForm({ user, workspaceID }: { user: User; workspaceID: strin
     setSuccess(false)
     try {
       await updateUser.mutateAsync({
-        id: user.id,
+        id: workspaceID,
+        userId: user.id,
         data: { account_type: accountType },
       })
       await queryClient.invalidateQueries({
-        queryKey: getListUsersQueryKey({ workspace_id: workspaceID, limit: 200 }),
+        queryKey: getListUsersQueryKey(workspaceID, { limit: 200 }),
       })
       setSuccess(true)
     } catch (err) {

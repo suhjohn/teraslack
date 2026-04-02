@@ -11,7 +11,7 @@ type ExternalMember struct {
 	AccountID           string                      `json:"account_id"`
 	AccessMode          ExternalPrincipalAccessMode `json:"access_mode"`
 	AllowedCapabilities []string                    `json:"allowed_capabilities,omitempty"`
-	InvitedBy           string                      `json:"invited_by"` // Compatibility user id of the inviter.
+	InvitedBy           string                      `json:"invited_by"` // Workspace-local user ID of the inviter.
 	CreatedAt           time.Time                   `json:"created_at"`
 	ExpiresAt           *time.Time                  `json:"expires_at,omitempty"`
 	RevokedAt           *time.Time                  `json:"revoked_at,omitempty"`
@@ -29,7 +29,7 @@ type CreateExternalMemberParams struct {
 	DisplayName         string                      `json:"display_name,omitempty"`
 	AccessMode          ExternalPrincipalAccessMode `json:"access_mode"`
 	AllowedCapabilities []string                    `json:"allowed_capabilities,omitempty"`
-	InvitedBy           string                      `json:"invited_by,omitempty"` // Compatibility user id of the inviter.
+	InvitedBy           string                      `json:"invited_by,omitempty"` // Workspace-local user ID of the inviter.
 	ExpiresAt           *time.Time                  `json:"expires_at,omitempty"`
 }
 

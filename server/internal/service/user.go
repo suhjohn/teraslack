@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
-	"sort"
 	"strings"
 
 	"github.com/suhjohn/teraslack/internal/ctxutil"
@@ -15,13 +14,12 @@ import (
 
 // UserService contains business logic for user operations.
 type UserService struct {
-	repo           repository.UserRepository
-	accountRepo    repository.AccountRepository
-	membershipRepo repository.WorkspaceMembershipRepository
-	auditRepo      repository.AuthorizationAuditRepository
-	recorder       EventRecorder
-	db             repository.TxBeginner
-	logger         *slog.Logger
+	repo        repository.UserRepository
+	accountRepo repository.AccountRepository
+	auditRepo   repository.AuthorizationAuditRepository
+	recorder    EventRecorder
+	db          repository.TxBeginner
+	logger      *slog.Logger
 }
 
 // NewUserService creates a new UserService.
@@ -32,9 +30,8 @@ func NewUserService(repo repository.UserRepository, recorder EventRecorder, db r
 	return &UserService{repo: repo, recorder: recorder, db: db, logger: logger}
 }
 
-func (s *UserService) SetIdentityRepositories(accountRepo repository.AccountRepository, membershipRepo repository.WorkspaceMembershipRepository) {
+func (s *UserService) SetIdentityRepositories(accountRepo repository.AccountRepository, _ ...any) {
 	s.accountRepo = accountRepo
-	s.membershipRepo = membershipRepo
 }
 
 func (s *UserService) SetAuthorizationAuditRepository(repo repository.AuthorizationAuditRepository) {
@@ -87,14 +84,32 @@ func (s *UserService) Create(ctx context.Context, params domain.CreateUserParams
 	}
 	defer tx.Rollback(ctx)
 
+	if s.accountRepo != nil {
+		account, err := resolveOrCreateAccountForCreateUserParams(ctx, s.accountRepo.WithTx(tx), params)
+		if err != nil {
+			return nil, fmt.Errorf("resolve account for user: %w", err)
+		}
+		if account != nil {
+			params.AccountID = account.ID
+			params.Email = account.Email
+			params.PrincipalType = account.PrincipalType
+			params.IsBot = account.IsBot
+		}
+	}
+
 	user, err := s.repo.WithTx(tx).Create(ctx, params)
 	if err != nil {
 		return nil, err
 	}
-	if s.accountRepo != nil && s.membershipRepo != nil {
-		if _, _, err := syncIdentityForUser(ctx, s.accountRepo.WithTx(tx), s.membershipRepo.WithTx(tx), user); err != nil {
+	if s.accountRepo != nil {
+		account, err := ensureAccountForUser(ctx, s.accountRepo.WithTx(tx), user)
+		if err != nil {
 			return nil, fmt.Errorf("sync identity for user: %w", err)
 		}
+		if account != nil && user.AccountID == "" {
+			user.AccountID = account.ID
+		}
+		user = applyAccountIdentityToUser(user, account)
 	}
 	payload, _ := json.Marshal(user)
 	if err := s.recorder.WithTx(tx).Record(ctx, domain.InternalEvent{
@@ -102,7 +117,7 @@ func (s *UserService) Create(ctx context.Context, params domain.CreateUserParams
 		AggregateType: domain.AggregateUser,
 		AggregateID:   user.ID,
 		WorkspaceID:   user.WorkspaceID,
-		ActorID:       compatibilityActorID(ctx),
+		ActorID:       actorUserID(ctx),
 		Payload:       payload,
 	}); err != nil {
 		return nil, fmt.Errorf("record user.created event: %w", err)
@@ -121,31 +136,6 @@ func (s *UserService) Get(ctx context.Context, id string) (*domain.User, error) 
 	if isExternalWorkspaceParticipant(ctx) {
 		return nil, domain.ErrForbidden
 	}
-	if s.accountRepo != nil && s.membershipRepo != nil {
-		tx, err := s.db.Begin(ctx)
-		if err != nil {
-			return nil, fmt.Errorf("begin tx: %w", err)
-		}
-		defer tx.Rollback(ctx)
-
-		memberRepo := s.membershipRepo.WithTx(tx)
-		membership, err := memberRepo.GetByLegacyUserID(ctx, id)
-		if err != nil {
-			return nil, err
-		}
-		if err := ensureWorkspaceAccess(ctx, membership.WorkspaceID); err != nil {
-			return nil, err
-		}
-
-		user, _, err := loadMembershipBackedUser(ctx, tx, s.repo.WithTx(tx), s.accountRepo.WithTx(tx), memberRepo, membership, s.recorder)
-		if err != nil {
-			return nil, err
-		}
-		if err := tx.Commit(ctx); err != nil {
-			return nil, fmt.Errorf("commit tx: %w", err)
-		}
-		return user, nil
-	}
 	user, err := s.repo.Get(ctx, id)
 	if err != nil {
 		return nil, err
@@ -153,7 +143,14 @@ func (s *UserService) Get(ctx context.Context, id string) (*domain.User, error) 
 	if err := ensureWorkspaceAccess(ctx, user.WorkspaceID); err != nil {
 		return nil, err
 	}
-	return decorateUserWithMembership(ctx, s.membershipRepo, user)
+	if s.accountRepo != nil && strings.TrimSpace(user.AccountID) != "" {
+		account, err := s.accountRepo.Get(ctx, user.AccountID)
+		if err != nil && err != domain.ErrNotFound {
+			return nil, err
+		}
+		user = applyAccountIdentityToUser(user, account)
+	}
+	return user, nil
 }
 
 func (s *UserService) GetByEmail(ctx context.Context, email string) (*domain.User, error) {
@@ -167,7 +164,7 @@ func (s *UserService) GetByEmail(ctx context.Context, email string) (*domain.Use
 	if workspaceID == "" {
 		return nil, domain.ErrForbidden
 	}
-	if s.accountRepo != nil && s.membershipRepo != nil {
+	if s.accountRepo != nil {
 		tx, err := s.db.Begin(ctx)
 		if err != nil {
 			return nil, fmt.Errorf("begin tx: %w", err)
@@ -178,15 +175,11 @@ func (s *UserService) GetByEmail(ctx context.Context, email string) (*domain.Use
 		if err != nil {
 			return nil, err
 		}
-		memberRepo := s.membershipRepo.WithTx(tx)
-		membership, err := memberRepo.GetByWorkspaceAndAccount(ctx, workspaceID, account.ID)
+		user, err := s.repo.WithTx(tx).GetByWorkspaceAndAccount(ctx, workspaceID, account.ID)
 		if err != nil {
 			return nil, err
 		}
-		user, _, err := loadMembershipBackedUser(ctx, tx, s.repo.WithTx(tx), s.accountRepo.WithTx(tx), memberRepo, membership, s.recorder)
-		if err != nil {
-			return nil, err
-		}
+		user = applyAccountIdentityToUser(user, account)
 		if err := tx.Commit(ctx); err != nil {
 			return nil, fmt.Errorf("commit tx: %w", err)
 		}
@@ -199,6 +192,9 @@ func (s *UserService) Update(ctx context.Context, id string, params domain.Updat
 	if id == "" {
 		return nil, fmt.Errorf("id: %w", domain.ErrInvalidArgument)
 	}
+	if s.accountRepo != nil && params.Email != nil {
+		return nil, fmt.Errorf("email: %w", domain.ErrInvalidArgument)
+	}
 
 	tx, err := s.db.Begin(ctx)
 	if err != nil {
@@ -207,36 +203,12 @@ func (s *UserService) Update(ctx context.Context, id string, params domain.Updat
 	defer tx.Rollback(ctx)
 
 	userRepo := s.repo.WithTx(tx)
-	memberRepo := s.membershipRepo
-	accountRepo := s.accountRepo
-	if memberRepo != nil {
-		memberRepo = memberRepo.WithTx(tx)
+	existing, err := userRepo.Get(ctx, id)
+	if err != nil {
+		return nil, err
 	}
-	if accountRepo != nil {
-		accountRepo = accountRepo.WithTx(tx)
-	}
-
-	existing := &domain.User{}
-	if accountRepo != nil && memberRepo != nil {
-		membership, err := memberRepo.GetByLegacyUserID(ctx, id)
-		if err != nil {
-			return nil, err
-		}
-		existing, membership, err = loadMembershipBackedUser(ctx, tx, userRepo, accountRepo, memberRepo, membership, s.recorder)
-		if err != nil {
-			return nil, err
-		}
-		if err := ensureWorkspaceAccess(ctx, membership.WorkspaceID); err != nil {
-			return nil, err
-		}
-	} else {
-		existing, err = s.repo.Get(ctx, id)
-		if err != nil {
-			return nil, err
-		}
-		if err := ensureWorkspaceAccess(ctx, existing.WorkspaceID); err != nil {
-			return nil, err
-		}
+	if err := ensureWorkspaceAccess(ctx, existing.WorkspaceID); err != nil {
+		return nil, err
 	}
 
 	if params.AccountType != nil {
@@ -271,15 +243,12 @@ func (s *UserService) Update(ctx context.Context, id string, params domain.Updat
 	if err != nil {
 		return nil, err
 	}
-	if memberRepo != nil && params.AccountType != nil {
-		updatedMembership, err := memberRepo.UpdateAccountTypeByLegacyUserID(ctx, user.ID, user.EffectiveAccountType())
+	if s.accountRepo != nil && strings.TrimSpace(user.AccountID) != "" {
+		account, err := s.accountRepo.WithTx(tx).Get(ctx, user.AccountID)
 		if err != nil && err != domain.ErrNotFound {
-			return nil, fmt.Errorf("sync membership account type: %w", err)
+			return nil, err
 		}
-		if updatedMembership != nil {
-			user.AccountType = updatedMembership.AccountType
-			user.WorkspaceID = updatedMembership.WorkspaceID
-		}
+		user = applyAccountIdentityToUser(user, account)
 	}
 	payload, _ := json.Marshal(user)
 	if err := s.recorder.WithTx(tx).Record(ctx, domain.InternalEvent{
@@ -287,7 +256,7 @@ func (s *UserService) Update(ctx context.Context, id string, params domain.Updat
 		AggregateType: domain.AggregateUser,
 		AggregateID:   user.ID,
 		WorkspaceID:   user.WorkspaceID,
-		ActorID:       compatibilityActorID(ctx),
+		ActorID:       actorUserID(ctx),
 		Payload:       payload,
 	}); err != nil {
 		return nil, fmt.Errorf("record user.updated event: %w", err)
@@ -316,69 +285,28 @@ func (s *UserService) List(ctx context.Context, params domain.ListUsersParams) (
 		return nil, err
 	}
 	params.WorkspaceID = workspaceID
-	if s.accountRepo != nil && s.membershipRepo != nil {
-		tx, err := s.db.Begin(ctx)
-		if err != nil {
-			return nil, fmt.Errorf("begin tx: %w", err)
-		}
-		defer tx.Rollback(ctx)
-
-		memberRepo := s.membershipRepo.WithTx(tx)
-		memberships, err := memberRepo.ListByWorkspace(ctx, workspaceID)
-		if err != nil {
-			return nil, err
-		}
-		type listedUser struct {
-			key  string
-			user domain.User
-		}
-		listed := make([]listedUser, 0, len(memberships))
-		for i := range memberships {
-			user, membership, err := loadMembershipBackedUser(ctx, tx, s.repo.WithTx(tx), s.accountRepo.WithTx(tx), memberRepo, &memberships[i], s.recorder)
-			if err != nil {
-				return nil, err
-			}
-			key := user.ID
-			if key == "" {
-				key = membership.ID
-			}
-			if key == "" {
-				continue
-			}
-			listed = append(listed, listedUser{key: key, user: *user})
-		}
-		sort.Slice(listed, func(i, j int) bool {
-			return listed[i].key < listed[j].key
-		})
-
-		limit := params.Limit
-		if limit <= 0 || limit > 200 {
-			limit = 100
-		}
-		filtered := make([]listedUser, 0, len(listed))
-		for _, item := range listed {
-			if params.Cursor != "" && item.key < params.Cursor {
-				continue
-			}
-			filtered = append(filtered, item)
-		}
-
-		page := &domain.CursorPage[domain.User]{Items: []domain.User{}}
-		if len(filtered) > limit {
-			page.HasMore = true
-			page.NextCursor = filtered[limit].key
-			filtered = filtered[:limit]
-		}
-		for _, item := range filtered {
-			page.Items = append(page.Items, item.user)
-		}
-		if err := tx.Commit(ctx); err != nil {
-			return nil, fmt.Errorf("commit tx: %w", err)
-		}
+	page, err := s.repo.List(ctx, params)
+	if err != nil {
+		return nil, err
+	}
+	if s.accountRepo == nil {
 		return page, nil
 	}
-
-	return s.repo.List(ctx, params)
+	for i := range page.Items {
+		accountID := strings.TrimSpace(page.Items[i].AccountID)
+		if accountID == "" {
+			continue
+		}
+		account, err := s.accountRepo.Get(ctx, accountID)
+		if err != nil {
+			if err == domain.ErrNotFound {
+				continue
+			}
+			return nil, err
+		}
+		page.Items[i] = *applyAccountIdentityToUser(&page.Items[i], account)
+	}
+	return page, nil
 }
 
 func validateAccountType(principalType domain.PrincipalType, accountType domain.AccountType) error {

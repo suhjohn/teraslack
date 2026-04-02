@@ -32,7 +32,6 @@ type AccessTokenClaims struct {
 	WorkspaceID   string   `json:"workspace_id"`
 	UserID        string   `json:"user_id"`
 	AccountID     string   `json:"account_id,omitempty"`
-	MembershipID  string   `json:"membership_id,omitempty"`
 	PrincipalType string   `json:"principal_type"`
 	AccountType   string   `json:"account_type,omitempty"`
 	IsBot         bool     `json:"is_bot"`

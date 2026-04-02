@@ -196,7 +196,8 @@ func TestFileService_AddRemoteFile_AllowsExternalMemberSharedWrite(t *testing.T)
 		},
 	})
 
-	ctx := ctxutil.WithIdentity(ctxutil.WithUser(context.Background(), "U_EXT", "T999"), "A123", "")
+	ctx := ctxutil.WithIdentity(context.Background(), "A123")
+	ctx = ctxutil.WithDelegation(ctx, "U_EXT", "")
 	ctx = ctxutil.WithPrincipal(ctx, domain.PrincipalTypeHuman, domain.AccountTypeMember, false)
 	file, err := svc.AddRemoteFile(ctx, domain.AddRemoteFileParams{
 		Title:       "Design Doc",
@@ -241,7 +242,8 @@ func TestFileService_AddRemoteFile_ExternalMemberRequiresChannel(t *testing.T) {
 		},
 	})
 
-	ctx := ctxutil.WithIdentity(ctxutil.WithUser(context.Background(), "U_EXT", "T999"), "A123", "")
+	ctx := ctxutil.WithIdentity(context.Background(), "A123")
+	ctx = ctxutil.WithDelegation(ctx, "U_EXT", "")
 	ctx = ctxutil.WithPrincipal(ctx, domain.PrincipalTypeHuman, domain.AccountTypeMember, false)
 	if _, err := svc.AddRemoteFile(ctx, domain.AddRemoteFileParams{
 		Title:       "Design Doc",
@@ -352,7 +354,7 @@ func TestFileService_Get_AllowsExternalMemberSharedFile(t *testing.T) {
 	})
 
 	ctx := ctxutil.WithUser(context.Background(), "U_EXT", "T999")
-	ctx = ctxutil.WithIdentity(ctx, "A123", "WM_EXT")
+	ctx = ctxutil.WithIdentity(ctx, "A123")
 	ctx = ctxutil.WithPrincipal(ctx, domain.PrincipalTypeHuman, domain.AccountTypeMember, false)
 
 	f, err := svc.Get(ctx, "F_1")
@@ -383,7 +385,7 @@ func TestFileService_List_AllowsExternalMemberChannelScope(t *testing.T) {
 	})
 
 	ctx := ctxutil.WithUser(context.Background(), "U_EXT", "T999")
-	ctx = ctxutil.WithIdentity(ctx, "A123", "WM_EXT")
+	ctx = ctxutil.WithIdentity(ctx, "A123")
 	ctx = ctxutil.WithPrincipal(ctx, domain.PrincipalTypeHuman, domain.AccountTypeMember, false)
 
 	page, err := svc.List(ctx, domain.ListFilesParams{ChannelID: "C123", Limit: 100})

@@ -25,7 +25,7 @@ export const Route = createFileRoute('/workspace/api-keys')({
 })
 
 function ApiKeysPage() {
-  const { workspaceID } = useAdmin()
+  const { workspaceID, workspaces, auth } = useAdmin()
   const queryClient = useQueryClient()
   const [showCreate, setShowCreate] = useState(false)
   const [error, setError] = useState('')
@@ -35,7 +35,8 @@ function ApiKeysPage() {
     { query: { enabled: !!workspaceID, retry: false } },
   )
   const usersQuery = useListUsers<UsersCollection>(
-    { workspace_id: workspaceID, limit: 200 },
+    workspaceID,
+    { limit: 200 },
     { query: { enabled: !!workspaceID, retry: false, staleTime: 30_000 } },
   )
 
@@ -48,6 +49,11 @@ function ApiKeysPage() {
       ),
     [users],
   )
+  const workspaceByID = useMemo(
+    () => new Map(workspaces.map((workspace) => [workspace.id, workspace.name])),
+    [workspaces],
+  )
+  const currentAccountID = auth.account?.id ?? auth.account_id ?? ''
 
   const activeKeys = keys.filter((k) => !k.revoked)
   const revokedKeys = keys.filter((k) => k.revoked)
@@ -111,6 +117,7 @@ function ApiKeysPage() {
         {showCreate ? (
           <CreateKeyForm
             workspaceID={workspaceID}
+            workspaces={workspaces}
             onDone={() => {
               setShowCreate(false)
               void queryClient.invalidateQueries({
@@ -133,6 +140,11 @@ function ApiKeysPage() {
                 apiKey={key}
                 index={index}
                 userByID={userByID}
+                workspaceByID={workspaceByID}
+                canManage={
+                  key.scope === 'workspace_system' ||
+                  key.account_id === currentAccountID
+                }
                 onRotate={() => void handleRotate(key.id)}
                 onRevoke={() => void handleDelete(key.id)}
                 rotating={rotateMutation.isPending}
@@ -158,6 +170,8 @@ function ApiKeysPage() {
                 apiKey={key}
                 index={index}
                 userByID={userByID}
+                workspaceByID={workspaceByID}
+                canManage={false}
               />
             ))}
           </div>
@@ -171,6 +185,8 @@ function KeyRow({
   apiKey,
   index,
   userByID,
+  workspaceByID,
+  canManage,
   onRotate,
   onRevoke,
   rotating,
@@ -179,11 +195,24 @@ function KeyRow({
   apiKey: APIKey
   index: number
   userByID: Map<string, string>
+  workspaceByID: Map<string, string>
+  canManage: boolean
   onRotate?: () => void
   onRevoke?: () => void
   rotating?: boolean
   revoking?: boolean
 }) {
+  const scopeLabel =
+    apiKey.scope === 'workspace_system' ? 'Workspace system' : 'Account'
+  const scopeDetail =
+    apiKey.scope === 'workspace_system'
+      ? workspaceByID.get(apiKey.workspace_id ?? '') ?? apiKey.workspace_id
+      : apiKey.workspace_ids?.length
+        ? apiKey.workspace_ids
+            .map((workspaceID) => workspaceByID.get(workspaceID) ?? workspaceID)
+            .join(', ')
+        : 'All eligible workspaces'
+
   return (
     <div
       className={`flex items-start gap-4 px-4 py-3 ${
@@ -198,6 +227,7 @@ function KeyRow({
           <span className="font-mono text-[11px] text-[var(--ink-soft)]">
             {apiKey.key_prefix}…
           </span>
+          <Badge variant="muted">{scopeLabel}</Badge>
           {apiKey.permissions.length > 0
             ? apiKey.permissions.map((p) => (
                 <Badge key={p} variant="muted">
@@ -213,6 +243,7 @@ function KeyRow({
               ? (userByID.get(apiKey.created_by) ?? apiKey.created_by)
               : 'System'}
           </span>
+          <span>{scopeDetail}</span>
           <span>
             last used:{' '}
             {apiKey.last_used_at ? formatDate(apiKey.last_used_at) : 'never'}
@@ -227,7 +258,7 @@ function KeyRow({
         ) : null}
       </div>
 
-      {onRotate && onRevoke ? (
+      {onRotate && onRevoke && canManage ? (
         <div className="flex flex-none gap-1">
           <Button
             variant="ghost"
@@ -257,15 +288,19 @@ function KeyRow({
 
 function CreateKeyForm({
   workspaceID,
+  workspaces,
   onDone,
   onCancel,
 }: {
   workspaceID: string
+  workspaces: { id: string; name: string }[]
   onDone: () => void
   onCancel: () => void
 }) {
   const [name, setName] = useState('')
+  const [scope, setScope] = useState<'account' | 'workspace_system'>('account')
   const [permissions, setPermissions] = useState<string[]>([])
+  const [workspaceIDs, setWorkspaceIDs] = useState<string[]>([])
   const [nextPermission, setNextPermission] = useState('')
   const [error, setError] = useState('')
   const [createdSecret, setCreatedSecret] = useState('')
@@ -278,15 +313,16 @@ function CreateKeyForm({
       const result = await createMutation.mutateAsync({
         data: {
           name: name.trim(),
+          scope,
           workspace_id: workspaceID,
+          workspace_ids: scope === 'account' ? workspaceIDs : undefined,
           permissions: permissions.length ? permissions : ['*'],
         },
       })
-      if (result && typeof result === 'object' && 'secret' in result) {
-        setCreatedSecret((result as { secret: string }).secret)
-      } else {
-        onDone()
+      if (result.status !== 201) {
+        throw new Error('Failed to create API key.')
       }
+      setCreatedSecret(result.data.secret)
     } catch (err) {
       setError(getErrorMessage(err, 'Failed to create API key.'))
     }
@@ -320,6 +356,57 @@ function CreateKeyForm({
             placeholder="Key name"
             autoFocus
           />
+          <Select
+            value={scope}
+            onChange={(e) =>
+              setScope(e.target.value as 'account' | 'workspace_system')
+            }
+          >
+            <option value="account">Account key</option>
+            <option value="workspace_system">Workspace system key</option>
+          </Select>
+        </div>
+        {scope === 'account' ? (
+          <div className="space-y-2">
+            <div className="text-[11px] text-[var(--ink-soft)]">
+              Leave all workspaces unselected to allow every workspace where your
+              account has a user.
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {workspaces.map((workspace) => {
+                const selected = workspaceIDs.includes(workspace.id)
+                return (
+                  <button
+                    key={workspace.id}
+                    type="button"
+                    className={`rounded-full border px-2 py-1 text-[11px] ${
+                      selected
+                        ? 'border-[var(--accent)] bg-[var(--accent)]/10 text-[var(--accent)]'
+                        : 'border-[var(--line)] bg-[var(--surface)] text-[var(--ink)]'
+                    }`}
+                    onClick={() =>
+                      setWorkspaceIDs((current) =>
+                        selected
+                          ? current.filter((item) => item !== workspace.id)
+                          : [...current, workspace.id],
+                      )
+                    }
+                  >
+                    {workspace.name}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+        ) : (
+          <div className="text-[11px] text-[var(--ink-soft)]">
+            Workspace system keys act as a workspace-scoped system principal in{' '}
+            {workspaces.find((workspace) => workspace.id === workspaceID)?.name ??
+              workspaceID}
+            .
+          </div>
+        )}
+        <div className="grid gap-2 sm:grid-cols-2">
           <Select
             value={nextPermission}
             onChange={(e) => {

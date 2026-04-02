@@ -18,7 +18,6 @@ type WorkspaceService struct {
 	repo               repository.WorkspaceRepository
 	userRepo           repository.UserRepository
 	accountRepo        repository.AccountRepository
-	membershipRepo     repository.WorkspaceMembershipRepository
 	externalMemberRepo repository.ExternalMemberRepository
 	auditRepo          repository.AuthorizationAuditRepository
 	recorder           EventRecorder
@@ -42,9 +41,8 @@ func (s *WorkspaceService) SetExternalMemberRepository(repo repository.ExternalM
 	s.externalMemberRepo = repo
 }
 
-func (s *WorkspaceService) SetIdentityRepositories(accountRepo repository.AccountRepository, membershipRepo repository.WorkspaceMembershipRepository) {
+func (s *WorkspaceService) SetIdentityRepositories(accountRepo repository.AccountRepository, _ ...any) {
 	s.accountRepo = accountRepo
-	s.membershipRepo = membershipRepo
 }
 
 func (s *WorkspaceService) WorkspaceInfo(ctx context.Context, workspaceID string) (*domain.Workspace, error) {
@@ -175,7 +173,7 @@ func (s *WorkspaceService) TransferPrimaryAdmin(ctx context.Context, workspaceID
 	if err != nil {
 		return nil, err
 	}
-	target, err := loadUserWithMembership(ctx, s.userRepo, s.membershipRepo, newPrimaryAdminID)
+	target, err := loadUser(ctx, s.userRepo, newPrimaryAdminID)
 	if err != nil {
 		return nil, err
 	}
@@ -204,16 +202,6 @@ func (s *WorkspaceService) TransferPrimaryAdmin(ctx context.Context, workspaceID
 	if err != nil {
 		return nil, err
 	}
-	if s.membershipRepo != nil {
-		txMemberships := s.membershipRepo.WithTx(tx)
-		if _, err := txMemberships.UpdateAccountTypeByLegacyUserID(ctx, previousPrimary.ID, previousPrimary.EffectiveAccountType()); err != nil && err != domain.ErrNotFound {
-			return nil, fmt.Errorf("sync previous primary membership account type: %w", err)
-		}
-		if _, err := txMemberships.UpdateAccountTypeByLegacyUserID(ctx, nextPrimary.ID, nextPrimary.EffectiveAccountType()); err != nil && err != domain.ErrNotFound {
-			return nil, fmt.Errorf("sync next primary membership account type: %w", err)
-		}
-	}
-
 	for _, user := range []*domain.User{previousPrimary, nextPrimary} {
 		payload, _ := json.Marshal(user)
 		if err := s.recorder.WithTx(tx).Record(ctx, domain.InternalEvent{
@@ -267,12 +255,13 @@ func (s *WorkspaceService) AdminCreate(ctx context.Context, params domain.Create
 		AggregateType: domain.AggregateWorkspace,
 		AggregateID:   ws.ID,
 		WorkspaceID:   ws.ID,
-		ActorID:       compatibilityActorID(ctx),
+		ActorID:       actorUserID(ctx),
 		Payload:       payload,
 	}); err != nil {
 		return nil, fmt.Errorf("record workspace.created event: %w", err)
 	}
 	createdUser, err := s.userRepo.WithTx(tx).Create(ctx, domain.CreateUserParams{
+		AccountID:     actor.AccountID,
 		WorkspaceID:   ws.ID,
 		Name:          actor.Name,
 		RealName:      actor.RealName,
@@ -287,17 +276,14 @@ func (s *WorkspaceService) AdminCreate(ctx context.Context, params domain.Create
 	if err != nil {
 		return nil, fmt.Errorf("create creator user: %w", err)
 	}
-	if s.accountRepo != nil && s.membershipRepo != nil {
-		accountRepo := s.accountRepo
-		membershipRepo := s.membershipRepo
-		if accountRepo != nil {
-			accountRepo = accountRepo.WithTx(tx)
-		}
-		if membershipRepo != nil {
-			membershipRepo = membershipRepo.WithTx(tx)
-		}
-		if _, _, err := syncIdentityForUser(ctx, accountRepo, membershipRepo, createdUser); err != nil {
+	if s.accountRepo != nil {
+		accountRepo := s.accountRepo.WithTx(tx)
+		account, err := ensureAccountForUser(ctx, accountRepo, createdUser)
+		if err != nil {
 			return nil, fmt.Errorf("sync creator identity: %w", err)
+		}
+		if account != nil && createdUser.AccountID == "" {
+			createdUser.AccountID = account.ID
 		}
 	}
 	userPayload, _ := json.Marshal(createdUser)
@@ -306,7 +292,7 @@ func (s *WorkspaceService) AdminCreate(ctx context.Context, params domain.Create
 		AggregateType: domain.AggregateUser,
 		AggregateID:   createdUser.ID,
 		WorkspaceID:   createdUser.WorkspaceID,
-		ActorID:       compatibilityActorID(ctx),
+		ActorID:       actorUserID(ctx),
 		Payload:       userPayload,
 	}); err != nil {
 		return nil, fmt.Errorf("record user.created event: %w", err)
@@ -331,32 +317,30 @@ func (s *WorkspaceService) AdminList(ctx context.Context) ([]domain.Workspace, e
 		return []domain.Workspace{*workspace}, nil
 	}
 
-	if s.membershipRepo != nil {
-		accountID := ctxutil.GetAccountID(ctx)
-		if accountID != "" {
-			memberships, membershipErr := s.membershipRepo.ListByAccount(ctx, accountID)
-			if membershipErr != nil {
-				return nil, fmt.Errorf("list workspace memberships: %w", membershipErr)
+	accountID := ctxutil.GetAccountID(ctx)
+	if accountID != "" {
+		users, userErr := s.userRepo.ListByAccount(ctx, accountID)
+		if userErr != nil {
+			return nil, fmt.Errorf("list workspace users by account: %w", userErr)
+		}
+		workspaces := make([]domain.Workspace, 0, len(users))
+		seen := make(map[string]struct{}, len(users))
+		for _, user := range users {
+			if user.WorkspaceID == "" {
+				continue
 			}
-			workspaces := make([]domain.Workspace, 0, len(memberships))
-			seen := make(map[string]struct{}, len(memberships))
-			for _, membership := range memberships {
-				if membership.WorkspaceID == "" {
-					continue
-				}
-				if _, ok := seen[membership.WorkspaceID]; ok {
-					continue
-				}
-				workspace, getErr := s.repo.Get(ctx, membership.WorkspaceID)
-				if getErr != nil {
-					return nil, getErr
-				}
-				workspaces = append(workspaces, *workspace)
-				seen[membership.WorkspaceID] = struct{}{}
+			if _, ok := seen[user.WorkspaceID]; ok {
+				continue
 			}
-			if len(workspaces) > 0 {
-				return workspaces, nil
+			workspace, getErr := s.repo.Get(ctx, user.WorkspaceID)
+			if getErr != nil {
+				return nil, getErr
 			}
+			workspaces = append(workspaces, *workspace)
+			seen[user.WorkspaceID] = struct{}{}
+		}
+		if len(workspaces) > 0 {
+			return workspaces, nil
 		}
 	}
 	return nil, domain.ErrForbidden
@@ -438,7 +422,7 @@ func (s *WorkspaceService) updateWorkspace(ctx context.Context, workspaceID stri
 		AggregateType: domain.AggregateWorkspace,
 		AggregateID:   ws.ID,
 		WorkspaceID:   ws.ID,
-		ActorID:       compatibilityActorID(ctx),
+		ActorID:       actorUserID(ctx),
 		Payload:       payload,
 	}); err != nil {
 		return nil, fmt.Errorf("record workspace.updated event: %w", err)

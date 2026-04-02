@@ -70,7 +70,8 @@ export type listUsersResponseError = (listUsersResponseDefault) & {
 
 export type listUsersResponse = (listUsersResponseSuccess | listUsersResponseError)
 
-export const getListUsersUrl = (params?: ListUsersParams,) => {
+export const getListUsersUrl = (id: string,
+    params?: ListUsersParams,) => {
   const normalizedParams = new URLSearchParams();
 
   Object.entries(params || {}).forEach(([key, value]) => {
@@ -82,12 +83,13 @@ export const getListUsersUrl = (params?: ListUsersParams,) => {
 
   const stringifiedParams = normalizedParams.toString();
 
-  return stringifiedParams.length > 0 ? `/users?${stringifiedParams}` : `/users`
+  return stringifiedParams.length > 0 ? `/workspaces/${id}/users?${stringifiedParams}` : `/workspaces/${id}/users`
 }
 
-export const listUsers = async (params?: ListUsersParams, options?: RequestInit): Promise<listUsersResponse> => {
+export const listUsers = async (id: string,
+    params?: ListUsersParams, options?: RequestInit): Promise<listUsersResponse> => {
 
-  return orvalFetch<listUsersResponse>(getListUsersUrl(params),
+  return orvalFetch<listUsersResponse>(getListUsersUrl(id,params),
   {
     ...options,
     method: 'GET'
@@ -100,29 +102,31 @@ export const listUsers = async (params?: ListUsersParams, options?: RequestInit)
 
 
 
-export const getListUsersQueryKey = (params?: ListUsersParams,) => {
+export const getListUsersQueryKey = (id: string,
+    params?: ListUsersParams,) => {
     return [
-    `/users`, ...(params ? [params] : [])
+    `/workspaces/${id}/users`, ...(params ? [params] : [])
     ] as const;
     }
 
 
-export const getListUsersQueryOptions = <TData = Awaited<ReturnType<typeof listUsers>>, TError = ErrorType<ApiErrorResponseResponse>>(params?: ListUsersParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listUsers>>, TError, TData>>, request?: SecondParameter<typeof orvalFetch>}
+export const getListUsersQueryOptions = <TData = Awaited<ReturnType<typeof listUsers>>, TError = ErrorType<ApiErrorResponseResponse>>(id: string,
+    params?: ListUsersParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listUsers>>, TError, TData>>, request?: SecondParameter<typeof orvalFetch>}
 ) => {
 
 const {query: queryOptions, request: requestOptions} = options ?? {};
 
-  const queryKey =  queryOptions?.queryKey ?? getListUsersQueryKey(params);
+  const queryKey =  queryOptions?.queryKey ?? getListUsersQueryKey(id,params);
 
 
 
-    const queryFn: QueryFunction<Awaited<ReturnType<typeof listUsers>>> = ({ signal }) => listUsers(params, { signal, ...requestOptions });
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listUsers>>> = ({ signal }) => listUsers(id,params, { signal, ...requestOptions });
 
 
 
 
 
-   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listUsers>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+   return  { queryKey, queryFn, enabled: !!(id), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listUsers>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
 }
 
 export type ListUsersQueryResult = NonNullable<Awaited<ReturnType<typeof listUsers>>>
@@ -130,7 +134,8 @@ export type ListUsersQueryError = ErrorType<ApiErrorResponseResponse>
 
 
 export function useListUsers<TData = Awaited<ReturnType<typeof listUsers>>, TError = ErrorType<ApiErrorResponseResponse>>(
- params: undefined |  ListUsersParams, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof listUsers>>, TError, TData>> & Pick<
+ id: string,
+    params: undefined |  ListUsersParams, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof listUsers>>, TError, TData>> & Pick<
         DefinedInitialDataOptions<
           Awaited<ReturnType<typeof listUsers>>,
           TError,
@@ -140,7 +145,8 @@ export function useListUsers<TData = Awaited<ReturnType<typeof listUsers>>, TErr
  , queryClient?: QueryClient
   ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
 export function useListUsers<TData = Awaited<ReturnType<typeof listUsers>>, TError = ErrorType<ApiErrorResponseResponse>>(
- params?: ListUsersParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listUsers>>, TError, TData>> & Pick<
+ id: string,
+    params?: ListUsersParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listUsers>>, TError, TData>> & Pick<
         UndefinedInitialDataOptions<
           Awaited<ReturnType<typeof listUsers>>,
           TError,
@@ -150,16 +156,18 @@ export function useListUsers<TData = Awaited<ReturnType<typeof listUsers>>, TErr
  , queryClient?: QueryClient
   ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
 export function useListUsers<TData = Awaited<ReturnType<typeof listUsers>>, TError = ErrorType<ApiErrorResponseResponse>>(
- params?: ListUsersParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listUsers>>, TError, TData>>, request?: SecondParameter<typeof orvalFetch>}
+ id: string,
+    params?: ListUsersParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listUsers>>, TError, TData>>, request?: SecondParameter<typeof orvalFetch>}
  , queryClient?: QueryClient
   ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
 
 export function useListUsers<TData = Awaited<ReturnType<typeof listUsers>>, TError = ErrorType<ApiErrorResponseResponse>>(
- params?: ListUsersParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listUsers>>, TError, TData>>, request?: SecondParameter<typeof orvalFetch>}
+ id: string,
+    params?: ListUsersParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listUsers>>, TError, TData>>, request?: SecondParameter<typeof orvalFetch>}
  , queryClient?: QueryClient
  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
 
-  const queryOptions = getListUsersQueryOptions(params,options)
+  const queryOptions = getListUsersQueryOptions(id,params,options)
 
   const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
 
@@ -188,17 +196,18 @@ export type createUserResponseError = (createUserResponseDefault) & {
 
 export type createUserResponse = (createUserResponseSuccess | createUserResponseError)
 
-export const getCreateUserUrl = () => {
+export const getCreateUserUrl = (id: string,) => {
 
 
 
 
-  return `/users`
+  return `/workspaces/${id}/users`
 }
 
-export const createUser = async (createUserRequest: CreateUserRequest, options?: RequestInit): Promise<createUserResponse> => {
+export const createUser = async (id: string,
+    createUserRequest: CreateUserRequest, options?: RequestInit): Promise<createUserResponse> => {
 
-  return orvalFetch<createUserResponse>(getCreateUserUrl(),
+  return orvalFetch<createUserResponse>(getCreateUserUrl(id),
   {
     ...options,
     method: 'POST',
@@ -212,8 +221,8 @@ export const createUser = async (createUserRequest: CreateUserRequest, options?:
 
 
 export const getCreateUserMutationOptions = <TError = ErrorType<ApiErrorResponseResponse>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createUser>>, TError,{data: BodyType<CreateUserRequest>}, TContext>, request?: SecondParameter<typeof orvalFetch>}
-): UseMutationOptions<Awaited<ReturnType<typeof createUser>>, TError,{data: BodyType<CreateUserRequest>}, TContext> => {
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createUser>>, TError,{id: string;data: BodyType<CreateUserRequest>}, TContext>, request?: SecondParameter<typeof orvalFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createUser>>, TError,{id: string;data: BodyType<CreateUserRequest>}, TContext> => {
 
 const mutationKey = ['createUser'];
 const {mutation: mutationOptions, request: requestOptions} = options ?
@@ -225,10 +234,10 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createUser>>, {data: BodyType<CreateUserRequest>}> = (props) => {
-          const {data} = props ?? {};
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createUser>>, {id: string;data: BodyType<CreateUserRequest>}> = (props) => {
+          const {id,data} = props ?? {};
 
-          return  createUser(data,requestOptions)
+          return  createUser(id,data,requestOptions)
         }
 
 
@@ -243,11 +252,11 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type CreateUserMutationError = ErrorType<ApiErrorResponseResponse>
 
     export const useCreateUser = <TError = ErrorType<ApiErrorResponseResponse>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createUser>>, TError,{data: BodyType<CreateUserRequest>}, TContext>, request?: SecondParameter<typeof orvalFetch>}
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createUser>>, TError,{id: string;data: BodyType<CreateUserRequest>}, TContext>, request?: SecondParameter<typeof orvalFetch>}
  , queryClient?: QueryClient): UseMutationResult<
         Awaited<ReturnType<typeof createUser>>,
         TError,
-        {data: BodyType<CreateUserRequest>},
+        {id: string;data: BodyType<CreateUserRequest>},
         TContext
       > => {
       return useMutation(getCreateUserMutationOptions(options), queryClient);
@@ -271,17 +280,19 @@ export type getUserResponseError = (getUserResponseDefault) & {
 
 export type getUserResponse = (getUserResponseSuccess | getUserResponseError)
 
-export const getGetUserUrl = (id: string,) => {
+export const getGetUserUrl = (id: string,
+    userId: string,) => {
 
 
 
 
-  return `/users/${id}`
+  return `/workspaces/${id}/users/${userId}`
 }
 
-export const getUser = async (id: string, options?: RequestInit): Promise<getUserResponse> => {
+export const getUser = async (id: string,
+    userId: string, options?: RequestInit): Promise<getUserResponse> => {
 
-  return orvalFetch<getUserResponse>(getGetUserUrl(id),
+  return orvalFetch<getUserResponse>(getGetUserUrl(id,userId),
   {
     ...options,
     method: 'GET'
@@ -294,29 +305,31 @@ export const getUser = async (id: string, options?: RequestInit): Promise<getUse
 
 
 
-export const getGetUserQueryKey = (id: string,) => {
+export const getGetUserQueryKey = (id: string,
+    userId: string,) => {
     return [
-    `/users/${id}`
+    `/workspaces/${id}/users/${userId}`
     ] as const;
     }
 
 
-export const getGetUserQueryOptions = <TData = Awaited<ReturnType<typeof getUser>>, TError = ErrorType<ApiErrorResponseResponse>>(id: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getUser>>, TError, TData>>, request?: SecondParameter<typeof orvalFetch>}
+export const getGetUserQueryOptions = <TData = Awaited<ReturnType<typeof getUser>>, TError = ErrorType<ApiErrorResponseResponse>>(id: string,
+    userId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getUser>>, TError, TData>>, request?: SecondParameter<typeof orvalFetch>}
 ) => {
 
 const {query: queryOptions, request: requestOptions} = options ?? {};
 
-  const queryKey =  queryOptions?.queryKey ?? getGetUserQueryKey(id);
+  const queryKey =  queryOptions?.queryKey ?? getGetUserQueryKey(id,userId);
 
 
 
-    const queryFn: QueryFunction<Awaited<ReturnType<typeof getUser>>> = ({ signal }) => getUser(id, { signal, ...requestOptions });
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getUser>>> = ({ signal }) => getUser(id,userId, { signal, ...requestOptions });
 
 
 
 
 
-   return  { queryKey, queryFn, enabled: !!(id), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getUser>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+   return  { queryKey, queryFn, enabled: !!(id && userId), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getUser>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
 }
 
 export type GetUserQueryResult = NonNullable<Awaited<ReturnType<typeof getUser>>>
@@ -324,7 +337,8 @@ export type GetUserQueryError = ErrorType<ApiErrorResponseResponse>
 
 
 export function useGetUser<TData = Awaited<ReturnType<typeof getUser>>, TError = ErrorType<ApiErrorResponseResponse>>(
- id: string, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof getUser>>, TError, TData>> & Pick<
+ id: string,
+    userId: string, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof getUser>>, TError, TData>> & Pick<
         DefinedInitialDataOptions<
           Awaited<ReturnType<typeof getUser>>,
           TError,
@@ -334,7 +348,8 @@ export function useGetUser<TData = Awaited<ReturnType<typeof getUser>>, TError =
  , queryClient?: QueryClient
   ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
 export function useGetUser<TData = Awaited<ReturnType<typeof getUser>>, TError = ErrorType<ApiErrorResponseResponse>>(
- id: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getUser>>, TError, TData>> & Pick<
+ id: string,
+    userId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getUser>>, TError, TData>> & Pick<
         UndefinedInitialDataOptions<
           Awaited<ReturnType<typeof getUser>>,
           TError,
@@ -344,16 +359,18 @@ export function useGetUser<TData = Awaited<ReturnType<typeof getUser>>, TError =
  , queryClient?: QueryClient
   ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
 export function useGetUser<TData = Awaited<ReturnType<typeof getUser>>, TError = ErrorType<ApiErrorResponseResponse>>(
- id: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getUser>>, TError, TData>>, request?: SecondParameter<typeof orvalFetch>}
+ id: string,
+    userId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getUser>>, TError, TData>>, request?: SecondParameter<typeof orvalFetch>}
  , queryClient?: QueryClient
   ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
 
 export function useGetUser<TData = Awaited<ReturnType<typeof getUser>>, TError = ErrorType<ApiErrorResponseResponse>>(
- id: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getUser>>, TError, TData>>, request?: SecondParameter<typeof orvalFetch>}
+ id: string,
+    userId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getUser>>, TError, TData>>, request?: SecondParameter<typeof orvalFetch>}
  , queryClient?: QueryClient
  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
 
-  const queryOptions = getGetUserQueryOptions(id,options)
+  const queryOptions = getGetUserQueryOptions(id,userId,options)
 
   const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
 
@@ -382,18 +399,20 @@ export type updateUserResponseError = (updateUserResponseDefault) & {
 
 export type updateUserResponse = (updateUserResponseSuccess | updateUserResponseError)
 
-export const getUpdateUserUrl = (id: string,) => {
+export const getUpdateUserUrl = (id: string,
+    userId: string,) => {
 
 
 
 
-  return `/users/${id}`
+  return `/workspaces/${id}/users/${userId}`
 }
 
 export const updateUser = async (id: string,
+    userId: string,
     updateUserRequest: UpdateUserRequest, options?: RequestInit): Promise<updateUserResponse> => {
 
-  return orvalFetch<updateUserResponse>(getUpdateUserUrl(id),
+  return orvalFetch<updateUserResponse>(getUpdateUserUrl(id,userId),
   {
     ...options,
     method: 'PATCH',
@@ -407,8 +426,8 @@ export const updateUser = async (id: string,
 
 
 export const getUpdateUserMutationOptions = <TError = ErrorType<ApiErrorResponseResponse>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateUser>>, TError,{id: string;data: BodyType<UpdateUserRequest>}, TContext>, request?: SecondParameter<typeof orvalFetch>}
-): UseMutationOptions<Awaited<ReturnType<typeof updateUser>>, TError,{id: string;data: BodyType<UpdateUserRequest>}, TContext> => {
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateUser>>, TError,{id: string;userId: string;data: BodyType<UpdateUserRequest>}, TContext>, request?: SecondParameter<typeof orvalFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateUser>>, TError,{id: string;userId: string;data: BodyType<UpdateUserRequest>}, TContext> => {
 
 const mutationKey = ['updateUser'];
 const {mutation: mutationOptions, request: requestOptions} = options ?
@@ -420,10 +439,10 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateUser>>, {id: string;data: BodyType<UpdateUserRequest>}> = (props) => {
-          const {id,data} = props ?? {};
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateUser>>, {id: string;userId: string;data: BodyType<UpdateUserRequest>}> = (props) => {
+          const {id,userId,data} = props ?? {};
 
-          return  updateUser(id,data,requestOptions)
+          return  updateUser(id,userId,data,requestOptions)
         }
 
 
@@ -438,11 +457,11 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type UpdateUserMutationError = ErrorType<ApiErrorResponseResponse>
 
     export const useUpdateUser = <TError = ErrorType<ApiErrorResponseResponse>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateUser>>, TError,{id: string;data: BodyType<UpdateUserRequest>}, TContext>, request?: SecondParameter<typeof orvalFetch>}
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateUser>>, TError,{id: string;userId: string;data: BodyType<UpdateUserRequest>}, TContext>, request?: SecondParameter<typeof orvalFetch>}
  , queryClient?: QueryClient): UseMutationResult<
         Awaited<ReturnType<typeof updateUser>>,
         TError,
-        {id: string;data: BodyType<UpdateUserRequest>},
+        {id: string;userId: string;data: BodyType<UpdateUserRequest>},
         TContext
       > => {
       return useMutation(getUpdateUserMutationOptions(options), queryClient);
@@ -466,17 +485,19 @@ export type getUserRolesResponseError = (getUserRolesResponseDefault) & {
 
 export type getUserRolesResponse = (getUserRolesResponseSuccess | getUserRolesResponseError)
 
-export const getGetUserRolesUrl = (id: string,) => {
+export const getGetUserRolesUrl = (id: string,
+    userId: string,) => {
 
 
 
 
-  return `/users/${id}/roles`
+  return `/workspaces/${id}/users/${userId}/roles`
 }
 
-export const getUserRoles = async (id: string, options?: RequestInit): Promise<getUserRolesResponse> => {
+export const getUserRoles = async (id: string,
+    userId: string, options?: RequestInit): Promise<getUserRolesResponse> => {
 
-  return orvalFetch<getUserRolesResponse>(getGetUserRolesUrl(id),
+  return orvalFetch<getUserRolesResponse>(getGetUserRolesUrl(id,userId),
   {
     ...options,
     method: 'GET'
@@ -489,29 +510,31 @@ export const getUserRoles = async (id: string, options?: RequestInit): Promise<g
 
 
 
-export const getGetUserRolesQueryKey = (id: string,) => {
+export const getGetUserRolesQueryKey = (id: string,
+    userId: string,) => {
     return [
-    `/users/${id}/roles`
+    `/workspaces/${id}/users/${userId}/roles`
     ] as const;
     }
 
 
-export const getGetUserRolesQueryOptions = <TData = Awaited<ReturnType<typeof getUserRoles>>, TError = ErrorType<ApiErrorResponseResponse>>(id: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getUserRoles>>, TError, TData>>, request?: SecondParameter<typeof orvalFetch>}
+export const getGetUserRolesQueryOptions = <TData = Awaited<ReturnType<typeof getUserRoles>>, TError = ErrorType<ApiErrorResponseResponse>>(id: string,
+    userId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getUserRoles>>, TError, TData>>, request?: SecondParameter<typeof orvalFetch>}
 ) => {
 
 const {query: queryOptions, request: requestOptions} = options ?? {};
 
-  const queryKey =  queryOptions?.queryKey ?? getGetUserRolesQueryKey(id);
+  const queryKey =  queryOptions?.queryKey ?? getGetUserRolesQueryKey(id,userId);
 
 
 
-    const queryFn: QueryFunction<Awaited<ReturnType<typeof getUserRoles>>> = ({ signal }) => getUserRoles(id, { signal, ...requestOptions });
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getUserRoles>>> = ({ signal }) => getUserRoles(id,userId, { signal, ...requestOptions });
 
 
 
 
 
-   return  { queryKey, queryFn, enabled: !!(id), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getUserRoles>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+   return  { queryKey, queryFn, enabled: !!(id && userId), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getUserRoles>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
 }
 
 export type GetUserRolesQueryResult = NonNullable<Awaited<ReturnType<typeof getUserRoles>>>
@@ -519,7 +542,8 @@ export type GetUserRolesQueryError = ErrorType<ApiErrorResponseResponse>
 
 
 export function useGetUserRoles<TData = Awaited<ReturnType<typeof getUserRoles>>, TError = ErrorType<ApiErrorResponseResponse>>(
- id: string, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof getUserRoles>>, TError, TData>> & Pick<
+ id: string,
+    userId: string, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof getUserRoles>>, TError, TData>> & Pick<
         DefinedInitialDataOptions<
           Awaited<ReturnType<typeof getUserRoles>>,
           TError,
@@ -529,7 +553,8 @@ export function useGetUserRoles<TData = Awaited<ReturnType<typeof getUserRoles>>
  , queryClient?: QueryClient
   ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
 export function useGetUserRoles<TData = Awaited<ReturnType<typeof getUserRoles>>, TError = ErrorType<ApiErrorResponseResponse>>(
- id: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getUserRoles>>, TError, TData>> & Pick<
+ id: string,
+    userId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getUserRoles>>, TError, TData>> & Pick<
         UndefinedInitialDataOptions<
           Awaited<ReturnType<typeof getUserRoles>>,
           TError,
@@ -539,16 +564,18 @@ export function useGetUserRoles<TData = Awaited<ReturnType<typeof getUserRoles>>
  , queryClient?: QueryClient
   ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
 export function useGetUserRoles<TData = Awaited<ReturnType<typeof getUserRoles>>, TError = ErrorType<ApiErrorResponseResponse>>(
- id: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getUserRoles>>, TError, TData>>, request?: SecondParameter<typeof orvalFetch>}
+ id: string,
+    userId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getUserRoles>>, TError, TData>>, request?: SecondParameter<typeof orvalFetch>}
  , queryClient?: QueryClient
   ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
 
 export function useGetUserRoles<TData = Awaited<ReturnType<typeof getUserRoles>>, TError = ErrorType<ApiErrorResponseResponse>>(
- id: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getUserRoles>>, TError, TData>>, request?: SecondParameter<typeof orvalFetch>}
+ id: string,
+    userId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getUserRoles>>, TError, TData>>, request?: SecondParameter<typeof orvalFetch>}
  , queryClient?: QueryClient
  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
 
-  const queryOptions = getGetUserRolesQueryOptions(id,options)
+  const queryOptions = getGetUserRolesQueryOptions(id,userId,options)
 
   const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
 
@@ -577,18 +604,20 @@ export type updateUserRolesResponseError = (updateUserRolesResponseDefault) & {
 
 export type updateUserRolesResponse = (updateUserRolesResponseSuccess | updateUserRolesResponseError)
 
-export const getUpdateUserRolesUrl = (id: string,) => {
+export const getUpdateUserRolesUrl = (id: string,
+    userId: string,) => {
 
 
 
 
-  return `/users/${id}/roles`
+  return `/workspaces/${id}/users/${userId}/roles`
 }
 
 export const updateUserRoles = async (id: string,
+    userId: string,
     updateUserRolesRequest: UpdateUserRolesRequest, options?: RequestInit): Promise<updateUserRolesResponse> => {
 
-  return orvalFetch<updateUserRolesResponse>(getUpdateUserRolesUrl(id),
+  return orvalFetch<updateUserRolesResponse>(getUpdateUserRolesUrl(id,userId),
   {
     ...options,
     method: 'PUT',
@@ -602,8 +631,8 @@ export const updateUserRoles = async (id: string,
 
 
 export const getUpdateUserRolesMutationOptions = <TError = ErrorType<ApiErrorResponseResponse>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateUserRoles>>, TError,{id: string;data: BodyType<UpdateUserRolesRequest>}, TContext>, request?: SecondParameter<typeof orvalFetch>}
-): UseMutationOptions<Awaited<ReturnType<typeof updateUserRoles>>, TError,{id: string;data: BodyType<UpdateUserRolesRequest>}, TContext> => {
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateUserRoles>>, TError,{id: string;userId: string;data: BodyType<UpdateUserRolesRequest>}, TContext>, request?: SecondParameter<typeof orvalFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateUserRoles>>, TError,{id: string;userId: string;data: BodyType<UpdateUserRolesRequest>}, TContext> => {
 
 const mutationKey = ['updateUserRoles'];
 const {mutation: mutationOptions, request: requestOptions} = options ?
@@ -615,10 +644,10 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateUserRoles>>, {id: string;data: BodyType<UpdateUserRolesRequest>}> = (props) => {
-          const {id,data} = props ?? {};
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateUserRoles>>, {id: string;userId: string;data: BodyType<UpdateUserRolesRequest>}> = (props) => {
+          const {id,userId,data} = props ?? {};
 
-          return  updateUserRoles(id,data,requestOptions)
+          return  updateUserRoles(id,userId,data,requestOptions)
         }
 
 
@@ -633,11 +662,11 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type UpdateUserRolesMutationError = ErrorType<ApiErrorResponseResponse>
 
     export const useUpdateUserRoles = <TError = ErrorType<ApiErrorResponseResponse>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateUserRoles>>, TError,{id: string;data: BodyType<UpdateUserRolesRequest>}, TContext>, request?: SecondParameter<typeof orvalFetch>}
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateUserRoles>>, TError,{id: string;userId: string;data: BodyType<UpdateUserRolesRequest>}, TContext>, request?: SecondParameter<typeof orvalFetch>}
  , queryClient?: QueryClient): UseMutationResult<
         Awaited<ReturnType<typeof updateUserRoles>>,
         TError,
-        {id: string;data: BodyType<UpdateUserRolesRequest>},
+        {id: string;userId: string;data: BodyType<UpdateUserRolesRequest>},
         TContext
       > => {
       return useMutation(getUpdateUserRolesMutationOptions(options), queryClient);

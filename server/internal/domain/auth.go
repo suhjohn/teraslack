@@ -14,7 +14,6 @@ type AuthSession struct {
 	ID           string       `json:"id"`
 	WorkspaceID  string       `json:"workspace_id"`
 	AccountID    string       `json:"account_id,omitempty"`
-	MembershipID string       `json:"membership_id,omitempty"`
 	UserID       string       `json:"user_id,omitempty"`
 	Provider     AuthProvider `json:"provider"`
 	Token        string       `json:"token,omitempty"`
@@ -33,7 +32,6 @@ type AuthContext struct {
 	WorkspaceID   string        `json:"workspace_id"`
 	UserID        string        `json:"user_id"`
 	AccountID     string        `json:"account_id,omitempty"`
-	MembershipID  string        `json:"membership_id,omitempty"`
 	PrincipalType PrincipalType `json:"principal_type"`
 	AccountType   AccountType   `json:"account_type,omitempty"`
 	IsBot         bool          `json:"is_bot"`
@@ -44,13 +42,13 @@ type AuthContext struct {
 type AuthMeResponse struct {
 	WorkspaceID   string        `json:"workspace_id"`
 	AccountID     string        `json:"account_id,omitempty"`
-	MembershipID  string        `json:"membership_id,omitempty"`
 	UserID        string        `json:"user_id,omitempty"`
 	PrincipalType PrincipalType `json:"principal_type"`
 	AccountType   AccountType   `json:"account_type,omitempty"`
 	IsBot         bool          `json:"is_bot"`
 	Permissions   []string      `json:"permissions,omitempty"`
 	Scopes        []string      `json:"scopes,omitempty"`
+	Account       *Account      `json:"account,omitempty"`
 	User          *User         `json:"user,omitempty"`
 }
 
@@ -98,7 +96,6 @@ type OAuthAccount struct {
 	ID              string       `json:"id"`
 	WorkspaceID     string       `json:"workspace_id"`
 	AccountID       string       `json:"account_id,omitempty"`
-	MembershipID    string       `json:"membership_id,omitempty"`
 	UserID          string       `json:"user_id,omitempty"`
 	Provider        AuthProvider `json:"provider"`
 	ProviderSubject string       `json:"provider_subject"`
@@ -108,12 +105,11 @@ type OAuthAccount struct {
 }
 
 type CreateAuthSessionParams struct {
-	WorkspaceID  string
-	AccountID    string
-	MembershipID string
-	UserID       string
-	Provider     AuthProvider
-	ExpiresAt    time.Time
+	WorkspaceID string
+	AccountID   string
+	UserID      string
+	Provider    AuthProvider
+	ExpiresAt   time.Time
 }
 
 type EmailVerificationChallenge struct {
@@ -134,7 +130,6 @@ type CreateEmailVerificationChallengeParams struct {
 type UpsertOAuthAccountParams struct {
 	WorkspaceID     string
 	AccountID       string
-	MembershipID    string
 	UserID          string
 	Provider        AuthProvider
 	ProviderSubject string

@@ -33,11 +33,12 @@ func TestComposeE2E_SystemAPIKeyCanReachProtectedRoutes(t *testing.T) {
 	})
 
 	managedKey, _ := createAPIKeyViaHTTP(t, httpClient, baseURL, ownerToken, domain.CreateAPIKeyParams{
-		Name:        "Managed Route Key",
-		WorkspaceID: owner.WorkspaceID,
-		UserID:      agent.ID,
-		CreatedBy:   owner.ID,
-		Permissions: []string{domain.PermissionMessagesRead, domain.PermissionMessagesWrite},
+		Name:         "Managed Route Key",
+		Scope:        domain.APIKeyScopeAccount,
+		AccountID:    owner.AccountID,
+		WorkspaceIDs: []string{owner.WorkspaceID},
+		CreatedBy:    owner.ID,
+		Permissions:  []string{domain.PermissionMessagesRead, domain.PermissionMessagesWrite},
 	})
 	_, systemKey := createAPIKeyViaHTTP(t, httpClient, baseURL, ownerToken, domain.CreateAPIKeyParams{
 		Name:        "System Route Key",
@@ -86,21 +87,21 @@ func TestComposeE2E_SystemAPIKeyCanReachProtectedRoutes(t *testing.T) {
 	}
 
 	fixtures := systemRouteFixtures{
-		workspaceID:        owner.WorkspaceID,
-		ownerID:            owner.ID,
-		memberID:           member.ID,
-		agentID:            agent.ID,
-		channelID:          channel.ID,
-		messageTS:          rootMessage.TS,
-		apiKeyID:           managedKey.ID,
-		subscriptionID:     subscription.ID,
+		workspaceID:         owner.WorkspaceID,
+		ownerID:             owner.ID,
+		memberID:            member.ID,
+		agentID:             agent.ID,
+		channelID:           channel.ID,
+		messageTS:           rootMessage.TS,
+		apiKeyID:            managedKey.ID,
+		subscriptionID:      subscription.ID,
 		externalWorkspaceID: externalWorkspace.ID,
 		externalMemberID:    externalMember.ID,
 		fakeExternalWSID:    "EW_DOES_NOT_EXIST",
-		fakeFileID:         "F_DOES_NOT_EXIST",
-		fakeUploadFileID:   "F_UPLOAD_DOES_NOT_EXIST",
-		fakeMessageTS:      "9999.999999",
-		fakeConversationID: "C_DOES_NOT_EXIST",
+		fakeFileID:          "F_DOES_NOT_EXIST",
+		fakeUploadFileID:    "F_UPLOAD_DOES_NOT_EXIST",
+		fakeMessageTS:       "9999.999999",
+		fakeConversationID:  "C_DOES_NOT_EXIST",
 	}
 
 	cases := collectSystemRouteCases(t, spec, fixtures)
@@ -115,21 +116,21 @@ func TestComposeE2E_SystemAPIKeyCanReachProtectedRoutes(t *testing.T) {
 }
 
 type systemRouteFixtures struct {
-	workspaceID        string
-	ownerID            string
-	memberID           string
-	agentID            string
-	channelID          string
-	messageTS          string
-	apiKeyID           string
-	subscriptionID     string
+	workspaceID         string
+	ownerID             string
+	memberID            string
+	agentID             string
+	channelID           string
+	messageTS           string
+	apiKeyID            string
+	subscriptionID      string
 	externalWorkspaceID string
 	externalMemberID    string
-	fakeExternalWSID   string
-	fakeFileID         string
-	fakeUploadFileID   string
-	fakeMessageTS      string
-	fakeConversationID string
+	fakeExternalWSID    string
+	fakeFileID          string
+	fakeUploadFileID    string
+	fakeMessageTS       string
+	fakeConversationID  string
 }
 
 type systemRouteCase struct {
@@ -212,8 +213,6 @@ func buildSystemRouteURL(baseURL, path string, fx systemRouteFixtures) string {
 	switch {
 	case strings.HasPrefix(path, "/workspaces/{id}"):
 		urlPath = strings.ReplaceAll(urlPath, "{id}", fx.workspaceID)
-	case strings.HasPrefix(path, "/users/{id}"):
-		urlPath = strings.ReplaceAll(urlPath, "{id}", fx.memberID)
 	case strings.HasPrefix(path, "/api-keys/{id}"):
 		urlPath = strings.ReplaceAll(urlPath, "{id}", fx.apiKeyID)
 	case strings.HasPrefix(path, "/event-subscriptions/{id}"):
@@ -332,17 +331,16 @@ func buildSystemRouteBody(method, path string, fx systemRouteFixtures) any {
 		return map[string]any{"name": "eyes"}
 	case http.MethodPost + " /search":
 		return map[string]any{"workspace_id": fx.workspaceID, "query": "route"}
-	case http.MethodPost + " /users":
+	case http.MethodPost + " /workspaces/{id}/users":
 		return map[string]any{
-			"workspace_id":   fx.workspaceID,
 			"name":           uniqueName("route-user"),
 			"email":          uniqueEmail("route-user"),
 			"principal_type": domain.PrincipalTypeHuman,
 			"account_type":   domain.AccountTypeMember,
 		}
-	case http.MethodPatch + " /users/{id}":
+	case http.MethodPatch + " /workspaces/{id}/users/{user_id}":
 		return map[string]any{"display_name": "route-display-name"}
-	case http.MethodPut + " /users/{id}/roles":
+	case http.MethodPut + " /workspaces/{id}/users/{user_id}/roles":
 		return map[string]any{"delegated_roles": []string{string(domain.DelegatedRoleRolesAdmin)}}
 	case http.MethodPost + " /workspaces":
 		return map[string]any{}

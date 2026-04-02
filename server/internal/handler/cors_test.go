@@ -12,7 +12,7 @@ func TestCORSAllowsFrontendURLByDefault(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
-	req := httptest.NewRequest(http.MethodGet, "/users", nil)
+	req := httptest.NewRequest(http.MethodGet, "/workspaces/T123/users", nil)
 	req.Header.Set("Origin", "https://teraslack.ai")
 	rec := httptest.NewRecorder()
 
@@ -32,7 +32,7 @@ func TestCORSAllowsAdditionalConfiguredOrigin(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
-	req := httptest.NewRequest(http.MethodGet, "/users", nil)
+	req := httptest.NewRequest(http.MethodGet, "/workspaces/T123/users", nil)
 	req.Header.Set("Origin", "https://teraslack.ai")
 	rec := httptest.NewRecorder()
 
@@ -49,7 +49,7 @@ func TestCORSDoesNotAllowUnexpectedOrigin(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
-	req := httptest.NewRequest(http.MethodGet, "/users", nil)
+	req := httptest.NewRequest(http.MethodGet, "/workspaces/T123/users", nil)
 	req.Header.Set("Origin", "https://evil.example.com")
 	rec := httptest.NewRecorder()
 
@@ -66,7 +66,7 @@ func TestCORSPreflightAllowedOriginReturnsNoContent(t *testing.T) {
 		t.Fatal("preflight request should not hit next handler")
 	}))
 
-	req := httptest.NewRequest(http.MethodOptions, "/users", nil)
+	req := httptest.NewRequest(http.MethodOptions, "/workspaces/T123/users", nil)
 	req.Header.Set("Origin", "https://teraslack.ai")
 	rec := httptest.NewRecorder()
 

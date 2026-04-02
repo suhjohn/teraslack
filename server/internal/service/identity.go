@@ -6,30 +6,44 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/suhjohn/teraslack/internal/domain"
 	"github.com/suhjohn/teraslack/internal/repository"
 )
 
-func syncIdentityForUser(ctx context.Context, accountRepo repository.AccountRepository, membershipRepo repository.WorkspaceMembershipRepository, user *domain.User) (*domain.Account, *domain.WorkspaceMembership, error) {
-	if accountRepo == nil || membershipRepo == nil || user == nil {
-		return nil, nil, nil
+func applyAccountIdentityToUser(user *domain.User, account *domain.Account) *domain.User {
+	if user == nil || account == nil {
+		return user
 	}
+	copy := *user
+	copy.AccountID = firstNonEmptyString(strings.TrimSpace(copy.AccountID), strings.TrimSpace(account.ID))
+	copy.Email = account.Email
+	copy.PrincipalType = account.PrincipalType
+	copy.IsBot = account.IsBot
+	return &copy
+}
 
-	account, err := resolveOrCreateAccountForUser(ctx, accountRepo, user)
-	if err != nil {
-		return nil, nil, err
+func firstNonEmptyString(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return value
+		}
 	}
-	membership, err := ensureWorkspaceMembershipForUser(ctx, membershipRepo, account.ID, user)
-	if err != nil {
-		return nil, nil, err
+	return ""
+}
+
+func ensureAccountForUser(ctx context.Context, accountRepo repository.AccountRepository, user *domain.User) (*domain.Account, error) {
+	if accountRepo == nil || user == nil {
+		return nil, nil
 	}
-	return account, membership, nil
+	return resolveOrCreateAccountForUser(ctx, accountRepo, user)
 }
 
 func resolveOrCreateAccountForUser(ctx context.Context, accountRepo repository.AccountRepository, user *domain.User) (*domain.Account, error) {
 	if accountRepo == nil || user == nil {
 		return nil, nil
+	}
+	if accountID := strings.TrimSpace(user.AccountID); accountID != "" {
+		return accountRepo.Get(ctx, accountID)
 	}
 	email := strings.TrimSpace(user.Email)
 	if email != "" {
@@ -43,32 +57,33 @@ func resolveOrCreateAccountForUser(ctx context.Context, accountRepo repository.A
 	}
 	return accountRepo.Create(ctx, domain.CreateAccountParams{
 		PrincipalType: user.PrincipalType,
-		Name:          user.Name,
-		RealName:      user.RealName,
-		DisplayName:   user.DisplayName,
 		Email:         email,
 		IsBot:         user.IsBot,
 		Deleted:       user.Deleted,
-		Profile:       user.Profile,
 	})
 }
 
-func ensureWorkspaceMembershipForUser(ctx context.Context, membershipRepo repository.WorkspaceMembershipRepository, accountID string, user *domain.User) (*domain.WorkspaceMembership, error) {
-	if membershipRepo == nil || user == nil || accountID == "" {
+func resolveOrCreateAccountForCreateUserParams(ctx context.Context, accountRepo repository.AccountRepository, params domain.CreateUserParams) (*domain.Account, error) {
+	if accountRepo == nil {
 		return nil, nil
 	}
-	membership, err := membershipRepo.GetByLegacyUserID(ctx, user.ID)
-	if err == nil {
-		return membership, nil
+	if accountID := strings.TrimSpace(params.AccountID); accountID != "" {
+		return accountRepo.Get(ctx, accountID)
 	}
-	if err != nil && err != domain.ErrNotFound {
-		return nil, err
+	email := strings.TrimSpace(params.Email)
+	if email != "" {
+		account, err := accountRepo.GetByEmail(ctx, email)
+		if err == nil {
+			return account, nil
+		}
+		if err != nil && err != domain.ErrNotFound {
+			return nil, err
+		}
 	}
-	return membershipRepo.Create(ctx, domain.CreateWorkspaceMembershipParams{
-		AccountID:   accountID,
-		WorkspaceID: user.WorkspaceID,
-		UserID:      user.ID,
-		AccountType: user.EffectiveAccountType(),
+	return accountRepo.Create(ctx, domain.CreateAccountParams{
+		PrincipalType: params.PrincipalType,
+		Email:         email,
+		IsBot:         params.IsBot,
 	})
 }
 
@@ -91,229 +106,46 @@ func resolveOrCreateAccount(ctx context.Context, accountRepo repository.AccountR
 	}
 	return accountRepo.Create(ctx, domain.CreateAccountParams{
 		PrincipalType: params.PrincipalType,
-		Name:          strings.TrimSpace(params.Name),
-		RealName:      strings.TrimSpace(params.RealName),
-		DisplayName:   strings.TrimSpace(params.DisplayName),
 		Email:         email,
 	})
 }
 
-func decorateUserWithMembership(ctx context.Context, membershipRepo repository.WorkspaceMembershipRepository, user *domain.User) (*domain.User, error) {
-	if user == nil || membershipRepo == nil {
-		return user, nil
+func loadUser(ctx context.Context, userRepo repository.UserRepository, userID string) (*domain.User, error) {
+	if userRepo == nil {
+		return nil, fmt.Errorf("user: %w", domain.ErrInvalidArgument)
 	}
-	copy := *user
-	membership, err := membershipRepo.GetByLegacyUserID(ctx, user.ID)
-	if err != nil {
-		if err == domain.ErrNotFound {
-			return &copy, nil
-		}
-		return nil, err
-	}
-	if membership.WorkspaceID != "" {
-		copy.WorkspaceID = membership.WorkspaceID
-	}
-	if membership.AccountType != "" {
-		copy.AccountType = membership.AccountType
-	}
-	return &copy, nil
-}
-
-func loadUserWithMembership(ctx context.Context, userRepo repository.UserRepository, membershipRepo repository.WorkspaceMembershipRepository, userID string) (*domain.User, error) {
-	user, err := userRepo.Get(ctx, userID)
-	if err != nil {
-		return nil, err
-	}
-	return decorateUserWithMembership(ctx, membershipRepo, user)
+	return userRepo.Get(ctx, userID)
 }
 
 func resolveAuthContextUser(
 	ctx context.Context,
-	tx pgx.Tx,
 	userRepo repository.UserRepository,
-	accountRepo repository.AccountRepository,
-	membershipRepo repository.WorkspaceMembershipRepository,
 	auth *domain.AuthContext,
-	recorder EventRecorder,
-) (*domain.User, *domain.WorkspaceMembership, error) {
+) (*domain.User, error) {
 	if auth == nil {
-		return nil, nil, fmt.Errorf("auth: %w", domain.ErrInvalidArgument)
+		return nil, fmt.Errorf("auth: %w", domain.ErrInvalidArgument)
 	}
 	if strings.TrimSpace(auth.UserID) != "" {
-		user, err := loadUserWithMembership(ctx, userRepo, membershipRepo, auth.UserID)
+		user, err := userRepo.Get(ctx, auth.UserID)
 		if err != nil {
-			return nil, nil, err
+			return nil, err
 		}
-		if membershipRepo == nil {
-			return user, nil, nil
-		}
-		membership, err := membershipRepo.GetByLegacyUserID(ctx, auth.UserID)
-		if err != nil {
-			if err == domain.ErrNotFound {
-				return user, nil, nil
-			}
-			return nil, nil, err
-		}
-		return user, membership, nil
+		return user, nil
 	}
-	if membershipRepo == nil || accountRepo == nil || strings.TrimSpace(auth.WorkspaceID) == "" || strings.TrimSpace(auth.AccountID) == "" {
-		return nil, nil, domain.ErrInvalidAuth
-	}
-	membership, err := membershipRepo.GetByWorkspaceAndAccount(ctx, auth.WorkspaceID, auth.AccountID)
-	if err != nil {
-		return nil, nil, err
-	}
-	user, membership, err := ensureMembershipUser(ctx, tx, userRepo, accountRepo, membershipRepo, membership, recorder)
-	if err != nil {
-		return nil, nil, err
-	}
-	return user, membership, nil
-}
-
-func ensureMembershipUser(
-	ctx context.Context,
-	tx pgx.Tx,
-	userRepo repository.UserRepository,
-	accountRepo repository.AccountRepository,
-	memberRepo repository.WorkspaceMembershipRepository,
-	membership *domain.WorkspaceMembership,
-	recorder EventRecorder,
-) (*domain.User, *domain.WorkspaceMembership, error) {
-	if userRepo == nil || accountRepo == nil || memberRepo == nil || membership == nil {
-		return nil, nil, fmt.Errorf("membership user: %w", domain.ErrInvalidArgument)
-	}
-
-	if membership.UserID != "" {
-		user, err := userRepo.Get(ctx, membership.UserID)
-		if err != nil {
-			return nil, nil, err
-		}
-		return user, membership, nil
-	}
-
-	account, err := accountRepo.Get(ctx, membership.AccountID)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	user, err := createCompatibilityUserForAccount(ctx, tx, userRepo, account, membership.WorkspaceID, membership.AccountType, recorder)
-	if err != nil {
-		return nil, nil, err
-	}
-	attached, err := memberRepo.AttachUser(ctx, membership.ID, user.ID)
-	if err != nil {
-		return nil, nil, err
-	}
-	return user, attached, nil
-}
-
-func compatibilityUserFromIdentity(account *domain.Account, membership *domain.WorkspaceMembership) *domain.User {
-	if account == nil || membership == nil {
-		return nil
-	}
-
-	name := strings.TrimSpace(account.Name)
-	if name == "" {
-		name = emailLocalPart(account.Email)
-	}
-	realName := strings.TrimSpace(account.RealName)
-	if realName == "" {
-		realName = name
-	}
-	displayName := strings.TrimSpace(account.DisplayName)
-	if displayName == "" {
-		displayName = realName
-	}
-
-	return &domain.User{
-		ID:            membership.UserID,
-		WorkspaceID:   membership.WorkspaceID,
-		Name:          name,
-		RealName:      realName,
-		DisplayName:   displayName,
-		Email:         account.Email,
-		PrincipalType: account.PrincipalType,
-		AccountType:   membership.AccountType,
-		IsBot:         account.IsBot,
-		Deleted:       account.Deleted,
-		Profile:       account.Profile,
-		CreatedAt:     membership.CreatedAt,
-		UpdatedAt:     membership.UpdatedAt,
-	}
-}
-
-func materializeMembershipUser(
-	ctx context.Context,
-	tx pgx.Tx,
-	userRepo repository.UserRepository,
-	accountRepo repository.AccountRepository,
-	memberRepo repository.WorkspaceMembershipRepository,
-	membership *domain.WorkspaceMembership,
-	recorder EventRecorder,
-) (*domain.User, *domain.WorkspaceMembership, error) {
-	if membership == nil {
-		return nil, nil, domain.ErrNotFound
-	}
-	if membership.UserID != "" {
-		user, err := userRepo.Get(ctx, membership.UserID)
+	if userRepo != nil && strings.TrimSpace(auth.WorkspaceID) != "" && strings.TrimSpace(auth.AccountID) != "" {
+		user, err := userRepo.GetByWorkspaceAndAccount(ctx, auth.WorkspaceID, auth.AccountID)
 		if err == nil {
-			if membership.WorkspaceID != "" {
-				user.WorkspaceID = membership.WorkspaceID
-			}
-			if membership.AccountType != "" {
-				user.AccountType = membership.AccountType
-			}
-			return user, membership, nil
+			return user, nil
 		}
 		if err != nil && err != domain.ErrNotFound {
-			return nil, nil, err
+			return nil, err
 		}
 	}
-
-	user, attachedMembership, err := ensureMembershipUser(ctx, tx, userRepo, accountRepo, memberRepo, membership, recorder)
-	if err != nil {
-		return nil, nil, err
-	}
-	if attachedMembership.WorkspaceID != "" {
-		user.WorkspaceID = attachedMembership.WorkspaceID
-	}
-	if attachedMembership.AccountType != "" {
-		user.AccountType = attachedMembership.AccountType
-	}
-	return user, attachedMembership, nil
+	return nil, domain.ErrInvalidAuth
 }
 
-func loadMembershipBackedUser(
+func createWorkspaceUserForAccount(
 	ctx context.Context,
-	tx pgx.Tx,
-	userRepo repository.UserRepository,
-	accountRepo repository.AccountRepository,
-	memberRepo repository.WorkspaceMembershipRepository,
-	membership *domain.WorkspaceMembership,
-	recorder EventRecorder,
-) (*domain.User, *domain.WorkspaceMembership, error) {
-	if userRepo == nil || accountRepo == nil || memberRepo == nil || membership == nil {
-		return nil, nil, fmt.Errorf("membership user view: %w", domain.ErrInvalidArgument)
-	}
-
-	user, attachedMembership, err := materializeMembershipUser(ctx, tx, userRepo, accountRepo, memberRepo, membership, recorder)
-	if err == nil {
-		return user, attachedMembership, nil
-	}
-	if err != nil && err != domain.ErrNotFound {
-		return nil, nil, err
-	}
-
-	account, accountErr := accountRepo.Get(ctx, membership.AccountID)
-	if accountErr != nil {
-		return nil, nil, accountErr
-	}
-	return compatibilityUserFromIdentity(account, membership), membership, nil
-}
-
-func createCompatibilityUserForAccount(
-	ctx context.Context,
-	tx pgx.Tx,
 	userRepo repository.UserRepository,
 	account *domain.Account,
 	workspaceID string,
@@ -321,26 +153,18 @@ func createCompatibilityUserForAccount(
 	recorder EventRecorder,
 ) (*domain.User, error) {
 	if userRepo == nil || account == nil {
-		return nil, fmt.Errorf("compatibility user: %w", domain.ErrInvalidArgument)
+		return nil, fmt.Errorf("workspace user: %w", domain.ErrInvalidArgument)
 	}
 	if recorder == nil {
 		recorder = noopRecorder{}
 	}
 
-	name := strings.TrimSpace(account.Name)
-	if name == "" {
-		name = emailLocalPart(account.Email)
-	}
-	realName := strings.TrimSpace(account.RealName)
-	if realName == "" {
-		realName = name
-	}
-	displayName := strings.TrimSpace(account.DisplayName)
-	if displayName == "" {
-		displayName = realName
-	}
+	name := emailLocalPart(account.Email)
+	realName := name
+	displayName := realName
 
 	user, err := userRepo.Create(ctx, domain.CreateUserParams{
+		AccountID:     account.ID,
 		WorkspaceID:   workspaceID,
 		Name:          name,
 		RealName:      realName,
@@ -349,19 +173,19 @@ func createCompatibilityUserForAccount(
 		PrincipalType: account.PrincipalType,
 		AccountType:   accountType,
 		IsBot:         account.IsBot,
-		Profile:       account.Profile,
+		Profile:       domain.UserProfile{},
 	})
 	if err != nil {
 		return nil, err
 	}
 
 	payload, _ := json.Marshal(user)
-	if err := recorder.WithTx(tx).Record(ctx, domain.InternalEvent{
+	if err := recorder.Record(ctx, domain.InternalEvent{
 		EventType:     domain.EventUserCreated,
 		AggregateType: domain.AggregateUser,
 		AggregateID:   user.ID,
 		WorkspaceID:   user.WorkspaceID,
-		ActorID:       compatibilityActorID(ctx),
+		ActorID:       actorUserID(ctx),
 		Payload:       payload,
 	}); err != nil {
 		return nil, fmt.Errorf("record user.created event: %w", err)

@@ -92,7 +92,7 @@ func (h *ConversationHandler) Update(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if req.Topic != nil {
-		actorID := service.CompatibilityActorID(r.Context())
+		actorID := service.ActorUserID(r.Context())
 		if _, err := h.svc.SetTopic(r.Context(), channelID, domain.SetTopicParams{
 			Topic:   *req.Topic,
 			SetByID: actorID,
@@ -102,7 +102,7 @@ func (h *ConversationHandler) Update(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if req.Purpose != nil {
-		actorID := service.CompatibilityActorID(r.Context())
+		actorID := service.ActorUserID(r.Context())
 		if _, err := h.svc.SetPurpose(r.Context(), channelID, domain.SetPurposeParams{
 			Purpose: *req.Purpose,
 			SetByID: actorID,

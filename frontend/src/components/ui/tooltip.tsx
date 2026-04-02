@@ -1,4 +1,5 @@
-import { useState, useRef, type ReactNode, type HTMLAttributes } from 'react'
+import type { HTMLAttributes, ReactNode } from 'react'
+import { useRef, useState } from 'react'
 import { cn } from '../../lib/utils'
 
 type TooltipProps = HTMLAttributes<HTMLDivElement> & {

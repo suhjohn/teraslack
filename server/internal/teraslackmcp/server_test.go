@@ -124,7 +124,7 @@ func TestServer_WaitForEventAndAPIRequest(t *testing.T) {
 
 	apiResp := callToolJSON(t, srv, "api_request", map[string]any{
 		"method":     "GET",
-		"path":       "/users",
+		"path":       "/workspaces/T_TEST/users",
 		"auth_scope": "bootstrap",
 		"query": map[string]any{
 			"limit": 10,
@@ -595,6 +595,7 @@ func newMockMCPBackend() *mockMCPBackend {
 
 	bootstrap := domain.User{
 		ID:            "U_BOOT",
+		AccountID:     "A_BOOT",
 		WorkspaceID:   backend.workspaceID,
 		Name:          "bootstrap",
 		Email:         "bootstrap@example.com",
@@ -605,6 +606,7 @@ func newMockMCPBackend() *mockMCPBackend {
 	}
 	human := domain.User{
 		ID:            "U_HUMAN",
+		AccountID:     "A_HUMAN",
 		WorkspaceID:   backend.workspaceID,
 		Name:          "johnsuh94",
 		Email:         "johnsuh94@gmail.com",
@@ -616,6 +618,7 @@ func newMockMCPBackend() *mockMCPBackend {
 	}
 	testAgent := domain.User{
 		ID:            "U_TEST",
+		AccountID:     "A_TEST",
 		WorkspaceID:   backend.workspaceID,
 		Name:          "test-agent",
 		Email:         "test-agent@example.com",
@@ -641,11 +644,11 @@ func (b *mockMCPBackend) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case r.Method == http.MethodGet && r.URL.Path == "/auth/me":
 		b.handleAuthMe(w, r)
-	case r.Method == http.MethodGet && r.URL.Path == "/users":
+	case r.Method == http.MethodGet && r.URL.Path == "/workspaces/T_TEST/users":
 		b.handleListUsers(w, r)
-	case r.Method == http.MethodPost && r.URL.Path == "/users":
+	case r.Method == http.MethodPost && r.URL.Path == "/workspaces/T_TEST/users":
 		b.handleCreateUser(w, r)
-	case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/users/"):
+	case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/workspaces/T_TEST/users/"):
 		b.handleGetUser(w, r)
 	case r.Method == http.MethodPost && r.URL.Path == "/api-keys":
 		b.handleCreateAPIKey(w, r)
@@ -735,6 +738,7 @@ func (b *mockMCPBackend) handleCreateUser(w http.ResponseWriter, r *http.Request
 	now := time.Now().UTC()
 	user := domain.User{
 		ID:            fmt.Sprintf("U_%03d", b.userSeq),
+		AccountID:     fmt.Sprintf("A_%03d", b.userSeq),
 		WorkspaceID:   b.workspaceID,
 		Name:          params.Name,
 		Email:         params.Email,
@@ -755,7 +759,7 @@ func (b *mockMCPBackend) handleGetUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userID := strings.TrimPrefix(r.URL.Path, "/users/")
+	userID := strings.TrimPrefix(r.URL.Path, "/workspaces/T_TEST/users/")
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	user, ok := b.usersByID[userID]
@@ -783,15 +787,24 @@ func (b *mockMCPBackend) handleCreateAPIKey(w http.ResponseWriter, r *http.Reque
 	id := fmt.Sprintf("AK_%03d", b.keySeq)
 	secret := fmt.Sprintf("sk_%03d", b.keySeq)
 	b.keySeq++
-	b.tokenUsers[secret] = params.UserID
+	if len(params.WorkspaceIDs) > 0 {
+		for _, user := range b.usersByID {
+			if user.AccountID == params.AccountID && user.WorkspaceID == params.WorkspaceIDs[0] {
+				b.tokenUsers[secret] = user.ID
+				break
+			}
+		}
+	}
 
 	key := domain.APIKey{
-		ID:          id,
-		WorkspaceID: b.workspaceID,
-		UserID:      params.UserID,
-		Permissions: params.Permissions,
-		CreatedAt:   time.Now().UTC(),
-		UpdatedAt:   time.Now().UTC(),
+		ID:           id,
+		Scope:        domain.APIKeyScopeAccount,
+		WorkspaceID:  b.workspaceID,
+		AccountID:    params.AccountID,
+		WorkspaceIDs: append([]string(nil), params.WorkspaceIDs...),
+		Permissions:  params.Permissions,
+		CreatedAt:    time.Now().UTC(),
+		UpdatedAt:    time.Now().UTC(),
 	}
 
 	writeJSON(w, http.StatusCreated, map[string]any{

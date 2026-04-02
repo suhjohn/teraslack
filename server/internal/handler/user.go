@@ -3,6 +3,7 @@ package handler
 import (
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/suhjohn/teraslack/internal/ctxutil"
 	"github.com/suhjohn/teraslack/internal/domain"
@@ -21,14 +22,31 @@ func NewUserHandler(svc *service.UserService, roleSvc *service.RoleService) *Use
 	return &UserHandler{svc: svc, roleSvc: roleSvc}
 }
 
-// Create handles POST /users.
+func requestWorkspaceID(r *http.Request) string {
+	if workspaceID := strings.TrimSpace(r.PathValue("workspace_id")); workspaceID != "" {
+		return workspaceID
+	}
+	if workspaceID := strings.TrimSpace(r.PathValue("id")); workspaceID != "" && strings.Contains(r.URL.Path, "/workspaces/") && !strings.Contains(r.URL.Path, "/users/") {
+		return workspaceID
+	}
+	return strings.TrimSpace(ctxutil.GetWorkspaceID(r.Context()))
+}
+
+func requestUserID(r *http.Request) string {
+	if userID := strings.TrimSpace(r.PathValue("user_id")); userID != "" {
+		return userID
+	}
+	return strings.TrimSpace(r.PathValue("id"))
+}
+
+// Create handles POST /workspaces/{workspace_id}/users.
 func (h *UserHandler) Create(w http.ResponseWriter, r *http.Request) {
 	var params domain.CreateUserParams
 	if err := httputil.DecodeJSON(r, &params); err != nil {
 		httputil.WriteError(w, r, domain.ErrInvalidArgument)
 		return
 	}
-	if workspaceID := ctxutil.GetWorkspaceID(r.Context()); workspaceID != "" {
+	if workspaceID := requestWorkspaceID(r); workspaceID != "" {
 		params.WorkspaceID = workspaceID
 	}
 
@@ -38,12 +56,16 @@ func (h *UserHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	httputil.WriteCreated(w, "/users/"+user.ID, user)
+	location := ""
+	if workspaceID := strings.TrimSpace(user.WorkspaceID); workspaceID != "" {
+		location = "/workspaces/" + workspaceID + "/users/" + user.ID
+	}
+	httputil.WriteCreated(w, location, user)
 }
 
-// Info handles GET /users/{id}.
+// Info handles GET /workspaces/{workspace_id}/users/{user_id}.
 func (h *UserHandler) Info(w http.ResponseWriter, r *http.Request) {
-	userID := r.PathValue("id")
+	userID := requestUserID(r)
 	if userID == "" {
 		httputil.WriteError(w, r, domain.ErrInvalidArgument)
 		return
@@ -58,9 +80,9 @@ func (h *UserHandler) Info(w http.ResponseWriter, r *http.Request) {
 	httputil.WriteResource(w, http.StatusOK, user)
 }
 
-// Update handles PATCH /users/{id}.
+// Update handles PATCH /workspaces/{workspace_id}/users/{user_id}.
 func (h *UserHandler) Update(w http.ResponseWriter, r *http.Request) {
-	userID := r.PathValue("id")
+	userID := requestUserID(r)
 	if userID == "" {
 		httputil.WriteError(w, r, domain.ErrInvalidArgument)
 		return
@@ -81,7 +103,7 @@ func (h *UserHandler) Update(w http.ResponseWriter, r *http.Request) {
 	httputil.WriteResource(w, http.StatusOK, user)
 }
 
-// List handles GET /users.
+// List handles GET /workspaces/{workspace_id}/users.
 func (h *UserHandler) List(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	if email := q.Get("email"); email != "" {
@@ -97,10 +119,10 @@ func (h *UserHandler) List(w http.ResponseWriter, r *http.Request) {
 	limit, _ := strconv.Atoi(q.Get("limit"))
 	params := domain.ListUsersParams{
 		WorkspaceID: q.Get("workspace_id"),
-		Cursor: q.Get("cursor"),
-		Limit:  limit,
+		Cursor:      q.Get("cursor"),
+		Limit:       limit,
 	}
-	if workspaceID := ctxutil.GetWorkspaceID(r.Context()); workspaceID != "" {
+	if workspaceID := requestWorkspaceID(r); workspaceID != "" {
 		params.WorkspaceID = workspaceID
 	}
 
@@ -122,7 +144,7 @@ func (h *UserHandler) ListRoles(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteInternalError(w, r)
 		return
 	}
-	userID := r.PathValue("id")
+	userID := requestUserID(r)
 	if userID == "" {
 		httputil.WriteError(w, r, domain.ErrInvalidArgument)
 		return
@@ -143,7 +165,7 @@ func (h *UserHandler) SetRoles(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteInternalError(w, r)
 		return
 	}
-	userID := r.PathValue("id")
+	userID := requestUserID(r)
 	if userID == "" {
 		httputil.WriteError(w, r, domain.ErrInvalidArgument)
 		return

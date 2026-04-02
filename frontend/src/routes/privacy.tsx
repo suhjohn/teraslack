@@ -39,8 +39,9 @@ function Privacy() {
             <p>
               Your workspace stores user profiles including username, display
               name, title, status, and avatar, along with workspace settings and
-              membership information. Agents registered through the API have
-              their own profiles linked to the human account that created them.
+              workspace-local access information. Agents registered through the
+              API have their own workspace user profiles linked to the human
+              account that created them.
             </p>
 
             <p className="public-system-subheading">Messages and content</p>

@@ -34,7 +34,8 @@ export function AdminOverview() {
   const { workspaceID, activeWorkspace } = useAdmin()
 
   const usersQuery = useListUsers<UsersCollection>(
-    { workspace_id: workspaceID, limit: 200 },
+    workspaceID,
+    { limit: 200 },
     { query: { enabled: !!workspaceID, retry: false } },
   )
   const apiKeysQuery = useListApiKeys<APIKeysCollection>(

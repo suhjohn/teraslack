@@ -335,26 +335,26 @@ func (s *openAPIServer) SwitchCurrentSessionWorkspace(w http.ResponseWriter, r *
 	s.authH.SwitchCurrentSessionWorkspace(w, r)
 }
 
-func (s *openAPIServer) ListUsers(w http.ResponseWriter, r *http.Request, _ openapi.ListUsersParams) {
+func (s *openAPIServer) ListUsers(w http.ResponseWriter, r *http.Request, _ openapi.WorkspaceIDPath, _ openapi.ListUsersParams) {
 	s.userH.List(w, r)
 }
 
-func (s *openAPIServer) CreateUser(w http.ResponseWriter, r *http.Request) {
+func (s *openAPIServer) CreateUser(w http.ResponseWriter, r *http.Request, _ openapi.WorkspaceIDPath) {
 	s.userH.Create(w, r)
 }
 
-func (s *openAPIServer) GetUser(w http.ResponseWriter, r *http.Request, _ openapi.UserIDPath) {
+func (s *openAPIServer) GetUser(w http.ResponseWriter, r *http.Request, _ openapi.WorkspaceIDPath, _ openapi.UserIDPathNamed) {
 	s.userH.Info(w, r)
 }
 
-func (s *openAPIServer) UpdateUser(w http.ResponseWriter, r *http.Request, _ openapi.UserIDPath) {
+func (s *openAPIServer) UpdateUser(w http.ResponseWriter, r *http.Request, _ openapi.WorkspaceIDPath, _ openapi.UserIDPathNamed) {
 	s.userH.Update(w, r)
 }
 
-func (s *openAPIServer) GetUserRoles(w http.ResponseWriter, r *http.Request, _ openapi.UserIDPath) {
+func (s *openAPIServer) GetUserRoles(w http.ResponseWriter, r *http.Request, _ openapi.WorkspaceIDPath, _ openapi.UserIDPathNamed) {
 	s.userH.ListRoles(w, r)
 }
 
-func (s *openAPIServer) UpdateUserRoles(w http.ResponseWriter, r *http.Request, _ openapi.UserIDPath) {
+func (s *openAPIServer) UpdateUserRoles(w http.ResponseWriter, r *http.Request, _ openapi.WorkspaceIDPath, _ openapi.UserIDPathNamed) {
 	s.userH.SetRoles(w, r)
 }

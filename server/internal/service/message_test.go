@@ -407,7 +407,7 @@ func TestMessageService_History_AllowsExternalMemberPrivateConversation(t *testi
 	svc.SetExternalMemberRepository(externalMembers)
 
 	ctx := ctxutil.WithUser(context.Background(), "U_EXT", "T999")
-	ctx = ctxutil.WithIdentity(ctx, "A123", "WM_EXT")
+	ctx = ctxutil.WithIdentity(ctx, "A123")
 	ctx = ctxutil.WithPrincipal(ctx, domain.PrincipalTypeHuman, domain.AccountTypeMember, false)
 
 	page, err := svc.History(ctx, domain.ListMessagesParams{ChannelID: "G123"})
@@ -451,7 +451,7 @@ func TestMessageService_PostMessage_AllowsExternalMemberParticipant(t *testing.T
 	})
 
 	ctx := ctxutil.WithUser(context.Background(), "U_EXT", "T999")
-	ctx = ctxutil.WithIdentity(ctx, "A123", "WM_EXT")
+	ctx = ctxutil.WithIdentity(ctx, "A123")
 	ctx = ctxutil.WithPrincipal(ctx, domain.PrincipalTypeHuman, domain.AccountTypeMember, false)
 
 	if _, err := svc.PostMessage(ctx, domain.PostMessageParams{ChannelID: "G123", Text: "hello"}); err != nil {

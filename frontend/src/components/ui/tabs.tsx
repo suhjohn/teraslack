@@ -1,10 +1,9 @@
+import type { ButtonHTMLAttributes, HTMLAttributes } from 'react'
 import {
   createContext,
   useContext,
-  useState,
   useId,
-  type HTMLAttributes,
-  type ButtonHTMLAttributes,
+  useState,
 } from 'react'
 import { cn } from '../../lib/utils'
 

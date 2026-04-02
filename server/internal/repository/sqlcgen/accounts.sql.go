@@ -11,48 +11,35 @@ import (
 
 const createAccount = `-- name: CreateAccount :one
 INSERT INTO accounts (
-    id, principal_type, name, real_name, display_name, email, is_bot, deleted, profile
+    id, principal_type, email, is_bot, deleted
 )
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-RETURNING id, principal_type, name, real_name, display_name, email, is_bot,
-          deleted, profile, created_at, updated_at
+VALUES ($1, $2, $3, $4, $5)
+RETURNING id, principal_type, email, is_bot, deleted, created_at, updated_at
 `
 
 type CreateAccountParams struct {
 	ID            string `json:"id"`
 	PrincipalType string `json:"principal_type"`
-	Name          string `json:"name"`
-	RealName      string `json:"real_name"`
-	DisplayName   string `json:"display_name"`
 	Email         string `json:"email"`
 	IsBot         bool   `json:"is_bot"`
 	Deleted       bool   `json:"deleted"`
-	Profile       []byte `json:"profile"`
 }
 
 func (q *Queries) CreateAccount(ctx context.Context, arg CreateAccountParams) (Account, error) {
 	row := q.db.QueryRow(ctx, createAccount,
 		arg.ID,
 		arg.PrincipalType,
-		arg.Name,
-		arg.RealName,
-		arg.DisplayName,
 		arg.Email,
 		arg.IsBot,
 		arg.Deleted,
-		arg.Profile,
 	)
 	var i Account
 	err := row.Scan(
 		&i.ID,
 		&i.PrincipalType,
-		&i.Name,
-		&i.RealName,
-		&i.DisplayName,
 		&i.Email,
 		&i.IsBot,
 		&i.Deleted,
-		&i.Profile,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -60,8 +47,7 @@ func (q *Queries) CreateAccount(ctx context.Context, arg CreateAccountParams) (A
 }
 
 const getAccount = `-- name: GetAccount :one
-SELECT id, principal_type, name, real_name, display_name, email, is_bot,
-       deleted, profile, created_at, updated_at
+SELECT id, principal_type, email, is_bot, deleted, created_at, updated_at
 FROM accounts
 WHERE id = $1
 `
@@ -72,13 +58,9 @@ func (q *Queries) GetAccount(ctx context.Context, id string) (Account, error) {
 	err := row.Scan(
 		&i.ID,
 		&i.PrincipalType,
-		&i.Name,
-		&i.RealName,
-		&i.DisplayName,
 		&i.Email,
 		&i.IsBot,
 		&i.Deleted,
-		&i.Profile,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -86,8 +68,7 @@ func (q *Queries) GetAccount(ctx context.Context, id string) (Account, error) {
 }
 
 const getAccountByEmail = `-- name: GetAccountByEmail :one
-SELECT id, principal_type, name, real_name, display_name, email, is_bot,
-       deleted, profile, created_at, updated_at
+SELECT id, principal_type, email, is_bot, deleted, created_at, updated_at
 FROM accounts
 WHERE LOWER(email) = LOWER($1)
 ORDER BY created_at ASC, id ASC
@@ -100,13 +81,9 @@ func (q *Queries) GetAccountByEmail(ctx context.Context, lower string) (Account,
 	err := row.Scan(
 		&i.ID,
 		&i.PrincipalType,
-		&i.Name,
-		&i.RealName,
-		&i.DisplayName,
 		&i.Email,
 		&i.IsBot,
 		&i.Deleted,
-		&i.Profile,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)

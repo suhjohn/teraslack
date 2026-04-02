@@ -7,13 +7,8 @@
  */
 import type { CursorQueryParameter } from './cursorQueryParameter';
 import type { LimitQueryParameter } from './limitQueryParameter';
-import type { WorkspaceIDQueryParameter } from './workspaceIDQueryParameter';
 
 export type ListUsersParams = {
-/**
- * Filter results by workspace identifier.
- */
-workspace_id?: WorkspaceIDQueryParameter;
 /**
  * Opaque pagination cursor returned by a previous request.
  */

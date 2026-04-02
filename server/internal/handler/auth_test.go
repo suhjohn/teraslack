@@ -2,11 +2,16 @@ package handler
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/suhjohn/teraslack/internal/ctxutil"
+	"github.com/suhjohn/teraslack/internal/domain"
+	"github.com/suhjohn/teraslack/internal/repository"
+	"github.com/suhjohn/teraslack/internal/service"
 )
 
 func TestGetWorkspaceID(t *testing.T) {
@@ -151,5 +156,123 @@ func TestAuthCredentialFromRequest_DetectsAPIKeys(t *testing.T) {
 				t.Fatalf("isAPI = %v, want %v", gotAPI, tc.wantAPI)
 			}
 		})
+	}
+}
+
+type authTestAccountRepo struct {
+	account *domain.Account
+}
+
+func (r *authTestAccountRepo) WithTx(_ pgx.Tx) repository.AccountRepository { return r }
+
+func (r *authTestAccountRepo) Create(_ context.Context, _ domain.CreateAccountParams) (*domain.Account, error) {
+	return nil, nil
+}
+
+func (r *authTestAccountRepo) Get(_ context.Context, id string) (*domain.Account, error) {
+	if r.account != nil && r.account.ID == id {
+		return r.account, nil
+	}
+	return nil, domain.ErrNotFound
+}
+
+func (r *authTestAccountRepo) GetByEmail(_ context.Context, _ string) (*domain.Account, error) {
+	return nil, domain.ErrNotFound
+}
+
+type authTestUserRepo struct {
+	user *domain.User
+}
+
+func (r *authTestUserRepo) WithTx(_ pgx.Tx) repository.UserRepository { return r }
+
+func (r *authTestUserRepo) Create(_ context.Context, _ domain.CreateUserParams) (*domain.User, error) {
+	return nil, nil
+}
+
+func (r *authTestUserRepo) Get(_ context.Context, id string) (*domain.User, error) {
+	if r.user != nil && r.user.ID == id {
+		return r.user, nil
+	}
+	return nil, domain.ErrNotFound
+}
+
+func (r *authTestUserRepo) GetByWorkspaceAndAccount(_ context.Context, workspaceID, accountID string) (*domain.User, error) {
+	if r.user != nil && r.user.WorkspaceID == workspaceID && r.user.AccountID == accountID {
+		return r.user, nil
+	}
+	return nil, domain.ErrNotFound
+}
+
+func (r *authTestUserRepo) ListByAccount(_ context.Context, accountID string) ([]domain.User, error) {
+	if r.user != nil && r.user.AccountID == accountID {
+		return []domain.User{*r.user}, nil
+	}
+	return nil, nil
+}
+
+func (r *authTestUserRepo) Update(_ context.Context, _ string, _ domain.UpdateUserParams) (*domain.User, error) {
+	return nil, nil
+}
+
+func (r *authTestUserRepo) List(_ context.Context, _ domain.ListUsersParams) (*domain.CursorPage[domain.User], error) {
+	return nil, nil
+}
+
+func TestAuthHandlerMeReturnsAccountFirstIdentityWithWorkspaceUser(t *testing.T) {
+	account := &domain.Account{
+		ID:            "A123",
+		PrincipalType: domain.PrincipalTypeHuman,
+		Email:         "member@example.com",
+	}
+	user := &domain.User{
+		ID:            "U123",
+		AccountID:     "A123",
+		WorkspaceID:   "T123",
+		Name:          "member",
+		RealName:      "Workspace Member",
+		DisplayName:   "Workspace Member",
+		Email:         "stale-workspace@example.com",
+		PrincipalType: domain.PrincipalTypeHuman,
+		AccountType:   domain.AccountTypeAdmin,
+	}
+
+	authSvc := service.NewAuthService(nil, &authTestUserRepo{user: user}, nil, nil, nil, nil, nil, service.AuthConfig{})
+	authSvc.SetIdentityRepositories(&authTestAccountRepo{account: account})
+	handler := NewAuthHandler(authSvc)
+
+	req := httptest.NewRequest(http.MethodGet, "/auth/me", nil)
+	ctx := ctxutil.WithIdentity(req.Context(), "A123")
+	ctx = context.WithValue(ctx, ctxutil.ContextKeyWorkspaceID, "T123")
+	ctx = context.WithValue(ctx, ctxutil.ContextKeyPrincipalType, domain.PrincipalTypeHuman)
+	ctx = context.WithValue(ctx, ctxutil.ContextKeyAccountType, domain.AccountTypeAdmin)
+	req = req.WithContext(ctx)
+
+	w := httptest.NewRecorder()
+	handler.Me(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", w.Code)
+	}
+
+	var got domain.AuthMeResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+
+	if got.AccountID != "A123" || got.UserID != "U123" || got.WorkspaceID != "T123" {
+		t.Fatalf("unexpected identity envelope: %+v", got)
+	}
+	if got.Account == nil || got.Account.Email != "member@example.com" {
+		t.Fatalf("expected canonical account on /auth/me, got %+v", got.Account)
+	}
+	if got.User == nil || got.User.ID != "U123" {
+		t.Fatalf("expected workspace-local user on /auth/me, got %+v", got.User)
+	}
+	if got.User.Email != "member@example.com" {
+		t.Fatalf("expected user email mirrored from canonical account email, got %+v", got.User)
+	}
+	if got.AccountType != domain.AccountTypeAdmin || got.PrincipalType != domain.PrincipalTypeHuman {
+		t.Fatalf("unexpected auth role metadata: %+v", got)
 	}
 }

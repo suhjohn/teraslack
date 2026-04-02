@@ -51,7 +51,7 @@ func ensureExternalMemberConversationAccess(ctx context.Context, repo repository
 }
 
 func ensureConversationAccess(ctx context.Context, externalMembers repository.ExternalMemberRepository, conv *domain.Conversation, capability string, requireWrite bool) (bool, error) {
-	if hasWorkspaceMembershipContext(ctx, conv.WorkspaceID) {
+	if hasWorkspaceUserContext(ctx, conv.WorkspaceID) {
 		if err := ensureWorkspaceAccess(ctx, conv.WorkspaceID); err != nil {
 			return false, err
 		}
@@ -71,7 +71,7 @@ func isConversationExternalActor(ctx context.Context, externalMembers repository
 	if conv == nil {
 		return false, nil
 	}
-	if hasWorkspaceMembershipContext(ctx, conv.WorkspaceID) {
+	if hasWorkspaceUserContext(ctx, conv.WorkspaceID) {
 		return false, nil
 	}
 	if member, err := activeExternalMember(ctx, externalMembers, conv.ID); err != nil {
@@ -83,7 +83,7 @@ func isConversationExternalActor(ctx context.Context, externalMembers repository
 }
 
 func filterExternalSharedConversations(ctx context.Context, externalMembers repository.ExternalMemberRepository, conversations []domain.Conversation) ([]domain.Conversation, error) {
-	if ctxutil.GetAccountID(ctx) == "" || externalMembers == nil || hasWorkspaceMembershipContext(ctx, conversationsWorkspaceID(conversations)) {
+	if ctxutil.GetAccountID(ctx) == "" || externalMembers == nil || hasWorkspaceUserContext(ctx, conversationsWorkspaceID(conversations)) {
 		return conversations, nil
 	}
 	filtered := make([]domain.Conversation, 0, len(conversations))
@@ -139,7 +139,7 @@ func ensureExternalMemberFileAccess(ctx context.Context, repo repository.Externa
 }
 
 func ensureFileAccess(ctx context.Context, externalMembers repository.ExternalMemberRepository, f *domain.File, capability string, requireWrite bool) (bool, error) {
-	if hasWorkspaceMembershipContext(ctx, f.WorkspaceID) {
+	if hasWorkspaceUserContext(ctx, f.WorkspaceID) {
 		if err := ensureWorkspaceAccess(ctx, f.WorkspaceID); err != nil {
 			return false, err
 		}

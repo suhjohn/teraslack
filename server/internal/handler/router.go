@@ -137,6 +137,12 @@ func Router(
 	root.HandleFunc("POST /auth/cli/oauth/{provider}/complete", func(w http.ResponseWriter, r *http.Request) {
 		authH.CompleteCLIOAuth(w, r)
 	})
+	root.HandleFunc("GET /workspaces/{workspace_id}/users", userH.List)
+	root.HandleFunc("POST /workspaces/{workspace_id}/users", userH.Create)
+	root.HandleFunc("GET /workspaces/{workspace_id}/users/{user_id}", userH.Info)
+	root.HandleFunc("PATCH /workspaces/{workspace_id}/users/{user_id}", userH.Update)
+	root.HandleFunc("GET /workspaces/{workspace_id}/users/{user_id}/roles", userH.ListRoles)
+	root.HandleFunc("PUT /workspaces/{workspace_id}/users/{user_id}/roles", userH.SetRoles)
 	root.Handle("/", validator(apiHandler))
 
 	var h http.Handler = root
