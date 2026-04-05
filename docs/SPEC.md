@@ -8,42 +8,35 @@
 
 ## Product Thesis
 
-Teraslack has two communication surfaces:
+Teraslack has one messaging primitive:
 
-- direct conversations between users
-- channels inside workspaces
+- conversations
+
+Conversations can live in two scopes:
+
+- global
+- inside one workspace
 
 The system should feel like this:
 
 - a user is the real identity
-- a workspace is a collaboration container
-- direct conversations happen between users directly
-- channels belong to one workspace
-- selecting a workspace is client UI state, not an authentication prerequisite for direct messaging
+- a conversation is the canonical message container
+- a workspace is a collaboration container that scopes some conversations
+- direct messages, group messages, and channels are derived views over one conversation model
+- choosing a workspace scope is a caller-side concern, not an authentication prerequisite for global conversations
 
-This removes the ambiguity that happens when a product has both a global user and a second workspace-local user identity.
+This removes the ambiguity that happens when a product has both a global user and a second workspace-local user identity, and it avoids modeling DMs and channels as separate storage concepts.
 
 ## Design Goals
 
 - Use one canonical global identity model.
-- Make direct conversations user-native and workspace-independent.
-- Make channels explicitly workspace-scoped.
+- Use one canonical conversation model.
+- Infer conversation scope from `workspace_id` instead of duplicating scope state.
 - Preserve an immutable internal event log for replay, audit, and asynchronous integrations.
 - Keep authorization simple and explainable.
 - Avoid duplicate identity tables that model the same person twice.
 - Make the API resource-oriented and unsurprising.
 - Let human users and agents share the same core identity and conversation model.
-
-## Non-Goals
-
-- Voice or video
-- Enterprise org hierarchies
-- Friends / follower graph
-- File storage
-- Threads
-- Reactions
-- Per-channel custom ACL languages
-- Full Discord-style permission bitsets
 
 ## Core Concepts
 
@@ -65,10 +58,10 @@ A `Workspace` is a named collaboration container.
 Workspaces contain:
 
 - members
-- channels
+- conversations
 - settings
 
-Workspaces do not own direct conversations.
+Workspaces do not own global conversations.
 
 ### Workspace Member
 
@@ -78,7 +71,6 @@ It combines:
 
 - the underlying user
 - the user's membership in one workspace
-- optional workspace-local profile overrides
 
 Important rule:
 
@@ -90,41 +82,45 @@ If the product needs a workspace-facing member shape, it is an API projection, n
 
 A `Conversation` is a message container.
 
-Conversation kinds:
+Rules:
 
-- `direct_conversation`
-- `channel`
+- `workspace_id IS NULL` means the conversation is global
+- `workspace_id IS NOT NULL` means the conversation belongs to exactly one workspace
+
+### Conversation Access Policy
+
+A `Conversation` has one access policy:
+
+- `members`
+- `workspace`
+- `authenticated`
 
 Rules:
 
-- a `direct_conversation` is global and never belongs to a workspace
-- a `channel` always belongs to exactly one workspace
+- `members` means only explicit conversation participants may access the conversation
+- `workspace` means any active member of `workspace_id` may access the conversation
+- `authenticated` means any authenticated user may access the conversation
+- `workspace` is valid only when `workspace_id IS NOT NULL`
+- `authenticated` is valid only when `workspace_id IS NULL`
 
-### Direct Message Forms
+### Derived Conversation Forms
 
-The product exposes two direct-message forms, but they are derived, not separately typed.
+The product still exposes direct messages and channels, but they are derived views over one persisted `conversation`.
 
 Derived forms:
 
-- one-to-one direct message: a `direct_conversation` with exactly 2 participants
-- group direct message: a `direct_conversation` with 3 or more participants
+- one-to-one direct message: global conversation with `access_policy = members`, exactly 2 participants, and a row in `conversation_pairs`
+- private global conversation: global conversation with `access_policy = members` that is not a canonical one-to-one direct message
+- workspace-wide channel: workspace conversation with `access_policy = workspace`
+- workspace private channel: workspace conversation with `access_policy = members`
+- global named channel: global conversation with `access_policy = authenticated`
 
 Rules:
 
 - one-to-one direct messages are canonical by unordered user pair
-- group direct messages are not canonical by participant set
-
-### Channel Visibility
-
-A `channel` has one visibility mode:
-
-- `public`
-- `private`
-
-Rules:
-
-- public channels are visible to all active workspace members
-- private channels are visible only to explicit channel participants
+- other member-only conversations are not canonical by participant set or title
+- a non-DM member-only conversation stays non-DM even if its participant count later becomes 2
+- private global conversations may be presented in the product as a group chat or a private channel
 
 ### Participant
 
@@ -132,9 +128,8 @@ A `Participant` is a user that is explicitly a member of a conversation.
 
 Rules:
 
-- all direct conversations use explicit participants
-- private channels use explicit participants
-- public channels do not require explicit participant rows for visibility
+- all `members` conversations use explicit participants
+- `workspace` and `authenticated` conversations do not require participant rows for visibility
 
 ### Message
 
@@ -142,19 +137,17 @@ A `Message` is authored by a user and belongs to one conversation.
 
 Messages do not need a workspace-local author id.
 
-If the client wants workspace-local rendering data, that is derived from the user plus workspace membership when the conversation is a channel.
-
 ## Canonical Product Rules
 
 1. `User` is the only canonical messaging identity.
-2. Workspaces grant access to channels, not to direct conversations.
-3. Direct conversations are addressed by user membership only.
-4. Public channels are visible to all active workspace members.
-5. Private channels are visible only to explicit channel participants.
-6. A workspace member is a user in a workspace, not a new identity.
-7. The server never requires a workspace-selected session to access a direct conversation.
-8. The server never creates workspace membership as a side effect of direct-conversation creation.
-9. One-to-one direct messages and group direct messages are derived views over one persisted `direct_conversation` kind.
+2. `Conversation` is the only canonical messaging container.
+3. Conversation scope is inferred from `workspace_id`.
+4. Conversation visibility is determined by `access_policy`.
+5. A workspace member is a user in a workspace, not a new identity.
+6. The server never requires a workspace-selected session to access a global conversation.
+7. The server never creates workspace membership as a side effect of global conversation creation.
+8. One-to-one direct messages are canonical by unordered user pair.
+9. Direct messages and channels are derived views over one persisted `conversation` model.
 10. Every successful state mutation appends an immutable internal event in the same transaction.
 11. Public event delivery happens from projected external events, not directly from the internal log.
 
@@ -332,24 +325,30 @@ A caller can access workspace resources only if their membership in that workspa
 
 ### Conversation Access Matrix
 
-#### `direct_conversation`
+#### global conversation with `access_policy = members`
 
 Access rule:
 
 - caller must be a participant user
 
-#### `channel` with `visibility = public`
+#### workspace conversation with `access_policy = workspace`
 
 Access rule:
 
 - caller must have active membership in the workspace
 
-#### `channel` with `visibility = private`
+#### workspace conversation with `access_policy = members`
 
 Access rule:
 
 - caller must have active membership in the workspace
-- caller must also be an explicit participant of the channel
+- caller must also be an explicit participant of the conversation
+
+#### global conversation with `access_policy = authenticated`
+
+Access rule:
+
+- caller must be authenticated
 
 ### Workspace Roles
 
@@ -362,25 +361,62 @@ Workspace roles are intentionally simple:
 Rules:
 
 - `owner` can do all workspace operations
-- `admin` can manage members and channels but cannot remove the last owner
-- `member` can read and post according to channel visibility
+- `admin` can manage members and workspace conversations but cannot remove the last owner
+- `member` can read and post according to conversation access policy
 
-No workspace role ever grants access to a direct conversation the caller is not part of.
+No workspace role ever grants access to a global `members` conversation the caller is not part of.
 
 ## Database Schema
 
 ### ID Format
 
-All ids are opaque string ids. A ULID with a short type prefix is recommended.
+All primary ids for domain entities use UUIDv4.
+
+Rules:
+
+- entity ids are generated as UUIDv4
+- entity ids are stored in the database as raw 16-byte values, not text
+- APIs serialize entity ids using canonical UUID string form
+- application code should treat entity ids as UUID values, not arbitrary strings
+- event-log and feed ordering tables use monotonically increasing bigint ids instead of UUIDs
 
 Examples:
 
-- `user_...`
-- `ws_...`
-- `conv_...`
-- `msg_...`
-- `sess_...`
-- `key_...`
+- `550e8400-e29b-41d4-a716-446655440000`
+- `7c45a4b8-7d2f-4d2f-a8d4-3f6f9cbb7c12`
+- `2f1c6b1a-9d8e-4c3b-a6f2-1b5d9e8c7a44`
+
+Use UUIDv4 entity ids for:
+
+- `users.id`
+- `user_profiles.user_id`
+- `auth_sessions.id`
+- `email_login_challenges.id`
+- `oauth_accounts.id`
+- `api_keys.id`
+- `workspaces.id`
+- `workspace_memberships.id`
+- `workspace_invites.id`
+- `conversations.id`
+- `conversation_pairs.conversation_id`
+- `conversation_participants.conversation_id`
+- `conversation_participants.user_id`
+- `conversation_invites.id`
+- `conversation_reads.conversation_id`
+- `conversation_reads.user_id`
+- `messages.id`
+- `messages.conversation_id`
+- `messages.author_user_id`
+- `event_subscriptions.id`
+
+Use monotonically increasing bigint ids for:
+
+- `internal_events.id`
+- `external_events.id`
+- `workspace_event_feed.feed_id`
+- `conversation_event_feed.feed_id`
+- `user_event_feed.feed_id`
+- `external_event_projection_failures.id`
 
 ### Tables
 
@@ -439,7 +475,7 @@ Important rule:
 
 - sessions do not store a selected workspace
 
-Selected workspace is client state.
+Workspace scope is chosen by the caller on each request. The server does not persist a selected workspace on the session.
 
 #### `email_login_challenges`
 
@@ -504,7 +540,7 @@ Fields:
 
 Rules:
 
-- `scope_type = user` means the key can act as the user across direct-conversation and workspace surfaces the user may access
+- `scope_type = user` means the key can act as the user across global and workspace conversation surfaces the user may access
 - `scope_type = workspace` means the key can act only inside one workspace
 
 #### `workspaces`
@@ -540,30 +576,6 @@ Constraints:
 
 - unique `(workspace_id, user_id)`
 - at least one active `owner` must exist for every workspace
-
-#### `workspace_profiles`
-
-Workspace-local display overrides.
-
-Fields:
-
-- `workspace_id` FK `workspaces.id`
-- `user_id` FK `users.id`
-- `display_name` nullable
-- `avatar_url` nullable
-- `title` nullable
-- `status_text` nullable
-- `status_emoji` nullable
-- `created_at`
-- `updated_at`
-
-Primary key:
-
-- `(workspace_id, user_id)`
-
-Purpose:
-
-- render a user differently inside one workspace without changing that user's global direct-message identity
 
 #### `workspace_invites`
 
@@ -636,9 +648,8 @@ Canonical message container.
 Fields:
 
 - `id` PK
-- `kind` enum: `direct_conversation | channel`
 - `workspace_id` nullable FK `workspaces.id`
-- `channel_visibility` nullable enum: `public | private`
+- `access_policy` enum: `members | workspace | authenticated`
 - `title` nullable
 - `description` nullable
 - `created_by_user_id` FK `users.id`
@@ -649,33 +660,31 @@ Fields:
 
 Constraints:
 
-- `workspace_id IS NULL` for `kind = direct_conversation`
-- `workspace_id IS NOT NULL` for `kind = channel`
-- `channel_visibility IS NULL` for `kind = direct_conversation`
-- `channel_visibility IN ('public', 'private')` for `kind = channel`
-- `title IS NOT NULL` for `kind = channel`
+- `workspace_id IS NULL` implies `access_policy IN ('members', 'authenticated')`
+- `workspace_id IS NOT NULL` implies `access_policy IN ('members', 'workspace')`
 
 Rules:
 
 - one-to-one direct-message titles are derived from the other participant
-- group direct-message titles may be derived from participants or set explicitly
-- channel titles are stored directly
-- `archived_at` is only meaningful for channels
+- other conversation titles may be derived or stored directly
+- member-only conversations may be untitled
+- workspace-wide and authenticated conversations should have a stored title
 
-#### `direct_conversation_pairs`
+#### `conversation_pairs`
 
-Canonical lookup table for one-to-one direct messages.
+Canonical lookup table for one-to-one conversations.
 
 Fields:
 
 - `conversation_id` PK, FK `conversations.id`
-- `user_low_id` FK `users.id`
-- `user_high_id` FK `users.id`
+- `first_user_id` FK `users.id`
+- `second_user_id` FK `users.id`
 
 Constraints:
 
-- unique `(user_low_id, user_high_id)`
-- `user_low_id <> user_high_id`
+- unique `(first_user_id, second_user_id)`
+- `first_user_id <> second_user_id`
+- `first_user_id < second_user_id` lexicographically
 
 Purpose:
 
@@ -698,9 +707,38 @@ Primary key:
 
 Rules:
 
-- required for all `direct_conversation`
-- required for all `channel` rows with `channel_visibility = private`
-- optional and normally unused for public channels
+- required for all conversations with `access_policy = members`
+- optional and normally unused for conversations with `access_policy = workspace`
+- optional and normally unused for conversations with `access_policy = authenticated`
+
+#### `conversation_invites`
+
+Reusable invite links for member-only conversations.
+
+Fields:
+
+- `id` PK
+- `conversation_id` FK `conversations.id`
+- `created_by_user_id` FK `users.id`
+- `token_hash` unique
+- `expires_at` nullable
+- `mode` enum: `link | restricted`
+- `allowed_user_ids` nullable JSONB
+- `allowed_emails` nullable JSONB
+- `revoked_at` nullable
+- `created_at`
+
+Rules:
+
+- `expires_at = null` means the invite does not expire
+- invites are reusable until they expire or are revoked
+- invites are valid only for conversations with `access_policy = members`
+- invites are invalid for canonical one-to-one direct messages
+- `mode = link` means any authenticated user with the token may join
+- `mode = restricted` means only callers matching `allowed_user_ids` or their verified email in `allowed_emails` may join
+- `mode = restricted` requires at least one allowed user id or allowed email
+- accepting an invite adds the caller to `conversation_participants`
+- accepting an invite for a workspace conversation still requires active workspace membership
 
 #### `conversation_reads`
 
@@ -759,7 +797,7 @@ Fields:
 
 Rules:
 
-- `workspace_id` is nullable for global direct-conversation events
+- `workspace_id` is nullable for global conversation events
 - `resource_type` is a public-facing type, not necessarily the internal aggregate type
 - `dedupe_key` makes projector writes idempotent
 
@@ -852,19 +890,20 @@ Fields:
 
 ## Database Invariants
 
-1. Every `direct_conversation` has at least two distinct participant users.
-2. A `direct_conversation` with exactly two participants is a one-to-one direct message.
-3. A `direct_conversation` with three or more participants is a group direct message.
-4. Every row in `direct_conversation_pairs` references a `direct_conversation` with exactly two participants.
-5. A `channel` with `channel_visibility = public` has no participant requirement for visibility.
-6. A `channel` with `channel_visibility = private` participant must also be an active workspace member of the same workspace.
-7. A `direct_conversation` never has a `workspace_id`.
-8. A `channel` always has a `workspace_id`.
-9. Deleting or leaving a workspace does not delete a user's direct conversations.
+1. Every conversation with `access_policy = members` has at least one participant user.
+2. A global `members` conversation is a one-to-one direct message only when it has exactly two participants and a matching row in `conversation_pairs`.
+3. A global `members` conversation without a matching row in `conversation_pairs` is a private member-only conversation and may start with one participant.
+4. Every row in `conversation_pairs` references a global `members` conversation with exactly two participants.
+5. A workspace conversation with `access_policy = workspace` has no participant requirement for visibility.
+6. Every participant in a workspace conversation with `access_policy = members` must also be an active workspace member of the same workspace.
+7. A global conversation never has `access_policy = workspace`.
+8. A workspace conversation never has `access_policy = authenticated`.
+9. Deleting or leaving a workspace does not delete a user's global conversations.
 10. `internal_events` is append-only.
 11. `external_events` is idempotent on projection scope plus `dedupe_key`.
 12. Every event-feed row points to exactly one `external_events` row.
 13. Projector checkpoints advance monotonically.
+14. Every `conversation_invites` row references a member-only conversation that is not a canonical one-to-one direct message.
 
 ## Recommended Indexes
 
@@ -872,12 +911,14 @@ Fields:
 - `user_profiles(handle)`
 - `workspace_memberships(workspace_id, user_id)`
 - `workspace_memberships(user_id, status)`
-- `conversations(workspace_id, kind, updated_at DESC)`
-- `conversations(kind, updated_at DESC)`
+- `conversations(workspace_id, access_policy, updated_at DESC)`
+- `conversations(access_policy, updated_at DESC)`
 - `conversation_participants(user_id, conversation_id)`
+- `conversation_invites(token_hash)`
+- `conversation_invites(conversation_id, created_at DESC)`
 - `conversation_reads(user_id, conversation_id)`
 - `messages(conversation_id, created_at DESC)`
-- `direct_conversation_pairs(user_low_id, user_high_id)`
+- `conversation_pairs(first_user_id, second_user_id)`
 - `internal_events(id)`
 - `internal_events(aggregate_type, aggregate_id, id)`
 - `internal_events(shard_id, id)`
@@ -908,6 +949,23 @@ Fields:
 }
 ```
 
+### Validation Error Shape
+
+```json
+{
+  "code": "validation_failed",
+  "message": "Request validation failed.",
+  "request_id": "req_123",
+  "errors": [
+    {
+      "field": "email",
+      "code": "invalid_format",
+      "message": "Must be a valid email address."
+    }
+  ]
+}
+```
+
 ### Collection Shape
 
 ```json
@@ -917,13 +975,63 @@ Fields:
 }
 ```
 
+Rules:
+
+- `next_cursor` is omitted when there is no next page
+- collection routes use `next_cursor` as the only pagination continuation signal
+- collection routes do not also return a parallel `has_more` boolean
+
+### HTTP Status Semantics
+
+- `200` successful read or mutation with a response body
+- `201` successful create when a new resource is persisted
+- `202` accepted asynchronous side effect, such as login challenge dispatch
+- `204` successful mutation with no response body
+- `400` malformed JSON, malformed query params, or unsupported request syntax
+- `401` missing or invalid bearer token
+- `403` authenticated caller lacks permission
+- `404` resource does not exist
+- `409` request conflicts with current resource state
+- `422` well-formed request fails semantic validation
+- `429` rate limited
+- `500` unexpected server error
+
+Rules:
+
+- malformed JSON always returns `400`
+- semantic validation failures return `422` with the validation error shape when field-level detail is available
+- routes that intentionally return a different success code call that out explicitly in their section
+
+### Rate Limits
+
+Authentication routes are rate limited aggressively. Authenticated APIs use very high limits and are not intended to be product-throttled in normal use.
+
+Rules:
+
+- unauthenticated authentication routes are limited by client IP
+- email login routes may additionally be limited by normalized email address
+- authenticated API requests are limited by authenticated user id
+- authenticated API key requests are limited by API key id
+- authenticated limits are intentionally high and exist only to protect infrastructure from abuse or accidental loops
+- exceeding authenticated limits should be rare in normal operation
+- if both bearer auth and cookie auth are present, bearer auth takes precedence and cookies are ignored
+
+Recommended defaults:
+
+- `POST /auth/email/start`: `20 requests/hour/IP` and `5 requests/hour/email`
+- `POST /auth/email/verify`: `30 requests/hour/IP`
+- `POST /auth/oauth/google/start`: `30 requests/hour/IP`
+- `POST /auth/oauth/github/start`: `30 requests/hour/IP`
+- authenticated user requests: `1000 requests/minute/user`
+- authenticated API key requests: `5000 requests/minute/key`
+
 ## Resource Shapes
 
 ### User
 
 ```json
 {
-  "id": "user_01",
+  "id": "550e8400-e29b-41d4-a716-446655440000",
   "principal_type": "human",
   "status": "active",
   "profile": {
@@ -938,21 +1046,17 @@ Fields:
 
 ```json
 {
-  "workspace_id": "ws_01",
-  "user_id": "user_01",
+  "workspace_id": "7c45a4b8-7d2f-4d2f-a8d4-3f6f9cbb7c12",
+  "user_id": "550e8400-e29b-41d4-a716-446655440000",
   "role": "member",
   "status": "active",
   "user": {
-    "id": "user_01",
+    "id": "550e8400-e29b-41d4-a716-446655440000",
     "principal_type": "human",
     "profile": {
       "handle": "jane",
       "display_name": "Jane"
     }
-  },
-  "workspace_profile": {
-    "display_name": "Jane S.",
-    "title": "Engineering"
   }
 }
 ```
@@ -961,15 +1065,13 @@ Fields:
 
 ```json
 {
-  "id": "conv_01",
-  "kind": "direct_conversation",
+  "id": "2f1c6b1a-9d8e-4c3b-a6f2-1b5d9e8c7a44",
   "workspace_id": null,
-  "channel_visibility": null,
-  "direct_message_kind": "one_to_one",
+  "access_policy": "members",
   "participant_count": 2,
   "title": null,
   "description": null,
-  "created_by_user_id": "user_01",
+  "created_by_user_id": "550e8400-e29b-41d4-a716-446655440000",
   "last_message_at": "2026-04-04T20:00:00Z",
   "created_at": "2026-04-01T10:00:00Z",
   "updated_at": "2026-04-04T20:00:00Z"
@@ -978,16 +1080,16 @@ Fields:
 
 Rules:
 
-- `direct_message_kind` is a derived response field for direct conversations only
-- allowed values are `one_to_one` and `group`
+- one-to-one direct messages are derived from `workspace_id = null`, `access_policy = members`, and `participant_count = 2`
+- `title` is commonly null for one-to-one direct messages because it is derived from the other participant
 
 ### Message
 
 ```json
 {
-  "id": "msg_01",
-  "conversation_id": "conv_01",
-  "author_user_id": "user_01",
+  "id": "9a3d2f10-6e4b-4f97-8c21-0f4d7b2e6a11",
+  "conversation_id": "2f1c6b1a-9d8e-4c3b-a6f2-1b5d9e8c7a44",
+  "author_user_id": "550e8400-e29b-41d4-a716-446655440000",
   "body_text": "hello",
   "created_at": "2026-04-04T20:00:00Z"
 }
@@ -1045,7 +1147,7 @@ Response:
     "expires_at": "2026-04-05T20:00:00Z"
   },
   "user": {
-    "id": "user_01",
+    "id": "550e8400-e29b-41d4-a716-446655440000",
     "principal_type": "human"
   }
 }
@@ -1129,12 +1231,17 @@ Revoke the current session.
 
 Return the authenticated bootstrap surface.
 
+Rules:
+
+- `/me` is the only current-user read surface in v1
+- it returns both the caller's canonical user shape and enough workspace membership data to bootstrap subsequent API interactions
+
 Response:
 
 ```json
 {
   "user": {
-    "id": "user_01",
+    "id": "550e8400-e29b-41d4-a716-446655440000",
     "principal_type": "human",
     "status": "active",
     "profile": {
@@ -1144,7 +1251,7 @@ Response:
   },
   "workspaces": [
     {
-      "workspace_id": "ws_01",
+      "workspace_id": "7c45a4b8-7d2f-4d2f-a8d4-3f6f9cbb7c12",
       "role": "owner",
       "status": "active",
       "name": "Acme"
@@ -1153,15 +1260,11 @@ Response:
 }
 ```
 
-### Users
+### Current User
 
-#### `GET /users/me`
+#### `PATCH /me/profile`
 
-Return the authenticated user and global profile.
-
-#### `PATCH /users/me/profile`
-
-Update the global user profile used for direct conversations.
+Update the global user profile used for global conversations.
 
 Request:
 
@@ -1197,7 +1300,7 @@ Response:
 ```json
 {
   "api_key": {
-    "id": "key_01",
+    "id": "3d6f0c71-22f4-4fd7-b0f7-03d6a9c1e882",
     "label": "local-dev",
     "scope_type": "user"
   },
@@ -1220,8 +1323,8 @@ Request:
 ```json
 {
   "query": "jane",
-  "entity_types": ["user", "workspace", "channel", "direct_conversation"],
-  "workspace_id": "ws_01",
+  "entity_types": ["user", "workspace", "conversation"],
+  "workspace_id": "7c45a4b8-7d2f-4d2f-a8d4-3f6f9cbb7c12",
   "limit": 20,
   "cursor": null
 }
@@ -1238,8 +1341,7 @@ Searchable entity types in v1:
 
 - `user`
 - `workspace`
-- `channel`
-- `direct_conversation`
+- `conversation`
 
 Result shape:
 
@@ -1248,7 +1350,7 @@ Result shape:
   "items": [
     {
       "entity_type": "user",
-      "id": "user_01",
+      "id": "550e8400-e29b-41d4-a716-446655440000",
       "title": "Jane",
       "subtitle": "@jane",
       "workspace_id": null
@@ -1262,10 +1364,9 @@ Visibility rules:
 
 - `user` results include only users that share at least one workspace with the caller
 - `workspace` results include only workspaces the caller belongs to
-- `channel` results include only channels visible to the caller
-- `direct_conversation` results include only direct conversations the caller participates in
+- `conversation` results include only conversations visible to the caller
 
-This endpoint supports direct-message creation, workspace navigation, and future in-product search without adding resource-specific search routes.
+This endpoint supports caller-driven entity discovery, including user lookup for direct-message creation and workspace lookup, without adding resource-specific search routes.
 
 ### Workspaces
 
@@ -1289,7 +1390,7 @@ Request:
 Behavior:
 
 - creator becomes `owner`
-- the system creates a default `general` public channel
+- the system creates a default `general` workspace-wide conversation
 
 #### `GET /workspaces/{workspace_id}`
 
@@ -1321,9 +1422,21 @@ Request:
 }
 ```
 
+Behavior:
+
+- the server creates an invite token bound to the target workspace
+- the server returns an invite token or invite URL that may be distributed out of band
+
 #### `POST /workspace-invites/{token}/accept`
 
 Accept a workspace invite as the authenticated user.
+
+Behavior:
+
+- the invite token must exist, be unexpired, and not be revoked
+- the server activates an existing invited membership or creates a new active membership for the caller
+- the route is idempotent when the caller is already an active member
+- the server returns the caller's active `WorkspaceMember` projection for the workspace
 
 #### `PATCH /workspaces/{workspace_id}/members/{user_id}`
 
@@ -1340,117 +1453,72 @@ Request:
 
 Owner/admin only.
 
-### Direct Conversations
+### Conversations
 
-#### `GET /direct-conversations`
+#### `GET /conversations`
 
-List direct conversations for the authenticated user.
+List conversations visible to the authenticated user.
+
+Query params:
+
+- `cursor`
+- `limit`
+- `workspace_id`
+- `access_policy`
 
 Rules:
 
-- returns only `kind = direct_conversation`
-- each item includes derived `direct_message_kind`
+- when `workspace_id` is omitted, the route returns global conversations visible to the caller
+- when `workspace_id` is present, the route returns conversations in that workspace visible to the caller
 - ordered by most recent message activity
 
-#### `POST /direct-conversations`
+#### `POST /conversations`
 
-Create or fetch a direct conversation.
+Create a conversation.
+
+Special case:
+
+- when the request describes a canonical one-to-one global direct message and that pair already exists, the server returns the existing conversation instead of creating a duplicate
 
 Request:
 
 ```json
 {
-  "participant_user_ids": ["user_target"],
-  "title": null
+  "workspace_id": null,
+  "access_policy": "members",
+  "participant_user_ids": [],
+  "title": null,
+  "description": null
 }
 ```
 
 Behavior:
 
-- authenticated user is implicitly included
-- the final distinct participant set must contain at least two users
-- if the final participant set contains exactly two users, the server returns the canonical one-to-one direct message for that pair
-- if the final participant set contains three or more users, the server creates a new group direct message
+- valid access policies are `members`, `workspace`, and `authenticated`
+- authenticated user is implicitly included when `access_policy = members`
+- conversations with `access_policy = members` must contain at least one distinct user after the caller is added
+- conversations with `access_policy = workspace` or `authenticated` must omit `participant_user_ids`
+- `workspace_id = null` with `access_policy = members` and exactly one user creates a private global conversation with only the caller
+- `workspace_id = null` with `access_policy = members` and exactly two users returns the canonical one-to-one direct message for that pair
+- `workspace_id = null` with `access_policy = members` and three or more users creates a private global conversation
+- `workspace_id != null` with `access_policy = members` creates a workspace private conversation
+- `workspace_id != null` with `access_policy = workspace` creates a workspace-wide conversation
+- `workspace_id = null` with `access_policy = authenticated` creates a global named conversation
+- conversations with `access_policy = workspace` or `authenticated` require a stored `title`
+- all participant users in a workspace conversation must already be active workspace members
 
-#### `GET /direct-conversations/{conversation_id}`
+Response semantics:
 
-Return a direct conversation if the caller is a participant.
+- `201` when a new conversation is created
+- `200` when the canonical one-to-one direct message for the requested pair already exists and is returned
 
-The response includes:
+#### `GET /conversations/{conversation_id}`
 
-- `direct_message_kind = one_to_one` when participant count is 2
-- `direct_message_kind = group` when participant count is 3 or more
+Return a conversation if visible to the caller.
 
-#### `GET /direct-conversations/{conversation_id}/participants`
+#### `PATCH /conversations/{conversation_id}`
 
-List direct-conversation participants.
-
-#### `POST /direct-conversations/{conversation_id}/participants`
-
-Add participants to a group direct message.
-
-Request:
-
-```json
-{
-  "user_ids": ["user_02", "user_03"]
-}
-```
-
-Rules:
-
-- valid only when the direct conversation already has 3 or more participants
-- invalid for one-to-one direct messages
-- all added users must be visible to the caller through unified search policy
-
-#### `DELETE /direct-conversations/{conversation_id}/participants/{user_id}`
-
-Remove a participant from a group direct message.
-
-Rules:
-
-- valid only when the direct conversation has 3 or more participants
-- invalid for one-to-one direct messages
-- invalid if removal would leave fewer than 3 participants
-
-### Channels
-
-#### `GET /workspaces/{workspace_id}/channels`
-
-List channels visible to the authenticated user.
-
-Visibility rules:
-
-- all public channels in the workspace
-- private channels where the caller is a participant
-
-#### `POST /workspaces/{workspace_id}/channels`
-
-Create a channel.
-
-Request:
-
-```json
-{
-  "visibility": "private",
-  "title": "ops",
-  "description": "Operations"
-}
-```
-
-Rules:
-
-- allowed visibilities are `public` and `private`
-- creator must have permission to create channels
-- creator is automatically added as a participant for `private` channels
-
-#### `GET /channels/{channel_id}`
-
-Return channel metadata if visible.
-
-#### `PATCH /channels/{channel_id}`
-
-Update channel metadata.
+Update conversation metadata.
 
 Request:
 
@@ -1462,19 +1530,23 @@ Request:
 }
 ```
 
-Owner/admin or channel manager policy can be added later. In v1, workspace owner/admin may manage channels.
+Rules:
 
-#### `GET /channels/{channel_id}/participants`
+- metadata routes operate on all conversation forms
+- ownership and admin policy can vary by scope; in v1, workspace owner/admin may manage workspace conversations
 
-List participants in a private channel.
+#### `GET /conversations/{conversation_id}/participants`
+
+List explicit participants in a conversation.
 
 Rules:
 
-- for public channels this route may return an empty set or `400`; participant rows are not canonical for public visibility
+- canonical participant rows exist only for conversations with `access_policy = members`
+- for `workspace` and `authenticated` conversations this route returns an empty collection because there are no explicit participant rows to list
 
-#### `POST /channels/{channel_id}/participants`
+#### `POST /conversations/{conversation_id}/participants`
 
-Add participants to a private channel.
+Add participants to a member-only conversation.
 
 Request:
 
@@ -1486,17 +1558,59 @@ Request:
 
 Rules:
 
-- valid only for private channels
-- each added user must already be an active workspace member
+- valid only when `access_policy = members`
+- invalid for canonical one-to-one direct messages
+- all added users in a workspace conversation must already be active workspace members
 
-#### `DELETE /channels/{channel_id}/participants/{user_id}`
+#### `DELETE /conversations/{conversation_id}/participants/{user_id}`
 
-Remove a participant from a private channel.
+Remove a participant from a member-only conversation.
 
 Rules:
 
-- valid only for private channels
-- channel cannot become empty
+- valid only when `access_policy = members`
+- invalid for canonical one-to-one direct messages
+- invalid if removal would leave the conversation with zero participants
+
+### Conversation Invites
+
+#### `POST /conversations/{conversation_id}/invites`
+
+Create an invite link for a member-only conversation.
+
+Request:
+
+```json
+{
+  "expires_at": null,
+  "mode": "link",
+  "allowed_user_ids": null,
+  "allowed_emails": null
+}
+```
+
+Rules:
+
+- valid only when `access_policy = members`
+- invalid for canonical one-to-one direct messages
+- `expires_at = null` means the invite does not expire
+- `mode = link` means any authenticated user with the token may join
+- `mode = restricted` means only callers matching `allowed_user_ids` or their verified email in `allowed_emails` may join
+- `mode = restricted` requires at least one allowed user id or allowed email
+- invite creation returns a token or invite URL that can be shared
+
+#### `POST /conversation-invites/{token}/accept`
+
+Join a conversation using an invite link.
+
+Rules:
+
+- invite must exist, be unexpired, and not be revoked
+- restricted invites require the authenticated caller to match `allowed_user_ids` or their verified email in `allowed_emails`
+- if the caller is already a participant, the route may succeed idempotently
+- accepting the invite adds the caller to `conversation_participants`
+- accepting an invite for a workspace conversation still requires active workspace membership
+- the server returns the target `Conversation` resource after access has been granted
 
 ### Messages
 
@@ -1557,14 +1671,14 @@ Request:
 
 ```json
 {
-  "last_read_message_id": "msg_99"
+  "last_read_message_id": "9a3d2f10-6e4b-4f97-8c21-0f4d7b2e6a11"
 }
 ```
 
 Behavior:
 
 - one row per `(conversation_id, user_id)`
-- used for unread badges in both direct conversations and channels
+- used for unread badges across all conversation forms
 
 ### Events
 
@@ -1595,18 +1709,17 @@ Response shape:
   "items": [
     {
       "id": 101,
-      "workspace_id": "ws_01",
+      "workspace_id": "7c45a4b8-7d2f-4d2f-a8d4-3f6f9cbb7c12",
       "type": "conversation.message.created",
       "resource_type": "conversation",
-      "resource_id": "conv_01",
+      "resource_id": "2f1c6b1a-9d8e-4c3b-a6f2-1b5d9e8c7a44",
       "occurred_at": "2026-04-04T20:00:00Z",
       "payload": {
-        "message_id": "msg_01"
+        "message_id": "9a3d2f10-6e4b-4f97-8c21-0f4d7b2e6a11"
       }
     }
   ],
-  "next_cursor": "cursor_123",
-  "has_more": true
+  "next_cursor": "cursor_123"
 }
 ```
 
@@ -1622,11 +1735,11 @@ Request:
 
 ```json
 {
-  "workspace_id": "ws_01",
+  "workspace_id": "7c45a4b8-7d2f-4d2f-a8d4-3f6f9cbb7c12",
   "url": "https://hooks.example.com/teraslack",
   "event_type": "conversation.message.created",
   "resource_type": "conversation",
-  "resource_id": "conv_01",
+  "resource_id": "2f1c6b1a-9d8e-4c3b-a6f2-1b5d9e8c7a44",
   "secret": "plaintext-shared-secret"
 }
 ```
@@ -1662,7 +1775,7 @@ Every request resolves like this:
 1. authenticate user
 2. load conversation or workspace if required by route
 3. apply workspace access rules when the resource is workspace-scoped
-4. apply participant access rules when the resource is participant-scoped
+4. apply conversation access rules when the resource is member-scoped or authenticated-global
 
 There is no server-side concept of "selected workspace session".
 
@@ -1678,74 +1791,82 @@ Every state-changing command uses this sequence:
 
 The service never commits primary state without the matching internal event rows.
 
-### Direct-Conversation Create Logic
+### Conversation Create Logic
 
 #### Algorithm
 
 1. authenticate caller user
-2. collect unique participant user ids from the request
-3. add caller user id
-4. validate that the final participant set has at least two distinct users
-5. if the final participant count is exactly 2:
-6. sort the pair into canonical order
-7. look up `direct_conversation_pairs`
-8. if found, return the existing conversation
-9. otherwise create `conversations(kind='direct_conversation')`
-10. insert two `conversation_participants`
-11. insert `direct_conversation_pairs`
-12. return the conversation
-13. if the final participant count is 3 or more:
-14. create `conversations(kind='direct_conversation')`
-15. insert `conversation_participants`
-16. return the conversation
+2. validate `workspace_id` and `access_policy` as a legal combination
+3. if `workspace_id IS NOT NULL`, load workspace membership and ensure the caller may create conversations there
+4. if `access_policy = members`, collect unique participant user ids from the request
+5. if `access_policy = members`, add caller user id
+6. if `access_policy = members`, validate that the final participant set has at least one distinct user
+7. if `workspace_id IS NOT NULL` and `access_policy = members`, ensure every participant is an active workspace member
+8. if `workspace_id IS NULL` and `access_policy = members` and the final participant count is exactly 2:
+9. sort the pair into canonical lexicographic order
+10. look up `conversation_pairs`
+11. if found, return the existing conversation
+12. otherwise create `conversations(workspace_id=NULL, access_policy='members')`
+13. insert two `conversation_participants`
+14. insert `conversation_pairs`
+15. return the conversation
+16. otherwise create `conversations(...)`
+17. if `access_policy = members`, insert `conversation_participants`
+18. return the conversation
 
-### Direct-Conversation Participant Mutation Logic
+### Conversation Participant Mutation Logic
 
 #### Rules
 
-- participant add/remove is invalid for one-to-one direct messages
-- participant add/remove is valid for group direct messages
-- participant removal is invalid if it would reduce the participant count below 3
+- participant add/remove is valid only when `access_policy = members`
+- participant add/remove is invalid for canonical one-to-one direct messages
+- participant removal is invalid if it would leave the conversation with zero participants
 
-If a client wants to turn a one-to-one direct message into a group direct message, it creates a new direct conversation with the larger participant set.
+If a caller wants to turn a one-to-one direct message into a larger private conversation, it creates a new conversation with the larger participant set.
 
-### Channel Create Logic
-
-#### Algorithm
+### Conversation Invite Accept Logic
 
 1. authenticate caller user
-2. load workspace membership
-3. ensure caller may create channels
-4. create `conversations(kind='channel', workspace_id=..., channel_visibility=...)`
-5. if private, add creator to `conversation_participants`
-6. return the channel
+2. load invite by token and ensure it is not expired or revoked
+3. load the target conversation and ensure `access_policy = members`
+4. reject the request if the conversation is a canonical one-to-one direct message
+5. if the invite is restricted, ensure the caller matches `allowed_user_ids` or their verified email in `allowed_emails`
+6. if the conversation is workspace-scoped, ensure the caller has active workspace membership
+7. insert `conversation_participants` idempotently for the caller
 
 ### Message Post Logic
 
-#### Direct Conversation
+#### global conversation with `access_policy = members`
 
 1. authenticate caller user
 2. load conversation
-3. ensure `kind = direct_conversation`
+3. ensure `workspace_id IS NULL` and `access_policy = members`
 4. ensure caller is a participant
 5. insert message with `author_user_id`
 
-#### Public Channel
+#### workspace conversation with `access_policy = workspace`
 
 1. authenticate caller user
 2. load conversation
-3. ensure `kind = channel` and `channel_visibility = public`
+3. ensure `workspace_id IS NOT NULL` and `access_policy = workspace`
 4. ensure caller has active workspace membership
 5. insert message with `author_user_id`
 
-#### Private Channel
+#### workspace conversation with `access_policy = members`
 
 1. authenticate caller user
 2. load conversation
-3. ensure `kind = channel` and `channel_visibility = private`
+3. ensure `workspace_id IS NOT NULL` and `access_policy = members`
 4. ensure caller has active workspace membership
-5. ensure caller is a channel participant
+5. ensure caller is a conversation participant
 6. insert message with `author_user_id`
+
+#### global conversation with `access_policy = authenticated`
+
+1. authenticate caller user
+2. load conversation
+3. ensure `workspace_id IS NULL` and `access_policy = authenticated`
+4. insert message with `author_user_id`
 
 ### Internal Event Append Logic
 
@@ -1761,9 +1882,9 @@ Every command emits one or more internal events with:
 
 Examples:
 
-- channel create -> `conversation.created`
-- private-channel participant add -> `conversation.participant.added`
-- direct-conversation message post -> `message.posted`
+- conversation create -> `conversation.created`
+- member-only conversation participant add -> `conversation.participant.added`
+- one-to-one direct message post -> `message.posted`
 - workspace invite accept -> `workspace.membership.added`
 
 Internal events are immutable facts. They are not edited after insertion.
@@ -1796,11 +1917,12 @@ Rules:
 Read-time filtering rules:
 
 - workspace events use `workspace_event_feed`
-- direct-conversation and channel events use `conversation_event_feed`
+- conversation events use `conversation_event_feed`
 - user-scoped events use `user_event_feed`
-- direct-conversation event visibility is based on conversation participation
-- public-channel event visibility is based on active workspace membership
-- private-channel event visibility is based on active workspace membership plus channel participation
+- global `members` conversation visibility is based on conversation participation
+- workspace `workspace` conversation visibility is based on active workspace membership
+- workspace `members` conversation visibility is based on active workspace membership plus conversation participation
+- global `authenticated` conversation visibility is based on authentication
 
 This avoids write-time fanout to per-user inbox tables.
 
@@ -1819,21 +1941,21 @@ Secrets are encrypted at rest and used only when signing outbound webhook reques
 
 ### Conversation List Logic
 
-#### Direct Inbox
+#### Global Conversations
 
-The direct inbox query:
+The global conversation query:
 
-- filters `conversation_participants` by caller `user_id`
-- joins conversations with `kind = direct_conversation`
-- derives `direct_message_kind` from participant count
+- loads global conversations with `workspace_id IS NULL`
+- includes member-only conversations where the caller is a participant
+- includes authenticated-global conversations
 - orders by latest activity
 
-#### Workspace Channels
+#### Workspace Conversations
 
-The workspace channels query:
+The workspace conversation query:
 
-- loads all public channels in the workspace
-- unions private channels where the caller is a participant
+- loads all workspace-wide conversations in the workspace
+- unions member-only workspace conversations where the caller is a participant
 - orders by configured sort or latest activity
 
 ### Replay And Rebuild Logic
@@ -1850,157 +1972,158 @@ Operationally this means:
 - primary tables remain online serving state
 - event-derived artifacts can be reconstructed after corruption or schema changes
 
-## User Flows
+## API Interaction Flows
 
-### App Startup
+These examples describe caller-server interactions.
 
-1. Client loads with stored session token.
-2. Client calls `GET /me`.
-3. Client renders:
-   - user identity
-   - workspace list
-4. Client calls `GET /direct-conversations`.
-5. When the user enters a workspace, client calls `GET /workspaces/{workspace_id}/channels`.
+Rules:
+
+- `User A` and `User B` refer to human or agent principals
+- `caller` refers to any API consumer acting on behalf of an authenticated user
+- UI concerns such as rendering, navigation, and link presentation are intentionally out of scope unless required by an auth redirect flow
+
+### Bootstrap Authenticated State
+
+1. User A already has a valid session token or API key.
+2. The caller sends `GET /me`.
+3. The server returns User A's canonical user shape plus active workspace memberships.
+4. The caller may send `GET /conversations` to load global conversations visible to User A.
+5. The caller may send `GET /conversations?workspace_id={workspace_id}` for any workspace scope it wants to inspect.
 
 ### Sign In With Email
 
-1. User enters an email address.
-2. Client calls `POST /auth/email/start`.
-3. Server creates a login challenge and sends the code through Resend.
-4. User enters the verification code.
-5. Client calls `POST /auth/email/verify`.
-6. Server resolves or creates the canonical user and returns a session token.
+1. The caller sends `POST /auth/email/start` with User A's email address.
+2. The server creates a login challenge, sends the code through Resend, and returns a generic accepted response.
+3. User A receives the verification code through email.
+4. The caller sends `POST /auth/email/verify` with User A's email address and code.
+5. The server verifies the challenge, resolves or creates User A, and returns a session token.
 
 ### Sign In With Google Or GitHub
 
-1. User chooses Google or GitHub.
-2. Client calls `POST /auth/oauth/{provider}/start`.
-3. Client redirects the browser to the returned `auth_url`.
-4. Provider redirects back to `GET /auth/oauth/{provider}/callback`.
-5. Server resolves or creates the canonical user and creates a session.
-6. Client stores the session token and proceeds with normal app startup.
+1. The caller sends `POST /auth/oauth/{provider}/start`.
+2. The server returns an `auth_url` and `state`.
+3. User A follows the provider authorization flow at `auth_url`.
+4. The provider redirects back to `GET /auth/oauth/{provider}/callback`.
+5. The server resolves or creates User A and creates a session.
+6. The caller uses the returned session token for subsequent authenticated requests.
 
-### Start A One-to-One Direct Message From Global Search
+### Resolve A One-to-One Direct Message Between User A And User B
 
-1. User opens the direct-message composer.
-2. Client calls `POST /search`.
-3. User selects a user.
-4. Client calls `POST /direct-conversations` with that one target user id.
-5. Server returns the existing or newly created one-to-one direct message.
-6. Client navigates to the conversation and calls `GET /conversations/{conversation_id}/messages`.
+1. User A decides to start a one-to-one direct message with User B.
+2. The caller obtains User B's `user_id` through any valid discovery path, such as `POST /search`, `GET /workspaces/{workspace_id}/members`, or previously stored state.
+3. The caller sends `POST /conversations` with `workspace_id = null`, `access_policy = members`, and `participant_user_ids = ["{user_b_id}"]`.
+4. The server implicitly includes User A, canonicalizes the unordered pair `(User A, User B)`, and returns the canonical direct message conversation.
+5. The caller may then send `GET /conversations/{conversation_id}/messages` to read or continue the direct message.
 
-### Start A One-to-One Direct Message From A Workspace Member List
+The resulting conversation is global. It does not belong to any workspace even if User B was discovered through a workspace-scoped query.
 
-1. User opens a workspace.
-2. Client calls `GET /workspaces/{workspace_id}/members`.
-3. User selects a member.
-4. Client reads the selected `user_id`.
-5. Client calls `POST /direct-conversations` with that user id.
-6. Server returns the canonical one-to-one direct message.
-7. Client navigates to the direct inbox conversation.
+### Start A Private Global Conversation
 
-The resulting conversation is still global. It does not belong to the workspace the user started from.
+1. User A decides to create a private global conversation.
+2. The caller sends `POST /conversations` with `workspace_id = null`, `access_policy = members`, and the selected `participant_user_ids`.
+3. The server implicitly includes User A in the participant set.
+4. If no other users were supplied, the server creates a private global conversation with only User A.
+5. If exactly one other user was supplied, the server returns the canonical one-to-one direct message for User A and that user.
+6. If two or more other users were supplied, the server creates a private global conversation for the final participant set.
+7. The caller may then read or mutate the returned conversation normally.
 
-### Start A Group Direct Message
+This conversation may be presented in the product as a group chat or a private channel.
 
-1. User opens the direct-message composer.
-2. User selects multiple users.
-3. Client calls `POST /direct-conversations` with the selected user ids.
-4. Server creates a direct conversation with 3 or more participants.
-5. Client opens the new group direct message.
+### Create A Conversation Invite Link
+
+1. User A is already a participant in a member-only conversation that is not a canonical one-to-one direct message.
+2. The caller sends `POST /conversations/{conversation_id}/invites`.
+3. The server validates the conversation, creates an invite token with the requested policy, and returns an invite token or invite URL.
+4. User A may distribute that token or URL through any out-of-band channel.
+
+### Accept A Conversation Invite As User B
+
+1. User B obtains a conversation invite token through any out-of-band channel.
+2. If User B is not authenticated yet, User B first completes an auth flow.
+3. The caller acting for User B sends `POST /conversation-invites/{token}/accept`.
+4. The server validates the invite, checks any restriction rules, ensures any required workspace membership, and inserts User B into `conversation_participants` idempotently.
+5. The server returns the target `Conversation` resource.
+6. The caller may then send `GET /conversations/{conversation_id}/messages` or other conversation-scoped requests as User B.
 
 ### Create A Workspace
 
-1. User submits workspace name and slug.
-2. Client calls `POST /workspaces`.
-3. Server creates:
-   - workspace
-   - owner membership for the creator
-   - default `general` public channel
-4. Client navigates into the workspace.
+1. User A decides to create a workspace.
+2. The caller sends `POST /workspaces` with the requested name and slug.
+3. The server creates the workspace, an owner membership for User A, and a default `general` workspace-wide conversation.
+4. The server returns the created workspace resource.
+5. The caller may then use the returned `workspace_id` in subsequent workspace-scoped requests.
 
-### Join A Workspace
+### Accept A Workspace Invite As User B
 
-1. User opens an invite link.
-2. Client authenticates if needed.
-3. Client calls `POST /workspace-invites/{token}/accept`.
-4. Server activates or creates the membership.
-5. Client navigates into the workspace channel list.
+1. User B obtains a workspace invite token through any out-of-band channel.
+2. If User B is not authenticated yet, User B first completes an auth flow.
+3. The caller acting for User B sends `POST /workspace-invites/{token}/accept`.
+4. The server validates the token and activates or creates User B's workspace membership.
+5. The server returns User B's active `WorkspaceMember` projection for that workspace.
+6. The caller may then send `GET /conversations?workspace_id={workspace_id}` or other workspace-scoped requests as User B.
 
-### Create A Public Channel
+### Create A Workspace-Wide Conversation
 
-1. User is inside a workspace.
-2. User opens the channel composer.
-3. Client calls `POST /workspaces/{workspace_id}/channels` with `visibility = public`.
-4. Server creates the channel.
-5. The channel becomes visible to all workspace members.
+1. User A has an active membership in workspace `W`.
+2. The caller sends `POST /conversations` with `workspace_id = W` and `access_policy = workspace`.
+3. The server creates the conversation and returns it.
+4. Any caller acting for a user with active membership in `W` can discover it through `GET /conversations?workspace_id=W`.
 
-### Create A Private Channel
+### Create A Workspace Private Conversation
 
-1. User is inside a workspace.
-2. User opens the channel composer.
-3. Client calls `POST /workspaces/{workspace_id}/channels` with `visibility = private`.
-4. Server creates the channel and adds the creator as a participant.
-5. Creator may then add additional workspace members.
+1. User A has an active membership in workspace `W`.
+2. The caller sends `POST /conversations` with `workspace_id = W`, `access_policy = members`, and any initial `participant_user_ids`.
+3. The server validates that every listed user is an active member of `W`, implicitly includes User A, creates the conversation, and returns it.
+4. The caller may later add more workspace members through `POST /conversations/{conversation_id}/participants`.
 
-### Read A Public Channel
+### Create A Global Named Conversation
 
-1. User enters a workspace.
-2. Client calls `GET /workspaces/{workspace_id}/channels`.
-3. User opens a public channel.
-4. Client calls `GET /conversations/{channel_id}/messages`.
-5. Client sends `PUT /conversations/{channel_id}/read-state` as the user reads.
+1. User A decides to create a global authenticated conversation.
+2. The caller sends `POST /conversations` with `workspace_id = null` and `access_policy = authenticated`.
+3. The server creates the conversation and returns it.
+4. Any authenticated caller can discover it through `GET /conversations`.
 
-### Read A Private Channel
+### Read A Workspace-Wide Conversation
 
-1. User enters a workspace.
-2. Client calls `GET /workspaces/{workspace_id}/channels`.
-3. Only private channels the user belongs to are returned.
-4. User opens the channel and reads messages normally.
+1. The caller acting for User A sends `GET /conversations?workspace_id={workspace_id}`.
+2. The server returns workspace-wide conversations visible to User A in that workspace.
+3. The caller sends `GET /conversations/{conversation_id}/messages` for one of the returned conversations.
+4. The server returns messages if User A still has access.
+5. If the caller tracks read cursors, it may send `PUT /conversations/{conversation_id}/read-state`.
+
+### Read A Workspace Private Conversation
+
+1. The caller acting for User A sends `GET /conversations?workspace_id={workspace_id}`.
+2. The server returns workspace-wide conversations plus member-only workspace conversations where User A is a participant.
+3. The caller sends `GET /conversations/{conversation_id}/messages` for one of the returned member-only conversations.
+4. The server returns messages only if User A still has both active workspace membership and explicit conversation participation.
 
 ### Send A Message
 
-1. User writes text in a direct conversation or channel.
-2. Client calls `POST /conversations/{conversation_id}/messages`.
-3. Server derives `author_user_id` from auth.
-4. Server applies direct-conversation or channel access rules.
-5. Message is stored and returned.
+1. The caller acting for User A sends `POST /conversations/{conversation_id}/messages`.
+2. The server derives `author_user_id` from auth.
+3. The server applies the relevant conversation access rules for User A.
+4. If authorized, the server stores the message and returns it.
 
 ### Consume Events
 
-1. Client or integration stores the last `next_cursor` from `/events`.
-2. Client calls `GET /events` with that cursor.
-3. Server returns only visible external events after that point.
-4. Consumer updates its checkpoint and processes each event idempotently.
+1. A caller acting for User A or another authorized consumer stores the last `next_cursor` from `/events`.
+2. The caller sends `GET /events` with that cursor.
+3. The server returns only external events visible to that caller after that point.
+4. The consumer updates its checkpoint and processes each event idempotently.
 
 This is the canonical pull-based integration flow.
 
 ### Receive Webhooks
 
-1. User or integration creates an `event_subscription`.
-2. The system stores the destination and encrypted secret.
+1. A caller creates an `event_subscription`.
+2. The server stores the destination and encrypted secret.
 3. When matching external events are projected, webhook workers enqueue deliveries.
 4. The remote consumer verifies the signature and handles retries idempotently.
 
 ## Identity Rendering Rules
 
-### In Direct Conversations
-
-Render participants from:
-
-- `users`
-- `user_profiles`
-
-Do not render direct conversations from workspace-local display records as the source of truth.
-
-### In Channels
-
-Render participants from:
-
-- `users`
-- `workspace_profiles` for the active workspace when present
-
-This lets one user have a global direct-message identity and a workspace-local presentation without splitting the underlying identity model.
+Render participants from `users` and `user_profiles` in both global and workspace conversations.
 
 ## Explicit Exclusions
 
@@ -2008,11 +2131,12 @@ The following patterns are intentionally not part of this design:
 
 - a persistent `accounts` table as a second canonical identity
 - a persistent `workspace_users` table as a second canonical identity
-- separate persisted `dm` and `group_dm` conversation kinds
+- separate persisted `dm`, `group_dm`, `private_channel`, and `public_channel` conversation kinds
+- separate persisted `channel` and `direct_conversation` root kinds
 - workspace-owned direct messages
 - user ids hidden behind workspace-local member ids in message APIs
 - server-side selected workspace on the session
-- creating guest workspace membership as a side effect of direct-conversation creation
+- creating guest workspace membership as a side effect of global conversation creation
 
 ## Acceptance Criteria
 
@@ -2020,15 +2144,17 @@ The design is correct when all of the following are true:
 
 1. The same person or bot has one canonical `user_id` everywhere.
 2. The API can create or fetch a one-to-one direct message by user pair.
-3. One-to-one direct messages and group direct messages are both stored as `kind = direct_conversation`.
-4. Direct conversations work without a workspace id.
-5. Channels require a workspace id.
-6. Public channels are visible to all active workspace members.
-7. Private channels require both workspace membership and explicit channel participation.
+3. One-to-one direct messages, private member-only conversations, workspace conversations, and global named conversations are all stored in one `conversations` table.
+4. Conversation scope is inferred from `workspace_id`.
+5. Conversation visibility is determined by `access_policy`.
+6. Workspace-wide conversations are visible to all active workspace members.
+7. Workspace private conversations require both workspace membership and explicit conversation participation.
 8. Message authorship is always stored as `author_user_id`.
-9. Starting a direct message from a workspace member list still results in a global direct conversation.
-10. The system never needs a workspace-local member id to authorize or write a direct-conversation message.
+9. Resolving a direct message from a workspace-scoped user lookup still results in a global conversation.
+10. The system never needs a workspace-local member id to authorize or write a global member-only conversation message.
 11. Every successful state mutation appends immutable `internal_events` rows in the same transaction.
 12. `/events` reads from projected `external_events`, not directly from primary tables or the raw internal log.
 13. Event feeds and webhook deliveries can be rebuilt from `internal_events` plus projector checkpoints.
 14. Email login, Google OAuth, and GitHub OAuth all resolve to the same canonical `user_id` model.
+15. A non-DM member-only conversation can be created with only the caller as its first participant, then shared by invite.
+16. A member-only conversation invite may be open-link or restricted to specific users or emails.
