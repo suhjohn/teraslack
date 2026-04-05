@@ -298,6 +298,32 @@ Authentication may happen through:
 - session token
 - API key
 
+Interactive login methods are:
+
+- email verification via Resend
+- Google OAuth
+- GitHub OAuth
+
+All interactive login methods must:
+
+- resolve to one canonical `user_id`
+- create the user on first successful login when needed
+- issue the same session token type
+
+### API-First Auth Shape
+
+The canonical auth contract is bearer-first:
+
+- `Authorization: Bearer <session_token_or_api_key>`
+
+Rules:
+
+- email and OAuth are login methods, not separate runtime auth models
+- successful login returns a session token
+- API clients may use that session token directly as a bearer token
+- browsers may additionally store the same session token in a secure cookie, but bearer semantics remain the canonical API contract
+- API keys are the separate long-lived programmatic auth mechanism
+
 ### Workspace Access
 
 Workspace access is determined by `workspace_memberships`.
@@ -414,6 +440,50 @@ Important rule:
 - sessions do not store a selected workspace
 
 Selected workspace is client state.
+
+#### `email_login_challenges`
+
+Short-lived email verification challenges used by `email/start` and `email/verify`.
+
+Fields:
+
+- `id` PK
+- `email`
+- `code_hash`
+- `expires_at`
+- `consumed_at` nullable
+- `created_at`
+
+Rules:
+
+- challenges are single-use
+- challenges are short-lived
+- plaintext codes are never persisted
+- delivery is performed through Resend
+
+#### `oauth_accounts`
+
+External OAuth identities linked to users.
+
+Fields:
+
+- `id` PK
+- `provider` enum: `google | github`
+- `provider_user_id`
+- `user_id` FK `users.id`
+- `email` nullable
+- `created_at`
+- `updated_at`
+
+Constraints:
+
+- unique `(provider, provider_user_id)`
+
+Rules:
+
+- one user may have multiple linked OAuth identities
+- OAuth login resolves by `(provider, provider_user_id)` first
+- when no linked row exists, the system may attach by verified email or create a new user according to product policy
 
 #### `api_keys`
 
@@ -822,6 +892,7 @@ Fields:
 ## API Conventions
 
 - Bearer auth: `Authorization: Bearer <token>`
+- Bearer auth is used for both session tokens and API keys
 - JSON request and response bodies
 - Unversioned resource-oriented paths
 - Cursor pagination for collection routes
@@ -926,16 +997,42 @@ Rules:
 
 ### Auth
 
-#### `POST /auth/sessions`
+#### `POST /auth/email/start`
 
-Create a session.
+Start email login.
 
 Request:
 
 ```json
 {
-  "provider": "google",
-  "oauth_code": "..."
+  "email": "user@example.com"
+}
+```
+
+Behavior:
+
+- creates a short-lived login challenge
+- sends the code via Resend
+- returns a generic success response to avoid email enumeration
+
+Response:
+
+```json
+{
+  "status": "ok"
+}
+```
+
+#### `POST /auth/email/verify`
+
+Verify email login and create a session.
+
+Request:
+
+```json
+{
+  "email": "user@example.com",
+  "code": "123456"
 }
 ```
 
@@ -953,6 +1050,76 @@ Response:
   }
 }
 ```
+
+Behavior:
+
+- verifies the one-time code
+- resolves or creates the canonical user
+- creates a session token
+
+#### `POST /auth/oauth/google/start`
+
+Start Google OAuth.
+
+Request:
+
+```json
+{
+  "redirect_uri": "https://app.example.com/auth/google/callback"
+}
+```
+
+Response:
+
+```json
+{
+  "auth_url": "https://accounts.google.com/...",
+  "state": "opaque-state"
+}
+```
+
+#### `GET /auth/oauth/google/callback`
+
+Complete Google OAuth.
+
+Behavior:
+
+- exchanges the provider code
+- resolves or creates the canonical user
+- creates a session token
+- redirects to the client or returns a session payload depending on client mode
+
+#### `POST /auth/oauth/github/start`
+
+Start GitHub OAuth.
+
+Request:
+
+```json
+{
+  "redirect_uri": "https://app.example.com/auth/github/callback"
+}
+```
+
+Response:
+
+```json
+{
+  "auth_url": "https://github.com/login/oauth/authorize?...",
+  "state": "opaque-state"
+}
+```
+
+#### `GET /auth/oauth/github/callback`
+
+Complete GitHub OAuth.
+
+Behavior:
+
+- exchanges the provider code
+- resolves or creates the canonical user
+- creates a session token
+- redirects to the client or returns a session payload depending on client mode
 
 #### `DELETE /auth/sessions/current`
 
@@ -1004,6 +1171,43 @@ Request:
   "avatar_url": "https://..."
 }
 ```
+
+### API Keys
+
+#### `GET /api-keys`
+
+List API keys owned by the authenticated user.
+
+#### `POST /api-keys`
+
+Create an API key.
+
+Request:
+
+```json
+{
+  "label": "local-dev",
+  "scope_type": "user",
+  "scope_workspace_id": null
+}
+```
+
+Response:
+
+```json
+{
+  "api_key": {
+    "id": "key_01",
+    "label": "local-dev",
+    "scope_type": "user"
+  },
+  "secret": "plaintext-once"
+}
+```
+
+#### `DELETE /api-keys/{key_id}`
+
+Revoke an API key.
 
 ### Search
 
@@ -1658,6 +1862,24 @@ Operationally this means:
 4. Client calls `GET /direct-conversations`.
 5. When the user enters a workspace, client calls `GET /workspaces/{workspace_id}/channels`.
 
+### Sign In With Email
+
+1. User enters an email address.
+2. Client calls `POST /auth/email/start`.
+3. Server creates a login challenge and sends the code through Resend.
+4. User enters the verification code.
+5. Client calls `POST /auth/email/verify`.
+6. Server resolves or creates the canonical user and returns a session token.
+
+### Sign In With Google Or GitHub
+
+1. User chooses Google or GitHub.
+2. Client calls `POST /auth/oauth/{provider}/start`.
+3. Client redirects the browser to the returned `auth_url`.
+4. Provider redirects back to `GET /auth/oauth/{provider}/callback`.
+5. Server resolves or creates the canonical user and creates a session.
+6. Client stores the session token and proceeds with normal app startup.
+
 ### Start A One-to-One Direct Message From Global Search
 
 1. User opens the direct-message composer.
@@ -1809,3 +2031,4 @@ The design is correct when all of the following are true:
 11. Every successful state mutation appends immutable `internal_events` rows in the same transaction.
 12. `/events` reads from projected `external_events`, not directly from primary tables or the raw internal log.
 13. Event feeds and webhook deliveries can be rebuilt from `internal_events` plus projector checkpoints.
+14. Email login, Google OAuth, and GitHub OAuth all resolve to the same canonical `user_id` model.
