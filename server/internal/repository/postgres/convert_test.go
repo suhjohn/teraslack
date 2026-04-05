@@ -12,10 +12,10 @@ func TestConvToDomain_ListVisibleConversationCarriesUnreadState(t *testing.T) {
 	now := time.Now().UTC()
 	row := sqlcgen.ListVisibleConversationsRow{
 		ID:             "C123",
-		WorkspaceID:         "T123",
+		WorkspaceID:    pgtype.Text{String: "T123", Valid: true},
 		Name:           "general",
 		Type:           "public_channel",
-		CreatorID:      "U123",
+		CreatorID:      pgtype.Text{String: "U123", Valid: true},
 		IsArchived:     false,
 		TopicValue:     "topic",
 		TopicCreator:   "U123",
@@ -24,7 +24,7 @@ func TestConvToDomain_ListVisibleConversationCarriesUnreadState(t *testing.T) {
 		NumMembers:     2,
 		LastMessageTs:  pgtype.Text{String: "1712345678.000001", Valid: true},
 		LastActivityTs: pgtype.Text{String: "1712345679.000001", Valid: true},
-		LastReadTs:     pgtype.Text{String: "1712345678.000001", Valid: true},
+		LastReadTs:     "1712345678.000001",
 		HasUnread:      pgtype.Bool{Bool: false, Valid: true},
 		CreatedAt:      now,
 		UpdatedAt:      now,

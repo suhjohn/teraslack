@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -228,7 +229,7 @@ func (s *WorkspaceService) TransferPrimaryAdmin(ctx context.Context, workspaceID
 }
 
 func (s *WorkspaceService) AdminCreate(ctx context.Context, params domain.CreateWorkspaceParams) (*domain.Workspace, error) {
-	actor, err := s.requireWorkspaceAdmin(ctx)
+	account, actor, err := s.requireWorkspaceCreator(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -260,31 +261,41 @@ func (s *WorkspaceService) AdminCreate(ctx context.Context, params domain.Create
 	}); err != nil {
 		return nil, fmt.Errorf("record workspace.created event: %w", err)
 	}
+
+	if s.userRepo == nil {
+		return nil, fmt.Errorf("user repo: %w", domain.ErrInvalidArgument)
+	}
+	name := emailLocalPart(account.Email)
+	realName := name
+	displayName := realName
+	principalType := account.PrincipalType
+	ownerID := ""
+	isBot := account.IsBot
+	profile := domain.UserProfile{}
+	if actor != nil {
+		name = firstNonEmptyString(strings.TrimSpace(actor.Name), name)
+		realName = firstNonEmptyString(strings.TrimSpace(actor.RealName), strings.TrimSpace(actor.DisplayName), realName)
+		displayName = firstNonEmptyString(strings.TrimSpace(actor.DisplayName), realName)
+		principalType = actor.PrincipalType
+		ownerID = actor.OwnerID
+		isBot = actor.IsBot
+		profile = actor.Profile
+	}
 	createdUser, err := s.userRepo.WithTx(tx).Create(ctx, domain.CreateUserParams{
-		AccountID:     actor.AccountID,
+		AccountID:     account.ID,
 		WorkspaceID:   ws.ID,
-		Name:          actor.Name,
-		RealName:      actor.RealName,
-		DisplayName:   actor.DisplayName,
-		Email:         actor.Email,
-		PrincipalType: actor.PrincipalType,
-		OwnerID:       actor.OwnerID,
+		Name:          name,
+		RealName:      realName,
+		DisplayName:   displayName,
+		Email:         account.Email,
+		PrincipalType: principalType,
+		OwnerID:       ownerID,
 		AccountType:   domain.AccountTypePrimaryAdmin,
-		IsBot:         actor.IsBot,
-		Profile:       actor.Profile,
+		IsBot:         isBot,
+		Profile:       profile,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("create creator user: %w", err)
-	}
-	if s.accountRepo != nil {
-		accountRepo := s.accountRepo.WithTx(tx)
-		account, err := ensureAccountForUser(ctx, accountRepo, createdUser)
-		if err != nil {
-			return nil, fmt.Errorf("sync creator identity: %w", err)
-		}
-		if account != nil && createdUser.AccountID == "" {
-			createdUser.AccountID = account.ID
-		}
 	}
 	userPayload, _ := json.Marshal(createdUser)
 	if err := s.recorder.WithTx(tx).Record(ctx, domain.InternalEvent{
@@ -304,46 +315,43 @@ func (s *WorkspaceService) AdminCreate(ctx context.Context, params domain.Create
 }
 
 func (s *WorkspaceService) AdminList(ctx context.Context) ([]domain.Workspace, error) {
-	actor, err := loadActingUser(ctx, s.userRepo)
-	if err != nil || actor.PrincipalType != domain.PrincipalTypeHuman || strings.TrimSpace(actor.Email) == "" {
-		resolved, resolveErr := s.resolveAdminTargetWorkspaceID(ctx, "")
-		if resolveErr != nil {
-			return nil, resolveErr
-		}
-		workspace, getErr := s.repo.Get(ctx, resolved)
-		if getErr != nil {
-			return nil, getErr
-		}
-		return []domain.Workspace{*workspace}, nil
-	}
-
 	accountID := ctxutil.GetAccountID(ctx)
-	if accountID != "" {
-		users, userErr := s.userRepo.ListByAccount(ctx, accountID)
-		if userErr != nil {
-			return nil, fmt.Errorf("list workspace users by account: %w", userErr)
+	if accountID != "" && s.userRepo != nil {
+		memberships, membershipErr := s.userRepo.ListWorkspaceMembershipsByAccount(ctx, accountID)
+		if membershipErr != nil {
+			return nil, fmt.Errorf("list workspace memberships by account: %w", membershipErr)
 		}
-		workspaces := make([]domain.Workspace, 0, len(users))
-		seen := make(map[string]struct{}, len(users))
-		for _, user := range users {
-			if user.WorkspaceID == "" {
+		workspaces := make([]domain.Workspace, 0, len(memberships))
+		seen := make(map[string]struct{}, len(memberships))
+		for _, membership := range memberships {
+			if membership.WorkspaceID == "" {
 				continue
 			}
-			if _, ok := seen[user.WorkspaceID]; ok {
+			if _, ok := seen[membership.WorkspaceID]; ok {
 				continue
 			}
-			workspace, getErr := s.repo.Get(ctx, user.WorkspaceID)
+			workspace, getErr := s.repo.Get(ctx, membership.WorkspaceID)
 			if getErr != nil {
 				return nil, getErr
 			}
 			workspaces = append(workspaces, *workspace)
-			seen[user.WorkspaceID] = struct{}{}
+			seen[membership.WorkspaceID] = struct{}{}
 		}
 		if len(workspaces) > 0 {
 			return workspaces, nil
 		}
+		return []domain.Workspace{}, nil
 	}
-	return nil, domain.ErrForbidden
+
+	resolved, err := s.resolveAdminTargetWorkspaceID(ctx, "")
+	if err != nil {
+		return nil, err
+	}
+	workspace, getErr := s.repo.Get(ctx, resolved)
+	if getErr != nil {
+		return nil, getErr
+	}
+	return []domain.Workspace{*workspace}, nil
 }
 
 func (s *WorkspaceService) AdminListAdmins(ctx context.Context, workspaceID string) ([]domain.User, error) {
@@ -435,6 +443,44 @@ func (s *WorkspaceService) updateWorkspace(ctx context.Context, workspaceID stri
 
 func (s *WorkspaceService) requireWorkspaceAdmin(ctx context.Context) (*domain.User, error) {
 	return requireWorkspaceAdminActor(ctx, s.userRepo)
+}
+
+func (s *WorkspaceService) requireWorkspaceCreator(ctx context.Context) (*domain.Account, *domain.User, error) {
+	var actor *domain.User
+	if s.userRepo != nil {
+		resolvedActor, err := loadActingUser(ctx, s.userRepo)
+		if err == nil {
+			actor = resolvedActor
+		} else if !errors.Is(err, domain.ErrForbidden) && !errors.Is(err, domain.ErrNotFound) {
+			return nil, nil, err
+		}
+	}
+
+	accountID := strings.TrimSpace(ctxutil.GetAccountID(ctx))
+	if accountID == "" && actor != nil {
+		accountID = strings.TrimSpace(actor.AccountID)
+	}
+
+	var account *domain.Account
+	if accountID != "" && s.accountRepo != nil {
+		resolvedAccount, err := s.accountRepo.Get(ctx, accountID)
+		if err != nil && !errors.Is(err, domain.ErrNotFound) {
+			return nil, nil, err
+		}
+		account = resolvedAccount
+	}
+	if account == nil && actor != nil && actor.AccountID != "" {
+		account = &domain.Account{
+			ID:            actor.AccountID,
+			Email:         actor.Email,
+			PrincipalType: actor.PrincipalType,
+			IsBot:         actor.IsBot,
+		}
+	}
+	if account == nil || account.PrincipalType != domain.PrincipalTypeHuman || account.Deleted || strings.TrimSpace(account.Email) == "" {
+		return nil, nil, domain.ErrForbidden
+	}
+	return account, actor, nil
 }
 
 func (s *WorkspaceService) resolveAdminTargetWorkspaceID(ctx context.Context, requested string) (string, error) {

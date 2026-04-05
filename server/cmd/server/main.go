@@ -155,9 +155,13 @@ func run(logger *slog.Logger) error {
 	msgSvc.SetExternalMemberRepository(externalMemberRepo)
 	externalEventSvc := service.NewExternalEventService(externalEventRepo)
 	externalEventSvc.SetExternalMemberRepository(externalMemberRepo)
+	externalEventSvc.SetUserRepository(userRepo)
 	conversationReadSvc := service.NewConversationReadService(conversationReadRepo, convRepo)
 	fileSvc := service.NewFileService(fileRepo, s3, cfg.S3KeyPrefix, cfg.BaseURL, recorder, pool, logger)
 	fileSvc.SetExternalMemberRepository(externalMemberRepo)
+	fileSvc.SetConversationRepository(convRepo)
+	fileSvc.SetUserRepository(userRepo)
+	fileSvc.SetAccessService(convAccessSvc)
 	authSvc := service.NewAuthService(authRepo, userRepo, workspaceRepo, workspaceInviteRepo, recorder, pool, logger, service.AuthConfig{
 		BaseURL:                 cfg.BaseURL,
 		FrontendURL:             cfg.FrontendURL,
@@ -175,7 +179,7 @@ func run(logger *slog.Logger) error {
 	}
 	authSvc.SetAuthorizationAuditRepository(auditRepo)
 	apiKeySvc := service.NewAPIKeyService(apiKeyRepo, userRepo, recorder, pool, logger)
-	apiKeySvc.SetIdentityRepositories()
+	apiKeySvc.SetIdentityRepositories(accountRepo)
 	apiKeySvc.SetExternalMemberRepository(externalMemberRepo)
 	apiKeySvc.SetAuthorizationAuditRepository(auditRepo)
 	externalMemberSvc := service.NewExternalMemberService(externalMemberRepo, accountRepo, convRepo, workspaceRepo)
@@ -196,6 +200,7 @@ func run(logger *slog.Logger) error {
 	}
 	searchSvc := service.NewSearchService(tpClient)
 	searchSvc.SetExternalMemberRepository(externalMemberRepo)
+	searchSvc.SetConversationRepository(convRepo)
 	workspaceInviteSvc := service.NewWorkspaceInviteService(workspaceInviteRepo, userRepo, recorder, pool, cfg.FrontendURL)
 	workspaceInviteSvc.SetAuthorizationAuditRepository(auditRepo)
 	workspaceInviteSvc.SetIdentityRepositories(accountRepo)

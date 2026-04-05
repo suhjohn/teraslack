@@ -26,6 +26,18 @@ func (m *mockUserRepoDefault) GetByWorkspaceAndAccount(_ context.Context, _, _ s
 	return nil, domain.ErrNotFound
 }
 
+func (m *mockUserRepoDefault) GetWorkspaceMembership(_ context.Context, workspaceID, accountID string) (*domain.WorkspaceMembership, error) {
+	return nil, domain.ErrNotFound
+}
+
+func (m *mockUserRepoDefault) GetWorkspaceMembershipID(_ context.Context, _, _ string) (string, error) {
+	return "", domain.ErrNotFound
+}
+
+func (m *mockUserRepoDefault) ListWorkspaceMembershipsByAccount(_ context.Context, _ string) ([]domain.WorkspaceMembership, error) {
+	return nil, nil
+}
+
 func (m *mockUserRepoDefault) ListByAccount(_ context.Context, _ string) ([]domain.User, error) {
 	return nil, nil
 }
@@ -67,6 +79,51 @@ func (m *mockUserRepoMap) GetByWorkspaceAndAccount(_ context.Context, workspaceI
 		}
 	}
 	return nil, domain.ErrNotFound
+}
+
+func (m *mockUserRepoMap) GetWorkspaceMembership(_ context.Context, workspaceID, accountID string) (*domain.WorkspaceMembership, error) {
+	for _, user := range m.users {
+		if user.WorkspaceID == workspaceID && user.AccountID == accountID {
+			return &domain.WorkspaceMembership{
+				ID:             "WM_" + user.ID,
+				WorkspaceID:    workspaceID,
+				AccountID:      accountID,
+				Role:           string(user.EffectiveAccountType()),
+				Status:         domain.WorkspaceMembershipStatusActive,
+				MembershipKind: domain.WorkspaceMembershipKindFull,
+				GuestScope:     domain.WorkspaceGuestScopeWorkspaceFull,
+			}, nil
+		}
+	}
+	return nil, domain.ErrNotFound
+}
+
+func (m *mockUserRepoMap) GetWorkspaceMembershipID(_ context.Context, workspaceID, accountID string) (string, error) {
+	for _, user := range m.users {
+		if user.WorkspaceID == workspaceID && user.AccountID == accountID {
+			return "WM_" + user.ID, nil
+		}
+	}
+	return "", domain.ErrNotFound
+}
+
+func (m *mockUserRepoMap) ListWorkspaceMembershipsByAccount(_ context.Context, accountID string) ([]domain.WorkspaceMembership, error) {
+	items := make([]domain.WorkspaceMembership, 0)
+	for _, user := range m.users {
+		if user.AccountID != accountID {
+			continue
+		}
+		items = append(items, domain.WorkspaceMembership{
+			ID:             "WM_" + user.ID,
+			WorkspaceID:    user.WorkspaceID,
+			AccountID:      user.AccountID,
+			Role:           string(user.EffectiveAccountType()),
+			Status:         domain.WorkspaceMembershipStatusActive,
+			MembershipKind: domain.WorkspaceMembershipKindFull,
+			GuestScope:     domain.WorkspaceGuestScopeWorkspaceFull,
+		})
+	}
+	return items, nil
 }
 
 func (m *mockUserRepoMap) ListByAccount(_ context.Context, accountID string) ([]domain.User, error) {

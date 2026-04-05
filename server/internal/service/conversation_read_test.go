@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/suhjohn/teraslack/internal/ctxutil"
@@ -23,7 +24,12 @@ func (r *conversationReadRepoStub) Upsert(ctx context.Context, read domain.Conve
 	return nil
 }
 
-func (r *conversationReadRepoStub) Get(ctx context.Context, conversationID, userID string) (*domain.ConversationRead, error) {
+func (r *conversationReadRepoStub) UpsertByAccount(ctx context.Context, conversationID, accountID, lastReadTS string, lastReadAt time.Time) error {
+	r.upserted = true
+	return nil
+}
+
+func (r *conversationReadRepoStub) GetByAccount(ctx context.Context, conversationID, accountID string) (*domain.ConversationRead, error) {
 	return nil, domain.ErrNotFound
 }
 

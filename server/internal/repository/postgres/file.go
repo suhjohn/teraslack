@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/suhjohn/teraslack/internal/domain"
@@ -184,7 +185,7 @@ func (r *FileRepo) ShareToChannel(ctx context.Context, workspaceID, fileID, chan
 		}
 		return fmt.Errorf("get conversation: %w", err)
 	}
-	if conv.WorkspaceID != workspaceID {
+	if conversationWorkspaceAnchor(textToString(conv.OwnerWorkspaceID), textToString(conv.WorkspaceID)) != workspaceID {
 		return domain.ErrNotFound
 	}
 
@@ -200,4 +201,11 @@ func (r *FileRepo) ShareToChannel(ctx context.Context, workspaceID, fileID, chan
 		return domain.ErrAlreadyShared
 	}
 	return nil
+}
+
+func conversationWorkspaceAnchor(ownerWorkspaceID, workspaceID string) string {
+	if ownerWorkspaceID = strings.TrimSpace(ownerWorkspaceID); ownerWorkspaceID != "" {
+		return ownerWorkspaceID
+	}
+	return workspaceID
 }

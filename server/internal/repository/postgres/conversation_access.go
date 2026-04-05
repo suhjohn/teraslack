@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -15,7 +16,7 @@ import (
 type conversationPostingPolicyDocument struct {
 	AllowedAccountTypes   []domain.AccountType   `json:"allowed_account_types,omitempty"`
 	AllowedDelegatedRoles []domain.DelegatedRole `json:"allowed_delegated_roles,omitempty"`
-	AllowedUserIDs        []string               `json:"allowed_user_ids,omitempty"`
+	AllowedAccountIDs     []string               `json:"allowed_account_ids,omitempty"`
 }
 
 type ConversationAccessRepo struct {
@@ -32,18 +33,24 @@ func (r *ConversationAccessRepo) WithTx(tx pgx.Tx) repository.ConversationAccess
 }
 
 func (r *ConversationAccessRepo) ListManagers(ctx context.Context, conversationID string) ([]domain.ConversationManagerAssignment, error) {
-	rows, err := r.q.ListConversationManagers(ctx, conversationID)
+	if _, err := r.q.GetConversation(ctx, conversationID); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, domain.ErrNotFound
+		}
+		return nil, fmt.Errorf("get conversation: %w", err)
+	}
+	rows, err := r.q.ListConversationManagersV2(ctx, conversationID)
 	if err != nil {
-		return nil, fmt.Errorf("list conversation managers: %w", err)
+		return nil, fmt.Errorf("list conversation managers v2: %w", err)
 	}
 
-	assignments := []domain.ConversationManagerAssignment{}
+	assignments := make([]domain.ConversationManagerAssignment, 0, len(rows))
 	for _, row := range rows {
 		assignments = append(assignments, domain.ConversationManagerAssignment{
 			ConversationID: row.ConversationID,
-			UserID:         row.UserID,
-			AssignedBy:     row.AssignedBy,
-			CreatedAt:      tsToTime(row.CreatedAt),
+			AccountID:      row.AccountID,
+			AssignedBy:     textToString(row.AssignedByAccountID),
+			CreatedAt:      row.CreatedAt,
 		})
 	}
 	return assignments, nil
@@ -59,17 +66,23 @@ func (r *ConversationAccessRepo) ReplaceManagers(ctx context.Context, conversati
 	}
 
 	qtx := r.q.WithTx(tx)
-
-	if err := qtx.DeleteConversationManagers(ctx, conversationID); err != nil {
-		return fmt.Errorf("delete existing conversation managers: %w", err)
+	if _, err := qtx.GetConversation(ctx, conversationID); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return fmt.Errorf("get conversation: %w", domain.ErrNotFound)
+		}
+		return fmt.Errorf("get conversation: %w", err)
 	}
-	for _, userID := range userIDs {
-		if err := qtx.InsertConversationManager(ctx, sqlcgen.InsertConversationManagerParams{
-			ConversationID: conversationID,
-			UserID:         userID,
-			AssignedBy:     assignedBy,
+
+	if err := qtx.DeleteConversationManagersV2(ctx, conversationID); err != nil {
+		return fmt.Errorf("delete existing conversation managers v2: %w", err)
+	}
+	for _, accountID := range userIDs {
+		if err := qtx.InsertConversationManagerV2(ctx, sqlcgen.InsertConversationManagerV2Params{
+			ConversationID:      conversationID,
+			AccountID:           accountID,
+			AssignedByAccountID: assignedBy,
 		}); err != nil {
-			return fmt.Errorf("insert conversation manager: %w", err)
+			return fmt.Errorf("insert conversation manager v2: %w", err)
 		}
 	}
 
@@ -82,12 +95,18 @@ func (r *ConversationAccessRepo) ReplaceManagers(ctx context.Context, conversati
 }
 
 func (r *ConversationAccessRepo) IsManager(ctx context.Context, conversationID, userID string) (bool, error) {
-	exists, err := r.q.IsConversationManager(ctx, sqlcgen.IsConversationManagerParams{
+	if _, err := r.q.GetConversation(ctx, conversationID); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return false, domain.ErrNotFound
+		}
+		return false, fmt.Errorf("get conversation: %w", err)
+	}
+	exists, err := r.q.IsConversationManagerV2(ctx, sqlcgen.IsConversationManagerV2Params{
 		ConversationID: conversationID,
-		UserID:         userID,
+		AccountID:      userID,
 	})
 	if err != nil {
-		return false, fmt.Errorf("check conversation manager: %w", err)
+		return false, fmt.Errorf("check conversation manager v2: %w", err)
 	}
 	return exists, nil
 }
@@ -123,7 +142,7 @@ func (r *ConversationAccessRepo) GetPostingPolicy(ctx context.Context, conversat
 		PolicyType:            domain.ConversationPostingPolicyType(policyType),
 		AllowedAccountTypes:   doc.AllowedAccountTypes,
 		AllowedDelegatedRoles: doc.AllowedDelegatedRoles,
-		AllowedUserIDs:        doc.AllowedUserIDs,
+		AllowedAccountIDs:     doc.AllowedAccountIDs,
 		UpdatedBy:             updatedBy,
 		UpdatedAt:             updatedAt,
 	}, nil
@@ -133,7 +152,7 @@ func (r *ConversationAccessRepo) UpsertPostingPolicy(ctx context.Context, policy
 	doc := conversationPostingPolicyDocument{
 		AllowedAccountTypes:   policy.AllowedAccountTypes,
 		AllowedDelegatedRoles: policy.AllowedDelegatedRoles,
-		AllowedUserIDs:        policy.AllowedUserIDs,
+		AllowedAccountIDs:     policy.AllowedAccountIDs,
 	}
 	policyJSON, err := json.Marshal(doc)
 	if err != nil {
@@ -148,6 +167,12 @@ func (r *ConversationAccessRepo) UpsertPostingPolicy(ctx context.Context, policy
 	})
 	if err != nil {
 		return nil, fmt.Errorf("upsert conversation posting policy: %w", err)
+	}
+	if err := r.q.ReplaceConversationPostingPolicyAllowedAccounts(ctx, sqlcgen.ReplaceConversationPostingPolicyAllowedAccountsParams{
+		ConversationID: policy.ConversationID,
+		AccountIds:     policy.AllowedAccountIDs,
+	}); err != nil {
+		return nil, fmt.Errorf("replace conversation posting policy allowed accounts: %w", err)
 	}
 
 	policy.UpdatedAt = tsToTime(updatedAt)

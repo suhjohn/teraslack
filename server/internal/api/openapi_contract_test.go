@@ -90,7 +90,7 @@ func TestAccountContractIsAuthOnly(t *testing.T) {
 	}
 }
 
-func TestAuthSchemasDoNotExposeLegacyMembershipFields(t *testing.T) {
+func TestAuthSchemasDoNotExposeRemovedMembershipFields(t *testing.T) {
 	doc, err := GetSwagger()
 	if err != nil {
 		t.Fatalf("GetSwagger() error = %v", err)

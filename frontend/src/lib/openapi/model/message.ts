@@ -18,6 +18,10 @@ export interface Message {
   channel_id: string;
   /** User who sent the message. */
   user_id: string;
+  /** Canonical account that authored the message. */
+  author_account_id: string;
+  /** Workspace membership used for workspace-local rendering, when applicable. */
+  author_workspace_membership_id?: string;
   /** Plain-text content of the message. */
   text: string;
   /** If this message is a reply, the timestamp of the parent message. */

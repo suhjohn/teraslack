@@ -12,6 +12,8 @@ export interface PostMessageRequest {
   channel_id: string;
   /** User sending the message. */
   user_id: string;
+  /** Canonical author account. Defaults to the authenticated account. */
+  author_account_id?: string;
   /** Plain-text content of the message. */
   text: string;
   /** Parent message timestamp to reply in a thread. */

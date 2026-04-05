@@ -7,6 +7,6 @@
  */
 
 export interface ConversationManagersUpdateRequest {
-  /** Complete list of manager user IDs (replaces existing managers). */
-  user_ids: string[];
+  /** Complete list of manager account IDs (replaces existing managers). Canonical for account-owned conversations. */
+  account_ids?: string[];
 }

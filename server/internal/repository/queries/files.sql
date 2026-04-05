@@ -65,7 +65,7 @@ LIMIT $5;
 INSERT INTO file_channels (file_id, channel_id)
 SELECT $2, $3
 FROM files f
-JOIN conversations c ON c.id = $3 AND c.workspace_id = f.workspace_id
+JOIN conversations c ON c.id = $3 AND c.owner_workspace_id = f.workspace_id
 WHERE f.workspace_id = $1 AND f.id = $2
 ON CONFLICT DO NOTHING;
 

@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -28,8 +29,14 @@ func (r *ConversationRepo) WithTx(tx pgx.Tx) repository.ConversationRepository {
 }
 
 func (r *ConversationRepo) Create(ctx context.Context, params domain.CreateConversationParams) (*domain.Conversation, error) {
-	if params.Type == domain.ConversationTypeIM && len(params.UserIDs) == 1 {
+	if params.OwnerType == domain.ConversationOwnerTypeWorkspace && params.Type == domain.ConversationTypeIM && len(params.UserIDs) == 1 {
 		return r.createCanonicalDM(ctx, params, params.UserIDs[0])
+	}
+	if params.OwnerType == "" {
+		params.OwnerType = domain.ConversationOwnerTypeWorkspace
+	}
+	if params.OwnerType == domain.ConversationOwnerTypeWorkspace && params.OwnerWorkspaceID == "" {
+		params.OwnerWorkspaceID = params.WorkspaceID
 	}
 
 	prefix := "C"
@@ -50,19 +57,26 @@ func (r *ConversationRepo) Create(ctx context.Context, params domain.CreateConve
 	}
 
 	qtx := r.q.WithTx(tx)
+	topicCreator := params.CreatorID
+	if params.OwnerType == domain.ConversationOwnerTypeAccount {
+		topicCreator = params.OwnerAccountID
+	}
 
 	row, err := qtx.CreateConversation(ctx, sqlcgen.CreateConversationParams{
-		ID:             id,
-		WorkspaceID:         params.WorkspaceID,
-		Name:           params.Name,
-		Type:           string(params.Type),
-		CreatorID:      params.CreatorID,
-		TopicValue:     params.Topic,
-		TopicCreator:   params.CreatorID,
-		PurposeValue:   params.Purpose,
-		PurposeCreator: params.CreatorID,
-		LastMessageTs:  pgText(""),
-		LastActivityTs: pgText(""),
+		ID:               id,
+		WorkspaceID:      stringToText(params.WorkspaceID),
+		Name:             params.Name,
+		Type:             string(params.Type),
+		CreatorID:        stringToText(params.CreatorID),
+		OwnerType:        string(params.OwnerType),
+		OwnerAccountID:   stringToText(params.OwnerAccountID),
+		OwnerWorkspaceID: stringToText(params.OwnerWorkspaceID),
+		TopicValue:       params.Topic,
+		TopicCreator:     topicCreator,
+		PurposeValue:     params.Purpose,
+		PurposeCreator:   topicCreator,
+		LastMessageTs:    pgText(""),
+		LastActivityTs:   pgText(""),
 	})
 	if err != nil {
 		if strings.Contains(err.Error(), "duplicate key") {
@@ -70,15 +84,84 @@ func (r *ConversationRepo) Create(ctx context.Context, params domain.CreateConve
 		}
 		return nil, fmt.Errorf("insert conversation: %w", err)
 	}
-
-	if _, err := qtx.AddConversationMember(ctx, sqlcgen.AddConversationMemberParams{
-		ConversationID: id,
-		UserID:         params.CreatorID,
-	}); err != nil {
-		return nil, fmt.Errorf("add creator as member: %w", err)
+	createdConv, err := qtx.GetConversation(ctx, id)
+	if err != nil {
+		return nil, fmt.Errorf("load created conversation: %w", err)
 	}
-	if err := qtx.IncrementConversationMemberCount(ctx, id); err != nil {
-		return nil, fmt.Errorf("increment member count: %w", err)
+
+	memberCount := 0
+	if row.OwnerType == "" || row.OwnerType == string(domain.ConversationOwnerTypeWorkspace) {
+		rowsAffected, err := qtx.AddConversationMember(ctx, sqlcgen.AddConversationMemberParams{
+			ConversationID: id,
+			UserID:         params.CreatorID,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("add creator as member: %w", err)
+		}
+		if _, err := qtx.AddConversationMemberV2ByUser(ctx, sqlcgen.AddConversationMemberV2ByUserParams{
+			ConversationID: id,
+			AddedByUserID:  params.CreatorID,
+			UserID:         params.CreatorID,
+		}); err != nil {
+			return nil, fmt.Errorf("add creator as member v2: %w", err)
+		}
+		if rowsAffected == 1 {
+			memberCount++
+			if err := qtx.IncrementConversationMemberCount(ctx, id); err != nil {
+				return nil, fmt.Errorf("increment member count: %w", err)
+			}
+		}
+		for _, userID := range params.UserIDs {
+			rowsAffected, err := qtx.AddConversationMember(ctx, sqlcgen.AddConversationMemberParams{
+				ConversationID: id,
+				UserID:         userID,
+			})
+			if err != nil {
+				return nil, fmt.Errorf("add initial member: %w", err)
+			}
+			if _, err := qtx.AddConversationMemberV2ByUser(ctx, sqlcgen.AddConversationMemberV2ByUserParams{
+				ConversationID: id,
+				AddedByUserID:  params.CreatorID,
+				UserID:         userID,
+			}); err != nil {
+				return nil, fmt.Errorf("add initial member v2: %w", err)
+			}
+			if rowsAffected == 1 {
+				memberCount++
+				if err := qtx.IncrementConversationMemberCount(ctx, id); err != nil {
+					return nil, fmt.Errorf("increment member count: %w", err)
+				}
+			}
+		}
+		for _, accountID := range params.AccountIDs {
+			if accountID == "" {
+				continue
+			}
+			if err := r.addWorkspaceMemberByAccountInTx(ctx, tx, createdConv, accountID, ""); err != nil {
+				if errors.Is(err, domain.ErrAlreadyInChannel) {
+					continue
+				}
+				return nil, fmt.Errorf("add initial account member: %w", err)
+			}
+			memberCount++
+		}
+	} else {
+		for _, accountID := range params.AccountIDs {
+			rowsAffected, err := qtx.AddConversationMemberV2(ctx, sqlcgen.AddConversationMemberV2Params{
+				ConversationID: id,
+				AccountID:      accountID,
+				Column3:        params.OwnerAccountID,
+			})
+			if err != nil {
+				return nil, fmt.Errorf("add initial account member: %w", err)
+			}
+			if rowsAffected == 1 {
+				memberCount++
+				if err := qtx.IncrementConversationMemberCount(ctx, id); err != nil {
+					return nil, fmt.Errorf("increment member count: %w", err)
+				}
+			}
+		}
 	}
 
 	if ownTx {
@@ -88,11 +171,17 @@ func (r *ConversationRepo) Create(ctx context.Context, params domain.CreateConve
 	}
 
 	c := convToDomain(row)
-	c.NumMembers = 1
+	c.NumMembers = memberCount
 	return c, nil
 }
 
 func (r *ConversationRepo) createCanonicalDM(ctx context.Context, params domain.CreateConversationParams, otherUserID string) (*domain.Conversation, error) {
+	if params.OwnerType == "" {
+		params.OwnerType = domain.ConversationOwnerTypeWorkspace
+	}
+	if params.OwnerType == domain.ConversationOwnerTypeWorkspace && params.OwnerWorkspaceID == "" {
+		params.OwnerWorkspaceID = params.WorkspaceID
+	}
 	userLowID, userHighID := sortPair(params.CreatorID, otherUserID)
 
 	tx, ownTx, err := beginOwnedTx(ctx, r.db)
@@ -105,9 +194,9 @@ func (r *ConversationRepo) createCanonicalDM(ctx context.Context, params domain.
 
 	qtx := r.q.WithTx(tx)
 	existing, err := qtx.GetCanonicalDMConversation(ctx, sqlcgen.GetCanonicalDMConversationParams{
-		WorkspaceID:     params.WorkspaceID,
-		UserLowID:  userLowID,
-		UserHighID: userHighID,
+		WorkspaceID: params.WorkspaceID,
+		UserLowID:   userLowID,
+		UserHighID:  userHighID,
 	})
 	if err == nil {
 		return convToDomain(existing), nil
@@ -118,17 +207,20 @@ func (r *ConversationRepo) createCanonicalDM(ctx context.Context, params domain.
 
 	id := generateID("D")
 	row, err := qtx.CreateConversation(ctx, sqlcgen.CreateConversationParams{
-		ID:             id,
-		WorkspaceID:         params.WorkspaceID,
-		Name:           params.Name,
-		Type:           string(domain.ConversationTypeIM),
-		CreatorID:      params.CreatorID,
-		TopicValue:     params.Topic,
-		TopicCreator:   params.CreatorID,
-		PurposeValue:   params.Purpose,
-		PurposeCreator: params.CreatorID,
-		LastMessageTs:  pgText(""),
-		LastActivityTs: pgText(""),
+		ID:               id,
+		WorkspaceID:      stringToText(params.WorkspaceID),
+		Name:             params.Name,
+		Type:             string(domain.ConversationTypeIM),
+		CreatorID:        stringToText(params.CreatorID),
+		OwnerType:        string(params.OwnerType),
+		OwnerAccountID:   stringToText(params.OwnerAccountID),
+		OwnerWorkspaceID: stringToText(params.OwnerWorkspaceID),
+		TopicValue:       params.Topic,
+		TopicCreator:     params.CreatorID,
+		PurposeValue:     params.Purpose,
+		PurposeCreator:   params.CreatorID,
+		LastMessageTs:    pgText(""),
+		LastActivityTs:   pgText(""),
 	})
 	if err != nil {
 		if strings.Contains(err.Error(), "duplicate key") {
@@ -146,6 +238,13 @@ func (r *ConversationRepo) createCanonicalDM(ctx context.Context, params domain.
 		if err != nil {
 			return nil, fmt.Errorf("add dm member: %w", err)
 		}
+		if _, err := qtx.AddConversationMemberV2ByUser(ctx, sqlcgen.AddConversationMemberV2ByUserParams{
+			ConversationID: id,
+			UserID:         memberID,
+			AddedByUserID:  params.CreatorID,
+		}); err != nil {
+			return nil, fmt.Errorf("add dm member v2: %w", err)
+		}
 		if rowsAffected == 1 {
 			if err := qtx.IncrementConversationMemberCount(ctx, id); err != nil {
 				return nil, fmt.Errorf("increment dm member count: %w", err)
@@ -154,7 +253,7 @@ func (r *ConversationRepo) createCanonicalDM(ctx context.Context, params domain.
 	}
 
 	rowsAffected, err := qtx.CreateCanonicalDM(ctx, sqlcgen.CreateCanonicalDMParams{
-		WorkspaceID:         params.WorkspaceID,
+		WorkspaceID:    params.WorkspaceID,
 		UserLowID:      userLowID,
 		UserHighID:     userHighID,
 		ConversationID: id,
@@ -164,9 +263,9 @@ func (r *ConversationRepo) createCanonicalDM(ctx context.Context, params domain.
 	}
 	if rowsAffected == 0 {
 		existing, err := qtx.GetCanonicalDMConversation(ctx, sqlcgen.GetCanonicalDMConversationParams{
-			WorkspaceID:     params.WorkspaceID,
-			UserLowID:  userLowID,
-			UserHighID: userHighID,
+			WorkspaceID: params.WorkspaceID,
+			UserLowID:   userLowID,
+			UserHighID:  userHighID,
 		})
 		if err != nil {
 			return nil, fmt.Errorf("reload canonical dm: %w", err)
@@ -199,9 +298,9 @@ func (r *ConversationRepo) Get(ctx context.Context, id string) (*domain.Conversa
 func (r *ConversationRepo) GetCanonicalDM(ctx context.Context, workspaceID, userAID, userBID string) (*domain.Conversation, error) {
 	userLowID, userHighID := sortPair(userAID, userBID)
 	row, err := r.q.GetCanonicalDMConversation(ctx, sqlcgen.GetCanonicalDMConversationParams{
-		WorkspaceID:     workspaceID,
-		UserLowID:  userLowID,
-		UserHighID: userHighID,
+		WorkspaceID: workspaceID,
+		UserLowID:   userLowID,
+		UserHighID:  userHighID,
 	})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -296,7 +395,8 @@ func (r *ConversationRepo) List(ctx context.Context, params domain.ListConversat
 
 	rows, err := r.q.ListVisibleConversations(ctx, sqlcgen.ListVisibleConversationsParams{
 		UserID:          params.UserID,
-		WorkspaceID:          params.WorkspaceID,
+		AccountID:       params.AccountID,
+		WorkspaceID:     pgText(params.WorkspaceID),
 		ExcludeArchived: params.ExcludeArchived,
 		Types:           typeStrs,
 		CursorActivity:  cursorActivity,
@@ -350,45 +450,72 @@ func (r *ConversationRepo) AddMember(ctx context.Context, conversationID, userID
 	if conv.Type == string(domain.ConversationTypeIM) && conv.NumMembers >= 2 {
 		return domain.ErrInvalidArgument
 	}
-
-	existingMembers, err := qtx.ListConversationMembers(ctx, sqlcgen.ListConversationMembersParams{
-		ConversationID: conversationID,
-		UserID:         "",
-		Limit:          2,
-	})
-	if err != nil {
-		return fmt.Errorf("list members: %w", err)
+	if err := r.addWorkspaceMemberInTx(ctx, tx, conv, userID); err != nil {
+		return err
 	}
 
-	rowsAffected, err := qtx.AddConversationMember(ctx, sqlcgen.AddConversationMemberParams{
+	if ownTx {
+		return tx.Commit(ctx)
+	}
+	return nil
+}
+
+func (r *ConversationRepo) AddMemberByAccount(ctx context.Context, conversationID, accountID string) error {
+	tx, ownTx, err := beginOwnedTx(ctx, r.db)
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	if ownTx {
+		defer tx.Rollback(ctx)
+	}
+	qtx := r.q.WithTx(tx)
+
+	if _, err := qtx.LockConversationForUpdate(ctx, conversationID); err != nil {
+		return fmt.Errorf("lock conversation: %w", err)
+	}
+	conv, err := qtx.GetConversation(ctx, conversationID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return domain.ErrNotFound
+		}
+		return fmt.Errorf("get conversation: %w", err)
+	}
+
+	isAccountMember, err := r.IsAccountMember(ctx, conversationID, accountID)
+	if err != nil {
+		return err
+	}
+	if isAccountMember {
+		return domain.ErrAlreadyInChannel
+	}
+
+	if conv.OwnerType == "" || conv.OwnerType == string(domain.ConversationOwnerTypeWorkspace) {
+		user, err := r.ensureWorkspaceGuestUserInTx(ctx, qtx, textToString(conv.WorkspaceID), conv.ID, accountID)
+		if err != nil {
+			return err
+		}
+		if err := r.addWorkspaceMemberByAccountInTx(ctx, tx, conv, accountID, user.ID); err != nil {
+			return err
+		}
+		if ownTx {
+			return tx.Commit(ctx)
+		}
+		return nil
+	}
+
+	rowsAffected, err := qtx.AddConversationMemberV2(ctx, sqlcgen.AddConversationMemberV2Params{
 		ConversationID: conversationID,
-		UserID:         userID,
+		AccountID:      accountID,
+		Column3:        accountID,
 	})
 	if err != nil {
-		return fmt.Errorf("add member: %w", err)
+		return fmt.Errorf("add account member v2: %w", err)
 	}
 	if rowsAffected == 0 {
 		return domain.ErrAlreadyInChannel
 	}
 	if err := qtx.IncrementConversationMemberCount(ctx, conversationID); err != nil {
 		return fmt.Errorf("increment member count: %w", err)
-	}
-
-	if conv.Type == string(domain.ConversationTypeIM) && len(existingMembers) == 1 {
-		existingUserID := existingMembers[0].UserID
-		userLowID, userHighID := sortPair(existingUserID, userID)
-		mappingRows, err := qtx.CreateCanonicalDM(ctx, sqlcgen.CreateCanonicalDMParams{
-			WorkspaceID:         conv.WorkspaceID,
-			UserLowID:      userLowID,
-			UserHighID:     userHighID,
-			ConversationID: conversationID,
-		})
-		if err != nil {
-			return fmt.Errorf("create canonical dm mapping: %w", err)
-		}
-		if mappingRows == 0 {
-			return domain.ErrAlreadyExists
-		}
 	}
 
 	if ownTx {
@@ -429,6 +556,12 @@ func (r *ConversationRepo) RemoveMember(ctx context.Context, conversationID, use
 	if rowsAffected == 0 {
 		return domain.ErrNotInChannel
 	}
+	if _, err := qtx.RemoveConversationMemberV2ByUser(ctx, sqlcgen.RemoveConversationMemberV2ByUserParams{
+		ConversationID: conversationID,
+		UserID:         userID,
+	}); err != nil {
+		return fmt.Errorf("remove member v2: %w", err)
+	}
 
 	if err := qtx.DecrementConversationMemberCount(ctx, conversationID); err != nil {
 		return fmt.Errorf("decrement member count: %w", err)
@@ -445,14 +578,75 @@ func (r *ConversationRepo) RemoveMember(ctx context.Context, conversationID, use
 	return nil
 }
 
+func (r *ConversationRepo) RemoveMemberByAccount(ctx context.Context, conversationID, accountID string) error {
+	tx, ownTx, err := beginOwnedTx(ctx, r.db)
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	if ownTx {
+		defer tx.Rollback(ctx)
+	}
+	qtx := r.q.WithTx(tx)
+
+	if _, err := qtx.LockConversationForUpdate(ctx, conversationID); err != nil {
+		return fmt.Errorf("lock conversation: %w", err)
+	}
+	conv, err := qtx.GetConversation(ctx, conversationID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return domain.ErrNotFound
+		}
+		return fmt.Errorf("get conversation: %w", err)
+	}
+
+	if conv.OwnerType == "" || conv.OwnerType == string(domain.ConversationOwnerTypeWorkspace) {
+		user, err := qtx.GetUserByWorkspaceAndAccount(ctx, sqlcgen.GetUserByWorkspaceAndAccountParams{
+			WorkspaceID: textToString(conv.WorkspaceID),
+			AccountID:   stringToText(accountID),
+		})
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return domain.ErrNotInChannel
+			}
+			return fmt.Errorf("get workspace user by account: %w", err)
+		}
+		if err := r.removeWorkspaceMemberInTx(ctx, tx, conv, user.ID); err != nil {
+			return err
+		}
+		if ownTx {
+			return tx.Commit(ctx)
+		}
+		return nil
+	}
+
+	rowsAffected, err := qtx.RemoveConversationMemberV2(ctx, sqlcgen.RemoveConversationMemberV2Params{
+		ConversationID: conversationID,
+		AccountID:      accountID,
+	})
+	if err != nil {
+		return fmt.Errorf("remove member by account: %w", err)
+	}
+	if rowsAffected == 0 {
+		return domain.ErrNotInChannel
+	}
+	if err := qtx.DecrementConversationMemberCount(ctx, conversationID); err != nil {
+		return fmt.Errorf("decrement member count: %w", err)
+	}
+
+	if ownTx {
+		return tx.Commit(ctx)
+	}
+	return nil
+}
+
 func (r *ConversationRepo) ListMembers(ctx context.Context, conversationID string, cursor string, limit int) (*domain.CursorPage[domain.ConversationMember], error) {
 	if limit <= 0 || limit > 1000 {
 		limit = 100
 	}
 
-	rows, err := r.q.ListConversationMembers(ctx, sqlcgen.ListConversationMembersParams{
+	rows, err := r.q.ListConversationMembersV2(ctx, sqlcgen.ListConversationMembersV2Params{
 		ConversationID: conversationID,
-		UserID:         cursor,
+		AccountID:      cursor,
 		Limit:          int32(limit + 1),
 	})
 	if err != nil {
@@ -463,15 +657,15 @@ func (r *ConversationRepo) ListMembers(ctx context.Context, conversationID strin
 	for _, row := range rows {
 		members = append(members, domain.ConversationMember{
 			ConversationID: row.ConversationID,
-			UserID:         row.UserID,
-			JoinedAt:       row.JoinedAt,
+			AccountID:      row.AccountID,
+			JoinedAt:       row.CreatedAt,
 		})
 	}
 
 	page := &domain.CursorPage[domain.ConversationMember]{}
 	if len(members) > limit {
 		page.HasMore = true
-		page.NextCursor = members[limit].UserID
+		page.NextCursor = members[limit].AccountID
 		page.Items = members[:limit]
 	} else {
 		page.Items = members
@@ -483,14 +677,327 @@ func (r *ConversationRepo) ListMembers(ctx context.Context, conversationID strin
 }
 
 func (r *ConversationRepo) IsMember(ctx context.Context, conversationID, userID string) (bool, error) {
-	exists, err := r.q.IsConversationMember(ctx, sqlcgen.IsConversationMemberParams{
+	user, err := r.q.GetUser(ctx, userID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return false, nil
+		}
+		return false, fmt.Errorf("get user: %w", err)
+	}
+	if !user.AccountID.Valid || user.AccountID.String == "" {
+		return false, nil
+	}
+	exists, err := r.q.IsConversationAccountMember(ctx, sqlcgen.IsConversationAccountMemberParams{
 		ConversationID: conversationID,
+		AccountID:      user.AccountID.String,
+	})
+	if err != nil {
+		return false, fmt.Errorf("check account membership: %w", err)
+	}
+	return exists, nil
+}
+
+func (r *ConversationRepo) ListMemberAccounts(ctx context.Context, conversationID string, cursor string, limit int) (*domain.CursorPage[domain.ConversationMember], error) {
+	if limit <= 0 || limit > 1000 {
+		limit = 100
+	}
+
+	rows, err := r.q.ListConversationMembersV2(ctx, sqlcgen.ListConversationMembersV2Params{
+		ConversationID: conversationID,
+		AccountID:      cursor,
+		Limit:          int32(limit + 1),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list member accounts: %w", err)
+	}
+
+	members := make([]domain.ConversationMember, 0, len(rows))
+	for _, row := range rows {
+		members = append(members, domain.ConversationMember{
+			ConversationID: row.ConversationID,
+			AccountID:      row.AccountID,
+			JoinedAt:       row.CreatedAt,
+		})
+	}
+
+	page := &domain.CursorPage[domain.ConversationMember]{}
+	if len(members) > limit {
+		page.HasMore = true
+		page.NextCursor = members[limit].AccountID
+		page.Items = members[:limit]
+	} else {
+		page.Items = members
+	}
+	if page.Items == nil {
+		page.Items = []domain.ConversationMember{}
+	}
+	return page, nil
+}
+
+func (r *ConversationRepo) IsAccountMember(ctx context.Context, conversationID, accountID string) (bool, error) {
+	exists, err := r.q.IsConversationAccountMember(ctx, sqlcgen.IsConversationAccountMemberParams{
+		ConversationID: conversationID,
+		AccountID:      accountID,
+	})
+	if err != nil {
+		return false, fmt.Errorf("check account membership: %w", err)
+	}
+	return exists, nil
+}
+
+func (r *ConversationRepo) addWorkspaceMemberInTx(ctx context.Context, tx pgx.Tx, conv sqlcgen.GetConversationRow, userID string) error {
+	qtx := r.q.WithTx(tx)
+	if conv.Type == string(domain.ConversationTypeIM) && conv.NumMembers >= 2 {
+		return domain.ErrInvalidArgument
+	}
+
+	existingMembers, err := qtx.ListConversationMembersV2(ctx, sqlcgen.ListConversationMembersV2Params{
+		ConversationID: conv.ID,
+		AccountID:      "",
+		Limit:          2,
+	})
+	if err != nil {
+		return fmt.Errorf("list member accounts: %w", err)
+	}
+
+	rowsAffected, err := qtx.AddConversationMember(ctx, sqlcgen.AddConversationMemberParams{
+		ConversationID: conv.ID,
 		UserID:         userID,
 	})
 	if err != nil {
-		return false, fmt.Errorf("check membership: %w", err)
+		return fmt.Errorf("add member: %w", err)
 	}
-	return exists, nil
+	if rowsAffected == 0 {
+		return domain.ErrAlreadyInChannel
+	}
+	if _, err := qtx.AddConversationMemberV2ByUser(ctx, sqlcgen.AddConversationMemberV2ByUserParams{
+		ConversationID: conv.ID,
+		AddedByUserID:  userID,
+		UserID:         userID,
+	}); err != nil {
+		return fmt.Errorf("add member v2: %w", err)
+	}
+	if err := qtx.IncrementConversationMemberCount(ctx, conv.ID); err != nil {
+		return fmt.Errorf("increment member count: %w", err)
+	}
+
+	if conv.Type == string(domain.ConversationTypeIM) && len(existingMembers) == 1 {
+		newUser, err := qtx.GetUser(ctx, userID)
+		if err != nil {
+			return fmt.Errorf("get new member user: %w", err)
+		}
+		if !newUser.AccountID.Valid || newUser.AccountID.String == "" {
+			return domain.ErrInvalidArgument
+		}
+		existingUser, err := qtx.GetUserByWorkspaceAndAccount(ctx, sqlcgen.GetUserByWorkspaceAndAccountParams{
+			WorkspaceID: textToString(conv.WorkspaceID),
+			AccountID:   stringToText(existingMembers[0].AccountID),
+		})
+		if err != nil {
+			return fmt.Errorf("get existing dm member user: %w", err)
+		}
+		userLowID, userHighID := sortPair(existingUser.ID, userID)
+		mappingRows, err := qtx.CreateCanonicalDM(ctx, sqlcgen.CreateCanonicalDMParams{
+			WorkspaceID:    textToString(conv.WorkspaceID),
+			UserLowID:      userLowID,
+			UserHighID:     userHighID,
+			ConversationID: conv.ID,
+		})
+		if err != nil {
+			return fmt.Errorf("create canonical dm mapping: %w", err)
+		}
+		if mappingRows == 0 {
+			return domain.ErrAlreadyExists
+		}
+	}
+	return nil
+}
+
+func (r *ConversationRepo) addWorkspaceMemberByAccountInTx(ctx context.Context, tx pgx.Tx, conv sqlcgen.GetConversationRow, accountID, userID string) error {
+	qtx := r.q.WithTx(tx)
+	if conv.Type == string(domain.ConversationTypeIM) && conv.NumMembers >= 2 {
+		return domain.ErrInvalidArgument
+	}
+	if conv.Type == string(domain.ConversationTypeIM) && userID == "" {
+		return domain.ErrInvalidArgument
+	}
+
+	existingMembers, err := qtx.ListConversationMembersV2(ctx, sqlcgen.ListConversationMembersV2Params{
+		ConversationID: conv.ID,
+		AccountID:      "",
+		Limit:          2,
+	})
+	if err != nil {
+		return fmt.Errorf("list member accounts: %w", err)
+	}
+
+	rowsAffected, err := qtx.AddConversationMemberByAccount(ctx, sqlcgen.AddConversationMemberByAccountParams{
+		ID:        conv.ID,
+		AccountID: stringToText(accountID),
+	})
+	if err != nil {
+		return fmt.Errorf("add member by account: %w", err)
+	}
+	if rowsAffected == 0 {
+		return domain.ErrAlreadyInChannel
+	}
+	if _, err := qtx.AddConversationMemberV2(ctx, sqlcgen.AddConversationMemberV2Params{
+		ConversationID: conv.ID,
+		AccountID:      accountID,
+		Column3:        accountID,
+	}); err != nil {
+		return fmt.Errorf("add member v2: %w", err)
+	}
+	if err := qtx.IncrementConversationMemberCount(ctx, conv.ID); err != nil {
+		return fmt.Errorf("increment member count: %w", err)
+	}
+
+	if conv.Type == string(domain.ConversationTypeIM) && len(existingMembers) == 1 {
+		existingUser, err := qtx.GetUserByWorkspaceAndAccount(ctx, sqlcgen.GetUserByWorkspaceAndAccountParams{
+			WorkspaceID: textToString(conv.WorkspaceID),
+			AccountID:   stringToText(existingMembers[0].AccountID),
+		})
+		if err != nil {
+			return fmt.Errorf("get existing dm member user: %w", err)
+		}
+		userLowID, userHighID := sortPair(existingUser.ID, userID)
+		mappingRows, err := qtx.CreateCanonicalDM(ctx, sqlcgen.CreateCanonicalDMParams{
+			WorkspaceID:    textToString(conv.WorkspaceID),
+			UserLowID:      userLowID,
+			UserHighID:     userHighID,
+			ConversationID: conv.ID,
+		})
+		if err != nil {
+			return fmt.Errorf("create canonical dm mapping: %w", err)
+		}
+		if mappingRows == 0 {
+			return domain.ErrAlreadyExists
+		}
+	}
+	return nil
+}
+
+func (r *ConversationRepo) removeWorkspaceMemberInTx(ctx context.Context, tx pgx.Tx, conv sqlcgen.GetConversationRow, userID string) error {
+	qtx := r.q.WithTx(tx)
+	rowsAffected, err := qtx.RemoveConversationMember(ctx, sqlcgen.RemoveConversationMemberParams{
+		ConversationID: conv.ID,
+		UserID:         userID,
+	})
+	if err != nil {
+		return fmt.Errorf("remove member: %w", err)
+	}
+	if rowsAffected == 0 {
+		return domain.ErrNotInChannel
+	}
+	if _, err := qtx.RemoveConversationMemberV2ByUser(ctx, sqlcgen.RemoveConversationMemberV2ByUserParams{
+		ConversationID: conv.ID,
+		UserID:         userID,
+	}); err != nil {
+		return fmt.Errorf("remove member v2: %w", err)
+	}
+	if err := qtx.DecrementConversationMemberCount(ctx, conv.ID); err != nil {
+		return fmt.Errorf("decrement member count: %w", err)
+	}
+	if conv.Type == string(domain.ConversationTypeIM) && conv.NumMembers == 2 {
+		if _, err := qtx.DeleteCanonicalDMByConversation(ctx, conv.ID); err != nil {
+			return fmt.Errorf("delete canonical dm mapping: %w", err)
+		}
+	}
+	return nil
+}
+
+func (r *ConversationRepo) ensureWorkspaceGuestUserInTx(ctx context.Context, qtx *sqlcgen.Queries, workspaceID, conversationID, accountID string) (sqlcgen.GetUserByWorkspaceAndAccountRow, error) {
+	user, err := qtx.GetUserByWorkspaceAndAccount(ctx, sqlcgen.GetUserByWorkspaceAndAccountParams{
+		WorkspaceID: workspaceID,
+		AccountID:   stringToText(accountID),
+	})
+	if err == nil {
+		return user, nil
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return sqlcgen.GetUserByWorkspaceAndAccountRow{}, fmt.Errorf("get workspace user by account: %w", err)
+	}
+
+	if err := qtx.UpsertGuestWorkspaceMembership(ctx, sqlcgen.UpsertGuestWorkspaceMembershipParams{
+		ID:          generateID("WM"),
+		WorkspaceID: workspaceID,
+		AccountID:   accountID,
+	}); err != nil {
+		return sqlcgen.GetUserByWorkspaceAndAccountRow{}, fmt.Errorf("upsert guest workspace membership: %w", err)
+	}
+	membershipID, err := qtx.ProjectorGetWorkspaceMembershipByWorkspaceAndAccount(ctx, sqlcgen.ProjectorGetWorkspaceMembershipByWorkspaceAndAccountParams{
+		WorkspaceID: workspaceID,
+		AccountID:   accountID,
+	})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return sqlcgen.GetUserByWorkspaceAndAccountRow{}, domain.ErrNotFound
+		}
+		return sqlcgen.GetUserByWorkspaceAndAccountRow{}, fmt.Errorf("get workspace membership: %w", err)
+	}
+	if err := qtx.UpsertWorkspaceMembershipConversationAccess(ctx, sqlcgen.UpsertWorkspaceMembershipConversationAccessParams{
+		WorkspaceMembershipID: membershipID,
+		ConversationID:        conversationID,
+	}); err != nil {
+		return sqlcgen.GetUserByWorkspaceAndAccountRow{}, fmt.Errorf("upsert workspace membership conversation access: %w", err)
+	}
+	if err := qtx.UpsertWorkspaceProfileFromAccount(ctx, sqlcgen.UpsertWorkspaceProfileFromAccountParams{
+		WorkspaceID: workspaceID,
+		AccountID:   accountID,
+	}); err != nil {
+		return sqlcgen.GetUserByWorkspaceAndAccountRow{}, fmt.Errorf("upsert workspace profile: %w", err)
+	}
+
+	account, err := qtx.GetAccount(ctx, accountID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return sqlcgen.GetUserByWorkspaceAndAccountRow{}, domain.ErrNotFound
+		}
+		return sqlcgen.GetUserByWorkspaceAndAccountRow{}, fmt.Errorf("get account: %w", err)
+	}
+	profileJSON, err := json.Marshal(domain.UserProfile{})
+	if err != nil {
+		return sqlcgen.GetUserByWorkspaceAndAccountRow{}, fmt.Errorf("marshal guest user profile: %w", err)
+	}
+	if _, err := qtx.CreateUser(ctx, sqlcgen.CreateUserParams{
+		ID:            generateID("U"),
+		AccountID:     stringToText(accountID),
+		WorkspaceID:   workspaceID,
+		Name:          guestWorkspaceUserName(account.Email, accountID),
+		RealName:      "",
+		DisplayName:   "",
+		Email:         account.Email,
+		PrincipalType: account.PrincipalType,
+		OwnerID:       "",
+		IsBot:         account.IsBot,
+		AccountType:   string(domain.NormalizeAccountType(domain.PrincipalType(account.PrincipalType), domain.AccountTypeMember)),
+		Profile:       profileJSON,
+	}); err != nil {
+		return sqlcgen.GetUserByWorkspaceAndAccountRow{}, fmt.Errorf("create guest workspace user: %w", err)
+	}
+	user, err = qtx.GetUserByWorkspaceAndAccount(ctx, sqlcgen.GetUserByWorkspaceAndAccountParams{
+		WorkspaceID: workspaceID,
+		AccountID:   stringToText(accountID),
+	})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return sqlcgen.GetUserByWorkspaceAndAccountRow{}, domain.ErrNotFound
+		}
+		return sqlcgen.GetUserByWorkspaceAndAccountRow{}, fmt.Errorf("reload guest workspace user: %w", err)
+	}
+	return user, nil
+}
+
+func guestWorkspaceUserName(email, accountID string) string {
+	email = strings.TrimSpace(email)
+	if local, _, ok := strings.Cut(email, "@"); ok && strings.TrimSpace(local) != "" {
+		return strings.TrimSpace(local)
+	}
+	accountID = strings.TrimSpace(accountID)
+	if accountID != "" {
+		return "guest-" + strings.ToLower(strings.ReplaceAll(accountID, "_", "-"))
+	}
+	return "guest"
 }
 
 func pgText(s string) pgtype.Text {

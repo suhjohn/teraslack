@@ -640,7 +640,7 @@ User model:
 - add `account_type`
 - add `delegated_roles`
 
-Legacy authorization booleans are removed:
+Removed authorization booleans:
 
 - `is_owner`
 - `is_admin`

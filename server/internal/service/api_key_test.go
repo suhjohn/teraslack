@@ -249,7 +249,7 @@ func TestAPIKeyService_WorkspaceSystemKeyRequiresAdmin(t *testing.T) {
 	}
 }
 
-func TestAPIKeyService_ValidateAccountKeyUsesRequestedWorkspaceUser(t *testing.T) {
+func TestAPIKeyService_ValidateAccountKeyUsesRequestedWorkspaceMembership(t *testing.T) {
 	repo := newMockAPIKeyRepo()
 	repo.keys["AK1"] = &domain.APIKey{
 		ID:          "AK1",
@@ -280,8 +280,11 @@ func TestAPIKeyService_ValidateAccountKeyUsesRequestedWorkspaceUser(t *testing.T
 	if err != nil {
 		t.Fatalf("ValidateAPIKey() error = %v", err)
 	}
-	if validation.WorkspaceID != "T456" || validation.UserID != "U2" {
+	if validation.WorkspaceID != "T456" || validation.UserID != "" || validation.AccountID != "A123" {
 		t.Fatalf("unexpected validation identity: %+v", validation)
+	}
+	if validation.WorkspaceMembershipID != "WM_U2" {
+		t.Fatalf("workspace_membership_id = %q, want %q", validation.WorkspaceMembershipID, "WM_U2")
 	}
 	if validation.AccountType != domain.AccountTypeAdmin {
 		t.Fatalf("account_type = %q, want admin", validation.AccountType)

@@ -21,6 +21,7 @@ import { Input } from '../../components/ui/input'
 import { Select } from '../../components/ui/select'
 import { getErrorMessage, useAdmin } from '../../lib/admin'
 import {
+  CreateConversationRequestOwnerType,
   ConversationType,
   getGetConversationQueryKey,
   getListConversationExternalMembersQueryKey,
@@ -331,6 +332,11 @@ function CreateConversationForm({
   onCancel: () => void
 }) {
   const [name, setName] = useState('')
+  const [ownerType, setOwnerType] = useState<
+    (typeof CreateConversationRequestOwnerType)[keyof typeof CreateConversationRequestOwnerType]
+  >(
+    CreateConversationRequestOwnerType.workspace,
+  )
   const [type, setType] = useState<ConversationTypeValue>(
     ConversationType.public_channel,
   )
@@ -349,7 +355,15 @@ function CreateConversationForm({
     try {
       const result = await createConversation.mutateAsync({
         data: {
-          workspace_id: workspaceID,
+          workspace_id:
+            ownerType === CreateConversationRequestOwnerType.workspace
+              ? workspaceID
+              : undefined,
+          owner_type: ownerType,
+          owner_workspace_id:
+            ownerType === CreateConversationRequestOwnerType.workspace
+              ? workspaceID
+              : undefined,
           name: name.trim(),
           type,
           creator_id: creatorID,
@@ -358,7 +372,9 @@ function CreateConversationForm({
         },
       })
       if (result.status !== 201) {
-        throw new Error(getErrorMessage(result.data, 'Failed to create conversation.'))
+        throw new Error(
+          getErrorMessage(result.data, 'Failed to create conversation.'),
+        )
       }
       onCreated(result.data.id)
     } catch (err) {
@@ -372,9 +388,7 @@ function CreateConversationForm({
         New channel
       </div>
       <div className="space-y-2">
-        {error ? (
-          <div className="text-xs text-[#dc2626]">{error}</div>
-        ) : null}
+        {error ? <div className="text-xs text-[#dc2626]">{error}</div> : null}
         <Input
           className="h-7 text-xs"
           value={name}
@@ -384,12 +398,30 @@ function CreateConversationForm({
         />
         <Select
           className="h-7 text-xs"
+          value={ownerType}
+          onChange={(event) =>
+            setOwnerType(
+              event.target.value as (typeof CreateConversationRequestOwnerType)[keyof typeof CreateConversationRequestOwnerType],
+            )
+          }
+        >
+          <option value={CreateConversationRequestOwnerType.workspace}>
+            Workspace-owned
+          </option>
+          <option value={CreateConversationRequestOwnerType.account}>
+            Account-owned
+          </option>
+        </Select>
+        <Select
+          className="h-7 text-xs"
           value={type}
           onChange={(event) =>
             setType(event.target.value as ConversationTypeValue)
           }
         >
-          <option value={ConversationType.public_channel}>Public channel</option>
+          <option value={ConversationType.public_channel}>
+            Public channel
+          </option>
           <option value={ConversationType.private_channel}>
             Private channel
           </option>
@@ -425,7 +457,9 @@ function CreateConversationForm({
             size="sm"
             className="flex-1 text-xs"
             onClick={() => void handleCreate()}
-            disabled={createConversation.isPending || !name.trim() || !creatorID}
+            disabled={
+              createConversation.isPending || !name.trim() || !creatorID
+            }
           >
             {createConversation.isPending ? 'Creating…' : 'Create'}
           </Button>
@@ -471,9 +505,7 @@ function ConversationMessages({
   if (!conversationID) {
     return (
       <div className="flex flex-1 items-center justify-center">
-        <p className="text-sm text-[var(--ink-soft)]">
-          Select a conversation.
-        </p>
+        <p className="text-sm text-[var(--ink-soft)]">Select a conversation.</p>
       </div>
     )
   }
@@ -757,18 +789,23 @@ function MembersPanel({
   loading: boolean
 }) {
   const queryClient = useQueryClient()
-  const availableUsers = users.filter((user) => !members.includes(user.id))
-  const [selectedUserID, setSelectedUserID] = useState(
-    availableUsers[0]?.id ?? '',
+  const availableUsers = users.filter(
+    (user) => !members.includes(getConversationMemberIDForUser(user)),
+  )
+  const [selectedMemberID, setSelectedMemberID] = useState(
+    availableUsers[0] ? getConversationMemberIDForUser(availableUsers[0]) : '',
   )
   const [invitees, setInvitees] = useState('')
   const [error, setError] = useState('')
   const addMembers = useAddConversationMembers()
   const removeMember = useRemoveConversationMember()
   const externalMembersQuery =
-    useListConversationExternalMembers<ExternalMembersCollection>(conversationID, {
-      query: { enabled: !!conversationID, retry: false },
-    })
+    useListConversationExternalMembers<ExternalMembersCollection>(
+      conversationID,
+      {
+        query: { enabled: !!conversationID, retry: false },
+      },
+    )
   const externalWorkspacesQuery =
     useListExternalWorkspaces<ExternalWorkspacesCollection>(workspaceID, {
       query: { enabled: !!workspaceID, retry: false, staleTime: 30_000 },
@@ -776,15 +813,19 @@ function MembersPanel({
   const createExternalMember = useCreateConversationExternalMember()
   const updateExternalMember = useUpdateConversationExternalMember()
   const deleteExternalMember = useDeleteConversationExternalMember()
-  const connectedExternalWorkspaces = (externalWorkspacesQuery.data?.items ?? []).filter(
-    (workspace) => workspace.connected,
-  )
+  const connectedExternalWorkspaces = (
+    externalWorkspacesQuery.data?.items ?? []
+  ).filter((workspace) => workspace.connected)
   const externalMembers = externalMembersQuery.data?.items ?? []
   const [externalWorkspaceID, setExternalWorkspaceID] = useState('')
   const [externalEmail, setExternalEmail] = useState('')
   const [externalName, setExternalName] = useState('')
-  const [externalAccessMode, setExternalAccessMode] = useState<'external_shared' | 'external_shared_readonly'>('external_shared')
-  const [externalMemberModes, setExternalMemberModes] = useState<Record<string, 'external_shared' | 'external_shared_readonly'>>({})
+  const [externalAccessMode, setExternalAccessMode] = useState<
+    'external_shared' | 'external_shared_readonly'
+  >('external_shared')
+  const [externalMemberModes, setExternalMemberModes] = useState<
+    Record<string, 'external_shared' | 'external_shared_readonly'>
+  >({})
 
   async function refreshMembership() {
     await Promise.all([
@@ -808,8 +849,13 @@ function MembersPanel({
     })
   }
 
-  async function addUserIDs(userIDs: string[], fallbackMessage: string) {
-    if (!userIDs.length) {
+  async function addMemberIDs(memberIDs: string[], fallbackMessage: string) {
+    const normalizedMemberIDs = dedupeStrings(
+      memberIDs
+        .map((memberID) => normalizeConversationMemberID(users, memberID))
+        .filter(Boolean),
+    )
+    if (!normalizedMemberIDs.length) {
       return
     }
 
@@ -817,23 +863,31 @@ function MembersPanel({
     try {
       await addMembers.mutateAsync({
         id: conversationID,
-        data: { user_ids: userIDs },
+        data: { account_ids: normalizedMemberIDs },
       })
       setInvitees('')
       await refreshMembership()
       const nextAvailableUser = availableUsers.find(
-        (user) => !userIDs.includes(user.id),
+        (user) =>
+          !normalizedMemberIDs.includes(getConversationMemberIDForUser(user)),
       )
-      setSelectedUserID(nextAvailableUser?.id ?? '')
+      setSelectedMemberID(
+        nextAvailableUser
+          ? getConversationMemberIDForUser(nextAvailableUser)
+          : '',
+      )
     } catch (err) {
       setError(getErrorMessage(err, fallbackMessage))
     }
   }
 
-  async function remove(userID: string) {
+  async function remove(memberID: string) {
     setError('')
     try {
-      await removeMember.mutateAsync({ id: conversationID, userId: userID })
+      await removeMember.mutateAsync({
+        id: conversationID,
+        accountId: memberID,
+      })
       await refreshMembership()
     } catch (err) {
       setError(getErrorMessage(err, 'Failed to remove member.'))
@@ -842,7 +896,9 @@ function MembersPanel({
 
   async function addExternalMember() {
     const targetExternalWorkspaceID =
-      externalWorkspaceID || connectedExternalWorkspaces[0]?.external_workspace_id || ''
+      externalWorkspaceID ||
+      connectedExternalWorkspaces[0]?.external_workspace_id ||
+      ''
     if (!targetExternalWorkspaceID || !externalEmail.trim()) {
       return
     }
@@ -899,7 +955,9 @@ function MembersPanel({
   }
 
   const selectedExternalWorkspaceID =
-    externalWorkspaceID || connectedExternalWorkspaces[0]?.external_workspace_id || ''
+    externalWorkspaceID ||
+    connectedExternalWorkspaces[0]?.external_workspace_id ||
+    ''
 
   return (
     <div>
@@ -907,7 +965,7 @@ function MembersPanel({
         <div className="flex items-center justify-between">
           <h3 className="text-[15px] font-bold text-[var(--ink)]">Members</h3>
           <span className="text-xs text-[var(--ink-soft)]">
-            {members.length} workspace
+            {members.length} members
           </span>
         </div>
       </div>
@@ -918,12 +976,15 @@ function MembersPanel({
           <div className="flex gap-2">
             <Select
               className="flex-1 text-xs"
-              value={selectedUserID}
-              onChange={(event) => setSelectedUserID(event.target.value)}
+              value={selectedMemberID}
+              onChange={(event) => setSelectedMemberID(event.target.value)}
             >
-              <option value="">Select user…</option>
+              <option value="">Select member…</option>
               {availableUsers.map((user) => (
-                <option key={user.id} value={user.id}>
+                <option
+                  key={getConversationMemberIDForUser(user)}
+                  value={getConversationMemberIDForUser(user)}
+                >
                   {getUserLabel(users, user.id)}
                 </option>
               ))}
@@ -931,9 +992,9 @@ function MembersPanel({
             <Button
               size="sm"
               onClick={() =>
-                void addUserIDs([selectedUserID], 'Failed to add member.')
+                void addMemberIDs([selectedMemberID], 'Failed to add member.')
               }
-              disabled={addMembers.isPending || !selectedUserID}
+              disabled={addMembers.isPending || !selectedMemberID}
             >
               Add
             </Button>
@@ -945,12 +1006,12 @@ function MembersPanel({
             className="flex-1 text-xs"
             value={invitees}
             onChange={(event) => setInvitees(event.target.value)}
-            placeholder="User IDs, comma-separated"
+            placeholder="Account IDs, comma-separated"
           />
           <Button
             size="sm"
             onClick={() =>
-              void addUserIDs(
+              void addMemberIDs(
                 parseCommaSeparated(invitees),
                 'Failed to add members.',
               )
@@ -1004,7 +1065,9 @@ function MembersPanel({
         <div className="border-t border-[var(--line)] pt-4">
           <div className="mb-3 flex items-center justify-between">
             <div>
-              <h4 className="text-sm font-bold text-[var(--ink)]">External members</h4>
+              <h4 className="text-sm font-bold text-[var(--ink)]">
+                External members
+              </h4>
               <p className="mt-0.5 text-xs text-[var(--ink-soft)]">
                 Conversation-scoped access for connected external workspaces.
               </p>
@@ -1018,7 +1081,9 @@ function MembersPanel({
                 <Select
                   className="text-xs"
                   value={selectedExternalWorkspaceID}
-                  onChange={(event) => setExternalWorkspaceID(event.target.value)}
+                  onChange={(event) =>
+                    setExternalWorkspaceID(event.target.value)
+                  }
                 >
                   {connectedExternalWorkspaces.map((workspace) => (
                     <option
@@ -1047,8 +1112,11 @@ function MembersPanel({
                     value={externalAccessMode}
                     onChange={(event) =>
                       setExternalAccessMode(
-                        event.target.value as 'external_shared' | 'external_shared_readonly',
-                      )}
+                        event.target.value as
+                          | 'external_shared'
+                          | 'external_shared_readonly',
+                      )
+                    }
                   >
                     <option value="external_shared">shared</option>
                     <option value="external_shared_readonly">read only</option>
@@ -1087,14 +1155,19 @@ function MembersPanel({
                             <Badge variant="muted">external</Badge>
                           </div>
                           <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-[var(--ink-soft)]">
-                            <span>{member.account?.email || member.account_id}</span>
+                            <span>
+                              {member.account?.email || member.account_id}
+                            </span>
                             <span>
                               {getExternalWorkspaceLabel(
                                 connectedExternalWorkspaces,
                                 member.external_workspace_id,
                               )}
                             </span>
-                            <span>{member.allowed_capabilities?.join(', ') || 'default capabilities'}</span>
+                            <span>
+                              {member.allowed_capabilities?.join(', ') ||
+                                'default capabilities'}
+                            </span>
                           </div>
                         </div>
                         <span className="text-xs text-[var(--ink-soft)]">
@@ -1105,16 +1178,22 @@ function MembersPanel({
                       <div className="mt-3 flex items-center gap-2">
                         <Select
                           className="text-xs"
-                          value={externalMemberModes[member.id] ?? member.access_mode}
+                          value={
+                            externalMemberModes[member.id] ?? member.access_mode
+                          }
                           onChange={(event) =>
                             setExternalMemberModes((current) => ({
                               ...current,
-                              [member.id]: event.target.value as 'external_shared' | 'external_shared_readonly',
+                              [member.id]: event.target.value as
+                                | 'external_shared'
+                                | 'external_shared_readonly',
                             }))
                           }
                         >
                           <option value="external_shared">shared</option>
-                          <option value="external_shared_readonly">read only</option>
+                          <option value="external_shared_readonly">
+                            read only
+                          </option>
                         </Select>
                         <Button
                           size="sm"
@@ -1122,7 +1201,8 @@ function MembersPanel({
                           onClick={() => void saveExternalMemberAccess(member)}
                           disabled={
                             updateExternalMember.isPending ||
-                            (externalMemberModes[member.id] ?? member.access_mode) === member.access_mode
+                            (externalMemberModes[member.id] ??
+                              member.access_mode) === member.access_mode
                           }
                         >
                           Save
@@ -1148,7 +1228,8 @@ function MembersPanel({
             </div>
           ) : (
             <p className="text-xs text-[var(--ink-soft)]">
-              Connect an external workspace before inviting conversation-scoped external members.
+              Connect an external workspace before inviting conversation-scoped
+              external members.
             </p>
           )}
         </div>
@@ -1158,7 +1239,22 @@ function MembersPanel({
 }
 
 export function getExternalMemberLabel(member: ExternalMember) {
-  return member.account?.email || member.account_id
+  const account = member.account as
+    | {
+        display_name?: string
+        real_name?: string
+        name?: string
+        email?: string
+      }
+    | undefined
+
+  return (
+    account?.display_name ||
+    account?.real_name ||
+    account?.name ||
+    account?.email ||
+    member.account_id
+  )
 }
 
 export function getExternalWorkspaceLabel(
@@ -1239,11 +1335,7 @@ function MessageRow({
   )
 }
 
-function MessageMeta({
-  message,
-}: {
-  message: Message
-}) {
+function MessageMeta({ message }: { message: Message }) {
   const hasReactions = message.reactions && message.reactions.length > 0
   const hasReplies = !!message.reply_count
   const hasEdited = !!message.edited_at
@@ -1258,9 +1350,7 @@ function MessageMeta({
         <span
           key={reaction.name}
           className="inline-flex items-center gap-1 rounded-full border border-[var(--line)] bg-[var(--surface)] px-2 py-0.5 text-[11px] text-[var(--ink-soft)] hover:border-[var(--ink-soft)]"
-          title={
-            reaction.users.length ? reaction.users.join(', ') : undefined
-          }
+          title={reaction.users.length ? reaction.users.join(', ') : undefined}
         >
           <span>{reaction.name}</span>
           <span className="font-medium">{reaction.count}</span>
@@ -1372,8 +1462,31 @@ function formatTime(value: string) {
 }
 
 function getUserLabel(users: User[], userID: string) {
-  const user = users.find((candidate) => candidate.id === userID)
+  const user = users.find(
+    (candidate) => candidate.id === userID || candidate.account_id === userID,
+  )
   return user?.display_name || user?.real_name || user?.name || userID
+}
+
+function getConversationMemberIDForUser(user: User) {
+  return user.account_id || user.id
+}
+
+function normalizeConversationMemberID(users: User[], memberID: string) {
+  const normalizedMemberID = memberID.trim()
+  if (!normalizedMemberID) {
+    return ''
+  }
+  const user = users.find(
+    (candidate) =>
+      candidate.id === normalizedMemberID ||
+      candidate.account_id === normalizedMemberID,
+  )
+  return user?.account_id || user?.id || normalizedMemberID
+}
+
+function dedupeStrings(values: string[]) {
+  return [...new Set(values)]
 }
 
 function isSameDay(left: string, right: string) {

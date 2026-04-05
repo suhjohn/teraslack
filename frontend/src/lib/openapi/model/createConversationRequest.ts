@@ -6,17 +6,26 @@
  * OpenAPI spec version: 1.0.0
  */
 import type { ConversationType } from './conversationType';
+import type { CreateConversationRequestOwnerType } from './createConversationRequestOwnerType';
 
 export interface CreateConversationRequest {
-  /** Workspace to create the conversation in. */
-  workspace_id: string;
+  /** Workspace context for workspace-owned conversations. Omit for account-owned conversations when it can be inferred from the creator. */
+  workspace_id?: string;
+  /** Conversation owner type. Defaults to `workspace`. */
+  owner_type?: CreateConversationRequestOwnerType;
+  /** Owning account when creating an account-owned conversation. */
+  owner_account_id?: string;
+  /** Owning workspace when creating a workspace-owned conversation. */
+  owner_workspace_id?: string;
   /** Display name for the conversation. */
   name: string;
   type: ConversationType;
   /** User creating the conversation (becomes the first member). */
   creator_id: string;
-  /** Additional users to invite on creation. */
+  /** Additional workspace-local users to invite on creation. */
   user_ids?: string[];
+  /** Additional accounts to invite on creation. */
+  account_ids?: string[];
   /** Initial topic for the conversation. */
   topic: string;
   /** Initial purpose/description for the conversation. */

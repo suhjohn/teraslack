@@ -344,6 +344,7 @@ func AuthMiddleware(authSvc *service.AuthService, apiKeySvc *service.APIKeyServi
 				ctx = context.WithValue(ctx, ctxutil.ContextKeyWorkspaceID, validation.WorkspaceID)
 				ctx = context.WithValue(ctx, ctxutil.ContextKeyUserID, validation.UserID)
 				ctx = ctxutil.WithIdentity(ctx, validation.AccountID)
+				ctx = ctxutil.WithWorkspaceMembership(ctx, validation.WorkspaceMembershipID)
 				ctx = ctxutil.WithPrincipal(ctx, validation.PrincipalType, validation.AccountType, validation.IsBot)
 				ctx = ctxutil.WithDelegation(ctx, "", validation.KeyID)
 				ctx = ctxutil.WithPermissions(ctx, validation.Permissions)
@@ -356,15 +357,23 @@ func AuthMiddleware(authSvc *service.AuthService, apiKeySvc *service.APIKeyServi
 				return
 			}
 
+			if requestedWorkspaceID, nextRequest := requestWorkspaceHint(ctx, r); requestedWorkspaceID != "" {
+				ctx = context.WithValue(ctx, ctxutil.ContextKeyWorkspaceID, requestedWorkspaceID)
+				r = nextRequest
+			}
+
 			auth, err := authSvc.ValidateSession(ctx, token)
 			if err != nil {
 				httputil.WriteErrorResponse(w, r, http.StatusUnauthorized, "invalid_authentication", "Authentication credentials are invalid.")
 				return
 			}
 
+			// Attach the canonical account identity first; workspace_id carries the
+			// selected workspace context for the authenticated session.
 			ctx = context.WithValue(ctx, ctxutil.ContextKeyWorkspaceID, auth.WorkspaceID)
 			ctx = context.WithValue(ctx, ctxutil.ContextKeyUserID, auth.UserID)
 			ctx = ctxutil.WithIdentity(ctx, auth.AccountID)
+			ctx = ctxutil.WithWorkspaceMembership(ctx, auth.WorkspaceMembershipID)
 			ctx = ctxutil.WithPrincipal(ctx, auth.PrincipalType, auth.AccountType, auth.IsBot)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})

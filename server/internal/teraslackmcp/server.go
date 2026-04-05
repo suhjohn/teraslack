@@ -1097,6 +1097,7 @@ func (s *Server) handleCreateDM(ctx context.Context, args map[string]any) (strin
 	}
 
 	conv, err := current.client.CreateConversation(ctx, domain.CreateConversationParams{
+		OwnerType: domain.ConversationOwnerTypeWorkspace,
 		Type:      domain.ConversationTypeIM,
 		CreatorID: current.UserID,
 	})

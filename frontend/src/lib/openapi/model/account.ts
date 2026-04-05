@@ -6,6 +6,7 @@
  * OpenAPI spec version: 1.0.0
  */
 import type { PrincipalType } from './principalType';
+
 export interface Account {
   id: string;
   principal_type: PrincipalType;

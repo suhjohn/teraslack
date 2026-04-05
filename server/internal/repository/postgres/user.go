@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -40,6 +41,13 @@ func (r *UserRepo) Create(ctx context.Context, params domain.CreateUserParams) (
 		return nil, fmt.Errorf("marshal profile: %w", err)
 	}
 	accountType := domain.NormalizeAccountType(params.PrincipalType, params.AccountType)
+	membershipRole := string(accountType)
+	if membershipRole == "" {
+		membershipRole = string(domain.AccountTypeMember)
+	}
+	if err := r.ensureWorkspaceExists(ctx, params.WorkspaceID); err != nil {
+		return nil, err
+	}
 
 	row, err := r.q.CreateUser(ctx, sqlcgen.CreateUserParams{
 		ID:            id,
@@ -58,8 +66,43 @@ func (r *UserRepo) Create(ctx context.Context, params domain.CreateUserParams) (
 	if err != nil {
 		return nil, fmt.Errorf("insert user: %w", err)
 	}
+	if params.AccountID != "" {
+		if err := r.q.UpsertWorkspaceMembershipByAccount(ctx, sqlcgen.UpsertWorkspaceMembershipByAccountParams{
+			ID:          generateID("WM"),
+			WorkspaceID: params.WorkspaceID,
+			AccountID:   params.AccountID,
+			Role:        membershipRole,
+		}); err != nil {
+			return nil, fmt.Errorf("upsert workspace membership: %w", err)
+		}
+	}
 
 	return userFieldsToDomain(createUserRowToFields(row))
+}
+
+func (r *UserRepo) ensureWorkspaceExists(ctx context.Context, workspaceID string) error {
+	if workspaceID == "" {
+		return nil
+	}
+	if _, err := r.q.GetWorkspace(ctx, workspaceID); err == nil {
+		return nil
+	} else if !errors.Is(err, pgx.ErrNoRows) {
+		return fmt.Errorf("get workspace: %w", err)
+	}
+	_, err := r.q.CreateWorkspace(ctx, sqlcgen.CreateWorkspaceParams{
+		ID:              workspaceID,
+		Name:            workspaceID,
+		Domain:          strings.ToLower(workspaceID),
+		Discoverability: string(domain.WorkspaceDiscoverabilityInviteOnly),
+		DefaultChannels: []string{},
+		Preferences:     []byte("{}"),
+		BillingPlan:     "free",
+		BillingStatus:   "active",
+	})
+	if err != nil {
+		return fmt.Errorf("create workspace: %w", err)
+	}
+	return nil
 }
 
 func (r *UserRepo) Get(ctx context.Context, id string) (*domain.User, error) {
@@ -85,6 +128,66 @@ func (r *UserRepo) GetByWorkspaceAndAccount(ctx context.Context, workspaceID, ac
 		return nil, fmt.Errorf("get user by workspace and account: %w", err)
 	}
 	return userFieldsToDomain(getUserByWorkspaceAndAccountRowToFields(row))
+}
+
+func (r *UserRepo) GetWorkspaceMembership(ctx context.Context, workspaceID, accountID string) (*domain.WorkspaceMembership, error) {
+	row, err := r.q.GetWorkspaceMembershipByWorkspaceAndAccount(ctx, sqlcgen.GetWorkspaceMembershipByWorkspaceAndAccountParams{
+		WorkspaceID: workspaceID,
+		AccountID:   accountID,
+	})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, domain.ErrNotFound
+		}
+		return nil, fmt.Errorf("get workspace membership: %w", err)
+	}
+	return &domain.WorkspaceMembership{
+		ID:             row.ID,
+		WorkspaceID:    row.WorkspaceID,
+		AccountID:      row.AccountID,
+		Role:           row.Role,
+		Status:         row.Status,
+		MembershipKind: row.MembershipKind,
+		GuestScope:     row.GuestScope,
+		CreatedAt:      row.CreatedAt,
+		UpdatedAt:      row.UpdatedAt,
+	}, nil
+}
+
+func (r *UserRepo) GetWorkspaceMembershipID(ctx context.Context, workspaceID, accountID string) (string, error) {
+	membershipID, err := r.q.GetWorkspaceMembershipIDByWorkspaceAndAccount(ctx, sqlcgen.GetWorkspaceMembershipIDByWorkspaceAndAccountParams{
+		WorkspaceID: workspaceID,
+		AccountID:   accountID,
+	})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", domain.ErrNotFound
+		}
+		return "", fmt.Errorf("get workspace membership id: %w", err)
+	}
+	return membershipID, nil
+}
+
+func (r *UserRepo) ListWorkspaceMembershipsByAccount(ctx context.Context, accountID string) ([]domain.WorkspaceMembership, error) {
+	rows, err := r.q.ListWorkspaceMembershipsByAccount(ctx, accountID)
+	if err != nil {
+		return nil, fmt.Errorf("list workspace memberships by account: %w", err)
+	}
+	items := make([]domain.WorkspaceMembership, 0, len(rows))
+	for _, row := range rows {
+		items = append(items, domain.WorkspaceMembership{
+			ID:             row.ID,
+			WorkspaceID:    row.WorkspaceID,
+			AccountID:      row.AccountID,
+			Role:           row.Role,
+			Status:         row.Status,
+			MembershipKind: row.MembershipKind,
+			GuestScope:     row.GuestScope,
+			CreatedAt:      row.CreatedAt,
+			UpdatedAt:      row.UpdatedAt,
+		})
+	}
+	return items, nil
 }
 
 func (r *UserRepo) ListByAccount(ctx context.Context, accountID string) ([]domain.User, error) {
@@ -166,8 +269,8 @@ func (r *UserRepo) List(ctx context.Context, params domain.ListUsersParams) (*do
 
 	rows, err := r.q.ListUsers(ctx, sqlcgen.ListUsersParams{
 		WorkspaceID: params.WorkspaceID,
-		ID:     params.Cursor,
-		Limit:  int32(limit + 1),
+		ID:          params.Cursor,
+		Limit:       int32(limit + 1),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("list users: %w", err)

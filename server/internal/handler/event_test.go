@@ -9,7 +9,7 @@ import (
 	"github.com/suhjohn/teraslack/internal/domain"
 )
 
-func TestDecodeStrictJSON_RejectsLegacyEventTypesField(t *testing.T) {
+func TestDecodeStrictJSON_RejectsDeprecatedEventTypesField(t *testing.T) {
 	req := httptest.NewRequest("POST", "/event-subscriptions", strings.NewReader(`{
 		"url":"https://example.com",
 		"event_types":["message.posted"],
@@ -18,14 +18,14 @@ func TestDecodeStrictJSON_RejectsLegacyEventTypesField(t *testing.T) {
 
 	var params domain.CreateEventSubscriptionParams
 	if err := decodeStrictJSON(req, &params); err == nil {
-		t.Fatal("expected invalid JSON for legacy event_types field")
+		t.Fatal("expected invalid JSON for deprecated event_types field")
 	}
 }
 
 func TestEventSubscriptionResponseFromDomain_RedactsSecrets(t *testing.T) {
 	payload, err := json.Marshal(eventSubscriptionResponseFromDomain(&domain.EventSubscription{
 		ID:              "ES123",
-		WorkspaceID:          "T123",
+		WorkspaceID:     "T123",
 		URL:             "https://example.com/webhook",
 		Type:            domain.EventTypeConversationMessageCreated,
 		ResourceType:    domain.ResourceTypeConversation,

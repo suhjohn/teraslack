@@ -11,13 +11,13 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-const deleteConversationManagers = `-- name: DeleteConversationManagers :exec
-DELETE FROM conversation_manager_assignments
+const deleteConversationManagersV2 = `-- name: DeleteConversationManagersV2 :exec
+DELETE FROM conversation_manager_assignments_v2
 WHERE conversation_id = $1
 `
 
-func (q *Queries) DeleteConversationManagers(ctx context.Context, conversationID string) error {
-	_, err := q.db.Exec(ctx, deleteConversationManagers, conversationID)
+func (q *Queries) DeleteConversationManagersV2(ctx context.Context, conversationID string) error {
+	_, err := q.db.Exec(ctx, deleteConversationManagersV2, conversationID)
 	return err
 }
 
@@ -40,62 +40,67 @@ func (q *Queries) GetConversationPostingPolicy(ctx context.Context, conversation
 	return i, err
 }
 
-const insertConversationManager = `-- name: InsertConversationManager :exec
-INSERT INTO conversation_manager_assignments (conversation_id, user_id, assigned_by)
-VALUES ($1, $2, $3)
+const insertConversationManagerV2 = `-- name: InsertConversationManagerV2 :exec
+INSERT INTO conversation_manager_assignments_v2 (conversation_id, account_id, assigned_by_account_id)
+VALUES (
+    $1,
+    $2,
+    NULLIF($3, '')
+)
+ON CONFLICT DO NOTHING
 `
 
-type InsertConversationManagerParams struct {
-	ConversationID string `json:"conversation_id"`
-	UserID         string `json:"user_id"`
-	AssignedBy     string `json:"assigned_by"`
+type InsertConversationManagerV2Params struct {
+	ConversationID      string      `json:"conversation_id"`
+	AccountID           string      `json:"account_id"`
+	AssignedByAccountID interface{} `json:"assigned_by_account_id"`
 }
 
-func (q *Queries) InsertConversationManager(ctx context.Context, arg InsertConversationManagerParams) error {
-	_, err := q.db.Exec(ctx, insertConversationManager, arg.ConversationID, arg.UserID, arg.AssignedBy)
+func (q *Queries) InsertConversationManagerV2(ctx context.Context, arg InsertConversationManagerV2Params) error {
+	_, err := q.db.Exec(ctx, insertConversationManagerV2, arg.ConversationID, arg.AccountID, arg.AssignedByAccountID)
 	return err
 }
 
-const isConversationManager = `-- name: IsConversationManager :one
+const isConversationManagerV2 = `-- name: IsConversationManagerV2 :one
 SELECT EXISTS(
     SELECT 1
-    FROM conversation_manager_assignments
-    WHERE conversation_id = $1 AND user_id = $2
+    FROM conversation_manager_assignments_v2
+    WHERE conversation_id = $1 AND account_id = $2
 )
 `
 
-type IsConversationManagerParams struct {
+type IsConversationManagerV2Params struct {
 	ConversationID string `json:"conversation_id"`
-	UserID         string `json:"user_id"`
+	AccountID      string `json:"account_id"`
 }
 
-func (q *Queries) IsConversationManager(ctx context.Context, arg IsConversationManagerParams) (bool, error) {
-	row := q.db.QueryRow(ctx, isConversationManager, arg.ConversationID, arg.UserID)
+func (q *Queries) IsConversationManagerV2(ctx context.Context, arg IsConversationManagerV2Params) (bool, error) {
+	row := q.db.QueryRow(ctx, isConversationManagerV2, arg.ConversationID, arg.AccountID)
 	var exists bool
 	err := row.Scan(&exists)
 	return exists, err
 }
 
-const listConversationManagers = `-- name: ListConversationManagers :many
-SELECT conversation_id, user_id, assigned_by, created_at
-FROM conversation_manager_assignments
+const listConversationManagersV2 = `-- name: ListConversationManagersV2 :many
+SELECT conversation_id, account_id, assigned_by_account_id, created_at
+FROM conversation_manager_assignments_v2
 WHERE conversation_id = $1
-ORDER BY user_id ASC
+ORDER BY account_id ASC
 `
 
-func (q *Queries) ListConversationManagers(ctx context.Context, conversationID string) ([]ConversationManagerAssignment, error) {
-	rows, err := q.db.Query(ctx, listConversationManagers, conversationID)
+func (q *Queries) ListConversationManagersV2(ctx context.Context, conversationID string) ([]ConversationManagerAssignmentsV2, error) {
+	rows, err := q.db.Query(ctx, listConversationManagersV2, conversationID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []ConversationManagerAssignment{}
+	items := []ConversationManagerAssignmentsV2{}
 	for rows.Next() {
-		var i ConversationManagerAssignment
+		var i ConversationManagerAssignmentsV2
 		if err := rows.Scan(
 			&i.ConversationID,
-			&i.UserID,
-			&i.AssignedBy,
+			&i.AccountID,
+			&i.AssignedByAccountID,
 			&i.CreatedAt,
 		); err != nil {
 			return nil, err
@@ -106,6 +111,26 @@ func (q *Queries) ListConversationManagers(ctx context.Context, conversationID s
 		return nil, err
 	}
 	return items, nil
+}
+
+const replaceConversationPostingPolicyAllowedAccounts = `-- name: ReplaceConversationPostingPolicyAllowedAccounts :exec
+WITH deleted AS (
+    DELETE FROM conversation_posting_policy_allowed_accounts_v2
+    WHERE conversation_id = $1
+)
+INSERT INTO conversation_posting_policy_allowed_accounts_v2 (conversation_id, account_id)
+SELECT DISTINCT $1, UNNEST($2::text[])
+ON CONFLICT DO NOTHING
+`
+
+type ReplaceConversationPostingPolicyAllowedAccountsParams struct {
+	ConversationID string   `json:"conversation_id"`
+	AccountIds     []string `json:"account_ids"`
+}
+
+func (q *Queries) ReplaceConversationPostingPolicyAllowedAccounts(ctx context.Context, arg ReplaceConversationPostingPolicyAllowedAccountsParams) error {
+	_, err := q.db.Exec(ctx, replaceConversationPostingPolicyAllowedAccounts, arg.ConversationID, arg.AccountIds)
+	return err
 }
 
 const upsertConversationPostingPolicy = `-- name: UpsertConversationPostingPolicy :one

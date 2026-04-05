@@ -11,6 +11,6 @@ export interface CreateWorkspaceInviteResponse {
   invite: WorkspaceInvite;
   /** Raw invite code that can be accepted through the API. */
   code: string;
-  /** Legacy login URL carrying the invite code. */
+  /** Login URL carrying the invite code. */
   invite_url: string;
 }

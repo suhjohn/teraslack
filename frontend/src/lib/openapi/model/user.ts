@@ -18,6 +18,8 @@ export interface User {
   id: string;
   /** Workspace this user belongs to. */
   workspace_id: string;
+  /** Canonical account identity for this workspace-local user when linked. */
+  account_id?: string;
   /** Unique username within the workspace (used for @-mentions). */
   name: string;
   /** Full name of the user. */

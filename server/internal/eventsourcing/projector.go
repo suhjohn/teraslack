@@ -3,10 +3,14 @@ package eventsourcing
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
+	"sort"
+	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/suhjohn/teraslack/internal/domain"
@@ -54,6 +58,140 @@ func projStringPtrToText(s *string) pgtype.Text {
 		return pgtype.Text{}
 	}
 	return pgtype.Text{String: *s, Valid: true}
+}
+
+func projStringToText(s string) pgtype.Text {
+	if s == "" {
+		return pgtype.Text{}
+	}
+	return pgtype.Text{String: s, Valid: true}
+}
+
+type projectorPrincipalIDs struct {
+	UserID    string
+	AccountID string
+}
+
+func normalizeProjectorConversationOwner(conv *domain.Conversation, workspaceID string) {
+	if conv == nil {
+		return
+	}
+	if conv.WorkspaceID == "" {
+		conv.WorkspaceID = workspaceID
+	}
+	switch conv.OwnerType {
+	case domain.ConversationOwnerTypeAccount:
+		if conv.OwnerAccountID == "" {
+			conv.OwnerType = domain.ConversationOwnerTypeWorkspace
+			if conv.OwnerWorkspaceID == "" {
+				conv.OwnerWorkspaceID = conv.WorkspaceID
+			}
+			return
+		}
+		conv.OwnerWorkspaceID = ""
+	case domain.ConversationOwnerTypeWorkspace:
+		if conv.OwnerWorkspaceID == "" {
+			conv.OwnerWorkspaceID = conv.WorkspaceID
+		}
+		conv.OwnerAccountID = ""
+	default:
+		if conv.OwnerAccountID != "" {
+			conv.OwnerType = domain.ConversationOwnerTypeAccount
+			conv.OwnerWorkspaceID = ""
+		} else {
+			conv.OwnerType = domain.ConversationOwnerTypeWorkspace
+			if conv.OwnerWorkspaceID == "" {
+				conv.OwnerWorkspaceID = conv.WorkspaceID
+			}
+			conv.OwnerAccountID = ""
+		}
+	}
+}
+
+func resolveProjectorPrincipalIDs(ctx context.Context, q *sqlcgen.Queries, workspaceID, userID, accountID string) projectorPrincipalIDs {
+	userID = strings.TrimSpace(userID)
+	accountID = strings.TrimSpace(accountID)
+
+	if accountID == "" && userID != "" {
+		if user, err := q.GetUser(ctx, userID); err == nil && user.AccountID.Valid {
+			accountID = user.AccountID.String
+		} else if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			_ = err
+		}
+	}
+	if userID == "" && accountID != "" && workspaceID != "" {
+		if user, err := q.GetUserByWorkspaceAndAccount(ctx, sqlcgen.GetUserByWorkspaceAndAccountParams{
+			WorkspaceID: workspaceID,
+			AccountID:   projStringToText(accountID),
+		}); err == nil {
+			userID = user.ID
+		} else if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			_ = err
+		}
+	}
+	return projectorPrincipalIDs{UserID: userID, AccountID: accountID}
+}
+
+func resolveProjectorConversationWorkspaceID(ctx context.Context, q *sqlcgen.Queries, conversationID string) string {
+	if conversationID == "" {
+		return ""
+	}
+	conv, err := q.GetConversation(ctx, conversationID)
+	if err != nil {
+		return ""
+	}
+	return conv.WorkspaceID.String
+}
+
+func resolveProjectorWorkspaceMembershipID(ctx context.Context, q *sqlcgen.Queries, workspaceID, accountID string) string {
+	workspaceID = strings.TrimSpace(workspaceID)
+	accountID = strings.TrimSpace(accountID)
+	if workspaceID == "" || accountID == "" {
+		return ""
+	}
+	workspaceMembershipID, err := q.ProjectorGetWorkspaceMembershipByWorkspaceAndAccount(ctx, sqlcgen.ProjectorGetWorkspaceMembershipByWorkspaceAndAccountParams{
+		WorkspaceID: workspaceID,
+		AccountID:   accountID,
+	})
+	if err != nil {
+		if !errors.Is(err, pgx.ErrNoRows) {
+			_ = err
+		}
+		return ""
+	}
+	return workspaceMembershipID
+}
+
+func normalizeProjectorAllowedAccountIDs(ctx context.Context, q *sqlcgen.Queries, policy domain.ConversationPostingPolicy) []string {
+	seen := make(map[string]struct{}, len(policy.AllowedAccountIDs))
+	accountIDs := make([]string, 0, len(policy.AllowedAccountIDs))
+
+	addAccountID := func(accountID string) {
+		accountID = strings.TrimSpace(accountID)
+		if accountID == "" {
+			return
+		}
+		if _, ok := seen[accountID]; ok {
+			return
+		}
+		seen[accountID] = struct{}{}
+		accountIDs = append(accountIDs, accountID)
+	}
+
+	for _, accountID := range policy.AllowedAccountIDs {
+		addAccountID(accountID)
+	}
+	sort.Strings(accountIDs)
+	return accountIDs
+}
+
+func firstNonEmptyString(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
 }
 
 // RebuildAll replays all events and rebuilds every projection table from scratch.
@@ -271,6 +409,7 @@ func (p *Projector) applyUserUpsert(ctx context.Context, q *sqlcgen.Queries, ent
 
 	return q.ProjectorUpsertUser(ctx, sqlcgen.ProjectorUpsertUserParams{
 		ID:            u.ID,
+		AccountID:     projStringToText(u.AccountID),
 		WorkspaceID:   u.WorkspaceID,
 		Name:          u.Name,
 		RealName:      u.RealName,
@@ -337,28 +476,33 @@ func (p *Projector) applyConversationUpsert(ctx context.Context, q *sqlcgen.Quer
 	if err := json.Unmarshal(entry.Payload, &c); err != nil {
 		return fmt.Errorf("unmarshal conversation: %w", err)
 	}
+	normalizeProjectorConversationOwner(&c, entry.WorkspaceID)
 
 	return q.ProjectorUpsertConversation(ctx, sqlcgen.ProjectorUpsertConversationParams{
-		ID:             c.ID,
-		WorkspaceID:    c.WorkspaceID,
-		Name:           c.Name,
-		Type:           string(c.Type),
-		CreatorID:      c.CreatorID,
-		IsArchived:     c.IsArchived,
-		TopicValue:     c.Topic.Value,
-		TopicCreator:   c.Topic.Creator,
-		TopicLastSet:   timePtrToTs(c.Topic.LastSet),
-		PurposeValue:   c.Purpose.Value,
-		PurposeCreator: c.Purpose.Creator,
-		PurposeLastSet: timePtrToTs(c.Purpose.LastSet),
-		NumMembers:     int32(c.NumMembers),
-		CreatedAt:      timeToTs(c.CreatedAt),
-		UpdatedAt:      timeToTs(c.UpdatedAt),
+		ID:               c.ID,
+		WorkspaceID:      projStringToText(c.WorkspaceID),
+		OwnerType:        string(c.OwnerType),
+		OwnerAccountID:   projStringToText(c.OwnerAccountID),
+		OwnerWorkspaceID: projStringToText(c.OwnerWorkspaceID),
+		Name:             c.Name,
+		Type:             string(c.Type),
+		CreatorID:        projStringToText(c.CreatorID),
+		IsArchived:       c.IsArchived,
+		TopicValue:       c.Topic.Value,
+		TopicCreator:     c.Topic.Creator,
+		TopicLastSet:     timePtrToTs(c.Topic.LastSet),
+		PurposeValue:     c.Purpose.Value,
+		PurposeCreator:   c.Purpose.Creator,
+		PurposeLastSet:   timePtrToTs(c.Purpose.LastSet),
+		NumMembers:       int32(c.NumMembers),
+		CreatedAt:        timeToTs(c.CreatedAt),
+		UpdatedAt:        timeToTs(c.UpdatedAt),
 	})
 }
 
 func (p *Projector) applyMemberJoined(ctx context.Context, q *sqlcgen.Queries, entry domain.InternalEvent) error {
 	var data struct {
+		AccountID    string               `json:"account_id"`
 		UserID       string               `json:"user_id"`
 		Conversation *domain.Conversation `json:"conversation"`
 	}
@@ -375,15 +519,42 @@ func (p *Projector) applyMemberJoined(ctx context.Context, q *sqlcgen.Queries, e
 		}
 	}
 
-	return q.ProjectorUpsertMember(ctx, sqlcgen.ProjectorUpsertMemberParams{
-		ConversationID: entry.AggregateID,
-		UserID:         data.UserID,
-		JoinedAt:       timeToTs(entry.CreatedAt),
-	})
+	convWorkspaceID := entry.WorkspaceID
+	if data.Conversation != nil && data.Conversation.WorkspaceID != "" {
+		convWorkspaceID = data.Conversation.WorkspaceID
+	}
+	principal := resolveProjectorPrincipalIDs(ctx, q, convWorkspaceID, data.UserID, data.AccountID)
+	actorPrincipal := resolveProjectorPrincipalIDs(ctx, q, convWorkspaceID, entry.ActorID, "")
+	addedByAccountID := actorPrincipal.AccountID
+	if addedByAccountID == "" {
+		addedByAccountID = principal.AccountID
+	}
+	if principal.UserID != "" {
+		if err := q.ProjectorUpsertMember(ctx, sqlcgen.ProjectorUpsertMemberParams{
+			ConversationID: entry.AggregateID,
+			UserID:         principal.UserID,
+			JoinedAt:       timeToTs(entry.CreatedAt),
+		}); err != nil {
+			return err
+		}
+	}
+	if principal.AccountID != "" {
+		if err := q.ProjectorUpsertMemberV2(ctx, sqlcgen.ProjectorUpsertMemberV2Params{
+			ConversationID:   entry.AggregateID,
+			AccountID:        principal.AccountID,
+			MembershipRole:   "member",
+			AddedByAccountID: projStringToText(addedByAccountID),
+			CreatedAt:        timeToTs(entry.CreatedAt),
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (p *Projector) applyMemberLeft(ctx context.Context, q *sqlcgen.Queries, entry domain.InternalEvent) error {
 	var data struct {
+		AccountID    string               `json:"account_id"`
 		UserID       string               `json:"user_id"`
 		Conversation *domain.Conversation `json:"conversation"`
 	}
@@ -400,40 +571,97 @@ func (p *Projector) applyMemberLeft(ctx context.Context, q *sqlcgen.Queries, ent
 		}
 	}
 
-	return q.ProjectorDeleteMember(ctx, sqlcgen.ProjectorDeleteMemberParams{
-		ConversationID: entry.AggregateID,
-		UserID:         data.UserID,
-	})
+	convWorkspaceID := entry.WorkspaceID
+	if data.Conversation != nil && data.Conversation.WorkspaceID != "" {
+		convWorkspaceID = data.Conversation.WorkspaceID
+	}
+	principal := resolveProjectorPrincipalIDs(ctx, q, convWorkspaceID, data.UserID, data.AccountID)
+	if principal.UserID != "" {
+		if err := q.ProjectorDeleteMember(ctx, sqlcgen.ProjectorDeleteMemberParams{
+			ConversationID: entry.AggregateID,
+			UserID:         principal.UserID,
+		}); err != nil {
+			return err
+		}
+	}
+	if principal.AccountID != "" {
+		if err := q.ProjectorDeleteMemberV2(ctx, sqlcgen.ProjectorDeleteMemberV2Params{
+			ConversationID: entry.AggregateID,
+			AccountID:      principal.AccountID,
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (p *Projector) applyConversationManagerAdded(ctx context.Context, q *sqlcgen.Queries, entry domain.InternalEvent) error {
 	var data struct {
 		ConversationID string `json:"conversation_id"`
+		AccountID      string `json:"account_id"`
 		UserID         string `json:"user_id"`
 	}
 	if err := json.Unmarshal(entry.Payload, &data); err != nil {
 		return fmt.Errorf("unmarshal conversation manager added: %w", err)
 	}
-	return q.ProjectorUpsertConversationManager(ctx, sqlcgen.ProjectorUpsertConversationManagerParams{
-		ConversationID: data.ConversationID,
-		UserID:         data.UserID,
-		AssignedBy:     entry.ActorID,
-		CreatedAt:      timeToPgTimestamptz(entry.CreatedAt),
-	})
+	workspaceID := resolveProjectorConversationWorkspaceID(ctx, q, firstNonEmptyString(data.ConversationID, entry.AggregateID))
+	principal := resolveProjectorPrincipalIDs(ctx, q, workspaceID, data.UserID, data.AccountID)
+	actorPrincipal := resolveProjectorPrincipalIDs(ctx, q, workspaceID, entry.ActorID, "")
+	assignedByAccountID := actorPrincipal.AccountID
+	if assignedByAccountID == "" {
+		assignedByAccountID = principal.AccountID
+	}
+	if principal.UserID != "" {
+		if err := q.ProjectorUpsertConversationManager(ctx, sqlcgen.ProjectorUpsertConversationManagerParams{
+			ConversationID: data.ConversationID,
+			UserID:         principal.UserID,
+			AssignedBy:     entry.ActorID,
+			CreatedAt:      timeToPgTimestamptz(entry.CreatedAt),
+		}); err != nil {
+			return err
+		}
+	}
+	if principal.AccountID != "" {
+		if err := q.ProjectorUpsertConversationManagerV2(ctx, sqlcgen.ProjectorUpsertConversationManagerV2Params{
+			ConversationID:      data.ConversationID,
+			AccountID:           principal.AccountID,
+			AssignedByAccountID: projStringToText(assignedByAccountID),
+			CreatedAt:           timeToTs(entry.CreatedAt),
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (p *Projector) applyConversationManagerRemoved(ctx context.Context, q *sqlcgen.Queries, entry domain.InternalEvent) error {
 	var data struct {
 		ConversationID string `json:"conversation_id"`
+		AccountID      string `json:"account_id"`
 		UserID         string `json:"user_id"`
 	}
 	if err := json.Unmarshal(entry.Payload, &data); err != nil {
 		return fmt.Errorf("unmarshal conversation manager removed: %w", err)
 	}
-	return q.ProjectorDeleteConversationManager(ctx, sqlcgen.ProjectorDeleteConversationManagerParams{
-		ConversationID: data.ConversationID,
-		UserID:         data.UserID,
-	})
+	workspaceID := resolveProjectorConversationWorkspaceID(ctx, q, firstNonEmptyString(data.ConversationID, entry.AggregateID))
+	principal := resolveProjectorPrincipalIDs(ctx, q, workspaceID, data.UserID, data.AccountID)
+	if principal.UserID != "" {
+		if err := q.ProjectorDeleteConversationManager(ctx, sqlcgen.ProjectorDeleteConversationManagerParams{
+			ConversationID: data.ConversationID,
+			UserID:         principal.UserID,
+		}); err != nil {
+			return err
+		}
+	}
+	if principal.AccountID != "" {
+		if err := q.ProjectorDeleteConversationManagerV2(ctx, sqlcgen.ProjectorDeleteConversationManagerV2Params{
+			ConversationID: data.ConversationID,
+			AccountID:      principal.AccountID,
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (p *Projector) applyConversationPostingPolicyUpdated(ctx context.Context, q *sqlcgen.Queries, entry domain.InternalEvent) error {
@@ -441,16 +669,26 @@ func (p *Projector) applyConversationPostingPolicyUpdated(ctx context.Context, q
 	if err := json.Unmarshal(entry.Payload, &policy); err != nil {
 		return fmt.Errorf("unmarshal conversation posting policy: %w", err)
 	}
+	if policy.PolicyType == "" {
+		policy.PolicyType = domain.ConversationPostingPolicyEveryone
+	}
 	policyJSON, err := json.Marshal(policy)
 	if err != nil {
 		return fmt.Errorf("marshal conversation posting policy: %w", err)
 	}
-	return q.ProjectorUpsertConversationPostingPolicy(ctx, sqlcgen.ProjectorUpsertConversationPostingPolicyParams{
+	if err := q.ProjectorUpsertConversationPostingPolicy(ctx, sqlcgen.ProjectorUpsertConversationPostingPolicyParams{
 		ConversationID: policy.ConversationID,
 		PolicyType:     string(policy.PolicyType),
 		PolicyJson:     policyJSON,
 		UpdatedBy:      policy.UpdatedBy,
 		UpdatedAt:      timeToPgTimestamptz(policy.UpdatedAt),
+	}); err != nil {
+		return err
+	}
+	accountIDs := normalizeProjectorAllowedAccountIDs(ctx, q, policy)
+	return q.ProjectorReplaceConversationPostingPolicyAllowedAccounts(ctx, sqlcgen.ProjectorReplaceConversationPostingPolicyAllowedAccountsParams{
+		ConversationID: policy.ConversationID,
+		AccountIds:     accountIDs,
 	})
 }
 
@@ -470,25 +708,33 @@ func (p *Projector) applyMessageUpsert(ctx context.Context, q *sqlcgen.Queries, 
 	if m.Metadata != nil {
 		metadataJSON = m.Metadata
 	}
+	convWorkspaceID := resolveProjectorConversationWorkspaceID(ctx, q, m.ChannelID)
+	principal := resolveProjectorPrincipalIDs(ctx, q, convWorkspaceID, m.UserID, m.AuthorAccountID)
+	authorWorkspaceMembershipID := strings.TrimSpace(m.AuthorWorkspaceMembershipID)
+	if authorWorkspaceMembershipID == "" {
+		authorWorkspaceMembershipID = resolveProjectorWorkspaceMembershipID(ctx, q, convWorkspaceID, principal.AccountID)
+	}
 
 	return q.ProjectorUpsertMessage(ctx, sqlcgen.ProjectorUpsertMessageParams{
-		Ts:              m.TS,
-		ChannelID:       m.ChannelID,
-		UserID:          m.UserID,
-		Text:            m.Text,
-		ThreadTs:        projStringPtrToText(m.ThreadTS),
-		Type:            m.Type,
-		Subtype:         projStringPtrToText(m.Subtype),
-		Blocks:          blocksJSON,
-		Metadata:        metadataJSON,
-		EditedBy:        projStringPtrToText(m.EditedBy),
-		EditedAt:        projStringPtrToText(m.EditedAt),
-		ReplyCount:      int32(m.ReplyCount),
-		ReplyUsersCount: int32(m.ReplyUsersCount),
-		LatestReply:     projStringPtrToText(m.LatestReply),
-		IsDeleted:       m.IsDeleted,
-		CreatedAt:       timeToTs(m.CreatedAt),
-		UpdatedAt:       timeToTs(m.UpdatedAt),
+		Ts:                          m.TS,
+		ChannelID:                   m.ChannelID,
+		UserID:                      principal.UserID,
+		AuthorAccountID:             projStringToText(principal.AccountID),
+		AuthorWorkspaceMembershipID: projStringToText(authorWorkspaceMembershipID),
+		Text:                        m.Text,
+		ThreadTs:                    projStringPtrToText(m.ThreadTS),
+		Type:                        m.Type,
+		Subtype:                     projStringPtrToText(m.Subtype),
+		Blocks:                      blocksJSON,
+		Metadata:                    metadataJSON,
+		EditedBy:                    projStringPtrToText(m.EditedBy),
+		EditedAt:                    projStringPtrToText(m.EditedAt),
+		ReplyCount:                  int32(m.ReplyCount),
+		ReplyUsersCount:             int32(m.ReplyUsersCount),
+		LatestReply:                 projStringPtrToText(m.LatestReply),
+		IsDeleted:                   m.IsDeleted,
+		CreatedAt:                   timeToTs(m.CreatedAt),
+		UpdatedAt:                   timeToTs(m.UpdatedAt),
 	})
 }
 

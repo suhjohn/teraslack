@@ -62,6 +62,8 @@ func (s *ExternalMemberService) Create(ctx context.Context, conversationID strin
 	if err != nil {
 		return nil, err
 	}
+	// External member grants are layered on top of the canonical account and
+	// workspace access model for shared cross-workspace conversations.
 	params.AccountID = account.ID
 	params.InvitedBy = actorUserID(ctx)
 	params.AllowedCapabilities = normalizeExternalMemberCapabilities(params.AccessMode, params.AllowedCapabilities)

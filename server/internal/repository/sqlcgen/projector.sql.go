@@ -35,6 +35,20 @@ func (q *Queries) ProjectorDeleteConversationManager(ctx context.Context, arg Pr
 	return err
 }
 
+const projectorDeleteConversationManagerV2 = `-- name: ProjectorDeleteConversationManagerV2 :exec
+DELETE FROM conversation_manager_assignments_v2 WHERE conversation_id = $1 AND account_id = $2
+`
+
+type ProjectorDeleteConversationManagerV2Params struct {
+	ConversationID string `json:"conversation_id"`
+	AccountID      string `json:"account_id"`
+}
+
+func (q *Queries) ProjectorDeleteConversationManagerV2(ctx context.Context, arg ProjectorDeleteConversationManagerV2Params) error {
+	_, err := q.db.Exec(ctx, projectorDeleteConversationManagerV2, arg.ConversationID, arg.AccountID)
+	return err
+}
+
 const projectorDeleteFile = `-- name: ProjectorDeleteFile :exec
 DELETE FROM files WHERE id = $1
 `
@@ -55,6 +69,20 @@ type ProjectorDeleteMemberParams struct {
 
 func (q *Queries) ProjectorDeleteMember(ctx context.Context, arg ProjectorDeleteMemberParams) error {
 	_, err := q.db.Exec(ctx, projectorDeleteMember, arg.ConversationID, arg.UserID)
+	return err
+}
+
+const projectorDeleteMemberV2 = `-- name: ProjectorDeleteMemberV2 :exec
+DELETE FROM conversation_members_v2 WHERE conversation_id = $1 AND account_id = $2
+`
+
+type ProjectorDeleteMemberV2Params struct {
+	ConversationID string `json:"conversation_id"`
+	AccountID      string `json:"account_id"`
+}
+
+func (q *Queries) ProjectorDeleteMemberV2(ctx context.Context, arg ProjectorDeleteMemberV2Params) error {
+	_, err := q.db.Exec(ctx, projectorDeleteMemberV2, arg.ConversationID, arg.AccountID)
 	return err
 }
 
@@ -215,6 +243,24 @@ func (q *Queries) ProjectorGetInternalEventsSince(ctx context.Context, id int64)
 	return items, nil
 }
 
+const projectorGetWorkspaceMembershipByWorkspaceAndAccount = `-- name: ProjectorGetWorkspaceMembershipByWorkspaceAndAccount :one
+SELECT id
+FROM workspace_memberships
+WHERE workspace_id = $1 AND account_id = $2
+`
+
+type ProjectorGetWorkspaceMembershipByWorkspaceAndAccountParams struct {
+	WorkspaceID string `json:"workspace_id"`
+	AccountID   string `json:"account_id"`
+}
+
+func (q *Queries) ProjectorGetWorkspaceMembershipByWorkspaceAndAccount(ctx context.Context, arg ProjectorGetWorkspaceMembershipByWorkspaceAndAccountParams) (string, error) {
+	row := q.db.QueryRow(ctx, projectorGetWorkspaceMembershipByWorkspaceAndAccount, arg.WorkspaceID, arg.AccountID)
+	var id string
+	err := row.Scan(&id)
+	return id, err
+}
+
 const projectorInsertUserRoleAssignment = `-- name: ProjectorInsertUserRoleAssignment :exec
 INSERT INTO user_role_assignments (id, workspace_id, user_id, role_key, assigned_by, created_at)
 VALUES ($1, $2, $3, $4, $5, $6)
@@ -306,6 +352,25 @@ func (q *Queries) ProjectorMarkUserDeleted(ctx context.Context, arg ProjectorMar
 	return err
 }
 
+const projectorReplaceConversationPostingPolicyAllowedAccounts = `-- name: ProjectorReplaceConversationPostingPolicyAllowedAccounts :exec
+WITH deleted AS (
+    DELETE FROM conversation_posting_policy_allowed_accounts_v2
+    WHERE conversation_id = $1
+)
+INSERT INTO conversation_posting_policy_allowed_accounts_v2 (conversation_id, account_id, created_at)
+SELECT DISTINCT $1, UNNEST($2::text[]), CURRENT_TIMESTAMP
+`
+
+type ProjectorReplaceConversationPostingPolicyAllowedAccountsParams struct {
+	ConversationID string   `json:"conversation_id"`
+	AccountIds     []string `json:"account_ids"`
+}
+
+func (q *Queries) ProjectorReplaceConversationPostingPolicyAllowedAccounts(ctx context.Context, arg ProjectorReplaceConversationPostingPolicyAllowedAccountsParams) error {
+	_, err := q.db.Exec(ctx, projectorReplaceConversationPostingPolicyAllowedAccounts, arg.ConversationID, arg.AccountIds)
+	return err
+}
+
 const projectorTruncateAPIKeyProjection = `-- name: ProjectorTruncateAPIKeyProjection :exec
 TRUNCATE api_keys CASCADE
 `
@@ -325,7 +390,14 @@ func (q *Queries) ProjectorTruncateBookmarkProjection(ctx context.Context) error
 }
 
 const projectorTruncateConversationProjection = `-- name: ProjectorTruncateConversationProjection :exec
-TRUNCATE conversation_posting_policies, conversation_manager_assignments, conversation_members, conversations CASCADE
+TRUNCATE
+    conversation_posting_policy_allowed_accounts_v2,
+    conversation_manager_assignments_v2,
+    conversation_members_v2,
+    conversation_posting_policies,
+    conversation_manager_assignments,
+    conversation_members,
+    conversations CASCADE
 `
 
 func (q *Queries) ProjectorTruncateConversationProjection(ctx context.Context) error {
@@ -493,13 +565,15 @@ func (q *Queries) ProjectorUpsertBookmark(ctx context.Context, arg ProjectorUpse
 }
 
 const projectorUpsertConversation = `-- name: ProjectorUpsertConversation :exec
-INSERT INTO conversations (id, workspace_id, name, type, creator_id, is_archived,
+INSERT INTO conversations (id, workspace_id, owner_type, owner_account_id, owner_workspace_id, name, type, creator_id, is_archived,
     topic_value, topic_creator, topic_last_set,
     purpose_value, purpose_creator, purpose_last_set,
     num_members, created_at, updated_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
 ON CONFLICT (id) DO UPDATE SET
-    workspace_id = EXCLUDED.workspace_id, name = EXCLUDED.name, type = EXCLUDED.type,
+    workspace_id = EXCLUDED.workspace_id, owner_type = EXCLUDED.owner_type,
+    owner_account_id = EXCLUDED.owner_account_id, owner_workspace_id = EXCLUDED.owner_workspace_id,
+    name = EXCLUDED.name, type = EXCLUDED.type,
     creator_id = EXCLUDED.creator_id, is_archived = EXCLUDED.is_archived,
     topic_value = EXCLUDED.topic_value, topic_creator = EXCLUDED.topic_creator,
     topic_last_set = EXCLUDED.topic_last_set,
@@ -509,27 +583,33 @@ ON CONFLICT (id) DO UPDATE SET
 `
 
 type ProjectorUpsertConversationParams struct {
-	ID             string     `json:"id"`
-	WorkspaceID    string     `json:"workspace_id"`
-	Name           string     `json:"name"`
-	Type           string     `json:"type"`
-	CreatorID      string     `json:"creator_id"`
-	IsArchived     bool       `json:"is_archived"`
-	TopicValue     string     `json:"topic_value"`
-	TopicCreator   string     `json:"topic_creator"`
-	TopicLastSet   *time.Time `json:"topic_last_set"`
-	PurposeValue   string     `json:"purpose_value"`
-	PurposeCreator string     `json:"purpose_creator"`
-	PurposeLastSet *time.Time `json:"purpose_last_set"`
-	NumMembers     int32      `json:"num_members"`
-	CreatedAt      time.Time  `json:"created_at"`
-	UpdatedAt      time.Time  `json:"updated_at"`
+	ID               string      `json:"id"`
+	WorkspaceID      pgtype.Text `json:"workspace_id"`
+	OwnerType        string      `json:"owner_type"`
+	OwnerAccountID   pgtype.Text `json:"owner_account_id"`
+	OwnerWorkspaceID pgtype.Text `json:"owner_workspace_id"`
+	Name             string      `json:"name"`
+	Type             string      `json:"type"`
+	CreatorID        pgtype.Text `json:"creator_id"`
+	IsArchived       bool        `json:"is_archived"`
+	TopicValue       string      `json:"topic_value"`
+	TopicCreator     string      `json:"topic_creator"`
+	TopicLastSet     *time.Time  `json:"topic_last_set"`
+	PurposeValue     string      `json:"purpose_value"`
+	PurposeCreator   string      `json:"purpose_creator"`
+	PurposeLastSet   *time.Time  `json:"purpose_last_set"`
+	NumMembers       int32       `json:"num_members"`
+	CreatedAt        time.Time   `json:"created_at"`
+	UpdatedAt        time.Time   `json:"updated_at"`
 }
 
 func (q *Queries) ProjectorUpsertConversation(ctx context.Context, arg ProjectorUpsertConversationParams) error {
 	_, err := q.db.Exec(ctx, projectorUpsertConversation,
 		arg.ID,
 		arg.WorkspaceID,
+		arg.OwnerType,
+		arg.OwnerAccountID,
+		arg.OwnerWorkspaceID,
 		arg.Name,
 		arg.Type,
 		arg.CreatorID,
@@ -565,6 +645,29 @@ func (q *Queries) ProjectorUpsertConversationManager(ctx context.Context, arg Pr
 		arg.ConversationID,
 		arg.UserID,
 		arg.AssignedBy,
+		arg.CreatedAt,
+	)
+	return err
+}
+
+const projectorUpsertConversationManagerV2 = `-- name: ProjectorUpsertConversationManagerV2 :exec
+INSERT INTO conversation_manager_assignments_v2 (conversation_id, account_id, assigned_by_account_id, created_at)
+VALUES ($1, $2, $3, $4)
+ON CONFLICT (conversation_id, account_id) DO NOTHING
+`
+
+type ProjectorUpsertConversationManagerV2Params struct {
+	ConversationID      string      `json:"conversation_id"`
+	AccountID           string      `json:"account_id"`
+	AssignedByAccountID pgtype.Text `json:"assigned_by_account_id"`
+	CreatedAt           time.Time   `json:"created_at"`
+}
+
+func (q *Queries) ProjectorUpsertConversationManagerV2(ctx context.Context, arg ProjectorUpsertConversationManagerV2Params) error {
+	_, err := q.db.Exec(ctx, projectorUpsertConversationManagerV2,
+		arg.ConversationID,
+		arg.AccountID,
+		arg.AssignedByAccountID,
 		arg.CreatedAt,
 	)
 	return err
@@ -684,13 +787,40 @@ func (q *Queries) ProjectorUpsertMember(ctx context.Context, arg ProjectorUpsert
 	return err
 }
 
+const projectorUpsertMemberV2 = `-- name: ProjectorUpsertMemberV2 :exec
+INSERT INTO conversation_members_v2 (conversation_id, account_id, membership_role, added_by_account_id, created_at)
+VALUES ($1, $2, $3, $4, $5)
+ON CONFLICT (conversation_id, account_id) DO NOTHING
+`
+
+type ProjectorUpsertMemberV2Params struct {
+	ConversationID   string      `json:"conversation_id"`
+	AccountID        string      `json:"account_id"`
+	MembershipRole   string      `json:"membership_role"`
+	AddedByAccountID pgtype.Text `json:"added_by_account_id"`
+	CreatedAt        time.Time   `json:"created_at"`
+}
+
+func (q *Queries) ProjectorUpsertMemberV2(ctx context.Context, arg ProjectorUpsertMemberV2Params) error {
+	_, err := q.db.Exec(ctx, projectorUpsertMemberV2,
+		arg.ConversationID,
+		arg.AccountID,
+		arg.MembershipRole,
+		arg.AddedByAccountID,
+		arg.CreatedAt,
+	)
+	return err
+}
+
 const projectorUpsertMessage = `-- name: ProjectorUpsertMessage :exec
-INSERT INTO messages (ts, channel_id, user_id, text, thread_ts, type, subtype,
+INSERT INTO messages (ts, channel_id, user_id, author_account_id, author_workspace_membership_id, text, thread_ts, type, subtype,
     blocks, metadata, edited_by, edited_at, reply_count, reply_users_count,
     latest_reply, is_deleted, created_at, updated_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
 ON CONFLICT (channel_id, ts) DO UPDATE SET
-    user_id = EXCLUDED.user_id, text = EXCLUDED.text, thread_ts = EXCLUDED.thread_ts,
+    user_id = EXCLUDED.user_id, author_account_id = EXCLUDED.author_account_id,
+    author_workspace_membership_id = EXCLUDED.author_workspace_membership_id,
+    text = EXCLUDED.text, thread_ts = EXCLUDED.thread_ts,
     type = EXCLUDED.type, subtype = EXCLUDED.subtype, blocks = EXCLUDED.blocks,
     metadata = EXCLUDED.metadata, edited_by = EXCLUDED.edited_by,
     edited_at = EXCLUDED.edited_at, reply_count = EXCLUDED.reply_count,
@@ -699,23 +829,25 @@ ON CONFLICT (channel_id, ts) DO UPDATE SET
 `
 
 type ProjectorUpsertMessageParams struct {
-	Ts              string      `json:"ts"`
-	ChannelID       string      `json:"channel_id"`
-	UserID          string      `json:"user_id"`
-	Text            string      `json:"text"`
-	ThreadTs        pgtype.Text `json:"thread_ts"`
-	Type            string      `json:"type"`
-	Subtype         pgtype.Text `json:"subtype"`
-	Blocks          []byte      `json:"blocks"`
-	Metadata        []byte      `json:"metadata"`
-	EditedBy        pgtype.Text `json:"edited_by"`
-	EditedAt        pgtype.Text `json:"edited_at"`
-	ReplyCount      int32       `json:"reply_count"`
-	ReplyUsersCount int32       `json:"reply_users_count"`
-	LatestReply     pgtype.Text `json:"latest_reply"`
-	IsDeleted       bool        `json:"is_deleted"`
-	CreatedAt       time.Time   `json:"created_at"`
-	UpdatedAt       time.Time   `json:"updated_at"`
+	Ts                          string      `json:"ts"`
+	ChannelID                   string      `json:"channel_id"`
+	UserID                      string      `json:"user_id"`
+	AuthorAccountID             pgtype.Text `json:"author_account_id"`
+	AuthorWorkspaceMembershipID pgtype.Text `json:"author_workspace_membership_id"`
+	Text                        string      `json:"text"`
+	ThreadTs                    pgtype.Text `json:"thread_ts"`
+	Type                        string      `json:"type"`
+	Subtype                     pgtype.Text `json:"subtype"`
+	Blocks                      []byte      `json:"blocks"`
+	Metadata                    []byte      `json:"metadata"`
+	EditedBy                    pgtype.Text `json:"edited_by"`
+	EditedAt                    pgtype.Text `json:"edited_at"`
+	ReplyCount                  int32       `json:"reply_count"`
+	ReplyUsersCount             int32       `json:"reply_users_count"`
+	LatestReply                 pgtype.Text `json:"latest_reply"`
+	IsDeleted                   bool        `json:"is_deleted"`
+	CreatedAt                   time.Time   `json:"created_at"`
+	UpdatedAt                   time.Time   `json:"updated_at"`
 }
 
 func (q *Queries) ProjectorUpsertMessage(ctx context.Context, arg ProjectorUpsertMessageParams) error {
@@ -723,6 +855,8 @@ func (q *Queries) ProjectorUpsertMessage(ctx context.Context, arg ProjectorUpser
 		arg.Ts,
 		arg.ChannelID,
 		arg.UserID,
+		arg.AuthorAccountID,
+		arg.AuthorWorkspaceMembershipID,
 		arg.Text,
 		arg.ThreadTs,
 		arg.Type,
@@ -830,10 +964,10 @@ func (q *Queries) ProjectorUpsertSubscription(ctx context.Context, arg Projector
 
 const projectorUpsertUser = `-- name: ProjectorUpsertUser :exec
 
-INSERT INTO users (id, workspace_id, name, real_name, display_name, email, is_bot, account_type, deleted, profile, principal_type, owner_id, created_at, updated_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+INSERT INTO users (id, account_id, workspace_id, name, real_name, display_name, email, is_bot, account_type, deleted, profile, principal_type, owner_id, created_at, updated_at)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
 ON CONFLICT (id) DO UPDATE SET
-    workspace_id = EXCLUDED.workspace_id, name = EXCLUDED.name, real_name = EXCLUDED.real_name,
+    account_id = EXCLUDED.account_id, workspace_id = EXCLUDED.workspace_id, name = EXCLUDED.name, real_name = EXCLUDED.real_name,
     display_name = EXCLUDED.display_name, email = EXCLUDED.email, is_bot = EXCLUDED.is_bot,
     account_type = EXCLUDED.account_type, deleted = EXCLUDED.deleted, profile = EXCLUDED.profile,
     principal_type = EXCLUDED.principal_type, owner_id = EXCLUDED.owner_id,
@@ -841,20 +975,21 @@ ON CONFLICT (id) DO UPDATE SET
 `
 
 type ProjectorUpsertUserParams struct {
-	ID            string    `json:"id"`
-	WorkspaceID   string    `json:"workspace_id"`
-	Name          string    `json:"name"`
-	RealName      string    `json:"real_name"`
-	DisplayName   string    `json:"display_name"`
-	Email         string    `json:"email"`
-	IsBot         bool      `json:"is_bot"`
-	AccountType   string    `json:"account_type"`
-	Deleted       bool      `json:"deleted"`
-	Profile       []byte    `json:"profile"`
-	PrincipalType string    `json:"principal_type"`
-	OwnerID       string    `json:"owner_id"`
-	CreatedAt     time.Time `json:"created_at"`
-	UpdatedAt     time.Time `json:"updated_at"`
+	ID            string      `json:"id"`
+	AccountID     pgtype.Text `json:"account_id"`
+	WorkspaceID   string      `json:"workspace_id"`
+	Name          string      `json:"name"`
+	RealName      string      `json:"real_name"`
+	DisplayName   string      `json:"display_name"`
+	Email         string      `json:"email"`
+	IsBot         bool        `json:"is_bot"`
+	AccountType   string      `json:"account_type"`
+	Deleted       bool        `json:"deleted"`
+	Profile       []byte      `json:"profile"`
+	PrincipalType string      `json:"principal_type"`
+	OwnerID       string      `json:"owner_id"`
+	CreatedAt     time.Time   `json:"created_at"`
+	UpdatedAt     time.Time   `json:"updated_at"`
 }
 
 // Projector queries: used by the event-sourcing projector to rebuild projection
@@ -863,6 +998,7 @@ type ProjectorUpsertUserParams struct {
 func (q *Queries) ProjectorUpsertUser(ctx context.Context, arg ProjectorUpsertUserParams) error {
 	_, err := q.db.Exec(ctx, projectorUpsertUser,
 		arg.ID,
+		arg.AccountID,
 		arg.WorkspaceID,
 		arg.Name,
 		arg.RealName,

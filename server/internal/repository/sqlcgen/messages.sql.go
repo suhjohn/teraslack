@@ -7,6 +7,7 @@ package sqlcgen
 
 import (
 	"context"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
 )
@@ -58,41 +59,170 @@ func (q *Queries) AddThreadParticipant(ctx context.Context, arg AddThreadPartici
 }
 
 const createMessage = `-- name: CreateMessage :one
-INSERT INTO messages (ts, channel_id, user_id, text, thread_ts, type, blocks, metadata)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-RETURNING ts, channel_id, user_id, text, thread_ts, type, subtype,
+INSERT INTO messages (ts, channel_id, user_id, author_account_id, author_workspace_membership_id, text, thread_ts, type, blocks, metadata)
+VALUES (
+    $1,
+    $2,
+    $3,
+    $4,
+    $5,
+    $6,
+    $7,
+    $8,
+    $9,
+    $10
+)
+RETURNING ts, channel_id, user_id, author_account_id, author_workspace_membership_id, text, thread_ts, type, subtype,
           blocks, metadata, edited_by, edited_at,
           reply_count, reply_users_count, latest_reply,
           is_deleted, created_at, updated_at
 `
 
 type CreateMessageParams struct {
-	Ts        string      `json:"ts"`
-	ChannelID string      `json:"channel_id"`
-	UserID    string      `json:"user_id"`
-	Text      string      `json:"text"`
-	ThreadTs  pgtype.Text `json:"thread_ts"`
-	Type      string      `json:"type"`
-	Blocks    []byte      `json:"blocks"`
-	Metadata  []byte      `json:"metadata"`
+	Ts                          string      `json:"ts"`
+	ChannelID                   string      `json:"channel_id"`
+	UserID                      string      `json:"user_id"`
+	AuthorAccountID             pgtype.Text `json:"author_account_id"`
+	AuthorWorkspaceMembershipID pgtype.Text `json:"author_workspace_membership_id"`
+	Text                        string      `json:"text"`
+	ThreadTs                    pgtype.Text `json:"thread_ts"`
+	Type                        string      `json:"type"`
+	Blocks                      []byte      `json:"blocks"`
+	Metadata                    []byte      `json:"metadata"`
 }
 
-func (q *Queries) CreateMessage(ctx context.Context, arg CreateMessageParams) (Message, error) {
+type CreateMessageRow struct {
+	Ts                          string      `json:"ts"`
+	ChannelID                   string      `json:"channel_id"`
+	UserID                      string      `json:"user_id"`
+	AuthorAccountID             pgtype.Text `json:"author_account_id"`
+	AuthorWorkspaceMembershipID pgtype.Text `json:"author_workspace_membership_id"`
+	Text                        string      `json:"text"`
+	ThreadTs                    pgtype.Text `json:"thread_ts"`
+	Type                        string      `json:"type"`
+	Subtype                     pgtype.Text `json:"subtype"`
+	Blocks                      []byte      `json:"blocks"`
+	Metadata                    []byte      `json:"metadata"`
+	EditedBy                    pgtype.Text `json:"edited_by"`
+	EditedAt                    pgtype.Text `json:"edited_at"`
+	ReplyCount                  int32       `json:"reply_count"`
+	ReplyUsersCount             int32       `json:"reply_users_count"`
+	LatestReply                 pgtype.Text `json:"latest_reply"`
+	IsDeleted                   bool        `json:"is_deleted"`
+	CreatedAt                   time.Time   `json:"created_at"`
+	UpdatedAt                   time.Time   `json:"updated_at"`
+}
+
+func (q *Queries) CreateMessage(ctx context.Context, arg CreateMessageParams) (CreateMessageRow, error) {
 	row := q.db.QueryRow(ctx, createMessage,
 		arg.Ts,
 		arg.ChannelID,
 		arg.UserID,
+		arg.AuthorAccountID,
+		arg.AuthorWorkspaceMembershipID,
 		arg.Text,
 		arg.ThreadTs,
 		arg.Type,
 		arg.Blocks,
 		arg.Metadata,
 	)
-	var i Message
+	var i CreateMessageRow
 	err := row.Scan(
 		&i.Ts,
 		&i.ChannelID,
 		&i.UserID,
+		&i.AuthorAccountID,
+		&i.AuthorWorkspaceMembershipID,
+		&i.Text,
+		&i.ThreadTs,
+		&i.Type,
+		&i.Subtype,
+		&i.Blocks,
+		&i.Metadata,
+		&i.EditedBy,
+		&i.EditedAt,
+		&i.ReplyCount,
+		&i.ReplyUsersCount,
+		&i.LatestReply,
+		&i.IsDeleted,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const createMessageByUser = `-- name: CreateMessageByUser :one
+WITH actor AS (
+    SELECT u.id AS user_id, u.account_id, wm.id AS author_workspace_membership_id
+    FROM users u
+    JOIN conversations c
+      ON c.id = $2
+    LEFT JOIN workspace_memberships wm
+      ON wm.workspace_id = c.owner_workspace_id
+     AND wm.account_id = u.account_id
+    WHERE u.id = $8
+)
+INSERT INTO messages (ts, channel_id, user_id, author_account_id, author_workspace_membership_id, text, thread_ts, type, blocks, metadata)
+SELECT $1, $2, actor.user_id, actor.account_id, actor.author_workspace_membership_id,
+       $3, $4, $5, $6, $7
+FROM actor
+RETURNING ts, channel_id, user_id, author_account_id, author_workspace_membership_id, text, thread_ts, type, subtype,
+          blocks, metadata, edited_by, edited_at,
+          reply_count, reply_users_count, latest_reply,
+          is_deleted, created_at, updated_at
+`
+
+type CreateMessageByUserParams struct {
+	Ts        string      `json:"ts"`
+	ChannelID string      `json:"channel_id"`
+	Text      string      `json:"text"`
+	ThreadTs  pgtype.Text `json:"thread_ts"`
+	Type      string      `json:"type"`
+	Blocks    []byte      `json:"blocks"`
+	Metadata  []byte      `json:"metadata"`
+	UserID    string      `json:"user_id"`
+}
+
+type CreateMessageByUserRow struct {
+	Ts                          string      `json:"ts"`
+	ChannelID                   string      `json:"channel_id"`
+	UserID                      string      `json:"user_id"`
+	AuthorAccountID             pgtype.Text `json:"author_account_id"`
+	AuthorWorkspaceMembershipID pgtype.Text `json:"author_workspace_membership_id"`
+	Text                        string      `json:"text"`
+	ThreadTs                    pgtype.Text `json:"thread_ts"`
+	Type                        string      `json:"type"`
+	Subtype                     pgtype.Text `json:"subtype"`
+	Blocks                      []byte      `json:"blocks"`
+	Metadata                    []byte      `json:"metadata"`
+	EditedBy                    pgtype.Text `json:"edited_by"`
+	EditedAt                    pgtype.Text `json:"edited_at"`
+	ReplyCount                  int32       `json:"reply_count"`
+	ReplyUsersCount             int32       `json:"reply_users_count"`
+	LatestReply                 pgtype.Text `json:"latest_reply"`
+	IsDeleted                   bool        `json:"is_deleted"`
+	CreatedAt                   time.Time   `json:"created_at"`
+	UpdatedAt                   time.Time   `json:"updated_at"`
+}
+
+func (q *Queries) CreateMessageByUser(ctx context.Context, arg CreateMessageByUserParams) (CreateMessageByUserRow, error) {
+	row := q.db.QueryRow(ctx, createMessageByUser,
+		arg.Ts,
+		arg.ChannelID,
+		arg.Text,
+		arg.ThreadTs,
+		arg.Type,
+		arg.Blocks,
+		arg.Metadata,
+		arg.UserID,
+	)
+	var i CreateMessageByUserRow
+	err := row.Scan(
+		&i.Ts,
+		&i.ChannelID,
+		&i.UserID,
+		&i.AuthorAccountID,
+		&i.AuthorWorkspaceMembershipID,
 		&i.Text,
 		&i.ThreadTs,
 		&i.Type,
@@ -112,7 +242,7 @@ func (q *Queries) CreateMessage(ctx context.Context, arg CreateMessageParams) (M
 }
 
 const getMessageRow = `-- name: GetMessageRow :one
-SELECT ts, channel_id, user_id, text, thread_ts, type, subtype,
+SELECT ts, channel_id, user_id, author_account_id, author_workspace_membership_id, text, thread_ts, type, subtype,
        blocks, metadata, edited_by, edited_at,
        reply_count, reply_users_count, latest_reply,
        is_deleted, created_at, updated_at
@@ -124,13 +254,37 @@ type GetMessageRowParams struct {
 	Ts        string `json:"ts"`
 }
 
-func (q *Queries) GetMessageRow(ctx context.Context, arg GetMessageRowParams) (Message, error) {
+type GetMessageRowRow struct {
+	Ts                          string      `json:"ts"`
+	ChannelID                   string      `json:"channel_id"`
+	UserID                      string      `json:"user_id"`
+	AuthorAccountID             pgtype.Text `json:"author_account_id"`
+	AuthorWorkspaceMembershipID pgtype.Text `json:"author_workspace_membership_id"`
+	Text                        string      `json:"text"`
+	ThreadTs                    pgtype.Text `json:"thread_ts"`
+	Type                        string      `json:"type"`
+	Subtype                     pgtype.Text `json:"subtype"`
+	Blocks                      []byte      `json:"blocks"`
+	Metadata                    []byte      `json:"metadata"`
+	EditedBy                    pgtype.Text `json:"edited_by"`
+	EditedAt                    pgtype.Text `json:"edited_at"`
+	ReplyCount                  int32       `json:"reply_count"`
+	ReplyUsersCount             int32       `json:"reply_users_count"`
+	LatestReply                 pgtype.Text `json:"latest_reply"`
+	IsDeleted                   bool        `json:"is_deleted"`
+	CreatedAt                   time.Time   `json:"created_at"`
+	UpdatedAt                   time.Time   `json:"updated_at"`
+}
+
+func (q *Queries) GetMessageRow(ctx context.Context, arg GetMessageRowParams) (GetMessageRowRow, error) {
 	row := q.db.QueryRow(ctx, getMessageRow, arg.ChannelID, arg.Ts)
-	var i Message
+	var i GetMessageRowRow
 	err := row.Scan(
 		&i.Ts,
 		&i.ChannelID,
 		&i.UserID,
+		&i.AuthorAccountID,
+		&i.AuthorWorkspaceMembershipID,
 		&i.Text,
 		&i.ThreadTs,
 		&i.Type,
@@ -223,7 +377,7 @@ func (q *Queries) IncrementParentReplyUsersCount(ctx context.Context, arg Increm
 }
 
 const listMessagesHistory = `-- name: ListMessagesHistory :many
-SELECT ts, channel_id, user_id, text, thread_ts, type, subtype,
+SELECT ts, channel_id, user_id, author_account_id, author_workspace_membership_id, text, thread_ts, type, subtype,
        blocks, metadata, edited_by, edited_at,
        reply_count, reply_users_count, latest_reply,
        is_deleted, created_at, updated_at
@@ -239,19 +393,43 @@ type ListMessagesHistoryParams struct {
 	Limit     int32  `json:"limit"`
 }
 
-func (q *Queries) ListMessagesHistory(ctx context.Context, arg ListMessagesHistoryParams) ([]Message, error) {
+type ListMessagesHistoryRow struct {
+	Ts                          string      `json:"ts"`
+	ChannelID                   string      `json:"channel_id"`
+	UserID                      string      `json:"user_id"`
+	AuthorAccountID             pgtype.Text `json:"author_account_id"`
+	AuthorWorkspaceMembershipID pgtype.Text `json:"author_workspace_membership_id"`
+	Text                        string      `json:"text"`
+	ThreadTs                    pgtype.Text `json:"thread_ts"`
+	Type                        string      `json:"type"`
+	Subtype                     pgtype.Text `json:"subtype"`
+	Blocks                      []byte      `json:"blocks"`
+	Metadata                    []byte      `json:"metadata"`
+	EditedBy                    pgtype.Text `json:"edited_by"`
+	EditedAt                    pgtype.Text `json:"edited_at"`
+	ReplyCount                  int32       `json:"reply_count"`
+	ReplyUsersCount             int32       `json:"reply_users_count"`
+	LatestReply                 pgtype.Text `json:"latest_reply"`
+	IsDeleted                   bool        `json:"is_deleted"`
+	CreatedAt                   time.Time   `json:"created_at"`
+	UpdatedAt                   time.Time   `json:"updated_at"`
+}
+
+func (q *Queries) ListMessagesHistory(ctx context.Context, arg ListMessagesHistoryParams) ([]ListMessagesHistoryRow, error) {
 	rows, err := q.db.Query(ctx, listMessagesHistory, arg.ChannelID, arg.Ts, arg.Limit)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []Message{}
+	items := []ListMessagesHistoryRow{}
 	for rows.Next() {
-		var i Message
+		var i ListMessagesHistoryRow
 		if err := rows.Scan(
 			&i.Ts,
 			&i.ChannelID,
 			&i.UserID,
+			&i.AuthorAccountID,
+			&i.AuthorWorkspaceMembershipID,
 			&i.Text,
 			&i.ThreadTs,
 			&i.Type,
@@ -278,7 +456,7 @@ func (q *Queries) ListMessagesHistory(ctx context.Context, arg ListMessagesHisto
 }
 
 const listMessagesHistoryNocursor = `-- name: ListMessagesHistoryNocursor :many
-SELECT ts, channel_id, user_id, text, thread_ts, type, subtype,
+SELECT ts, channel_id, user_id, author_account_id, author_workspace_membership_id, text, thread_ts, type, subtype,
        blocks, metadata, edited_by, edited_at,
        reply_count, reply_users_count, latest_reply,
        is_deleted, created_at, updated_at
@@ -293,19 +471,43 @@ type ListMessagesHistoryNocursorParams struct {
 	Limit     int32  `json:"limit"`
 }
 
-func (q *Queries) ListMessagesHistoryNocursor(ctx context.Context, arg ListMessagesHistoryNocursorParams) ([]Message, error) {
+type ListMessagesHistoryNocursorRow struct {
+	Ts                          string      `json:"ts"`
+	ChannelID                   string      `json:"channel_id"`
+	UserID                      string      `json:"user_id"`
+	AuthorAccountID             pgtype.Text `json:"author_account_id"`
+	AuthorWorkspaceMembershipID pgtype.Text `json:"author_workspace_membership_id"`
+	Text                        string      `json:"text"`
+	ThreadTs                    pgtype.Text `json:"thread_ts"`
+	Type                        string      `json:"type"`
+	Subtype                     pgtype.Text `json:"subtype"`
+	Blocks                      []byte      `json:"blocks"`
+	Metadata                    []byte      `json:"metadata"`
+	EditedBy                    pgtype.Text `json:"edited_by"`
+	EditedAt                    pgtype.Text `json:"edited_at"`
+	ReplyCount                  int32       `json:"reply_count"`
+	ReplyUsersCount             int32       `json:"reply_users_count"`
+	LatestReply                 pgtype.Text `json:"latest_reply"`
+	IsDeleted                   bool        `json:"is_deleted"`
+	CreatedAt                   time.Time   `json:"created_at"`
+	UpdatedAt                   time.Time   `json:"updated_at"`
+}
+
+func (q *Queries) ListMessagesHistoryNocursor(ctx context.Context, arg ListMessagesHistoryNocursorParams) ([]ListMessagesHistoryNocursorRow, error) {
 	rows, err := q.db.Query(ctx, listMessagesHistoryNocursor, arg.ChannelID, arg.Limit)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []Message{}
+	items := []ListMessagesHistoryNocursorRow{}
 	for rows.Next() {
-		var i Message
+		var i ListMessagesHistoryNocursorRow
 		if err := rows.Scan(
 			&i.Ts,
 			&i.ChannelID,
 			&i.UserID,
+			&i.AuthorAccountID,
+			&i.AuthorWorkspaceMembershipID,
 			&i.Text,
 			&i.ThreadTs,
 			&i.Type,
@@ -332,7 +534,7 @@ func (q *Queries) ListMessagesHistoryNocursor(ctx context.Context, arg ListMessa
 }
 
 const listReplies = `-- name: ListReplies :many
-SELECT ts, channel_id, user_id, text, thread_ts, type, subtype,
+SELECT ts, channel_id, user_id, author_account_id, author_workspace_membership_id, text, thread_ts, type, subtype,
        blocks, metadata, edited_by, edited_at,
        reply_count, reply_users_count, latest_reply,
        is_deleted, created_at, updated_at
@@ -349,7 +551,29 @@ type ListRepliesParams struct {
 	Limit     int32       `json:"limit"`
 }
 
-func (q *Queries) ListReplies(ctx context.Context, arg ListRepliesParams) ([]Message, error) {
+type ListRepliesRow struct {
+	Ts                          string      `json:"ts"`
+	ChannelID                   string      `json:"channel_id"`
+	UserID                      string      `json:"user_id"`
+	AuthorAccountID             pgtype.Text `json:"author_account_id"`
+	AuthorWorkspaceMembershipID pgtype.Text `json:"author_workspace_membership_id"`
+	Text                        string      `json:"text"`
+	ThreadTs                    pgtype.Text `json:"thread_ts"`
+	Type                        string      `json:"type"`
+	Subtype                     pgtype.Text `json:"subtype"`
+	Blocks                      []byte      `json:"blocks"`
+	Metadata                    []byte      `json:"metadata"`
+	EditedBy                    pgtype.Text `json:"edited_by"`
+	EditedAt                    pgtype.Text `json:"edited_at"`
+	ReplyCount                  int32       `json:"reply_count"`
+	ReplyUsersCount             int32       `json:"reply_users_count"`
+	LatestReply                 pgtype.Text `json:"latest_reply"`
+	IsDeleted                   bool        `json:"is_deleted"`
+	CreatedAt                   time.Time   `json:"created_at"`
+	UpdatedAt                   time.Time   `json:"updated_at"`
+}
+
+func (q *Queries) ListReplies(ctx context.Context, arg ListRepliesParams) ([]ListRepliesRow, error) {
 	rows, err := q.db.Query(ctx, listReplies,
 		arg.ChannelID,
 		arg.ThreadTs,
@@ -360,13 +584,15 @@ func (q *Queries) ListReplies(ctx context.Context, arg ListRepliesParams) ([]Mes
 		return nil, err
 	}
 	defer rows.Close()
-	items := []Message{}
+	items := []ListRepliesRow{}
 	for rows.Next() {
-		var i Message
+		var i ListRepliesRow
 		if err := rows.Scan(
 			&i.Ts,
 			&i.ChannelID,
 			&i.UserID,
+			&i.AuthorAccountID,
+			&i.AuthorWorkspaceMembershipID,
 			&i.Text,
 			&i.ThreadTs,
 			&i.Type,
@@ -393,7 +619,7 @@ func (q *Queries) ListReplies(ctx context.Context, arg ListRepliesParams) ([]Mes
 }
 
 const listRepliesNoCursor = `-- name: ListRepliesNoCursor :many
-SELECT ts, channel_id, user_id, text, thread_ts, type, subtype,
+SELECT ts, channel_id, user_id, author_account_id, author_workspace_membership_id, text, thread_ts, type, subtype,
        blocks, metadata, edited_by, edited_at,
        reply_count, reply_users_count, latest_reply,
        is_deleted, created_at, updated_at
@@ -409,19 +635,43 @@ type ListRepliesNoCursorParams struct {
 	Limit     int32       `json:"limit"`
 }
 
-func (q *Queries) ListRepliesNoCursor(ctx context.Context, arg ListRepliesNoCursorParams) ([]Message, error) {
+type ListRepliesNoCursorRow struct {
+	Ts                          string      `json:"ts"`
+	ChannelID                   string      `json:"channel_id"`
+	UserID                      string      `json:"user_id"`
+	AuthorAccountID             pgtype.Text `json:"author_account_id"`
+	AuthorWorkspaceMembershipID pgtype.Text `json:"author_workspace_membership_id"`
+	Text                        string      `json:"text"`
+	ThreadTs                    pgtype.Text `json:"thread_ts"`
+	Type                        string      `json:"type"`
+	Subtype                     pgtype.Text `json:"subtype"`
+	Blocks                      []byte      `json:"blocks"`
+	Metadata                    []byte      `json:"metadata"`
+	EditedBy                    pgtype.Text `json:"edited_by"`
+	EditedAt                    pgtype.Text `json:"edited_at"`
+	ReplyCount                  int32       `json:"reply_count"`
+	ReplyUsersCount             int32       `json:"reply_users_count"`
+	LatestReply                 pgtype.Text `json:"latest_reply"`
+	IsDeleted                   bool        `json:"is_deleted"`
+	CreatedAt                   time.Time   `json:"created_at"`
+	UpdatedAt                   time.Time   `json:"updated_at"`
+}
+
+func (q *Queries) ListRepliesNoCursor(ctx context.Context, arg ListRepliesNoCursorParams) ([]ListRepliesNoCursorRow, error) {
 	rows, err := q.db.Query(ctx, listRepliesNoCursor, arg.ChannelID, arg.ThreadTs, arg.Limit)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []Message{}
+	items := []ListRepliesNoCursorRow{}
 	for rows.Next() {
-		var i Message
+		var i ListRepliesNoCursorRow
 		if err := rows.Scan(
 			&i.Ts,
 			&i.ChannelID,
 			&i.UserID,
+			&i.AuthorAccountID,
+			&i.AuthorWorkspaceMembershipID,
 			&i.Text,
 			&i.ThreadTs,
 			&i.Type,
@@ -489,7 +739,7 @@ const updateMessage = `-- name: UpdateMessage :one
 UPDATE messages
 SET text = $3, blocks = $4, metadata = $5, edited_by = $6, edited_at = $7
 WHERE channel_id = $1 AND ts = $2
-RETURNING ts, channel_id, user_id, text, thread_ts, type, subtype,
+RETURNING ts, channel_id, user_id, author_account_id, author_workspace_membership_id, text, thread_ts, type, subtype,
           blocks, metadata, edited_by, edited_at,
           reply_count, reply_users_count, latest_reply,
           is_deleted, created_at, updated_at
@@ -505,7 +755,29 @@ type UpdateMessageParams struct {
 	EditedAt  pgtype.Text `json:"edited_at"`
 }
 
-func (q *Queries) UpdateMessage(ctx context.Context, arg UpdateMessageParams) (Message, error) {
+type UpdateMessageRow struct {
+	Ts                          string      `json:"ts"`
+	ChannelID                   string      `json:"channel_id"`
+	UserID                      string      `json:"user_id"`
+	AuthorAccountID             pgtype.Text `json:"author_account_id"`
+	AuthorWorkspaceMembershipID pgtype.Text `json:"author_workspace_membership_id"`
+	Text                        string      `json:"text"`
+	ThreadTs                    pgtype.Text `json:"thread_ts"`
+	Type                        string      `json:"type"`
+	Subtype                     pgtype.Text `json:"subtype"`
+	Blocks                      []byte      `json:"blocks"`
+	Metadata                    []byte      `json:"metadata"`
+	EditedBy                    pgtype.Text `json:"edited_by"`
+	EditedAt                    pgtype.Text `json:"edited_at"`
+	ReplyCount                  int32       `json:"reply_count"`
+	ReplyUsersCount             int32       `json:"reply_users_count"`
+	LatestReply                 pgtype.Text `json:"latest_reply"`
+	IsDeleted                   bool        `json:"is_deleted"`
+	CreatedAt                   time.Time   `json:"created_at"`
+	UpdatedAt                   time.Time   `json:"updated_at"`
+}
+
+func (q *Queries) UpdateMessage(ctx context.Context, arg UpdateMessageParams) (UpdateMessageRow, error) {
 	row := q.db.QueryRow(ctx, updateMessage,
 		arg.ChannelID,
 		arg.Ts,
@@ -515,11 +787,13 @@ func (q *Queries) UpdateMessage(ctx context.Context, arg UpdateMessageParams) (M
 		arg.EditedBy,
 		arg.EditedAt,
 	)
-	var i Message
+	var i UpdateMessageRow
 	err := row.Scan(
 		&i.Ts,
 		&i.ChannelID,
 		&i.UserID,
+		&i.AuthorAccountID,
+		&i.AuthorWorkspaceMembershipID,
 		&i.Text,
 		&i.ThreadTs,
 		&i.Type,

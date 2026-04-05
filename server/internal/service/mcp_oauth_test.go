@@ -144,7 +144,7 @@ func TestMCPOAuthService_AuthorizeAndExchangeCode(t *testing.T) {
 		ID:            "U123",
 		AccountID:     "A123",
 		WorkspaceID:   "T123",
-		Name:          "Legacy Name",
+		Name:          "Existing Name",
 		Email:         "member@example.com",
 		PrincipalType: domain.PrincipalTypeHuman,
 		AccountType:   domain.AccountTypeMember,

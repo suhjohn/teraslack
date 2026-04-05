@@ -49,7 +49,7 @@ type ApiKey struct {
 
 type AuthSession struct {
 	ID          string      `json:"id"`
-	WorkspaceID string      `json:"workspace_id"`
+	WorkspaceID pgtype.Text `json:"workspace_id"`
 	UserID      pgtype.Text `json:"user_id"`
 	SessionHash string      `json:"session_hash"`
 	Provider    string      `json:"provider"`
@@ -94,23 +94,26 @@ type CanonicalDm struct {
 }
 
 type Conversation struct {
-	ID             string      `json:"id"`
-	WorkspaceID    string      `json:"workspace_id"`
-	Name           string      `json:"name"`
-	Type           string      `json:"type"`
-	CreatorID      string      `json:"creator_id"`
-	IsArchived     bool        `json:"is_archived"`
-	TopicValue     string      `json:"topic_value"`
-	TopicCreator   string      `json:"topic_creator"`
-	TopicLastSet   *time.Time  `json:"topic_last_set"`
-	PurposeValue   string      `json:"purpose_value"`
-	PurposeCreator string      `json:"purpose_creator"`
-	PurposeLastSet *time.Time  `json:"purpose_last_set"`
-	NumMembers     int32       `json:"num_members"`
-	CreatedAt      time.Time   `json:"created_at"`
-	UpdatedAt      time.Time   `json:"updated_at"`
-	LastMessageTs  pgtype.Text `json:"last_message_ts"`
-	LastActivityTs pgtype.Text `json:"last_activity_ts"`
+	ID               string      `json:"id"`
+	WorkspaceID      pgtype.Text `json:"workspace_id"`
+	Name             string      `json:"name"`
+	Type             string      `json:"type"`
+	CreatorID        pgtype.Text `json:"creator_id"`
+	IsArchived       bool        `json:"is_archived"`
+	TopicValue       string      `json:"topic_value"`
+	TopicCreator     string      `json:"topic_creator"`
+	TopicLastSet     *time.Time  `json:"topic_last_set"`
+	PurposeValue     string      `json:"purpose_value"`
+	PurposeCreator   string      `json:"purpose_creator"`
+	PurposeLastSet   *time.Time  `json:"purpose_last_set"`
+	NumMembers       int32       `json:"num_members"`
+	CreatedAt        time.Time   `json:"created_at"`
+	UpdatedAt        time.Time   `json:"updated_at"`
+	LastMessageTs    pgtype.Text `json:"last_message_ts"`
+	LastActivityTs   pgtype.Text `json:"last_activity_ts"`
+	OwnerType        string      `json:"owner_type"`
+	OwnerAccountID   pgtype.Text `json:"owner_account_id"`
+	OwnerWorkspaceID pgtype.Text `json:"owner_workspace_id"`
 }
 
 type ConversationEventFeed struct {
@@ -127,10 +130,25 @@ type ConversationManagerAssignment struct {
 	CreatedAt      pgtype.Timestamptz `json:"created_at"`
 }
 
+type ConversationManagerAssignmentsV2 struct {
+	ConversationID      string      `json:"conversation_id"`
+	AccountID           string      `json:"account_id"`
+	AssignedByAccountID pgtype.Text `json:"assigned_by_account_id"`
+	CreatedAt           time.Time   `json:"created_at"`
+}
+
 type ConversationMember struct {
 	ConversationID string    `json:"conversation_id"`
 	UserID         string    `json:"user_id"`
 	JoinedAt       time.Time `json:"joined_at"`
+}
+
+type ConversationMembersV2 struct {
+	ConversationID   string      `json:"conversation_id"`
+	AccountID        string      `json:"account_id"`
+	MembershipRole   string      `json:"membership_role"`
+	AddedByAccountID pgtype.Text `json:"added_by_account_id"`
+	CreatedAt        time.Time   `json:"created_at"`
 }
 
 type ConversationPostingPolicy struct {
@@ -141,10 +159,23 @@ type ConversationPostingPolicy struct {
 	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
 }
 
+type ConversationPostingPolicyAllowedAccountsV2 struct {
+	ConversationID string    `json:"conversation_id"`
+	AccountID      string    `json:"account_id"`
+	CreatedAt      time.Time `json:"created_at"`
+}
+
 type ConversationRead struct {
 	WorkspaceID    string    `json:"workspace_id"`
 	ConversationID string    `json:"conversation_id"`
 	UserID         string    `json:"user_id"`
+	LastReadTs     string    `json:"last_read_ts"`
+	LastReadAt     time.Time `json:"last_read_at"`
+}
+
+type ConversationReadsV2 struct {
+	ConversationID string    `json:"conversation_id"`
+	AccountID      string    `json:"account_id"`
 	LastReadTs     string    `json:"last_read_ts"`
 	LastReadAt     time.Time `json:"last_read_at"`
 }
@@ -271,28 +302,30 @@ type InternalEvent struct {
 }
 
 type Message struct {
-	Ts              string      `json:"ts"`
-	ChannelID       string      `json:"channel_id"`
-	UserID          string      `json:"user_id"`
-	Text            string      `json:"text"`
-	ThreadTs        pgtype.Text `json:"thread_ts"`
-	Type            string      `json:"type"`
-	Subtype         pgtype.Text `json:"subtype"`
-	Blocks          []byte      `json:"blocks"`
-	Metadata        []byte      `json:"metadata"`
-	EditedBy        pgtype.Text `json:"edited_by"`
-	EditedAt        pgtype.Text `json:"edited_at"`
-	ReplyCount      int32       `json:"reply_count"`
-	ReplyUsersCount int32       `json:"reply_users_count"`
-	LatestReply     pgtype.Text `json:"latest_reply"`
-	IsDeleted       bool        `json:"is_deleted"`
-	CreatedAt       time.Time   `json:"created_at"`
-	UpdatedAt       time.Time   `json:"updated_at"`
+	Ts                          string      `json:"ts"`
+	ChannelID                   string      `json:"channel_id"`
+	UserID                      string      `json:"user_id"`
+	Text                        string      `json:"text"`
+	ThreadTs                    pgtype.Text `json:"thread_ts"`
+	Type                        string      `json:"type"`
+	Subtype                     pgtype.Text `json:"subtype"`
+	Blocks                      []byte      `json:"blocks"`
+	Metadata                    []byte      `json:"metadata"`
+	EditedBy                    pgtype.Text `json:"edited_by"`
+	EditedAt                    pgtype.Text `json:"edited_at"`
+	ReplyCount                  int32       `json:"reply_count"`
+	ReplyUsersCount             int32       `json:"reply_users_count"`
+	LatestReply                 pgtype.Text `json:"latest_reply"`
+	IsDeleted                   bool        `json:"is_deleted"`
+	CreatedAt                   time.Time   `json:"created_at"`
+	UpdatedAt                   time.Time   `json:"updated_at"`
+	AuthorAccountID             pgtype.Text `json:"author_account_id"`
+	AuthorWorkspaceMembershipID pgtype.Text `json:"author_workspace_membership_id"`
 }
 
 type OauthAccount struct {
 	ID              string      `json:"id"`
-	WorkspaceID     string      `json:"workspace_id"`
+	WorkspaceID     pgtype.Text `json:"workspace_id"`
 	UserID          pgtype.Text `json:"user_id"`
 	Provider        string      `json:"provider"`
 	ProviderSubject string      `json:"provider_subject"`
@@ -449,4 +482,35 @@ type WorkspaceInvite struct {
 	CreatedAt           time.Time   `json:"created_at"`
 	UpdatedAt           time.Time   `json:"updated_at"`
 	AcceptedByAccountID pgtype.Text `json:"accepted_by_account_id"`
+}
+
+type WorkspaceMembership struct {
+	ID                 string      `json:"id"`
+	WorkspaceID        string      `json:"workspace_id"`
+	AccountID          string      `json:"account_id"`
+	Role               string      `json:"role"`
+	Status             string      `json:"status"`
+	MembershipKind     string      `json:"membership_kind"`
+	GuestScope         string      `json:"guest_scope"`
+	CreatedByAccountID pgtype.Text `json:"created_by_account_id"`
+	UpdatedByAccountID pgtype.Text `json:"updated_by_account_id"`
+	CreatedAt          time.Time   `json:"created_at"`
+	UpdatedAt          time.Time   `json:"updated_at"`
+}
+
+type WorkspaceMembershipConversationAccess struct {
+	WorkspaceMembershipID string    `json:"workspace_membership_id"`
+	ConversationID        string    `json:"conversation_id"`
+	CreatedAt             time.Time `json:"created_at"`
+}
+
+type WorkspaceProfile struct {
+	WorkspaceID string    `json:"workspace_id"`
+	AccountID   string    `json:"account_id"`
+	Name        string    `json:"name"`
+	RealName    string    `json:"real_name"`
+	DisplayName string    `json:"display_name"`
+	Profile     []byte    `json:"profile"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
 }

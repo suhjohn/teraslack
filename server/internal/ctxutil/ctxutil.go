@@ -11,16 +11,17 @@ import (
 type contextKey string
 
 const (
-	ContextKeyWorkspaceID   contextKey = "workspace_id"
-	ContextKeyUserID        contextKey = "user_id"
-	ContextKeyAccountID     contextKey = "account_id"
-	ContextKeyIsBot         contextKey = "is_bot"
-	ContextKeyPrincipalType contextKey = "principal_type"
-	ContextKeyAccountType   contextKey = "account_type"
-	ContextKeyOnBehalfOf    contextKey = "on_behalf_of"
-	ContextKeyAPIKeyID      contextKey = "api_key_id"
-	ContextKeyPermissions   contextKey = "permissions"
-	ContextKeyOAuthScopes   contextKey = "oauth_scopes"
+	ContextKeyWorkspaceID           contextKey = "workspace_id"
+	ContextKeyWorkspaceMembershipID contextKey = "workspace_membership_id"
+	ContextKeyUserID                contextKey = "user_id"
+	ContextKeyAccountID             contextKey = "account_id"
+	ContextKeyIsBot                 contextKey = "is_bot"
+	ContextKeyPrincipalType         contextKey = "principal_type"
+	ContextKeyAccountType           contextKey = "account_type"
+	ContextKeyOnBehalfOf            contextKey = "on_behalf_of"
+	ContextKeyAPIKeyID              contextKey = "api_key_id"
+	ContextKeyPermissions           contextKey = "permissions"
+	ContextKeyOAuthScopes           contextKey = "oauth_scopes"
 )
 
 // GetUserID extracts user_id from context (set by AuthMiddleware).
@@ -32,6 +33,12 @@ func GetUserID(ctx context.Context) string {
 // GetAccountID extracts account_id from context.
 func GetAccountID(ctx context.Context) string {
 	v, _ := ctx.Value(ContextKeyAccountID).(string)
+	return v
+}
+
+// GetWorkspaceMembershipID extracts workspace_membership_id from context.
+func GetWorkspaceMembershipID(ctx context.Context) string {
+	v, _ := ctx.Value(ContextKeyWorkspaceMembershipID).(string)
 	return v
 }
 
@@ -109,6 +116,14 @@ func WithUser(ctx context.Context, userID, workspaceID string) context.Context {
 func WithIdentity(ctx context.Context, accountID string) context.Context {
 	if accountID != "" {
 		ctx = context.WithValue(ctx, ContextKeyAccountID, accountID)
+	}
+	return ctx
+}
+
+// WithWorkspaceMembership returns a context with workspace_membership_id set.
+func WithWorkspaceMembership(ctx context.Context, workspaceMembershipID string) context.Context {
+	if workspaceMembershipID != "" {
+		ctx = context.WithValue(ctx, ContextKeyWorkspaceMembershipID, workspaceMembershipID)
 	}
 	return ctx
 }

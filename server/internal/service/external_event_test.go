@@ -200,10 +200,10 @@ func TestProjectExternalEvents_MessageDeleteUsesTombstonePayload(t *testing.T) {
 	}
 }
 
-func TestDecodeExternalEventCursor_RejectsLegacyIntegerCursor(t *testing.T) {
+func TestDecodeExternalEventCursor_RejectsDeprecatedIntegerCursor(t *testing.T) {
 	_, err := decodeExternalEventCursor("41")
 	if err == nil {
-		t.Fatal("expected error for legacy integer cursor")
+		t.Fatal("expected error for deprecated integer cursor")
 	}
 }
 
@@ -255,16 +255,36 @@ func TestExternalEventService_ListPassesWorkspaceUserIdentityToRepository(t *tes
 	}
 }
 
+func TestExternalEventService_ListTreatsGuestWorkspaceMembershipAsWorkspaceContext(t *testing.T) {
+	repo := &externalEventRepoStub{}
+	svc := NewExternalEventService(repo)
+
+	ctx := ctxutil.WithUser(context.Background(), "U123", "T123")
+	ctx = ctxutil.WithIdentity(ctx, "A123")
+	ctx = ctxutil.WithWorkspaceMembership(ctx, "WM123")
+	if _, err := svc.List(ctx, domain.ListExternalEventsParams{ResourceType: domain.ResourceTypeConversation}); err != nil {
+		t.Fatalf("list external events: %v", err)
+	}
+	if repo.lastPrincipal.WorkspaceID != "T123" {
+		t.Fatalf("unexpected workspace id: %+v", repo.lastPrincipal)
+	}
+	if !repo.lastPrincipal.HasWorkspaceUserContext {
+		t.Fatalf("expected guest workspace membership to retain workspace-user context, got %+v", repo.lastPrincipal)
+	}
+}
+
 func TestExternalEventService_ListAllowsRequestedSharedWorkspace(t *testing.T) {
 	repo := &externalEventRepoStub{}
 	svc := NewExternalEventService(repo)
-	svc.SetExternalMemberRepository(&externalEventExternalMemberRepoStub{
-		itemsByWorkspace: map[string][]domain.ExternalMember{
-			"T999": {{ConversationID: "C123", HostWorkspaceID: "T999", AccountID: "A123"}},
+	svc.SetUserRepository(&mockUserRepoMap{
+		users: map[string]*domain.User{
+			"U_HOME":   {ID: "U_HOME", AccountID: "A123", WorkspaceID: "T123", PrincipalType: domain.PrincipalTypeHuman, AccountType: domain.AccountTypeMember},
+			"U_SHARED": {ID: "U_SHARED", AccountID: "A123", WorkspaceID: "T999", PrincipalType: domain.PrincipalTypeHuman, AccountType: domain.AccountTypeMember},
 		},
 	})
 
-	ctx := ctxutil.WithIdentity(ctxutil.WithUser(context.Background(), "U123", "T123"), "A123")
+	ctx := ctxutil.WithUser(context.Background(), "U_HOME", "T123")
+	ctx = ctxutil.WithIdentity(ctx, "A123")
 	if _, err := svc.List(ctx, domain.ListExternalEventsParams{WorkspaceID: "T999"}); err != nil {
 		t.Fatalf("list external events: %v", err)
 	}

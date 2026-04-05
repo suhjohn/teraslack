@@ -5,6 +5,7 @@
  * Canonical HTTP API for Teraslack.
  * OpenAPI spec version: 1.0.0
  */
+import type { ConversationOwnerType } from './conversationOwnerType';
 import type { ConversationType } from './conversationType';
 import type { TopicPurpose } from './topicPurpose';
 
@@ -16,6 +17,12 @@ export interface Conversation {
   id: string;
   /** Workspace this conversation belongs to. */
   workspace_id: string;
+  /** Whether the conversation is owned by an account or a workspace. */
+  owner_type: ConversationOwnerType;
+  /** Owning account when `owner_type=account`. */
+  owner_account_id?: string;
+  /** Owning workspace when `owner_type=workspace`. */
+  owner_workspace_id?: string;
   /** Display name of the conversation (e.g. "general", "deploy-alerts"). */
   name: string;
   type: ConversationType;

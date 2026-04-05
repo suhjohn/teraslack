@@ -5,6 +5,7 @@
  * Canonical HTTP API for Teraslack.
  * OpenAPI spec version: 1.0.0
  */
+import type { APIKeyScope } from './aPIKeyScope';
 
 /**
  * An API key used to authenticate requests. Keys are either account-scoped or workspace-system-scoped.
@@ -22,7 +23,7 @@ export interface APIKey {
   key_prefix: string;
   /** Masked version of the key shown in the UI (e.g. "tsk_abc...xyz"). */
   key_hint: string;
-  scope: 'account' | 'workspace_system';
+  scope: APIKeyScope;
   /** Workspace this key is pinned to when `scope` is `workspace_system`. */
   workspace_id?: string;
   /** Account that owns this key when `scope` is `account`. */

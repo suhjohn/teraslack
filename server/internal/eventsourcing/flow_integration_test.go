@@ -48,11 +48,13 @@ func setupAllServices(t *testing.T) *testEnv {
 
 	userRepo := pgRepo.NewUserRepo(pool)
 	convRepo := pgRepo.NewConversationRepo(pool)
+	convAccessRepo := pgRepo.NewConversationAccessRepo(pool)
 	convReadRepo := pgRepo.NewConversationReadRepo(pool)
 	msgRepo := pgRepo.NewMessageRepo(pool)
 	fileRepo := pgRepo.NewFileRepo(pool)
 	authRepo := pgRepo.NewAuthRepo(pool)
 	accountRepo := pgRepo.NewAccountRepo(pool)
+	roleRepo := pgRepo.NewRoleAssignmentRepo(pool)
 	workspaceRepo := pgRepo.NewWorkspaceRepo(pool)
 	workspaceInviteRepo := pgRepo.NewWorkspaceInviteRepo(pool)
 	eventRepo := pgRepo.NewEventRepo(pool, encryptor)
@@ -69,17 +71,28 @@ func setupAllServices(t *testing.T) *testEnv {
 		HTTPClient:  nil,
 	})
 	authSvc.SetIdentityRepositories(accountRepo)
+	convSvc := service.NewConversationService(convRepo, userRepo, recorder, pool, logger)
+	convAccessSvc := service.NewConversationAccessService(convAccessRepo, convRepo, userRepo, roleRepo, recorder, pool, logger)
+	convSvc.SetAccessService(convAccessSvc)
+	msgSvc := service.NewMessageService(msgRepo, convRepo, recorder, pool, logger)
+	msgSvc.SetAccessService(convAccessSvc)
+	fileSvc := service.NewFileService(fileRepo, nil, "", "http://localhost:8080", recorder, pool, logger)
+	fileSvc.SetConversationRepository(convRepo)
+	fileSvc.SetUserRepository(userRepo)
+	fileSvc.SetAccessService(convAccessSvc)
+	apiKeySvc := service.NewAPIKeyService(apiKeyRepo, userRepo, recorder, pool, logger)
+	apiKeySvc.SetIdentityRepositories(accountRepo)
 
 	return &testEnv{
 		pool:        pool,
 		userSvc:     userSvc,
-		convSvc:     service.NewConversationService(convRepo, userRepo, recorder, pool, logger),
+		convSvc:     convSvc,
 		convReadSvc: service.NewConversationReadService(convReadRepo, convRepo),
-		msgSvc:      service.NewMessageService(msgRepo, convRepo, recorder, pool, logger),
-		fileSvc:     service.NewFileService(fileRepo, nil, "", "http://localhost:8080", recorder, pool, logger),
+		msgSvc:      msgSvc,
+		fileSvc:     fileSvc,
 		authSvc:     authSvc,
 		eventSvc:    service.NewEventService(eventRepo, userRepo, recorder, pool, logger),
-		apiKeySvc:   service.NewAPIKeyService(apiKeyRepo, userRepo, recorder, pool, logger),
+		apiKeySvc:   apiKeySvc,
 		projector:   eventsourcing.NewProjector(pool, logger),
 	}
 }
@@ -263,10 +276,10 @@ func TestFlow_WorkspaceBootstrap(t *testing.T) {
 	}
 
 	// Step 3: Create public channel
-	general, err := env.convSvc.Create(ctx, domain.CreateConversationParams{
-		WorkspaceID: workspaceID, Name: "general",
-		Type: domain.ConversationTypePublicChannel, CreatorID: admin.ID,
-	})
+		general, err := env.convSvc.Create(ctx, domain.CreateConversationParams{
+			WorkspaceID: workspaceID, OwnerType: domain.ConversationOwnerTypeWorkspace, Name: "general",
+			Type: domain.ConversationTypePublicChannel, CreatorID: admin.ID,
+		})
 	if err != nil {
 		t.Fatalf("create general: %v", err)
 	}
@@ -415,10 +428,10 @@ func TestFlow_ChannelLifecycle(t *testing.T) {
 		t.Fatalf("create user: %v", err)
 	}
 
-	ch, err := env.convSvc.Create(ctx, domain.CreateConversationParams{
-		WorkspaceID: workspaceID, Name: "project-alpha",
-		Type: domain.ConversationTypePublicChannel, CreatorID: user.ID,
-	})
+		ch, err := env.convSvc.Create(ctx, domain.CreateConversationParams{
+			WorkspaceID: workspaceID, OwnerType: domain.ConversationOwnerTypeWorkspace, Name: "project-alpha",
+			Type: domain.ConversationTypePublicChannel, CreatorID: user.ID,
+		})
 	if err != nil {
 		t.Fatalf("create channel: %v", err)
 	}
@@ -604,8 +617,8 @@ func TestFlow_AgentDelegation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("validate: %v", err)
 	}
-	if v.UserID != agent.ID {
-		t.Errorf("principal = %q", v.UserID)
+	if v.UserID != "" || v.AccountID != agent.AccountID || v.WorkspaceID != workspaceID || v.WorkspaceMembershipID == "" {
+		t.Errorf("unexpected principal = %+v", v)
 	}
 
 	// Get (hash hidden)
@@ -860,10 +873,10 @@ func TestFlow_MessageThreading(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create user: %v", err)
 	}
-	ch, err := env.convSvc.Create(ctx, domain.CreateConversationParams{
-		WorkspaceID: workspaceID, Name: "dev",
-		Type: domain.ConversationTypePublicChannel, CreatorID: user.ID,
-	})
+		ch, err := env.convSvc.Create(ctx, domain.CreateConversationParams{
+			WorkspaceID: workspaceID, OwnerType: domain.ConversationOwnerTypeWorkspace, Name: "dev",
+			Type: domain.ConversationTypePublicChannel, CreatorID: user.ID,
+		})
 	if err != nil {
 		t.Fatalf("create channel: %v", err)
 	}
@@ -1046,10 +1059,10 @@ func TestFlow_FileLifecycle(t *testing.T) {
 		t.Fatalf("create user: %v", err)
 	}
 	ctx = ctxutil.WithUser(ctx, user.ID, workspaceID)
-	ch, err := env.convSvc.Create(ctx, domain.CreateConversationParams{
-		WorkspaceID: workspaceID, Name: "files",
-		Type: domain.ConversationTypePublicChannel, CreatorID: user.ID,
-	})
+		ch, err := env.convSvc.Create(ctx, domain.CreateConversationParams{
+			WorkspaceID: workspaceID, OwnerType: domain.ConversationOwnerTypeWorkspace, Name: "files",
+			Type: domain.ConversationTypePublicChannel, CreatorID: user.ID,
+		})
 	if err != nil {
 		t.Fatalf("create channel: %v", err)
 	}
@@ -1270,10 +1283,10 @@ func TestFlow_WebhookEnvelopeContract(t *testing.T) {
 
 	ctx := ctxutil.WithUser(baseCtx, user.ID, workspaceID)
 
-	ch, err := env.convSvc.Create(ctx, domain.CreateConversationParams{
-		WorkspaceID: workspaceID, Name: "hooks",
-		Type: domain.ConversationTypePublicChannel, CreatorID: user.ID,
-	})
+		ch, err := env.convSvc.Create(ctx, domain.CreateConversationParams{
+			WorkspaceID: workspaceID, OwnerType: domain.ConversationOwnerTypeWorkspace, Name: "hooks",
+			Type: domain.ConversationTypePublicChannel, CreatorID: user.ID,
+		})
 	if err != nil {
 		t.Fatalf("create channel: %v", err)
 	}
@@ -1490,10 +1503,10 @@ func TestFlow_CrossCuttingConsistency(t *testing.T) {
 		t.Fatalf("create user: %v", err)
 	}
 
-	ch, err := env.convSvc.Create(ctx, domain.CreateConversationParams{
-		WorkspaceID: workspaceID, Name: "crosscut",
-		Type: domain.ConversationTypePublicChannel, CreatorID: user.ID,
-	})
+		ch, err := env.convSvc.Create(ctx, domain.CreateConversationParams{
+			WorkspaceID: workspaceID, OwnerType: domain.ConversationOwnerTypeWorkspace, Name: "crosscut",
+			Type: domain.ConversationTypePublicChannel, CreatorID: user.ID,
+		})
 	if err != nil {
 		t.Fatalf("create channel: %v", err)
 	}
@@ -1643,10 +1656,10 @@ func TestFlow_Pagination(t *testing.T) {
 	}
 
 	// Message pagination
-	ch, err := env.convSvc.Create(ctx, domain.CreateConversationParams{
-		WorkspaceID: workspaceID, Name: "pag-ch",
-		Type: domain.ConversationTypePublicChannel, CreatorID: user.ID,
-	})
+		ch, err := env.convSvc.Create(ctx, domain.CreateConversationParams{
+			WorkspaceID: workspaceID, OwnerType: domain.ConversationOwnerTypeWorkspace, Name: "pag-ch",
+			Type: domain.ConversationTypePublicChannel, CreatorID: user.ID,
+		})
 	if err != nil {
 		t.Fatalf("create channel: %v", err)
 	}
@@ -1666,10 +1679,10 @@ func TestFlow_Pagination(t *testing.T) {
 	// Conversation pagination
 	for i := 0; i < 3; i++ {
 		ts := time.Now().Format("150405.000000")
-		if _, err := env.convSvc.Create(ctx, domain.CreateConversationParams{
-			WorkspaceID: workspaceID, Name: "pch-" + ts,
-			Type: domain.ConversationTypePublicChannel, CreatorID: user.ID,
-		}); err != nil {
+			if _, err := env.convSvc.Create(ctx, domain.CreateConversationParams{
+				WorkspaceID: workspaceID, OwnerType: domain.ConversationOwnerTypeWorkspace, Name: "pch-" + ts,
+				Type: domain.ConversationTypePublicChannel, CreatorID: user.ID,
+			}); err != nil {
 			t.Fatalf("create conv %d: %v", i, err)
 		}
 		time.Sleep(1 * time.Millisecond)
@@ -1741,9 +1754,9 @@ func TestFlow_ConversationTypes(t *testing.T) {
 	}
 
 	// DM (IM)
-	dm, err := env.convSvc.Create(ctx, domain.CreateConversationParams{
-		WorkspaceID: workspaceID, Type: domain.ConversationTypeIM, CreatorID: alice.ID,
-	})
+		dm, err := env.convSvc.Create(ctx, domain.CreateConversationParams{
+			WorkspaceID: workspaceID, OwnerType: domain.ConversationOwnerTypeWorkspace, Type: domain.ConversationTypeIM, CreatorID: alice.ID,
+		})
 	if err != nil {
 		t.Fatalf("create DM: %v", err)
 	}
@@ -1760,9 +1773,9 @@ func TestFlow_ConversationTypes(t *testing.T) {
 	}
 
 	// Group DM (MPIM)
-	mpim, err := env.convSvc.Create(ctx, domain.CreateConversationParams{
-		WorkspaceID: workspaceID, Type: domain.ConversationTypeMPIM, CreatorID: alice.ID,
-	})
+		mpim, err := env.convSvc.Create(ctx, domain.CreateConversationParams{
+			WorkspaceID: workspaceID, OwnerType: domain.ConversationOwnerTypeWorkspace, Type: domain.ConversationTypeMPIM, CreatorID: alice.ID,
+		})
 	if err != nil {
 		t.Fatalf("create MPIM: %v", err)
 	}
@@ -1782,10 +1795,10 @@ func TestFlow_ConversationTypes(t *testing.T) {
 	}
 
 	// Private channel
-	priv, err := env.convSvc.Create(ctx, domain.CreateConversationParams{
-		WorkspaceID: workspaceID, Name: "secret",
-		Type: domain.ConversationTypePrivateChannel, CreatorID: alice.ID,
-	})
+		priv, err := env.convSvc.Create(ctx, domain.CreateConversationParams{
+			WorkspaceID: workspaceID, OwnerType: domain.ConversationOwnerTypeWorkspace, Name: "secret",
+			Type: domain.ConversationTypePrivateChannel, CreatorID: alice.ID,
+		})
 	if err != nil {
 		t.Fatalf("create private: %v", err)
 	}
@@ -1869,22 +1882,24 @@ func TestFlow_CanonicalDMCreate_IsIdempotent(t *testing.T) {
 		t.Fatalf("create bob: %v", err)
 	}
 
-	aliceCtx := ctxutil.WithUser(ctx, alice.ID, workspaceID)
-	bobCtx := ctxutil.WithUser(ctx, bob.ID, workspaceID)
+	aliceCtx := ctxutil.WithIdentity(ctxutil.WithUser(ctx, alice.ID, workspaceID), alice.AccountID)
+	bobCtx := ctxutil.WithIdentity(ctxutil.WithUser(ctx, bob.ID, workspaceID), bob.AccountID)
 
-	firstDM, err := env.convSvc.Create(aliceCtx, domain.CreateConversationParams{
-		WorkspaceID: workspaceID,
-		Type:        domain.ConversationTypeIM,
-		UserIDs:     []string{bob.ID},
-	})
+		firstDM, err := env.convSvc.Create(aliceCtx, domain.CreateConversationParams{
+			WorkspaceID: workspaceID,
+			OwnerType:   domain.ConversationOwnerTypeWorkspace,
+			Type:        domain.ConversationTypeIM,
+			UserIDs:     []string{bob.ID},
+		})
 	if err != nil {
 		t.Fatalf("create first dm: %v", err)
 	}
-	secondDM, err := env.convSvc.Create(bobCtx, domain.CreateConversationParams{
-		WorkspaceID: workspaceID,
-		Type:        domain.ConversationTypeIM,
-		UserIDs:     []string{alice.ID},
-	})
+		secondDM, err := env.convSvc.Create(bobCtx, domain.CreateConversationParams{
+			WorkspaceID: workspaceID,
+			OwnerType:   domain.ConversationOwnerTypeWorkspace,
+			Type:        domain.ConversationTypeIM,
+			UserIDs:     []string{alice.ID},
+		})
 	if err != nil {
 		t.Fatalf("create second dm: %v", err)
 	}
@@ -1921,6 +1936,272 @@ func TestFlow_CanonicalDMCreate_IsIdempotent(t *testing.T) {
 	}
 }
 
+func TestFlow_AccountOwnedConversationCreateInviteAndMessage(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test")
+	}
+
+	env := setupAllServices(t)
+	ctx := context.Background()
+
+	owner, err := env.userSvc.Create(ctx, domain.CreateUserParams{
+		WorkspaceID:   "T-account-owner",
+		Name:          "owner",
+		Email:         "owner-account-owned@example.com",
+		PrincipalType: domain.PrincipalTypeHuman,
+	})
+	if err != nil {
+		t.Fatalf("create owner: %v", err)
+	}
+	member, err := env.userSvc.Create(ctx, domain.CreateUserParams{
+		WorkspaceID:   "T-account-member",
+		Name:          "member",
+		Email:         "member-account-owned@example.com",
+		PrincipalType: domain.PrincipalTypeHuman,
+	})
+	if err != nil {
+		t.Fatalf("create member: %v", err)
+	}
+
+	ownerCtx := ctxutil.WithUser(ctx, owner.ID, owner.WorkspaceID)
+	ownerCtx = ctxutil.WithIdentity(ownerCtx, owner.AccountID)
+
+	conv, err := env.convSvc.Create(ownerCtx, domain.CreateConversationParams{
+		OwnerType: domain.ConversationOwnerTypeAccount,
+		Type:      domain.ConversationTypePrivateChannel,
+		Name:      "account-owned-room",
+	})
+	if err != nil {
+		t.Fatalf("create account-owned conversation: %v", err)
+	}
+	if conv.OwnerType != domain.ConversationOwnerTypeAccount {
+		t.Fatalf("owner_type = %q, want %q", conv.OwnerType, domain.ConversationOwnerTypeAccount)
+	}
+	if conv.OwnerAccountID != owner.AccountID {
+		t.Fatalf("owner_account_id = %q, want %q", conv.OwnerAccountID, owner.AccountID)
+	}
+	if conv.OwnerWorkspaceID != "" {
+		t.Fatalf("owner_workspace_id = %q, want empty", conv.OwnerWorkspaceID)
+	}
+
+	if err := env.convSvc.InviteAccount(ownerCtx, conv.ID, member.AccountID); err != nil {
+		t.Fatalf("invite account member: %v", err)
+	}
+
+	memberList, err := env.convSvc.ListMembers(ctxutil.WithIdentity(ctx, owner.AccountID), conv.ID, "", 10)
+	if err != nil {
+		t.Fatalf("list account-owned members: %v", err)
+	}
+	memberAccounts := make(map[string]struct{}, len(memberList.Items))
+	for _, item := range memberList.Items {
+		memberAccounts[item.AccountID] = struct{}{}
+	}
+	if _, ok := memberAccounts[owner.AccountID]; !ok {
+		t.Fatalf("owner account %q missing from members: %#v", owner.AccountID, memberList.Items)
+	}
+	if _, ok := memberAccounts[member.AccountID]; !ok {
+		t.Fatalf("member account %q missing from members: %#v", member.AccountID, memberList.Items)
+	}
+
+	memberCtx := ctxutil.WithUser(ctx, member.ID, member.WorkspaceID)
+	memberCtx = ctxutil.WithIdentity(memberCtx, member.AccountID)
+	msg, err := env.msgSvc.PostMessage(memberCtx, domain.PostMessageParams{
+		ChannelID: conv.ID,
+		Text:      "hello from account-owned",
+	})
+	if err != nil {
+		t.Fatalf("post account-owned message: %v", err)
+	}
+
+	var userID, authorAccountID, authorWorkspaceMembershipID string
+	if err := env.pool.QueryRow(ctx, `
+		SELECT COALESCE(user_id, ''), COALESCE(author_account_id, ''), COALESCE(author_workspace_membership_id, '')
+		FROM messages
+		WHERE channel_id = $1 AND ts = $2
+	`, conv.ID, msg.TS).Scan(&userID, &authorAccountID, &authorWorkspaceMembershipID); err != nil {
+		t.Fatalf("query account-owned message: %v", err)
+	}
+	if userID != member.ID {
+		t.Fatalf("messages.user_id = %q, want %q workspace-local actor", userID, member.ID)
+	}
+	if authorAccountID != member.AccountID {
+		t.Fatalf("messages.author_account_id = %q, want %q", authorAccountID, member.AccountID)
+	}
+	if authorWorkspaceMembershipID != "" {
+		t.Fatalf("messages.author_workspace_membership_id = %q, want empty", authorWorkspaceMembershipID)
+	}
+}
+
+func TestFlow_WorkspaceOwnedConversationCreateWithAccountMemberships(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test")
+	}
+
+	env := setupAllServices(t)
+	ctx := context.Background()
+	workspaceID := "T-workspace-owned-members"
+
+	owner, err := env.userSvc.Create(ctx, domain.CreateUserParams{
+		WorkspaceID:   workspaceID,
+		Name:          "owner",
+		Email:         "owner-workspace-owned@example.com",
+		PrincipalType: domain.PrincipalTypeHuman,
+	})
+	if err != nil {
+		t.Fatalf("create owner: %v", err)
+	}
+	member, err := env.userSvc.Create(ctx, domain.CreateUserParams{
+		WorkspaceID:   workspaceID,
+		Name:          "member",
+		Email:         "member-workspace-owned@example.com",
+		PrincipalType: domain.PrincipalTypeHuman,
+	})
+	if err != nil {
+		t.Fatalf("create member: %v", err)
+	}
+
+	ownerCtx := ctxutil.WithUser(ctx, owner.ID, workspaceID)
+	ownerCtx = ctxutil.WithIdentity(ownerCtx, owner.AccountID)
+
+	conv, err := env.convSvc.Create(ownerCtx, domain.CreateConversationParams{
+		WorkspaceID:      workspaceID,
+		OwnerType:        domain.ConversationOwnerTypeWorkspace,
+		OwnerWorkspaceID: workspaceID,
+		Type:             domain.ConversationTypePrivateChannel,
+		Name:             "workspace-owned-room",
+		AccountIDs:       []string{member.AccountID},
+	})
+	if err != nil {
+		t.Fatalf("create workspace-owned conversation: %v", err)
+	}
+	if conv.OwnerType != domain.ConversationOwnerTypeWorkspace {
+		t.Fatalf("owner_type = %q, want %q", conv.OwnerType, domain.ConversationOwnerTypeWorkspace)
+	}
+	if conv.OwnerWorkspaceID != workspaceID {
+		t.Fatalf("owner_workspace_id = %q, want %q", conv.OwnerWorkspaceID, workspaceID)
+	}
+
+	memberList, err := env.convSvc.ListMembers(ownerCtx, conv.ID, "", 10)
+	if err != nil {
+		t.Fatalf("list workspace-owned members: %v", err)
+	}
+	memberAccounts := make(map[string]struct{}, len(memberList.Items))
+	for _, item := range memberList.Items {
+		memberAccounts[item.AccountID] = struct{}{}
+	}
+	if _, ok := memberAccounts[owner.AccountID]; !ok {
+		t.Fatalf("owner account %q missing from members: %#v", owner.AccountID, memberList.Items)
+	}
+	if _, ok := memberAccounts[member.AccountID]; !ok {
+		t.Fatalf("member account %q missing from members: %#v", member.AccountID, memberList.Items)
+	}
+}
+
+func TestFlow_WorkspaceOwnedInviteCreatesGuestWorkspaceProjection(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test")
+	}
+
+	env := setupAllServices(t)
+	ctx := context.Background()
+	workspace, err := pgRepo.NewWorkspaceRepo(env.pool).Create(ctx, domain.CreateWorkspaceParams{
+		Name:   "guest-auto-member",
+		Domain: "guest-auto-member",
+	})
+	if err != nil {
+		t.Fatalf("create workspace: %v", err)
+	}
+	workspaceID := workspace.ID
+
+	owner, err := env.userSvc.Create(ctx, domain.CreateUserParams{
+		WorkspaceID:   workspaceID,
+		Name:          "owner",
+		Email:         "owner-guest-member@example.com",
+		PrincipalType: domain.PrincipalTypeHuman,
+	})
+	if err != nil {
+		t.Fatalf("create owner: %v", err)
+	}
+	guest, err := env.userSvc.Create(ctx, domain.CreateUserParams{
+		WorkspaceID:   "T-external-guest",
+		Name:          "guest",
+		Email:         "guest-auto-member@example.com",
+		PrincipalType: domain.PrincipalTypeHuman,
+	})
+	if err != nil {
+		t.Fatalf("create guest account: %v", err)
+	}
+
+	ownerCtx := ctxutil.WithUser(ctx, owner.ID, workspaceID)
+	ownerCtx = ctxutil.WithIdentity(ownerCtx, owner.AccountID)
+
+	conv, err := env.convSvc.Create(ownerCtx, domain.CreateConversationParams{
+		WorkspaceID:      workspaceID,
+		OwnerType:        domain.ConversationOwnerTypeWorkspace,
+		OwnerWorkspaceID: workspaceID,
+		Type:             domain.ConversationTypePrivateChannel,
+		Name:             "guest-member-room",
+	})
+	if err != nil {
+		t.Fatalf("create workspace-owned conversation: %v", err)
+	}
+
+	if err := env.convSvc.InviteAccount(ownerCtx, conv.ID, guest.AccountID); err != nil {
+		t.Fatalf("invite guest account: %v", err)
+	}
+
+	var membershipID, membershipKind, guestScope string
+	if err := env.pool.QueryRow(ctx, `
+		SELECT id, membership_kind, guest_scope
+		FROM workspace_memberships
+		WHERE workspace_id = $1 AND account_id = $2
+	`, workspaceID, guest.AccountID).Scan(&membershipID, &membershipKind, &guestScope); err != nil {
+		t.Fatalf("query guest workspace membership: %v", err)
+	}
+	if membershipKind != "guest" {
+		t.Fatalf("membership_kind = %q, want guest", membershipKind)
+	}
+	if guestScope != "single_conversation" {
+		t.Fatalf("guest_scope = %q, want single_conversation", guestScope)
+	}
+
+	var accessCount int
+	if err := env.pool.QueryRow(ctx, `
+		SELECT COUNT(*)
+		FROM workspace_membership_conversation_access
+		WHERE workspace_membership_id = $1 AND conversation_id = $2
+	`, membershipID, conv.ID).Scan(&accessCount); err != nil {
+		t.Fatalf("query workspace membership conversation access: %v", err)
+	}
+	if accessCount != 1 {
+		t.Fatalf("workspace_membership_conversation_access count = %d, want 1", accessCount)
+	}
+
+	var profileCount int
+	if err := env.pool.QueryRow(ctx, `
+		SELECT COUNT(*)
+		FROM workspace_profiles
+		WHERE workspace_id = $1 AND account_id = $2
+	`, workspaceID, guest.AccountID).Scan(&profileCount); err != nil {
+		t.Fatalf("query workspace profile: %v", err)
+	}
+	if profileCount != 1 {
+		t.Fatalf("workspace_profiles count = %d, want 1", profileCount)
+	}
+
+	var workspaceUserID string
+	if err := env.pool.QueryRow(ctx, `
+		SELECT id
+		FROM users
+		WHERE workspace_id = $1 AND account_id = $2
+	`, workspaceID, guest.AccountID).Scan(&workspaceUserID); err != nil {
+		t.Fatalf("query guest workspace user: %v", err)
+	}
+	if workspaceUserID == "" {
+		t.Fatal("expected guest workspace user id")
+	}
+}
+
 func TestFlow_ConversationListUnreadAndThreadActivity(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test")
@@ -1945,20 +2226,20 @@ func TestFlow_ConversationListUnreadAndThreadActivity(t *testing.T) {
 		t.Fatalf("create bob: %v", err)
 	}
 
-	aliceCtx := ctxutil.WithUser(ctx, alice.ID, workspaceID)
-	bobCtx := ctxutil.WithUser(ctx, bob.ID, workspaceID)
+	aliceCtx := ctxutil.WithIdentity(ctxutil.WithUser(ctx, alice.ID, workspaceID), alice.AccountID)
+	bobCtx := ctxutil.WithIdentity(ctxutil.WithUser(ctx, bob.ID, workspaceID), bob.AccountID)
 
-	channelA, err := env.convSvc.Create(aliceCtx, domain.CreateConversationParams{
-		WorkspaceID: workspaceID, Name: "activity-a",
-		Type: domain.ConversationTypePublicChannel,
-	})
+		channelA, err := env.convSvc.Create(aliceCtx, domain.CreateConversationParams{
+			WorkspaceID: workspaceID, OwnerType: domain.ConversationOwnerTypeWorkspace, Name: "activity-a",
+			Type: domain.ConversationTypePublicChannel,
+		})
 	if err != nil {
 		t.Fatalf("create channel a: %v", err)
 	}
-	channelB, err := env.convSvc.Create(aliceCtx, domain.CreateConversationParams{
-		WorkspaceID: workspaceID, Name: "activity-b",
-		Type: domain.ConversationTypePublicChannel,
-	})
+		channelB, err := env.convSvc.Create(aliceCtx, domain.CreateConversationParams{
+			WorkspaceID: workspaceID, OwnerType: domain.ConversationOwnerTypeWorkspace, Name: "activity-b",
+			Type: domain.ConversationTypePublicChannel,
+		})
 	if err != nil {
 		t.Fatalf("create channel b: %v", err)
 	}
@@ -2162,10 +2443,10 @@ func TestFlow_ConcurrentEdgeCases(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create user: %v", err)
 	}
-	ch, err := env.convSvc.Create(ctx, domain.CreateConversationParams{
-		WorkspaceID: workspaceID, Name: "conc-ch",
-		Type: domain.ConversationTypePublicChannel, CreatorID: user.ID,
-	})
+		ch, err := env.convSvc.Create(ctx, domain.CreateConversationParams{
+			WorkspaceID: workspaceID, OwnerType: domain.ConversationOwnerTypeWorkspace, Name: "conc-ch",
+			Type: domain.ConversationTypePublicChannel, CreatorID: user.ID,
+		})
 	if err != nil {
 		t.Fatalf("create channel: %v", err)
 	}
@@ -2544,10 +2825,10 @@ func TestFlow_MultiChannelWorkspace(t *testing.T) {
 	channelNames := []string{"general", "engineering", "random", "announcements"}
 	channels := make([]*domain.Conversation, len(channelNames))
 	for i, name := range channelNames {
-		ch, err := env.convSvc.Create(ctx, domain.CreateConversationParams{
-			WorkspaceID: workspaceID, Name: name,
-			Type: domain.ConversationTypePublicChannel, CreatorID: alice.ID,
-		})
+			ch, err := env.convSvc.Create(ctx, domain.CreateConversationParams{
+				WorkspaceID: workspaceID, OwnerType: domain.ConversationOwnerTypeWorkspace, Name: name,
+				Type: domain.ConversationTypePublicChannel, CreatorID: alice.ID,
+			})
 		if err != nil {
 			t.Fatalf("create %s: %v", name, err)
 		}
@@ -2715,10 +2996,10 @@ func TestFlow_DeepThreading(t *testing.T) {
 		users[i] = u
 	}
 
-	ch, err := env.convSvc.Create(ctx, domain.CreateConversationParams{
-		WorkspaceID: workspaceID, Name: "threads",
-		Type: domain.ConversationTypePublicChannel, CreatorID: users[0].ID,
-	})
+		ch, err := env.convSvc.Create(ctx, domain.CreateConversationParams{
+			WorkspaceID: workspaceID, OwnerType: domain.ConversationOwnerTypeWorkspace, Name: "threads",
+			Type: domain.ConversationTypePublicChannel, CreatorID: users[0].ID,
+		})
 	if err != nil {
 		t.Fatalf("create channel: %v", err)
 	}
@@ -2899,18 +3180,18 @@ func TestFlow_FileSharingAcrossChannels(t *testing.T) {
 	ctx = ctxutil.WithUser(ctx, user.ID, workspaceID)
 
 	// Create 3 channels
-	ch1, _ := env.convSvc.Create(ctx, domain.CreateConversationParams{
-		WorkspaceID: workspaceID, Name: "design",
-		Type: domain.ConversationTypePublicChannel, CreatorID: user.ID,
-	})
-	ch2, _ := env.convSvc.Create(ctx, domain.CreateConversationParams{
-		WorkspaceID: workspaceID, Name: "dev",
-		Type: domain.ConversationTypePublicChannel, CreatorID: user.ID,
-	})
-	ch3, _ := env.convSvc.Create(ctx, domain.CreateConversationParams{
-		WorkspaceID: workspaceID, Name: "product",
-		Type: domain.ConversationTypePublicChannel, CreatorID: user.ID,
-	})
+		ch1, _ := env.convSvc.Create(ctx, domain.CreateConversationParams{
+			WorkspaceID: workspaceID, OwnerType: domain.ConversationOwnerTypeWorkspace, Name: "design",
+			Type: domain.ConversationTypePublicChannel, CreatorID: user.ID,
+		})
+		ch2, _ := env.convSvc.Create(ctx, domain.CreateConversationParams{
+			WorkspaceID: workspaceID, OwnerType: domain.ConversationOwnerTypeWorkspace, Name: "dev",
+			Type: domain.ConversationTypePublicChannel, CreatorID: user.ID,
+		})
+		ch3, _ := env.convSvc.Create(ctx, domain.CreateConversationParams{
+			WorkspaceID: workspaceID, OwnerType: domain.ConversationOwnerTypeWorkspace, Name: "product",
+			Type: domain.ConversationTypePublicChannel, CreatorID: user.ID,
+		})
 
 	// Add 3 remote files
 	designDoc, err := env.fileSvc.AddRemoteFile(ctx, domain.AddRemoteFileParams{
@@ -3405,10 +3686,10 @@ func TestFlow_ComplexProjectionRebuild(t *testing.T) {
 	}
 
 	// Create channel with topic and purpose
-	ch, err := env.convSvc.Create(ctx, domain.CreateConversationParams{
-		WorkspaceID: workspaceID, Name: "rebuild-test",
-		Type: domain.ConversationTypePublicChannel, CreatorID: admin.ID,
-	})
+		ch, err := env.convSvc.Create(ctx, domain.CreateConversationParams{
+			WorkspaceID: workspaceID, OwnerType: domain.ConversationOwnerTypeWorkspace, Name: "rebuild-test",
+			Type: domain.ConversationTypePublicChannel, CreatorID: admin.ID,
+		})
 	if err != nil {
 		t.Fatalf("create channel: %v", err)
 	}
@@ -3579,10 +3860,10 @@ func TestFlow_MessageMetadataAndBlocks(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create user: %v", err)
 	}
-	ch, err := env.convSvc.Create(ctx, domain.CreateConversationParams{
-		WorkspaceID: workspaceID, Name: "rich-messages",
-		Type: domain.ConversationTypePublicChannel, CreatorID: user.ID,
-	})
+		ch, err := env.convSvc.Create(ctx, domain.CreateConversationParams{
+			WorkspaceID: workspaceID, OwnerType: domain.ConversationOwnerTypeWorkspace, Name: "rich-messages",
+			Type: domain.ConversationTypePublicChannel, CreatorID: user.ID,
+		})
 	if err != nil {
 		t.Fatalf("create channel: %v", err)
 	}
@@ -3726,11 +4007,12 @@ func TestFlow_ConversationCreationWithTopicPurpose(t *testing.T) {
 	}
 
 	// Create with topic and purpose
-	ch, err := env.convSvc.Create(ctx, domain.CreateConversationParams{
-		WorkspaceID: workspaceID,
-		Name:        "full-channel",
-		Type:        domain.ConversationTypePublicChannel,
-		CreatorID:   user.ID,
+		ch, err := env.convSvc.Create(ctx, domain.CreateConversationParams{
+			WorkspaceID: workspaceID,
+			OwnerType:   domain.ConversationOwnerTypeWorkspace,
+			Name:        "full-channel",
+			Type:        domain.ConversationTypePublicChannel,
+			CreatorID:   user.ID,
 		Topic:       "Initial Topic",
 		Purpose:     "Initial Purpose",
 	})

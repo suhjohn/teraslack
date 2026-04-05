@@ -15,11 +15,43 @@ SELECT id, account_id, workspace_id, name, real_name, display_name, email, princ
 FROM users
 WHERE workspace_id = $1 AND account_id = $2;
 
+-- name: GetWorkspaceMembershipIDByWorkspaceAndAccount :one
+SELECT id
+FROM workspace_memberships
+WHERE workspace_id = $1 AND account_id = $2 AND status = 'active';
+
+-- name: GetWorkspaceMembershipByWorkspaceAndAccount :one
+SELECT id, workspace_id, account_id, role, status, membership_kind, guest_scope,
+       created_by_account_id, updated_by_account_id, created_at, updated_at
+FROM workspace_memberships
+WHERE workspace_id = $1 AND account_id = $2 AND status = 'active';
+
+-- name: UpsertWorkspaceMembershipByAccount :exec
+INSERT INTO workspace_memberships (
+    id, workspace_id, account_id, role, status, membership_kind, guest_scope, created_at, updated_at
+)
+VALUES (
+    sqlc.arg(id), sqlc.arg(workspace_id), sqlc.arg(account_id), sqlc.arg(role), 'active', 'full', 'workspace_full', NOW(), NOW()
+)
+ON CONFLICT (workspace_id, account_id) DO UPDATE SET
+    role = EXCLUDED.role,
+    status = 'active',
+    membership_kind = 'full',
+    guest_scope = 'workspace_full',
+    updated_at = NOW();
+
 -- name: ListUsersByAccount :many
 SELECT id, account_id, workspace_id, name, real_name, display_name, email, principal_type, owner_id, is_bot,
        account_type, deleted, profile, created_at, updated_at
 FROM users
 WHERE account_id = $1
+ORDER BY workspace_id ASC, id ASC;
+
+-- name: ListWorkspaceMembershipsByAccount :many
+SELECT id, workspace_id, account_id, role, status, membership_kind, guest_scope,
+       created_by_account_id, updated_by_account_id, created_at, updated_at
+FROM workspace_memberships
+WHERE account_id = $1 AND status = 'active'
 ORDER BY workspace_id ASC, id ASC;
 
 -- name: UpdateUser :one

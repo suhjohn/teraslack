@@ -106,8 +106,8 @@ func (m *mockAuthRepo) ConsumeEmailVerificationChallenge(_ context.Context, id s
 	return nil
 }
 
-func (m *mockAuthRepo) GetOAuthAccount(_ context.Context, workspaceID string, provider domain.AuthProvider, providerSubject string) (*domain.OAuthAccount, error) {
-	account, ok := m.oauthAccounts[oauthAccountKey(workspaceID, provider, providerSubject)]
+func (m *mockAuthRepo) GetOAuthAccount(_ context.Context, provider domain.AuthProvider, providerSubject string) (*domain.OAuthAccount, error) {
+	account, ok := m.oauthAccounts[oauthAccountKey("", provider, providerSubject)]
 	if !ok {
 		return nil, domain.ErrNotFound
 	}
@@ -141,7 +141,7 @@ func (m *mockAuthRepo) UpsertOAuthAccount(_ context.Context, params domain.Upser
 }
 
 func oauthAccountKey(workspaceID string, provider domain.AuthProvider, providerSubject string) string {
-	return workspaceID + "|" + string(provider) + "|" + providerSubject
+	return string(provider) + "|" + providerSubject
 }
 
 type mockAuthEmailSender struct {
@@ -258,12 +258,15 @@ func TestAuthService_ValidateSessionUsesUserIdentity(t *testing.T) {
 	if auth.AccountID != "A123" {
 		t.Fatalf("unexpected identity context: %+v", auth)
 	}
+	if auth.WorkspaceMembershipID != "WM_U123" {
+		t.Fatalf("workspace_membership_id = %q, want %q", auth.WorkspaceMembershipID, "WM_U123")
+	}
 	if auth.AccountType != domain.AccountTypeMember {
 		t.Fatalf("expected user account type, got %s", auth.AccountType)
 	}
 }
 
-func TestAuthService_ValidateSessionFromAccountAndWorkspace(t *testing.T) {
+func TestAuthService_ValidateSessionFromAccountAndWorkspaceMembership(t *testing.T) {
 	repo := newMockAuthRepo()
 	userRepo := newMockUserRepoTenant()
 	accountRepo := newMockAccountRepo()
@@ -301,7 +304,10 @@ func TestAuthService_ValidateSessionFromAccountAndWorkspace(t *testing.T) {
 		t.Fatalf("unexpected identity context: %+v", auth)
 	}
 	if auth.UserID != "U123" {
-		t.Fatalf("expected workspace user_id U123, got %+v", auth)
+		t.Fatalf("expected existing workspace user U123, got %+v", auth)
+	}
+	if auth.WorkspaceMembershipID != "WM_U123" {
+		t.Fatalf("expected workspace_membership_id WM_U123, got %+v", auth)
 	}
 	if auth.AccountType != domain.AccountTypeAdmin || auth.PrincipalType != domain.PrincipalTypeHuman {
 		t.Fatalf("unexpected canonical auth context: %+v", auth)
@@ -356,7 +362,7 @@ func TestAuthService_ValidateSessionUsesCanonicalAccountIdentity(t *testing.T) {
 	}
 }
 
-func TestAuthService_GetCurrentUserFromAccountAndWorkspace(t *testing.T) {
+func TestAuthService_GetCurrentUserFromAccountAndWorkspaceMembership(t *testing.T) {
 	userRepo := newMockUserRepoTenant()
 	accountRepo := newMockAccountRepo()
 	accountRepo.byID["A123"] = &domain.Account{
@@ -383,12 +389,18 @@ func TestAuthService_GetCurrentUserFromAccountAndWorkspace(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetCurrentUser() error = %v", err)
 	}
-	if user == nil || user.ID != "U123" {
+	if user == nil {
 		t.Fatalf("expected current workspace user, got %+v", user)
+	}
+	if user.ID != "" || user.AccountID != "A123" || user.WorkspaceID != "T123" {
+		t.Fatalf("expected synthesized membership actor for T123/A123, got %+v", user)
+	}
+	if user.EffectiveAccountType() != domain.AccountTypeMember {
+		t.Fatalf("expected member account type, got %+v", user)
 	}
 }
 
-func TestAuthService_GetCurrentIdentityReturnsAccountAndWorkspaceUser(t *testing.T) {
+func TestAuthService_GetCurrentIdentityReturnsAccountAndWorkspaceMembershipActor(t *testing.T) {
 	userRepo := newMockUserRepoTenant()
 	accountRepo := newMockAccountRepo()
 	accountRepo.byID["A123"] = &domain.Account{
@@ -419,8 +431,14 @@ func TestAuthService_GetCurrentIdentityReturnsAccountAndWorkspaceUser(t *testing
 	if account == nil || account.ID != "A123" {
 		t.Fatalf("expected current account, got %+v", account)
 	}
-	if user == nil || user.ID != "U123" {
+	if user == nil {
 		t.Fatalf("expected current workspace user, got %+v", user)
+	}
+	if user.ID != "" || user.AccountID != "A123" || user.WorkspaceID != "T123" {
+		t.Fatalf("expected synthesized membership actor for T123/A123, got %+v", user)
+	}
+	if user.EffectiveAccountType() != domain.AccountTypeMember {
+		t.Fatalf("expected member account type, got %+v", user)
 	}
 }
 
@@ -563,12 +581,12 @@ func TestAuthService_SwitchWorkspaceUsesAccountScopedUsers(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SwitchWorkspace() error = %v", err)
 	}
-	if next.WorkspaceID != "T999" || next.UserID != "U_TARGET" {
+	if next.WorkspaceID != "T999" || next.AccountID != "A123" || next.UserID != "" {
 		t.Fatalf("unexpected switched session: %+v", next)
 	}
 }
 
-func TestAuthService_SwitchWorkspaceDoesNotReuseLegacyEmailUser(t *testing.T) {
+func TestAuthService_SwitchWorkspaceDoesNotReuseEmailOnlyUser(t *testing.T) {
 	repo := newMockAuthRepo()
 	userRepo := newMockUserRepoTenant()
 	accountRepo := newMockAccountRepo()
@@ -621,7 +639,7 @@ func TestAuthService_SwitchWorkspaceDoesNotReuseLegacyEmailUser(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SwitchWorkspace() error = %v", err)
 	}
-	if next.UserID != "U_TARGET" {
+	if next.AccountID != "A123" || next.UserID != "" {
 		t.Fatalf("expected account-linked workspace user, got %+v", next)
 	}
 }
@@ -769,10 +787,12 @@ func TestAuthService_VerifyCreatesPersonalWorkspaceAndSession(t *testing.T) {
 	repo := newMockAuthRepo()
 	userRepo := newMockUserRepoTenant()
 	workspaceRepo := newMockWorkspaceRepo()
+	accountRepo := newMockAccountRepo()
 	sender := &mockAuthEmailSender{}
 	svc := NewAuthService(repo, userRepo, workspaceRepo, nil, nil, mockTxBeginner{}, nil, AuthConfig{
 		EmailSender: sender,
 	})
+	svc.SetIdentityRepositories(accountRepo)
 
 	if _, err := svc.Signup(context.Background(), domain.SignupParams{Email: "alice@example.com"}); err != nil {
 		t.Fatalf("Signup() error = %v", err)
@@ -789,18 +809,18 @@ func TestAuthService_VerifyCreatesPersonalWorkspaceAndSession(t *testing.T) {
 	if session.Provider != domain.AuthProviderEmail {
 		t.Fatalf("session provider = %q, want email", session.Provider)
 	}
-	if session.WorkspaceID != "T_NEW" || session.UserID != "U123" {
+	if session.WorkspaceID != "" || session.AccountID == "" || session.UserID != "" {
 		t.Fatalf("unexpected session: %+v", session)
 	}
-	user, err := userRepo.Get(context.Background(), "U123")
+	account, err := accountRepo.GetByEmail(context.Background(), "alice@example.com")
 	if err != nil {
-		t.Fatalf("expected created user: %v", err)
+		t.Fatalf("expected created account: %v", err)
 	}
-	if user.Email != "alice@example.com" || user.AccountType != domain.AccountTypePrimaryAdmin {
-		t.Fatalf("unexpected created user: %+v", user)
+	if account.ID != session.AccountID || account.Email != "alice@example.com" {
+		t.Fatalf("unexpected created account: %+v", account)
 	}
-	if user.RealName != "Alice Example" || user.DisplayName != "Alice Example" {
-		t.Fatalf("expected created user name to come from verify params, got %+v", user)
+	if len(userRepo.users) != 0 {
+		t.Fatalf("expected verify to avoid creating workspace users, got %d", len(userRepo.users))
 	}
 	for _, challenge := range repo.challenges {
 		if challenge.ConsumedAt == nil {
@@ -809,9 +829,10 @@ func TestAuthService_VerifyCreatesPersonalWorkspaceAndSession(t *testing.T) {
 	}
 }
 
-func TestAuthService_VerifyDoesNotReuseLegacyEmailUserWithoutAccountMembership(t *testing.T) {
+func TestAuthService_VerifyDoesNotReuseEmailOnlyUserWithoutAccountMembership(t *testing.T) {
 	repo := newMockAuthRepo()
 	userRepo := newMockUserRepoTenant()
+	accountRepo := newMockAccountRepo()
 	userRepo.users["U_EXISTING"] = &domain.User{
 		ID:            "U_EXISTING",
 		WorkspaceID:   "T123",
@@ -822,6 +843,7 @@ func TestAuthService_VerifyDoesNotReuseLegacyEmailUserWithoutAccountMembership(t
 		AccountType:   domain.AccountTypeMember,
 	}
 	svc := NewAuthService(repo, userRepo, newMockWorkspaceRepo(), nil, nil, mockTxBeginner{}, nil, AuthConfig{})
+	svc.SetIdentityRepositories(accountRepo)
 
 	repo.challenges["EV_EXISTING"] = &domain.EmailVerificationChallenge{
 		ID:        "EV_EXISTING",
@@ -839,11 +861,14 @@ func TestAuthService_VerifyDoesNotReuseLegacyEmailUserWithoutAccountMembership(t
 	if err != nil {
 		t.Fatalf("Verify() error = %v", err)
 	}
-	if session.WorkspaceID != "T_NEW" || session.UserID != "U123" {
-		t.Fatalf("unexpected session for new workspace user: %+v", session)
+	if session.WorkspaceID != "" || session.AccountID == "" || session.UserID != "" {
+		t.Fatalf("unexpected account-only session: %+v", session)
 	}
 	if got := userRepo.users["U_EXISTING"].RealName; got != "Existing Name" {
 		t.Fatalf("existing user real_name = %q, want unchanged existing value", got)
+	}
+	if len(userRepo.users) != 1 {
+		t.Fatalf("expected verify to leave workspace users untouched, got %d", len(userRepo.users))
 	}
 }
 
@@ -866,9 +891,10 @@ func TestAuthService_VerifyRejectsExpiredCode(t *testing.T) {
 	}
 }
 
-func TestAuthService_ResolveOAuthLogin_DoesNotReuseLegacyEmailUserWithoutAccountMembership(t *testing.T) {
+func TestAuthService_ResolveOAuthLogin_DoesNotReuseEmailOnlyUserWithoutAccountMembership(t *testing.T) {
 	repo := newMockAuthRepo()
 	userRepo := newMockUserRepoTenant()
+	accountRepo := newMockAccountRepo()
 	userRepo.users["U_EXISTING"] = &domain.User{
 		ID:            "U_EXISTING",
 		WorkspaceID:   "T123",
@@ -878,13 +904,13 @@ func TestAuthService_ResolveOAuthLogin_DoesNotReuseLegacyEmailUserWithoutAccount
 	}
 
 	svc := NewAuthService(repo, userRepo, newMockWorkspaceRepo(), nil, nil, mockTxBeginner{}, nil, AuthConfig{})
+	svc.SetIdentityRepositories(accountRepo)
 
 	workspaceID, user, err := svc.resolveOAuthLogin(
 		context.Background(),
 		nil,
 		userRepo,
 		repo,
-		newMockWorkspaceRepo(),
 		nil,
 		oauthState{},
 		domain.AuthProviderGoogle,
@@ -898,11 +924,11 @@ func TestAuthService_ResolveOAuthLogin_DoesNotReuseLegacyEmailUserWithoutAccount
 	if err != nil {
 		t.Fatalf("resolveOAuthLogin() error = %v", err)
 	}
-	if workspaceID != "T_NEW" || user.ID != "U123" {
+	if workspaceID != "" || user.ID != "" || user.AccountID == "" || user.WorkspaceID != "" {
 		t.Fatalf("unexpected oauth login target: workspace=%q user=%q", workspaceID, user.ID)
 	}
-	if len(userRepo.users) != 2 {
-		t.Fatalf("expected oauth login to create a new workspace user, got %d users", len(userRepo.users))
+	if len(userRepo.users) != 1 {
+		t.Fatalf("expected oauth login to avoid creating a workspace user, got %d users", len(userRepo.users))
 	}
 
 	accounts, err := repo.ListOAuthAccountsBySubject(context.Background(), domain.AuthProviderGoogle, "google-user-123")
@@ -912,7 +938,7 @@ func TestAuthService_ResolveOAuthLogin_DoesNotReuseLegacyEmailUserWithoutAccount
 	if len(accounts) != 1 {
 		t.Fatalf("expected one linked oauth account, got %d", len(accounts))
 	}
-	if accounts[0].UserID != "U123" || accounts[0].WorkspaceID != "T_NEW" {
+	if accounts[0].AccountID == "" || accounts[0].UserID != "" || accounts[0].WorkspaceID != "" {
 		t.Fatalf("unexpected linked oauth account: %+v", accounts[0])
 	}
 	if accounts[0].Email != "johnsuh94@gmail.com" {
@@ -920,7 +946,7 @@ func TestAuthService_ResolveOAuthLogin_DoesNotReuseLegacyEmailUserWithoutAccount
 	}
 }
 
-func TestAuthService_ResolveOAuthLogin_UsesAccountMembershipsBeforeLegacyEmailScan(t *testing.T) {
+func TestAuthService_ResolveOAuthLogin_UsesAccountMembershipsBeforeEmailOnlyScan(t *testing.T) {
 	repo := newMockAuthRepo()
 	userRepo := newMockUserRepoTenant()
 	accountRepo := newMockAccountRepo()
@@ -946,9 +972,8 @@ func TestAuthService_ResolveOAuthLogin_UsesAccountMembershipsBeforeLegacyEmailSc
 		nil,
 		userRepo,
 		repo,
-		newMockWorkspaceRepo(),
 		nil,
-		oauthState{},
+		oauthState{WorkspaceID: "T123"},
 		domain.AuthProviderGoogle,
 		oauthProfile{
 			Subject: "google-user-456",
@@ -974,6 +999,7 @@ func TestAuthService_ResolveOAuthLogin_InviteReusesExistingWorkspaceUser(t *test
 
 	userRepo.users["U_EXISTING"] = &domain.User{
 		ID:            "U_EXISTING",
+		AccountID:     "A123",
 		WorkspaceID:   "T_INVITED",
 		Email:         "invite@example.com",
 		PrincipalType: domain.PrincipalTypeHuman,
@@ -1003,7 +1029,6 @@ func TestAuthService_ResolveOAuthLogin_InviteReusesExistingWorkspaceUser(t *test
 		nil,
 		userRepo,
 		repo,
-		newMockWorkspaceRepo(),
 		inviteRepo,
 		oauthState{InviteToken: token},
 		domain.AuthProviderGoogle,
@@ -1017,7 +1042,7 @@ func TestAuthService_ResolveOAuthLogin_InviteReusesExistingWorkspaceUser(t *test
 	if err != nil {
 		t.Fatalf("resolveOAuthLogin() error = %v", err)
 	}
-	if workspaceID != "T_INVITED" || user.ID != "U123" {
+	if workspaceID != "T_INVITED" || user.ID != "U_EXISTING" {
 		t.Fatalf("unexpected invite oauth target: workspace=%q user=%q", workspaceID, user.ID)
 	}
 	if inviteRepo.invites[crypto.HashToken(token)].AcceptedByAccountID != "A123" {
@@ -1027,12 +1052,12 @@ func TestAuthService_ResolveOAuthLogin_InviteReusesExistingWorkspaceUser(t *test
 	if err != nil {
 		t.Fatalf("ListOAuthAccountsBySubject() error = %v", err)
 	}
-	if len(accounts) != 1 || accounts[0].UserID != "U123" {
+	if len(accounts) != 1 || accounts[0].AccountID != "A123" || accounts[0].UserID != "" || accounts[0].WorkspaceID != "" {
 		t.Fatalf("unexpected linked oauth account: %+v", accounts)
 	}
 }
 
-func TestAuthService_VerifyUsesAccountLinkedUsersBeforeLegacyEmailScan(t *testing.T) {
+func TestAuthService_VerifyUsesAccountLinkedUsersBeforeEmailOnlyScan(t *testing.T) {
 	repo := newMockAuthRepo()
 	userRepo := newMockUserRepoTenant()
 	accountRepo := newMockAccountRepo()
@@ -1068,8 +1093,8 @@ func TestAuthService_VerifyUsesAccountLinkedUsersBeforeLegacyEmailScan(t *testin
 	if err != nil {
 		t.Fatalf("Verify() error = %v", err)
 	}
-	if session.WorkspaceID != "T123" || session.UserID != "U_EXISTING" {
-		t.Fatalf("unexpected session for account-linked user: %+v", session)
+	if session.WorkspaceID != "" || session.AccountID != "A123" || session.UserID != "" {
+		t.Fatalf("unexpected account-first session for linked account: %+v", session)
 	}
 }
 
@@ -1101,19 +1126,15 @@ func TestAuthService_VerifyCreatesWorkspaceUserWhenAccountHasNoWorkspaceUser(t *
 	if err != nil {
 		t.Fatalf("Verify() error = %v", err)
 	}
-	if session.WorkspaceID == "T123" || session.UserID == "" {
-		t.Fatalf("expected a new workspace-scoped user for the existing account: %+v", session)
+	if session.WorkspaceID != "" || session.AccountID != "A123" || session.UserID != "" {
+		t.Fatalf("expected account-only session for the existing account: %+v", session)
 	}
-	user, err := userRepo.Get(context.Background(), session.UserID)
-	if err != nil {
-		t.Fatalf("expected created workspace user: %v", err)
-	}
-	if user.AccountID != "A123" {
-		t.Fatalf("expected created user to stay linked to account A123, got %+v", user)
+	if len(userRepo.users) != 0 {
+		t.Fatalf("expected verify to avoid creating workspace users, got %d", len(userRepo.users))
 	}
 }
 
-func TestAuthService_GetCurrentIdentitySelectsWorkspaceLocalUserForSharedAccount(t *testing.T) {
+func TestAuthService_GetCurrentIdentityUsesRequestedWorkspaceMembershipForSharedAccount(t *testing.T) {
 	userRepo := newMockUserRepoTenant()
 	accountRepo := newMockAccountRepo()
 	accountRepo.byID["A123"] = &domain.Account{
@@ -1149,8 +1170,14 @@ func TestAuthService_GetCurrentIdentitySelectsWorkspaceLocalUserForSharedAccount
 	if account == nil || account.ID != "A123" {
 		t.Fatalf("expected current account A123, got %+v", account)
 	}
-	if user == nil || user.ID != "U_T999" {
-		t.Fatalf("expected workspace-local user U_T999, got %+v", user)
+	if user == nil {
+		t.Fatalf("expected workspace actor for requested membership, got %+v", user)
+	}
+	if user.ID != "" || user.AccountID != "A123" || user.WorkspaceID != "T999" {
+		t.Fatalf("expected synthesized membership actor for T999/A123, got %+v", user)
+	}
+	if user.EffectiveAccountType() != domain.AccountTypeMember {
+		t.Fatalf("expected member account type from T999 membership, got %+v", user)
 	}
 }
 
@@ -1177,9 +1204,10 @@ func TestAuthService_CreateOAuthUserSyncsIdentity(t *testing.T) {
 	}
 }
 
-func TestAuthService_VerifyDoesNotReuseLegacyOAuthEmailUserWithoutAccountMembership(t *testing.T) {
+func TestAuthService_VerifyDoesNotReuseOAuthEmailOnlyUserWithoutAccountMembership(t *testing.T) {
 	repo := newMockAuthRepo()
 	userRepo := newMockUserRepoTenant()
+	accountRepo := newMockAccountRepo()
 	userRepo.users["U_EXISTING"] = &domain.User{
 		ID:            "U_EXISTING",
 		WorkspaceID:   "T123",
@@ -1198,6 +1226,7 @@ func TestAuthService_VerifyDoesNotReuseLegacyOAuthEmailUserWithoutAccountMembers
 	}
 
 	svc := NewAuthService(repo, userRepo, newMockWorkspaceRepo(), nil, nil, mockTxBeginner{}, nil, AuthConfig{})
+	svc.SetIdentityRepositories(accountRepo)
 	repo.challenges["EV_EXISTING"] = &domain.EmailVerificationChallenge{
 		ID:        "EV_EXISTING",
 		Email:     "JohnSuh94@gmail.com",
@@ -1213,10 +1242,10 @@ func TestAuthService_VerifyDoesNotReuseLegacyOAuthEmailUserWithoutAccountMembers
 	if err != nil {
 		t.Fatalf("Verify() error = %v", err)
 	}
-	if session.WorkspaceID != "T_NEW" || session.UserID != "U123" {
-		t.Fatalf("unexpected session for new oauth user: %+v", session)
+	if session.WorkspaceID != "" || session.AccountID == "" || session.UserID != "" {
+		t.Fatalf("unexpected account-first session for oauth-linked email: %+v", session)
 	}
-	if len(userRepo.users) != 2 {
-		t.Fatalf("expected verify to create a new workspace user, got %d users", len(userRepo.users))
+	if len(userRepo.users) != 1 {
+		t.Fatalf("expected verify to avoid creating workspace users, got %d users", len(userRepo.users))
 	}
 }

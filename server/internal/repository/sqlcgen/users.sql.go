@@ -188,6 +188,55 @@ func (q *Queries) GetUserByWorkspaceAndAccount(ctx context.Context, arg GetUserB
 	return i, err
 }
 
+const getWorkspaceMembershipByWorkspaceAndAccount = `-- name: GetWorkspaceMembershipByWorkspaceAndAccount :one
+SELECT id, workspace_id, account_id, role, status, membership_kind, guest_scope,
+       created_by_account_id, updated_by_account_id, created_at, updated_at
+FROM workspace_memberships
+WHERE workspace_id = $1 AND account_id = $2 AND status = 'active'
+`
+
+type GetWorkspaceMembershipByWorkspaceAndAccountParams struct {
+	WorkspaceID string `json:"workspace_id"`
+	AccountID   string `json:"account_id"`
+}
+
+func (q *Queries) GetWorkspaceMembershipByWorkspaceAndAccount(ctx context.Context, arg GetWorkspaceMembershipByWorkspaceAndAccountParams) (WorkspaceMembership, error) {
+	row := q.db.QueryRow(ctx, getWorkspaceMembershipByWorkspaceAndAccount, arg.WorkspaceID, arg.AccountID)
+	var i WorkspaceMembership
+	err := row.Scan(
+		&i.ID,
+		&i.WorkspaceID,
+		&i.AccountID,
+		&i.Role,
+		&i.Status,
+		&i.MembershipKind,
+		&i.GuestScope,
+		&i.CreatedByAccountID,
+		&i.UpdatedByAccountID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const getWorkspaceMembershipIDByWorkspaceAndAccount = `-- name: GetWorkspaceMembershipIDByWorkspaceAndAccount :one
+SELECT id
+FROM workspace_memberships
+WHERE workspace_id = $1 AND account_id = $2 AND status = 'active'
+`
+
+type GetWorkspaceMembershipIDByWorkspaceAndAccountParams struct {
+	WorkspaceID string `json:"workspace_id"`
+	AccountID   string `json:"account_id"`
+}
+
+func (q *Queries) GetWorkspaceMembershipIDByWorkspaceAndAccount(ctx context.Context, arg GetWorkspaceMembershipIDByWorkspaceAndAccountParams) (string, error) {
+	row := q.db.QueryRow(ctx, getWorkspaceMembershipIDByWorkspaceAndAccount, arg.WorkspaceID, arg.AccountID)
+	var id string
+	err := row.Scan(&id)
+	return id, err
+}
+
 const listUsers = `-- name: ListUsers :many
 SELECT id, account_id, workspace_id, name, real_name, display_name, email, principal_type, owner_id, is_bot,
        account_type, deleted, profile, created_at, updated_at
@@ -319,6 +368,46 @@ func (q *Queries) ListUsersByAccount(ctx context.Context, accountID pgtype.Text)
 	return items, nil
 }
 
+const listWorkspaceMembershipsByAccount = `-- name: ListWorkspaceMembershipsByAccount :many
+SELECT id, workspace_id, account_id, role, status, membership_kind, guest_scope,
+       created_by_account_id, updated_by_account_id, created_at, updated_at
+FROM workspace_memberships
+WHERE account_id = $1 AND status = 'active'
+ORDER BY workspace_id ASC, id ASC
+`
+
+func (q *Queries) ListWorkspaceMembershipsByAccount(ctx context.Context, accountID string) ([]WorkspaceMembership, error) {
+	rows, err := q.db.Query(ctx, listWorkspaceMembershipsByAccount, accountID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []WorkspaceMembership{}
+	for rows.Next() {
+		var i WorkspaceMembership
+		if err := rows.Scan(
+			&i.ID,
+			&i.WorkspaceID,
+			&i.AccountID,
+			&i.Role,
+			&i.Status,
+			&i.MembershipKind,
+			&i.GuestScope,
+			&i.CreatedByAccountID,
+			&i.UpdatedByAccountID,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const updateUser = `-- name: UpdateUser :one
 UPDATE users
 SET real_name = $2, display_name = $3, email = $4, account_type = $5, deleted = $6, profile = $7
@@ -384,4 +473,36 @@ func (q *Queries) UpdateUser(ctx context.Context, arg UpdateUserParams) (UpdateU
 		&i.UpdatedAt,
 	)
 	return i, err
+}
+
+const upsertWorkspaceMembershipByAccount = `-- name: UpsertWorkspaceMembershipByAccount :exec
+INSERT INTO workspace_memberships (
+    id, workspace_id, account_id, role, status, membership_kind, guest_scope, created_at, updated_at
+)
+VALUES (
+    $1, $2, $3, $4, 'active', 'full', 'workspace_full', NOW(), NOW()
+)
+ON CONFLICT (workspace_id, account_id) DO UPDATE SET
+    role = EXCLUDED.role,
+    status = 'active',
+    membership_kind = 'full',
+    guest_scope = 'workspace_full',
+    updated_at = NOW()
+`
+
+type UpsertWorkspaceMembershipByAccountParams struct {
+	ID          string `json:"id"`
+	WorkspaceID string `json:"workspace_id"`
+	AccountID   string `json:"account_id"`
+	Role        string `json:"role"`
+}
+
+func (q *Queries) UpsertWorkspaceMembershipByAccount(ctx context.Context, arg UpsertWorkspaceMembershipByAccountParams) error {
+	_, err := q.db.Exec(ctx, upsertWorkspaceMembershipByAccount,
+		arg.ID,
+		arg.WorkspaceID,
+		arg.AccountID,
+		arg.Role,
+	)
+	return err
 }

@@ -26,35 +26,37 @@ func (s *ConversationReadService) MarkRead(ctx context.Context, params domain.Ma
 	if params.ConversationID == "" || params.LastReadTS == "" {
 		return fmt.Errorf("conversation_id and last_read_ts: %w", domain.ErrInvalidArgument)
 	}
-	userID := ctxutil.GetUserID(ctx)
-	if userID == "" {
-		if ctxutil.GetPrincipalType(ctx) == domain.PrincipalTypeSystem {
-			return nil
-		}
-		return fmt.Errorf("user_id: %w", domain.ErrInvalidAuth)
-	}
-	params.UserID = userID
-
 	conv, err := s.convRepo.Get(ctx, params.ConversationID)
 	if err != nil {
 		return err
 	}
-	if err := ensureWorkspaceAccess(ctx, conv.WorkspaceID); err != nil {
-		return err
+	accountID := actorAccountID(ctx)
+	if accountID == "" {
+		if ctxutil.GetPrincipalType(ctx) == domain.PrincipalTypeSystem {
+			return nil
+		}
+		return fmt.Errorf("account_id: %w", domain.ErrInvalidAuth)
 	}
-	isMember, err := s.convRepo.IsMember(ctx, params.ConversationID, userID)
-	if err != nil {
-		return err
-	}
-	if !isMember {
-		return domain.ErrForbidden
+	if isAccountOwnedConversation(conv) {
+		if err := ensureAccountConversationAccess(ctx, s.convRepo, conv); err != nil {
+			return err
+		}
+		return s.repo.UpsertByAccount(ctx, params.ConversationID, accountID, params.LastReadTS, time.Now())
 	}
 
-	return s.repo.Upsert(ctx, domain.ConversationRead{
-		WorkspaceID:         conv.WorkspaceID,
-		ConversationID: params.ConversationID,
-		UserID:         userID,
-		LastReadTS:     params.LastReadTS,
-		LastReadAt:     time.Now(),
-	})
+	if err := ensureWorkspaceAccess(ctx, conversationWorkspaceID(conv)); err != nil {
+		return err
+	}
+	switch conv.Type {
+	case domain.ConversationTypePrivateChannel, domain.ConversationTypeIM, domain.ConversationTypeMPIM:
+		isMember, err := s.convRepo.IsAccountMember(ctx, params.ConversationID, accountID)
+		if err != nil {
+			return err
+		}
+		if !isMember {
+			return domain.ErrForbidden
+		}
+	}
+
+	return s.repo.UpsertByAccount(ctx, params.ConversationID, accountID, params.LastReadTS, time.Now())
 }

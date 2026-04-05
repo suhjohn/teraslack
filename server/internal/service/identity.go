@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -133,11 +134,27 @@ func resolveAuthContextUser(
 		return user, nil
 	}
 	if userRepo != nil && strings.TrimSpace(auth.WorkspaceID) != "" && strings.TrimSpace(auth.AccountID) != "" {
-		user, err := userRepo.GetByWorkspaceAndAccount(ctx, auth.WorkspaceID, auth.AccountID)
+		membership, err := userRepo.GetWorkspaceMembership(ctx, auth.WorkspaceID, auth.AccountID)
 		if err == nil {
+			var existingUser *domain.User
+			user, existingErr := userRepo.GetByWorkspaceAndAccount(ctx, auth.WorkspaceID, auth.AccountID)
+			if existingErr == nil {
+				existingUser = user
+			} else if !errors.Is(existingErr, domain.ErrNotFound) {
+				return nil, existingErr
+			}
+			user = workspaceUserFromMembership(nil, membership, existingUser)
+			user.WorkspaceID = auth.WorkspaceID
+			user.AccountID = auth.AccountID
+			if auth.AccountType != "" {
+				user.AccountType = auth.AccountType
+			}
+			if auth.PrincipalType != "" {
+				user.PrincipalType = auth.PrincipalType
+			}
 			return user, nil
 		}
-		if err != nil && err != domain.ErrNotFound {
+		if err != nil && !errors.Is(err, domain.ErrNotFound) {
 			return nil, err
 		}
 	}

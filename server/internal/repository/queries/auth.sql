@@ -37,12 +37,13 @@ WHERE id = $1 AND consumed_at IS NULL;
 -- name: GetOAuthAccount :one
 SELECT id, workspace_id, account_id, user_id, provider, provider_subject, email, created_at, updated_at
 FROM oauth_accounts
-WHERE workspace_id = $1 AND provider = $2 AND provider_subject = $3;
+WHERE provider = $1 AND provider_subject = $2;
 
 -- name: UpsertOAuthAccount :one
 INSERT INTO oauth_accounts (id, workspace_id, account_id, user_id, provider, provider_subject, email)
 VALUES ($1, $2, $3, $4, $5, $6, $7)
-ON CONFLICT (workspace_id, provider, provider_subject) DO UPDATE SET
+ON CONFLICT (provider, provider_subject) DO UPDATE SET
+    workspace_id = EXCLUDED.workspace_id,
     account_id = EXCLUDED.account_id,
     user_id = EXCLUDED.user_id,
     email = EXCLUDED.email,

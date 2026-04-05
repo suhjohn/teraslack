@@ -47,47 +47,101 @@ func (s *ConversationService) Create(ctx context.Context, params domain.CreateCo
 	if err := requirePermission(ctx, domain.PermissionConversationsCreate); err != nil {
 		return nil, err
 	}
-	workspaceID, err := resolveWorkspaceID(ctx, params.WorkspaceID)
-	if err != nil {
-		return nil, err
+	if !domain.IsValidConversationOwnerType(params.OwnerType) {
+		return nil, fmt.Errorf("owner_type: %w", domain.ErrInvalidArgument)
 	}
-	params.WorkspaceID = workspaceID
 	if params.Name == "" && (params.Type == domain.ConversationTypePublicChannel || params.Type == domain.ConversationTypePrivateChannel) {
 		return nil, fmt.Errorf("name: %w", domain.ErrInvalidArgument)
 	}
-	actorID, err := resolveActorID(ctx, params.CreatorID)
-	if err != nil {
-		return nil, err
+	actorID := actorUserID(ctx)
+	if actorID == "" {
+		actorID = actorAccountID(ctx)
 	}
-	params.CreatorID = actorID
 	if params.Type == "" {
 		params.Type = domain.ConversationTypePublicChannel
 	}
 
-	// Verify creator exists
-	creator, err := loadUser(ctx, s.userRepo, params.CreatorID)
-	if err != nil {
-		return nil, fmt.Errorf("creator: %w", err)
-	}
-	if creator.WorkspaceID != params.WorkspaceID {
-		return nil, fmt.Errorf("creator: %w", domain.ErrForbidden)
-	}
-	for _, userID := range params.UserIDs {
-		if userID == "" {
-			return nil, fmt.Errorf("user_ids: %w", domain.ErrInvalidArgument)
-		}
-		if userID == params.CreatorID {
-			return nil, fmt.Errorf("user_ids: %w", domain.ErrInvalidArgument)
-		}
-		user, err := loadUser(ctx, s.userRepo, userID)
+	if params.OwnerType == domain.ConversationOwnerTypeWorkspace {
+		resolvedActorID, err := resolveActorID(ctx, params.CreatorID)
 		if err != nil {
-			return nil, fmt.Errorf("user_id %s: %w", userID, err)
+			return nil, err
 		}
-		if user.WorkspaceID != params.WorkspaceID {
-			return nil, fmt.Errorf("user_id %s: %w", userID, domain.ErrForbidden)
+		actorID = resolvedActorID
+		params.CreatorID = resolvedActorID
+
+		creator, err := loadUser(ctx, s.userRepo, params.CreatorID)
+		if err != nil {
+			return nil, fmt.Errorf("creator: %w", err)
+		}
+		if params.WorkspaceID == "" {
+			params.WorkspaceID = creator.WorkspaceID
+		}
+		workspaceID, err := resolveWorkspaceID(ctx, params.WorkspaceID)
+		if err != nil {
+			return nil, err
+		}
+		params.WorkspaceID = workspaceID
+		if params.OwnerWorkspaceID == "" {
+			params.OwnerWorkspaceID = workspaceID
+		}
+		params.OwnerAccountID = ""
+		if creator.WorkspaceID != params.WorkspaceID {
+			return nil, fmt.Errorf("creator: %w", domain.ErrForbidden)
+		}
+	} else {
+		if len(params.UserIDs) > 0 {
+			return nil, fmt.Errorf("user_ids: %w", domain.ErrInvalidArgument)
+		}
+		if strings.TrimSpace(params.WorkspaceID) != "" || strings.TrimSpace(params.OwnerWorkspaceID) != "" {
+			return nil, fmt.Errorf("workspace_id: %w", domain.ErrInvalidArgument)
+		}
+		if strings.TrimSpace(params.CreatorID) != "" {
+			return nil, fmt.Errorf("creator_id: %w", domain.ErrInvalidArgument)
+		}
+		if params.OwnerAccountID == "" {
+			params.OwnerAccountID = actorAccountID(ctx)
+		}
+		if params.OwnerAccountID == "" {
+			return nil, fmt.Errorf("owner_account_id: %w", domain.ErrInvalidArgument)
+		}
+		params.WorkspaceID = ""
+		params.OwnerWorkspaceID = ""
+		params.CreatorID = ""
+		params.AccountIDs = append(params.AccountIDs, params.OwnerAccountID)
+	}
+	if len(params.AccountIDs) > 0 {
+		for _, accountID := range params.AccountIDs {
+			accountID = strings.TrimSpace(accountID)
+			if accountID == "" {
+				return nil, fmt.Errorf("account_ids: %w", domain.ErrInvalidArgument)
+			}
+			if params.OwnerType == domain.ConversationOwnerTypeWorkspace {
+				if _, err := s.userRepo.GetWorkspaceMembershipID(ctx, params.WorkspaceID, accountID); err != nil {
+					return nil, fmt.Errorf("account_id %s: %w", accountID, err)
+				}
+			}
+		}
+		params.AccountIDs = dedupeStrings(params.AccountIDs)
+	}
+	params.UserIDs = dedupeStrings(params.UserIDs)
+	if params.OwnerType == domain.ConversationOwnerTypeWorkspace {
+		for _, userID := range params.UserIDs {
+			if userID == "" {
+				return nil, fmt.Errorf("user_ids: %w", domain.ErrInvalidArgument)
+			}
+			if userID == params.CreatorID {
+				return nil, fmt.Errorf("user_ids: %w", domain.ErrInvalidArgument)
+			}
+			user, err := loadUser(ctx, s.userRepo, userID)
+			if err != nil {
+				return nil, fmt.Errorf("user_id %s: %w", userID, err)
+			}
+			if user.WorkspaceID != params.WorkspaceID {
+				return nil, fmt.Errorf("user_id %s: %w", userID, domain.ErrForbidden)
+			}
 		}
 	}
-	if params.Type == domain.ConversationTypeIM && len(params.UserIDs) == 1 {
+	if params.OwnerType == domain.ConversationOwnerTypeWorkspace && params.Type == domain.ConversationTypeIM && len(params.UserIDs) == 1 {
 		conv, err := s.repo.GetCanonicalDM(ctx, params.WorkspaceID, params.CreatorID, params.UserIDs[0])
 		if err == nil {
 			return conv, nil
@@ -112,7 +166,7 @@ func (s *ConversationService) Create(ctx context.Context, params domain.CreateCo
 		EventType:     domain.EventConversationCreated,
 		AggregateType: domain.AggregateConversation,
 		AggregateID:   conv.ID,
-		WorkspaceID:   conv.WorkspaceID,
+		WorkspaceID:   conversationWorkspaceID(conv),
 		ActorID:       actorID,
 		Payload:       payload,
 	}); err != nil {
@@ -133,14 +187,16 @@ func (s *ConversationService) Get(ctx context.Context, id string) (*domain.Conve
 	if err != nil {
 		return nil, err
 	}
-	externalActor, err := ensureConversationAccess(ctx, s.externalMembers, conv, "", false)
-	if err != nil {
-		return nil, err
-	}
-	if s.access != nil && !externalActor {
+	if s.access != nil {
 		if err := s.access.ensureConversationVisible(ctx, conv); err != nil {
 			return nil, err
 		}
+	} else if isAccountOwnedConversation(conv) {
+		if err := ensureAccountConversationAccess(ctx, s.repo, conv); err != nil {
+			return nil, err
+		}
+	} else if err := ensureWorkspaceMembershipAccess(ctx, s.userRepo, conversationWorkspaceID(conv)); err != nil {
+		return nil, err
 	}
 	return conv, nil
 }
@@ -154,7 +210,7 @@ func (s *ConversationService) Update(ctx context.Context, id string, params doma
 	if err != nil {
 		return nil, err
 	}
-	if err := ensureWorkspaceAccess(ctx, conv.WorkspaceID); err != nil {
+	if err := ensureWorkspaceMembershipAccess(ctx, s.userRepo, conversationWorkspaceID(conv)); err != nil {
 		return nil, err
 	}
 	if s.access != nil {
@@ -179,7 +235,7 @@ func (s *ConversationService) Update(ctx context.Context, id string, params doma
 		EventType:     domain.EventConversationUpdated,
 		AggregateType: domain.AggregateConversation,
 		AggregateID:   conv.ID,
-		WorkspaceID:   conv.WorkspaceID,
+		WorkspaceID:   conversationWorkspaceID(conv),
 		ActorID:       actorUserID(ctx),
 		Payload:       payload,
 	}); err != nil {
@@ -200,7 +256,7 @@ func (s *ConversationService) Archive(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
-	if err := ensureWorkspaceAccess(ctx, conv.WorkspaceID); err != nil {
+	if err := ensureWorkspaceMembershipAccess(ctx, s.userRepo, conversationWorkspaceID(conv)); err != nil {
 		return err
 	}
 	if s.access != nil {
@@ -225,7 +281,7 @@ func (s *ConversationService) Archive(ctx context.Context, id string) error {
 		EventType:     domain.EventConversationArchived,
 		AggregateType: domain.AggregateConversation,
 		AggregateID:   id,
-		WorkspaceID:   conv.WorkspaceID,
+		WorkspaceID:   conversationWorkspaceID(conv),
 		ActorID:       actorUserID(ctx),
 		Payload:       payload,
 	}); err != nil {
@@ -246,7 +302,7 @@ func (s *ConversationService) Unarchive(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
-	if err := ensureWorkspaceAccess(ctx, conv.WorkspaceID); err != nil {
+	if err := ensureWorkspaceMembershipAccess(ctx, s.userRepo, conversationWorkspaceID(conv)); err != nil {
 		return err
 	}
 	if s.access != nil {
@@ -271,7 +327,7 @@ func (s *ConversationService) Unarchive(ctx context.Context, id string) error {
 		EventType:     domain.EventConversationUnarchived,
 		AggregateType: domain.AggregateConversation,
 		AggregateID:   id,
-		WorkspaceID:   conv.WorkspaceID,
+		WorkspaceID:   conversationWorkspaceID(conv),
 		ActorID:       actorUserID(ctx),
 		Payload:       payload,
 	}); err != nil {
@@ -292,7 +348,7 @@ func (s *ConversationService) SetTopic(ctx context.Context, id string, params do
 	if err != nil {
 		return nil, err
 	}
-	if err := ensureWorkspaceAccess(ctx, conv.WorkspaceID); err != nil {
+	if err := ensureWorkspaceMembershipAccess(ctx, s.userRepo, conversationWorkspaceID(conv)); err != nil {
 		return nil, err
 	}
 	if s.access != nil {
@@ -303,9 +359,21 @@ func (s *ConversationService) SetTopic(ctx context.Context, id string, params do
 	if conv.IsArchived {
 		return nil, domain.ErrChannelArchived
 	}
-	actorID, err := resolveActorID(ctx, params.SetByID)
-	if err != nil {
-		return nil, err
+	var actorID string
+	if isAccountOwnedConversation(conv) {
+		actorID = actorAccountID(ctx)
+		if actorID == "" {
+			actorID = actorUserID(ctx)
+		}
+		if actorID == "" {
+			return nil, fmt.Errorf("set_by_id: %w", domain.ErrInvalidAuth)
+		}
+	} else {
+		resolvedActorID, err := resolveActorID(ctx, params.SetByID)
+		if err != nil {
+			return nil, err
+		}
+		actorID = resolvedActorID
 	}
 	params.SetByID = actorID
 
@@ -324,7 +392,7 @@ func (s *ConversationService) SetTopic(ctx context.Context, id string, params do
 		EventType:     domain.EventConversationTopicSet,
 		AggregateType: domain.AggregateConversation,
 		AggregateID:   id,
-		WorkspaceID:   result.WorkspaceID,
+		WorkspaceID:   conversationWorkspaceID(result),
 		ActorID:       actorID,
 		Payload:       payload,
 	}); err != nil {
@@ -345,7 +413,7 @@ func (s *ConversationService) SetPurpose(ctx context.Context, id string, params 
 	if err != nil {
 		return nil, err
 	}
-	if err := ensureWorkspaceAccess(ctx, conv.WorkspaceID); err != nil {
+	if err := ensureWorkspaceMembershipAccess(ctx, s.userRepo, conversationWorkspaceID(conv)); err != nil {
 		return nil, err
 	}
 	if s.access != nil {
@@ -356,9 +424,21 @@ func (s *ConversationService) SetPurpose(ctx context.Context, id string, params 
 	if conv.IsArchived {
 		return nil, domain.ErrChannelArchived
 	}
-	actorID, err := resolveActorID(ctx, params.SetByID)
-	if err != nil {
-		return nil, err
+	var actorID string
+	if isAccountOwnedConversation(conv) {
+		actorID = actorAccountID(ctx)
+		if actorID == "" {
+			actorID = actorUserID(ctx)
+		}
+		if actorID == "" {
+			return nil, fmt.Errorf("set_by_id: %w", domain.ErrInvalidAuth)
+		}
+	} else {
+		resolvedActorID, err := resolveActorID(ctx, params.SetByID)
+		if err != nil {
+			return nil, err
+		}
+		actorID = resolvedActorID
 	}
 	params.SetByID = actorID
 
@@ -377,7 +457,7 @@ func (s *ConversationService) SetPurpose(ctx context.Context, id string, params 
 		EventType:     domain.EventConversationPurposeSet,
 		AggregateType: domain.AggregateConversation,
 		AggregateID:   id,
-		WorkspaceID:   result.WorkspaceID,
+		WorkspaceID:   conversationWorkspaceID(result),
 		ActorID:       actorID,
 		Payload:       payload,
 	}); err != nil {
@@ -391,13 +471,18 @@ func (s *ConversationService) SetPurpose(ctx context.Context, id string, params 
 }
 
 func (s *ConversationService) List(ctx context.Context, params domain.ListConversationsParams) (*domain.CursorPage[domain.Conversation], error) {
-	workspaceID, externalList, err := s.resolveListWorkspace(ctx, params.WorkspaceID)
+	workspaceID, _, err := s.resolveListWorkspace(ctx, params.WorkspaceID)
 	if err != nil {
 		return nil, err
 	}
 	params.WorkspaceID = workspaceID
-	if externalList {
-		return s.listExternalMemberConversations(ctx, params)
+	params.AccountID = actorAccountID(ctx)
+	if params.AccountID == "" {
+		if actorID := actorUserID(ctx); actorID != "" {
+			if actor, err := loadUser(ctx, s.userRepo, actorID); err == nil {
+				params.AccountID = actor.AccountID
+			}
+		}
 	}
 	params.UserID = actorUserID(ctx)
 	page, err := s.repo.List(ctx, params)
@@ -407,16 +492,6 @@ func (s *ConversationService) List(ctx context.Context, params domain.ListConver
 	if page == nil {
 		return nil, nil
 	}
-	filtered, err := filterExternalSharedConversations(ctx, s.externalMembers, page.Items)
-	if err != nil {
-		return nil, err
-	}
-	if len(filtered) == len(page.Items) {
-		return page, nil
-	}
-	page.Items = filtered
-	page.HasMore = false
-	page.NextCursor = ""
 	return page, nil
 }
 
@@ -424,27 +499,46 @@ func (s *ConversationService) resolveListWorkspace(ctx context.Context, requeste
 	ctxWorkspace := ctxutil.GetWorkspaceID(ctx)
 	requested = strings.TrimSpace(requested)
 	if requested == "" {
-		workspaceID, err := resolveWorkspaceID(ctx, requested)
-		return workspaceID, false, err
+		if ctxWorkspace != "" {
+			return ctxWorkspace, false, nil
+		}
+		return "", false, nil
 	}
 	if ctxWorkspace == "" || requested == ctxWorkspace {
-		workspaceID, err := resolveWorkspaceID(ctx, requested)
-		return workspaceID, false, err
+		if ctxWorkspace == "" {
+			if !requiresAuthenticatedActor(ctx) {
+				return requested, false, nil
+			}
+			accountID := actorAccountID(ctx)
+			if accountID == "" {
+				return "", false, domain.ErrForbidden
+			}
+			if _, err := s.userRepo.GetWorkspaceMembershipID(ctx, requested, accountID); err != nil {
+				if errors.Is(err, domain.ErrNotFound) {
+					return "", false, domain.ErrForbidden
+				}
+				return "", false, err
+			}
+		}
+		return requested, false, nil
 	}
-	if s.externalMembers == nil || ctxutil.GetAccountID(ctx) == "" {
+	accountID := actorAccountID(ctx)
+	if accountID == "" {
 		return "", false, domain.ErrForbidden
 	}
-	items, err := s.externalMembers.ListActiveByAccountAndWorkspace(ctx, ctxutil.GetAccountID(ctx), requested)
-	if err != nil {
+	if _, err := s.userRepo.GetWorkspaceMembershipID(ctx, requested, accountID); err != nil {
+		if errors.Is(err, domain.ErrNotFound) {
+			return "", false, domain.ErrForbidden
+		}
 		return "", false, err
-	}
-	if len(items) == 0 {
-		return "", false, domain.ErrForbidden
 	}
 	return requested, true, nil
 }
 
 func (s *ConversationService) listExternalMemberConversations(ctx context.Context, params domain.ListConversationsParams) (*domain.CursorPage[domain.Conversation], error) {
+	if s.externalMembers == nil {
+		return nil, domain.ErrForbidden
+	}
 	items, err := s.externalMembers.ListActiveByAccountAndWorkspace(ctx, ctxutil.GetAccountID(ctx), params.WorkspaceID)
 	if err != nil {
 		return nil, err
@@ -462,7 +556,7 @@ func (s *ConversationService) listExternalMemberConversations(ctx context.Contex
 			}
 			return nil, err
 		}
-		if conv.WorkspaceID != params.WorkspaceID {
+		if conversationWorkspaceID(conv) != params.WorkspaceID {
 			continue
 		}
 		if params.ExcludeArchived && conv.IsArchived {
@@ -507,6 +601,20 @@ func conversationTypeAllowed(target domain.ConversationType, allowed []domain.Co
 	return false
 }
 
+func (s *ConversationService) resolveInviteSubject(ctx context.Context, workspaceID, rawMemberID string) (string, string) {
+	if workspaceID == "" {
+		return "", rawMemberID
+	}
+
+	if user, err := s.userRepo.Get(ctx, rawMemberID); err == nil {
+		if user.AccountID != "" {
+			return user.ID, user.AccountID
+		}
+		return "", ""
+	}
+	return "", rawMemberID
+}
+
 func (s *ConversationService) Invite(ctx context.Context, conversationID, userID string) error {
 	if err := requirePermission(ctx, domain.PermissionConversationsMembersWrite); err != nil {
 		return err
@@ -522,7 +630,7 @@ func (s *ConversationService) Invite(ctx context.Context, conversationID, userID
 	if conv.IsArchived {
 		return domain.ErrChannelArchived
 	}
-	if err := ensureWorkspaceAccess(ctx, conv.WorkspaceID); err != nil {
+	if err := ensureWorkspaceMembershipAccess(ctx, s.userRepo, conversationWorkspaceID(conv)); err != nil {
 		return err
 	}
 	if s.access != nil {
@@ -531,7 +639,12 @@ func (s *ConversationService) Invite(ctx context.Context, conversationID, userID
 		}
 	}
 
-	isMember, err := s.repo.IsMember(ctx, conversationID, userID)
+	rawMemberID := strings.TrimSpace(userID)
+	memberUserID, accountID := s.resolveInviteSubject(ctx, conversationWorkspaceID(conv), rawMemberID)
+	if accountID == "" {
+		return fmt.Errorf("account_id: %w", domain.ErrInvalidArgument)
+	}
+	isMember, err := s.repo.IsAccountMember(ctx, conversationID, accountID)
 	if err != nil {
 		return err
 	}
@@ -546,19 +659,20 @@ func (s *ConversationService) Invite(ctx context.Context, conversationID, userID
 	defer tx.Rollback(ctx)
 
 	txRepo := s.repo.WithTx(tx)
-	if err := txRepo.AddMember(ctx, conversationID, userID); err != nil {
+	if err := txRepo.AddMemberByAccount(ctx, conversationID, accountID); err != nil {
 		return err
 	}
 	updatedConv, _ := txRepo.Get(ctx, conversationID)
 	payload, _ := json.Marshal(struct {
-		UserID       string               `json:"user_id"`
+		UserID       string               `json:"user_id,omitempty"`
+		AccountID    string               `json:"account_id"`
 		Conversation *domain.Conversation `json:"conversation"`
-	}{UserID: userID, Conversation: updatedConv})
+	}{UserID: memberUserID, AccountID: accountID, Conversation: updatedConv})
 	if err := s.recorder.WithTx(tx).Record(ctx, domain.InternalEvent{
 		EventType:     domain.EventMemberJoined,
 		AggregateType: domain.AggregateConversation,
 		AggregateID:   conversationID,
-		WorkspaceID:   conv.WorkspaceID,
+		WorkspaceID:   conversationWorkspaceID(conv),
 		ActorID:       actorUserID(ctx),
 		Payload:       payload,
 	}); err != nil {
@@ -569,6 +683,13 @@ func (s *ConversationService) Invite(ctx context.Context, conversationID, userID
 		return fmt.Errorf("commit tx: %w", err)
 	}
 	return nil
+}
+
+func (s *ConversationService) InviteAccount(ctx context.Context, conversationID, accountID string) error {
+	if conversationID == "" || accountID == "" {
+		return fmt.Errorf("conversation_id and account_id: %w", domain.ErrInvalidArgument)
+	}
+	return s.Invite(ctx, conversationID, accountID)
 }
 
 func (s *ConversationService) Kick(ctx context.Context, conversationID, userID string) error {
@@ -582,13 +703,19 @@ func (s *ConversationService) Kick(ctx context.Context, conversationID, userID s
 	if err != nil {
 		return err
 	}
-	if err := ensureWorkspaceAccess(ctx, conv.WorkspaceID); err != nil {
+	if err := ensureWorkspaceMembershipAccess(ctx, s.userRepo, conversationWorkspaceID(conv)); err != nil {
 		return err
 	}
 	if s.access != nil {
 		if err := s.access.CanManageMembers(ctx, conv); err != nil {
 			return err
 		}
+	}
+
+	rawMemberID := strings.TrimSpace(userID)
+	memberUserID, accountID := s.resolveInviteSubject(ctx, conversationWorkspaceID(conv), rawMemberID)
+	if accountID == "" {
+		return fmt.Errorf("account_id: %w", domain.ErrInvalidArgument)
 	}
 
 	tx, err := s.db.Begin(ctx)
@@ -598,19 +725,20 @@ func (s *ConversationService) Kick(ctx context.Context, conversationID, userID s
 	defer tx.Rollback(ctx)
 
 	txRepo := s.repo.WithTx(tx)
-	if err := txRepo.RemoveMember(ctx, conversationID, userID); err != nil {
+	if err := txRepo.RemoveMemberByAccount(ctx, conversationID, accountID); err != nil {
 		return err
 	}
 	updatedConv, _ := txRepo.Get(ctx, conversationID)
 	payload, _ := json.Marshal(struct {
-		UserID       string               `json:"user_id"`
+		UserID       string               `json:"user_id,omitempty"`
+		AccountID    string               `json:"account_id"`
 		Conversation *domain.Conversation `json:"conversation"`
-	}{UserID: userID, Conversation: updatedConv})
+	}{UserID: memberUserID, AccountID: accountID, Conversation: updatedConv})
 	if err := s.recorder.WithTx(tx).Record(ctx, domain.InternalEvent{
 		EventType:     domain.EventMemberLeft,
 		AggregateType: domain.AggregateConversation,
 		AggregateID:   conversationID,
-		WorkspaceID:   conv.WorkspaceID,
+		WorkspaceID:   conversationWorkspaceID(conv),
 		ActorID:       actorUserID(ctx),
 		Payload:       payload,
 	}); err != nil {
@@ -631,7 +759,7 @@ func (s *ConversationService) ListMembers(ctx context.Context, conversationID st
 	if err != nil {
 		return nil, err
 	}
-	if err := ensureWorkspaceAccess(ctx, conv.WorkspaceID); err != nil {
+	if err := ensureWorkspaceMembershipAccess(ctx, s.userRepo, conversationWorkspaceID(conv)); err != nil {
 		return nil, err
 	}
 	if s.access != nil {
@@ -639,5 +767,5 @@ func (s *ConversationService) ListMembers(ctx context.Context, conversationID st
 			return nil, err
 		}
 	}
-	return s.repo.ListMembers(ctx, conversationID, cursor, limit)
+	return s.repo.ListMemberAccounts(ctx, conversationID, cursor, limit)
 }

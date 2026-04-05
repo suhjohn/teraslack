@@ -35,16 +35,16 @@ type ConversationUpdateRequest struct {
 }
 
 type ConversationInviteRequest struct {
-	UserIDs []string `json:"user_ids"`
+	AccountIDs []string `json:"account_ids,omitempty"`
 }
 
 type ConversationManagersResponse struct {
 	ConversationID string   `json:"conversation_id"`
-	UserIDs        []string `json:"user_ids"`
+	AccountIDs     []string `json:"account_ids,omitempty"`
 }
 
 type ConversationManagersUpdateRequest struct {
-	UserIDs []string `json:"user_ids"`
+	AccountIDs []string `json:"account_ids,omitempty"`
 }
 
 type ConversationPostingPolicyResponse struct {
@@ -52,7 +52,7 @@ type ConversationPostingPolicyResponse struct {
 	PolicyType            domain.ConversationPostingPolicyType `json:"policy_type"`
 	AllowedAccountTypes   []domain.AccountType                 `json:"allowed_account_types,omitempty"`
 	AllowedDelegatedRoles []domain.DelegatedRole               `json:"allowed_delegated_roles,omitempty"`
-	AllowedUserIDs        []string                             `json:"allowed_user_ids,omitempty"`
+	AllowedAccountIDs     []string                             `json:"allowed_account_ids,omitempty"`
 	UpdatedBy             string                               `json:"updated_by,omitempty"`
 	UpdatedAt             *time.Time                           `json:"updated_at,omitempty"`
 }
@@ -61,7 +61,7 @@ type ConversationPostingPolicyUpdateRequest struct {
 	PolicyType            domain.ConversationPostingPolicyType `json:"policy_type"`
 	AllowedAccountTypes   []domain.AccountType                 `json:"allowed_account_types,omitempty"`
 	AllowedDelegatedRoles []domain.DelegatedRole               `json:"allowed_delegated_roles,omitempty"`
-	AllowedUserIDs        []string                             `json:"allowed_user_ids,omitempty"`
+	AllowedAccountIDs     []string                             `json:"allowed_account_ids,omitempty"`
 }
 
 type MessageReactionRequest struct {

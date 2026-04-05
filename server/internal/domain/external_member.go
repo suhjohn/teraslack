@@ -2,7 +2,8 @@ package domain
 
 import "time"
 
-// ExternalMember grants a canonical account access to a single host-workspace conversation.
+// ExternalMember is a conversation-scoped external access grant.
+// Workspace membership and account-keyed conversation membership remain the canonical access model.
 type ExternalMember struct {
 	ID                  string                      `json:"id"`
 	ConversationID      string                      `json:"conversation_id"`

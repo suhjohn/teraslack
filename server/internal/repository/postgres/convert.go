@@ -58,6 +58,13 @@ func textToString(t pgtype.Text) string {
 	return ""
 }
 
+func stringToStringPtr(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return &s
+}
+
 func boolToBoolPtr(b any) *bool {
 	switch v := b.(type) {
 	case bool:
@@ -243,31 +250,36 @@ func apiKeyFieldsToDomain(
 func convToDomain(row any) *domain.Conversation {
 	switch c := row.(type) {
 	case sqlcgen.Conversation:
-		return convFieldsToDomain(c.ID, c.WorkspaceID, c.Name, c.Type, c.CreatorID, c.IsArchived, c.TopicValue, c.TopicCreator, c.TopicLastSet, c.PurposeValue, c.PurposeCreator, c.PurposeLastSet, c.NumMembers, c.LastMessageTs, c.LastActivityTs, c.CreatedAt, c.UpdatedAt)
+		return convFieldsToDomain(c.ID, c.WorkspaceID, c.OwnerType, c.OwnerAccountID, c.OwnerWorkspaceID, c.Name, c.Type, c.CreatorID, c.IsArchived, c.TopicValue, c.TopicCreator, c.TopicLastSet, c.PurposeValue, c.PurposeCreator, c.PurposeLastSet, c.NumMembers, c.LastMessageTs, c.LastActivityTs, c.CreatedAt, c.UpdatedAt)
 	case sqlcgen.CreateConversationRow:
-		return convFieldsToDomain(c.ID, c.WorkspaceID, c.Name, c.Type, c.CreatorID, c.IsArchived, c.TopicValue, c.TopicCreator, c.TopicLastSet, c.PurposeValue, c.PurposeCreator, c.PurposeLastSet, c.NumMembers, c.LastMessageTs, c.LastActivityTs, c.CreatedAt, c.UpdatedAt)
+		return convFieldsToDomain(c.ID, c.WorkspaceID, c.OwnerType, c.OwnerAccountID, c.OwnerWorkspaceID, c.Name, c.Type, c.CreatorID, c.IsArchived, c.TopicValue, c.TopicCreator, c.TopicLastSet, c.PurposeValue, c.PurposeCreator, c.PurposeLastSet, c.NumMembers, c.LastMessageTs, c.LastActivityTs, c.CreatedAt, c.UpdatedAt)
 	case sqlcgen.GetConversationRow:
-		return convFieldsToDomain(c.ID, c.WorkspaceID, c.Name, c.Type, c.CreatorID, c.IsArchived, c.TopicValue, c.TopicCreator, c.TopicLastSet, c.PurposeValue, c.PurposeCreator, c.PurposeLastSet, c.NumMembers, c.LastMessageTs, c.LastActivityTs, c.CreatedAt, c.UpdatedAt)
+		return convFieldsToDomain(c.ID, c.WorkspaceID, c.OwnerType, c.OwnerAccountID, c.OwnerWorkspaceID, c.Name, c.Type, c.CreatorID, c.IsArchived, c.TopicValue, c.TopicCreator, c.TopicLastSet, c.PurposeValue, c.PurposeCreator, c.PurposeLastSet, c.NumMembers, c.LastMessageTs, c.LastActivityTs, c.CreatedAt, c.UpdatedAt)
 	case sqlcgen.UpdateConversationRow:
-		return convFieldsToDomain(c.ID, c.WorkspaceID, c.Name, c.Type, c.CreatorID, c.IsArchived, c.TopicValue, c.TopicCreator, c.TopicLastSet, c.PurposeValue, c.PurposeCreator, c.PurposeLastSet, c.NumMembers, c.LastMessageTs, c.LastActivityTs, c.CreatedAt, c.UpdatedAt)
+		return convFieldsToDomain(c.ID, c.WorkspaceID, c.OwnerType, c.OwnerAccountID, c.OwnerWorkspaceID, c.Name, c.Type, c.CreatorID, c.IsArchived, c.TopicValue, c.TopicCreator, c.TopicLastSet, c.PurposeValue, c.PurposeCreator, c.PurposeLastSet, c.NumMembers, c.LastMessageTs, c.LastActivityTs, c.CreatedAt, c.UpdatedAt)
 	case sqlcgen.SetConversationTopicRow:
-		return convFieldsToDomain(c.ID, c.WorkspaceID, c.Name, c.Type, c.CreatorID, c.IsArchived, c.TopicValue, c.TopicCreator, c.TopicLastSet, c.PurposeValue, c.PurposeCreator, c.PurposeLastSet, c.NumMembers, c.LastMessageTs, c.LastActivityTs, c.CreatedAt, c.UpdatedAt)
+		return convFieldsToDomain(c.ID, c.WorkspaceID, c.OwnerType, c.OwnerAccountID, c.OwnerWorkspaceID, c.Name, c.Type, c.CreatorID, c.IsArchived, c.TopicValue, c.TopicCreator, c.TopicLastSet, c.PurposeValue, c.PurposeCreator, c.PurposeLastSet, c.NumMembers, c.LastMessageTs, c.LastActivityTs, c.CreatedAt, c.UpdatedAt)
 	case sqlcgen.SetConversationPurposeRow:
-		return convFieldsToDomain(c.ID, c.WorkspaceID, c.Name, c.Type, c.CreatorID, c.IsArchived, c.TopicValue, c.TopicCreator, c.TopicLastSet, c.PurposeValue, c.PurposeCreator, c.PurposeLastSet, c.NumMembers, c.LastMessageTs, c.LastActivityTs, c.CreatedAt, c.UpdatedAt)
+		return convFieldsToDomain(c.ID, c.WorkspaceID, c.OwnerType, c.OwnerAccountID, c.OwnerWorkspaceID, c.Name, c.Type, c.CreatorID, c.IsArchived, c.TopicValue, c.TopicCreator, c.TopicLastSet, c.PurposeValue, c.PurposeCreator, c.PurposeLastSet, c.NumMembers, c.LastMessageTs, c.LastActivityTs, c.CreatedAt, c.UpdatedAt)
 	case sqlcgen.ListVisibleConversationsRow:
-		conv := convFieldsToDomain(c.ID, c.WorkspaceID, c.Name, c.Type, c.CreatorID, c.IsArchived, c.TopicValue, c.TopicCreator, c.TopicLastSet, c.PurposeValue, c.PurposeCreator, c.PurposeLastSet, c.NumMembers, c.LastMessageTs, c.LastActivityTs, c.CreatedAt, c.UpdatedAt)
-		conv.LastReadTS = textToStringPtr(c.LastReadTs)
+		conv := convFieldsToDomain(c.ID, c.WorkspaceID, c.OwnerType, c.OwnerAccountID, c.OwnerWorkspaceID, c.Name, c.Type, c.CreatorID, c.IsArchived, c.TopicValue, c.TopicCreator, c.TopicLastSet, c.PurposeValue, c.PurposeCreator, c.PurposeLastSet, c.NumMembers, c.LastMessageTs, c.LastActivityTs, c.CreatedAt, c.UpdatedAt)
+		conv.LastReadTS = stringToStringPtr(c.LastReadTs)
 		conv.HasUnread = boolToBoolPtr(c.HasUnread)
 		return conv
 	case sqlcgen.GetCanonicalDMConversationRow:
-		return convFieldsToDomain(c.ID, c.WorkspaceID, c.Name, c.Type, c.CreatorID, c.IsArchived, c.TopicValue, c.TopicCreator, c.TopicLastSet, c.PurposeValue, c.PurposeCreator, c.PurposeLastSet, c.NumMembers, c.LastMessageTs, c.LastActivityTs, c.CreatedAt, c.UpdatedAt)
+		return convFieldsToDomain(c.ID, c.WorkspaceID, c.OwnerType, c.OwnerAccountID, c.OwnerWorkspaceID, c.Name, c.Type, c.CreatorID, c.IsArchived, c.TopicValue, c.TopicCreator, c.TopicLastSet, c.PurposeValue, c.PurposeCreator, c.PurposeLastSet, c.NumMembers, c.LastMessageTs, c.LastActivityTs, c.CreatedAt, c.UpdatedAt)
 	default:
 		panic("unsupported conversation row type")
 	}
 }
 
 func convFieldsToDomain(
-	id, workspaceID, name, convType, creatorID string,
+	id string,
+	workspaceID pgtype.Text,
+	ownerType string,
+	ownerAccountID, ownerWorkspaceID pgtype.Text,
+	name, convType string,
+	creatorID pgtype.Text,
 	isArchived bool,
 	topicValue, topicCreator string,
 	topicLastSet *time.Time,
@@ -278,12 +290,15 @@ func convFieldsToDomain(
 	createdAt, updatedAt time.Time,
 ) *domain.Conversation {
 	return &domain.Conversation{
-		ID:          id,
-		WorkspaceID: workspaceID,
-		Name:        name,
-		Type:        domain.ConversationType(convType),
-		CreatorID:   creatorID,
-		IsArchived:  isArchived,
+		ID:               id,
+		WorkspaceID:      textToString(workspaceID),
+		OwnerType:        domain.ConversationOwnerType(ownerType),
+		OwnerAccountID:   textToString(ownerAccountID),
+		OwnerWorkspaceID: textToString(ownerWorkspaceID),
+		Name:             name,
+		Type:             domain.ConversationType(convType),
+		CreatorID:        textToString(creatorID),
+		IsArchived:       isArchived,
 		Topic: domain.TopicPurpose{
 			Value:   topicValue,
 			Creator: topicCreator,
@@ -302,25 +317,72 @@ func convFieldsToDomain(
 	}
 }
 
-func msgToDomain(m sqlcgen.Message) *domain.Message {
+func msgToDomain(row any) *domain.Message {
+	switch m := row.(type) {
+	case sqlcgen.Message:
+		return msgFieldsToDomain(m.Ts, m.ChannelID, m.UserID, m.AuthorAccountID, m.AuthorWorkspaceMembershipID, m.Text, m.ThreadTs, m.Type, m.Subtype, m.Blocks, m.Metadata, m.EditedBy, m.EditedAt, m.ReplyCount, m.ReplyUsersCount, m.LatestReply, m.IsDeleted, m.CreatedAt, m.UpdatedAt)
+	case sqlcgen.CreateMessageRow:
+		return msgFieldsToDomain(m.Ts, m.ChannelID, m.UserID, m.AuthorAccountID, m.AuthorWorkspaceMembershipID, m.Text, m.ThreadTs, m.Type, m.Subtype, m.Blocks, m.Metadata, m.EditedBy, m.EditedAt, m.ReplyCount, m.ReplyUsersCount, m.LatestReply, m.IsDeleted, m.CreatedAt, m.UpdatedAt)
+	case sqlcgen.CreateMessageByUserRow:
+		return msgFieldsToDomain(m.Ts, m.ChannelID, m.UserID, m.AuthorAccountID, m.AuthorWorkspaceMembershipID, m.Text, m.ThreadTs, m.Type, m.Subtype, m.Blocks, m.Metadata, m.EditedBy, m.EditedAt, m.ReplyCount, m.ReplyUsersCount, m.LatestReply, m.IsDeleted, m.CreatedAt, m.UpdatedAt)
+	case sqlcgen.GetMessageRowRow:
+		return msgFieldsToDomain(m.Ts, m.ChannelID, m.UserID, m.AuthorAccountID, m.AuthorWorkspaceMembershipID, m.Text, m.ThreadTs, m.Type, m.Subtype, m.Blocks, m.Metadata, m.EditedBy, m.EditedAt, m.ReplyCount, m.ReplyUsersCount, m.LatestReply, m.IsDeleted, m.CreatedAt, m.UpdatedAt)
+	case sqlcgen.UpdateMessageRow:
+		return msgFieldsToDomain(m.Ts, m.ChannelID, m.UserID, m.AuthorAccountID, m.AuthorWorkspaceMembershipID, m.Text, m.ThreadTs, m.Type, m.Subtype, m.Blocks, m.Metadata, m.EditedBy, m.EditedAt, m.ReplyCount, m.ReplyUsersCount, m.LatestReply, m.IsDeleted, m.CreatedAt, m.UpdatedAt)
+	case sqlcgen.ListMessagesHistoryRow:
+		return msgFieldsToDomain(m.Ts, m.ChannelID, m.UserID, m.AuthorAccountID, m.AuthorWorkspaceMembershipID, m.Text, m.ThreadTs, m.Type, m.Subtype, m.Blocks, m.Metadata, m.EditedBy, m.EditedAt, m.ReplyCount, m.ReplyUsersCount, m.LatestReply, m.IsDeleted, m.CreatedAt, m.UpdatedAt)
+	case sqlcgen.ListMessagesHistoryNocursorRow:
+		return msgFieldsToDomain(m.Ts, m.ChannelID, m.UserID, m.AuthorAccountID, m.AuthorWorkspaceMembershipID, m.Text, m.ThreadTs, m.Type, m.Subtype, m.Blocks, m.Metadata, m.EditedBy, m.EditedAt, m.ReplyCount, m.ReplyUsersCount, m.LatestReply, m.IsDeleted, m.CreatedAt, m.UpdatedAt)
+	case sqlcgen.ListRepliesRow:
+		return msgFieldsToDomain(m.Ts, m.ChannelID, m.UserID, m.AuthorAccountID, m.AuthorWorkspaceMembershipID, m.Text, m.ThreadTs, m.Type, m.Subtype, m.Blocks, m.Metadata, m.EditedBy, m.EditedAt, m.ReplyCount, m.ReplyUsersCount, m.LatestReply, m.IsDeleted, m.CreatedAt, m.UpdatedAt)
+	case sqlcgen.ListRepliesNoCursorRow:
+		return msgFieldsToDomain(m.Ts, m.ChannelID, m.UserID, m.AuthorAccountID, m.AuthorWorkspaceMembershipID, m.Text, m.ThreadTs, m.Type, m.Subtype, m.Blocks, m.Metadata, m.EditedBy, m.EditedAt, m.ReplyCount, m.ReplyUsersCount, m.LatestReply, m.IsDeleted, m.CreatedAt, m.UpdatedAt)
+	default:
+		panic("unsupported message row type")
+	}
+}
+
+func msgFieldsToDomain(
+	ts string,
+	channelID string,
+	userID string,
+	authorAccountID pgtype.Text,
+	authorWorkspaceMembershipID pgtype.Text,
+	text string,
+	threadTS pgtype.Text,
+	msgType string,
+	subtype pgtype.Text,
+	blocks []byte,
+	metadata []byte,
+	editedBy pgtype.Text,
+	editedAt pgtype.Text,
+	replyCount int32,
+	replyUsersCount int32,
+	latestReply pgtype.Text,
+	isDeleted bool,
+	createdAt time.Time,
+	updatedAt time.Time,
+) *domain.Message {
 	return &domain.Message{
-		TS:              m.Ts,
-		ChannelID:       m.ChannelID,
-		UserID:          m.UserID,
-		Text:            m.Text,
-		ThreadTS:        textToStringPtr(m.ThreadTs),
-		Type:            m.Type,
-		Subtype:         textToStringPtr(m.Subtype),
-		Blocks:          json.RawMessage(m.Blocks),
-		Metadata:        json.RawMessage(m.Metadata),
-		EditedBy:        textToStringPtr(m.EditedBy),
-		EditedAt:        textToStringPtr(m.EditedAt),
-		ReplyCount:      int(m.ReplyCount),
-		ReplyUsersCount: int(m.ReplyUsersCount),
-		LatestReply:     textToStringPtr(m.LatestReply),
-		IsDeleted:       m.IsDeleted,
-		CreatedAt:       tsToTime(m.CreatedAt),
-		UpdatedAt:       tsToTime(m.UpdatedAt),
+		TS:                          ts,
+		ChannelID:                   channelID,
+		UserID:                      userID,
+		AuthorAccountID:             textToString(authorAccountID),
+		AuthorWorkspaceMembershipID: textToString(authorWorkspaceMembershipID),
+		Text:                        text,
+		ThreadTS:                    textToStringPtr(threadTS),
+		Type:                        msgType,
+		Subtype:                     textToStringPtr(subtype),
+		Blocks:                      json.RawMessage(blocks),
+		Metadata:                    json.RawMessage(metadata),
+		EditedBy:                    textToStringPtr(editedBy),
+		EditedAt:                    textToStringPtr(editedAt),
+		ReplyCount:                  int(replyCount),
+		ReplyUsersCount:             int(replyUsersCount),
+		LatestReply:                 textToStringPtr(latestReply),
+		IsDeleted:                   isDeleted,
+		CreatedAt:                   tsToTime(createdAt),
+		UpdatedAt:                   tsToTime(updatedAt),
 	}
 }
 
@@ -489,7 +551,7 @@ func authSessionToDomain(row any) *domain.AuthSession {
 	case sqlcgen.CreateAuthSessionRow:
 		return &domain.AuthSession{
 			ID:          s.ID,
-			WorkspaceID: s.WorkspaceID,
+			WorkspaceID: textToString(s.WorkspaceID),
 			AccountID:   textToString(s.AccountID),
 			UserID:      textToString(s.UserID),
 			Provider:    domain.AuthProvider(s.Provider),
@@ -500,7 +562,7 @@ func authSessionToDomain(row any) *domain.AuthSession {
 	case sqlcgen.GetAuthSessionByHashRow:
 		return &domain.AuthSession{
 			ID:          s.ID,
-			WorkspaceID: s.WorkspaceID,
+			WorkspaceID: textToString(s.WorkspaceID),
 			AccountID:   textToString(s.AccountID),
 			UserID:      textToString(s.UserID),
 			Provider:    domain.AuthProvider(s.Provider),
@@ -518,7 +580,7 @@ func oauthAccountToDomain(row any) *domain.OAuthAccount {
 	case sqlcgen.GetOAuthAccountRow:
 		return &domain.OAuthAccount{
 			ID:              a.ID,
-			WorkspaceID:     a.WorkspaceID,
+			WorkspaceID:     textToString(a.WorkspaceID),
 			AccountID:       textToString(a.AccountID),
 			UserID:          textToString(a.UserID),
 			Provider:        domain.AuthProvider(a.Provider),
@@ -530,7 +592,7 @@ func oauthAccountToDomain(row any) *domain.OAuthAccount {
 	case sqlcgen.ListOAuthAccountsBySubjectRow:
 		return &domain.OAuthAccount{
 			ID:              a.ID,
-			WorkspaceID:     a.WorkspaceID,
+			WorkspaceID:     textToString(a.WorkspaceID),
 			AccountID:       textToString(a.AccountID),
 			UserID:          textToString(a.UserID),
 			Provider:        domain.AuthProvider(a.Provider),
@@ -542,7 +604,7 @@ func oauthAccountToDomain(row any) *domain.OAuthAccount {
 	case sqlcgen.UpsertOAuthAccountRow:
 		return &domain.OAuthAccount{
 			ID:              a.ID,
-			WorkspaceID:     a.WorkspaceID,
+			WorkspaceID:     textToString(a.WorkspaceID),
 			AccountID:       textToString(a.AccountID),
 			UserID:          textToString(a.UserID),
 			Provider:        domain.AuthProvider(a.Provider),

@@ -39,7 +39,7 @@ RETURNING id, workspace_id, account_id, user_id, session_hash, provider, expires
 
 type CreateAuthSessionParams struct {
 	ID          string      `json:"id"`
-	WorkspaceID string      `json:"workspace_id"`
+	WorkspaceID pgtype.Text `json:"workspace_id"`
 	AccountID   pgtype.Text `json:"account_id"`
 	UserID      pgtype.Text `json:"user_id"`
 	SessionHash string      `json:"session_hash"`
@@ -49,7 +49,7 @@ type CreateAuthSessionParams struct {
 
 type CreateAuthSessionRow struct {
 	ID          string      `json:"id"`
-	WorkspaceID string      `json:"workspace_id"`
+	WorkspaceID pgtype.Text `json:"workspace_id"`
 	AccountID   pgtype.Text `json:"account_id"`
 	UserID      pgtype.Text `json:"user_id"`
 	SessionHash string      `json:"session_hash"`
@@ -134,7 +134,7 @@ WHERE session_hash = $1
 
 type GetAuthSessionByHashRow struct {
 	ID          string      `json:"id"`
-	WorkspaceID string      `json:"workspace_id"`
+	WorkspaceID pgtype.Text `json:"workspace_id"`
 	AccountID   pgtype.Text `json:"account_id"`
 	UserID      pgtype.Text `json:"user_id"`
 	SessionHash string      `json:"session_hash"`
@@ -191,18 +191,17 @@ func (q *Queries) GetEmailVerificationChallenge(ctx context.Context, arg GetEmai
 const getOAuthAccount = `-- name: GetOAuthAccount :one
 SELECT id, workspace_id, account_id, user_id, provider, provider_subject, email, created_at, updated_at
 FROM oauth_accounts
-WHERE workspace_id = $1 AND provider = $2 AND provider_subject = $3
+WHERE provider = $1 AND provider_subject = $2
 `
 
 type GetOAuthAccountParams struct {
-	WorkspaceID     string `json:"workspace_id"`
 	Provider        string `json:"provider"`
 	ProviderSubject string `json:"provider_subject"`
 }
 
 type GetOAuthAccountRow struct {
 	ID              string      `json:"id"`
-	WorkspaceID     string      `json:"workspace_id"`
+	WorkspaceID     pgtype.Text `json:"workspace_id"`
 	AccountID       pgtype.Text `json:"account_id"`
 	UserID          pgtype.Text `json:"user_id"`
 	Provider        string      `json:"provider"`
@@ -213,7 +212,7 @@ type GetOAuthAccountRow struct {
 }
 
 func (q *Queries) GetOAuthAccount(ctx context.Context, arg GetOAuthAccountParams) (GetOAuthAccountRow, error) {
-	row := q.db.QueryRow(ctx, getOAuthAccount, arg.WorkspaceID, arg.Provider, arg.ProviderSubject)
+	row := q.db.QueryRow(ctx, getOAuthAccount, arg.Provider, arg.ProviderSubject)
 	var i GetOAuthAccountRow
 	err := row.Scan(
 		&i.ID,
@@ -243,7 +242,7 @@ type ListOAuthAccountsBySubjectParams struct {
 
 type ListOAuthAccountsBySubjectRow struct {
 	ID              string      `json:"id"`
-	WorkspaceID     string      `json:"workspace_id"`
+	WorkspaceID     pgtype.Text `json:"workspace_id"`
 	AccountID       pgtype.Text `json:"account_id"`
 	UserID          pgtype.Text `json:"user_id"`
 	Provider        string      `json:"provider"`
@@ -297,7 +296,8 @@ func (q *Queries) RevokeAuthSessionByHash(ctx context.Context, sessionHash strin
 const upsertOAuthAccount = `-- name: UpsertOAuthAccount :one
 INSERT INTO oauth_accounts (id, workspace_id, account_id, user_id, provider, provider_subject, email)
 VALUES ($1, $2, $3, $4, $5, $6, $7)
-ON CONFLICT (workspace_id, provider, provider_subject) DO UPDATE SET
+ON CONFLICT (provider, provider_subject) DO UPDATE SET
+    workspace_id = EXCLUDED.workspace_id,
     account_id = EXCLUDED.account_id,
     user_id = EXCLUDED.user_id,
     email = EXCLUDED.email,
@@ -307,7 +307,7 @@ RETURNING id, workspace_id, account_id, user_id, provider, provider_subject, ema
 
 type UpsertOAuthAccountParams struct {
 	ID              string      `json:"id"`
-	WorkspaceID     string      `json:"workspace_id"`
+	WorkspaceID     pgtype.Text `json:"workspace_id"`
 	AccountID       pgtype.Text `json:"account_id"`
 	UserID          pgtype.Text `json:"user_id"`
 	Provider        string      `json:"provider"`
@@ -317,7 +317,7 @@ type UpsertOAuthAccountParams struct {
 
 type UpsertOAuthAccountRow struct {
 	ID              string      `json:"id"`
-	WorkspaceID     string      `json:"workspace_id"`
+	WorkspaceID     pgtype.Text `json:"workspace_id"`
 	AccountID       pgtype.Text `json:"account_id"`
 	UserID          pgtype.Text `json:"user_id"`
 	Provider        string      `json:"provider"`

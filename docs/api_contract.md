@@ -85,15 +85,17 @@ Validation failures may include field-level details:
 ## Identity Model
 
 - `accounts` are the canonical cross-workspace identities.
-- `users` are the canonical workspace-local identity, access, and persona records.
-- Each workspace may have at most one `users` row for a given `(account_id, workspace_id)` pair.
-- Workspace-scoped role and admin rank come from `users.account_type`.
-- Product actor references remain workspace-local and continue to use `user_id`.
-- Message authorship, reactions, file ownership, conversation membership, delegated roles, conversation managers, and posting-policy user allowlists all stay keyed by workspace `user_id`.
+- `account_id` is the canonical permission subject for new runtime authorization.
+- `users` are workspace-local directory records linked to accounts.
+- `workspace_memberships` are the canonical workspace access records keyed by `(workspace_id, account_id)`.
+- `workspace_profiles` hold workspace-local persona and alias fields used for rendering in workspace-owned conversations.
+- Each workspace may have at most one active membership for a given `(account_id, workspace_id)` pair.
+- Conversation membership, read state, manager assignment, posting-policy allowlists, and message authorship are account-keyed.
+- Workspace-scoped admin semantics resolve through workspace membership roles and delegated roles.
 - Public event resources remain product-friendly and user-based even though auth resolution is account-first internally.
 - `workspace_external_workspaces` are org-to-org connection records only. They do not grant resource access by themselves.
-- `external_members` are the canonical conversation-scoped cross-workspace grants.
-- Cross-workspace reads and writes must be derived from `external_members`, not from normal workspace-local membership.
+- `external_members` are conversation-scoped external grants layered on top of the canonical workspace and conversation access model.
+- Cross-workspace reads and writes must converge on guest workspace membership plus account-keyed conversation membership.
 
 ## Patch Semantics
 
@@ -122,7 +124,7 @@ Validation failures may include field-level details:
 
 ### Users
 
-- Workspace-local users are the canonical actor surface.
+- Workspace-local users are the canonical directory and persona surface for a selected workspace.
 - Product and admin flows use `/workspaces/{workspace_id}/users` as the canonical user surface.
 - Reads and authorization resolve account-first, then through the selected workspace-local `User`.
 - `GET /workspaces/{id}/users`
@@ -136,11 +138,12 @@ Validation failures may include field-level details:
 
 - `GET /conversations`
 - `POST /conversations`
+- `POST /conversations` is a unified surface for both account-owned and workspace-owned conversations. Clients should send `owner_type`, plus `owner_account_id` or `owner_workspace_id` as appropriate.
 - `GET /conversations/{id}`
 - `PATCH /conversations/{id}`
 - `GET /conversations/{id}/members`
 - `POST /conversations/{id}/members`
-- `DELETE /conversations/{id}/members/{user_id}`
+- `DELETE /conversations/{id}/members/{account_id}`
 - `GET /conversations/{id}/external-members`
 - `POST /conversations/{id}/external-members`
 - `PATCH /conversations/{id}/external-members/{external_member_id}`
@@ -151,6 +154,7 @@ Validation failures may include field-level details:
 
 - `GET /messages`
 - `POST /messages`
+- `POST /messages` records canonical authored identity through the authenticated account and workspace membership context.
 - `PATCH /messages/{conversation_id}/{message_ts}`
 - `DELETE /messages/{conversation_id}/{message_ts}`
 - `GET /messages/{conversation_id}/{message_ts}/reactions`

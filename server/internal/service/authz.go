@@ -76,7 +76,7 @@ func isExternalWorkspaceParticipant(ctx context.Context) bool {
 }
 
 func hasWorkspaceUserContext(ctx context.Context, workspaceID string) bool {
-	if ctxutil.GetUserID(ctx) == "" {
+	if ctxutil.GetUserID(ctx) == "" && ctxutil.GetWorkspaceMembershipID(ctx) == "" {
 		return false
 	}
 	if workspaceID == "" {

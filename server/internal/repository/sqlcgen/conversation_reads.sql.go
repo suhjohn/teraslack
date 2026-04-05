@@ -10,52 +10,48 @@ import (
 	"time"
 )
 
-const getConversationRead = `-- name: GetConversationRead :one
-SELECT workspace_id, conversation_id, user_id, last_read_ts, last_read_at
-FROM conversation_reads
-WHERE conversation_id = $1 AND user_id = $2
+const getConversationReadV2 = `-- name: GetConversationReadV2 :one
+SELECT conversation_id, account_id, last_read_ts, last_read_at
+FROM conversation_reads_v2
+WHERE conversation_id = $1 AND account_id = $2
 `
 
-type GetConversationReadParams struct {
+type GetConversationReadV2Params struct {
 	ConversationID string `json:"conversation_id"`
-	UserID         string `json:"user_id"`
+	AccountID      string `json:"account_id"`
 }
 
-func (q *Queries) GetConversationRead(ctx context.Context, arg GetConversationReadParams) (ConversationRead, error) {
-	row := q.db.QueryRow(ctx, getConversationRead, arg.ConversationID, arg.UserID)
-	var i ConversationRead
+func (q *Queries) GetConversationReadV2(ctx context.Context, arg GetConversationReadV2Params) (ConversationReadsV2, error) {
+	row := q.db.QueryRow(ctx, getConversationReadV2, arg.ConversationID, arg.AccountID)
+	var i ConversationReadsV2
 	err := row.Scan(
-		&i.WorkspaceID,
 		&i.ConversationID,
-		&i.UserID,
+		&i.AccountID,
 		&i.LastReadTs,
 		&i.LastReadAt,
 	)
 	return i, err
 }
 
-const upsertConversationRead = `-- name: UpsertConversationRead :exec
-INSERT INTO conversation_reads (workspace_id, conversation_id, user_id, last_read_ts, last_read_at)
-VALUES ($1, $2, $3, $4, $5)
-ON CONFLICT (conversation_id, user_id) DO UPDATE SET
-    workspace_id = EXCLUDED.workspace_id,
+const upsertConversationReadV2 = `-- name: UpsertConversationReadV2 :exec
+INSERT INTO conversation_reads_v2 (conversation_id, account_id, last_read_ts, last_read_at)
+VALUES ($1, $2, $3, $4)
+ON CONFLICT (conversation_id, account_id) DO UPDATE SET
     last_read_ts = EXCLUDED.last_read_ts,
     last_read_at = EXCLUDED.last_read_at
 `
 
-type UpsertConversationReadParams struct {
-	WorkspaceID    string    `json:"workspace_id"`
+type UpsertConversationReadV2Params struct {
 	ConversationID string    `json:"conversation_id"`
-	UserID         string    `json:"user_id"`
+	AccountID      string    `json:"account_id"`
 	LastReadTs     string    `json:"last_read_ts"`
 	LastReadAt     time.Time `json:"last_read_at"`
 }
 
-func (q *Queries) UpsertConversationRead(ctx context.Context, arg UpsertConversationReadParams) error {
-	_, err := q.db.Exec(ctx, upsertConversationRead,
-		arg.WorkspaceID,
+func (q *Queries) UpsertConversationReadV2(ctx context.Context, arg UpsertConversationReadV2Params) error {
+	_, err := q.db.Exec(ctx, upsertConversationReadV2,
 		arg.ConversationID,
-		arg.UserID,
+		arg.AccountID,
 		arg.LastReadTs,
 		arg.LastReadAt,
 	)

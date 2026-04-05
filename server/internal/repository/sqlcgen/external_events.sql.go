@@ -219,32 +219,50 @@ SELECT DISTINCT ee.id, ee.workspace_id, ee.type, ee.resource_type, ee.resource_i
        ee.source_internal_event_id, ee.source_internal_event_ids, ee.dedupe_key, ee.created_at
 FROM external_events ee
 JOIN conversation_event_feed cef ON cef.external_event_id = ee.id
-JOIN external_members em ON em.conversation_id = cef.conversation_id
-WHERE em.account_id = $1
-  AND em.host_workspace_id = $2
+JOIN conversations c ON c.id = cef.conversation_id
+JOIN workspace_memberships wm
+  ON wm.workspace_id = $2
+ AND wm.account_id = $1
+ AND wm.status = 'active'
+LEFT JOIN conversation_members_v2 cmv2
+  ON cmv2.conversation_id = c.id
+ AND cmv2.account_id = $1
+LEFT JOIN workspace_membership_conversation_access wmca
+  ON wmca.workspace_membership_id = wm.id
+ AND wmca.conversation_id = c.id
+WHERE c.owner_workspace_id = $2
   AND ee.workspace_id = $2
   AND ee.id > $3
-  AND em.revoked_at IS NULL
-  AND (em.expires_at IS NULL OR em.expires_at > NOW())
   AND ($5::text IS NULL OR ee.type = $5)
   AND ($6::text IS NULL OR cef.conversation_id = $6)
+  AND (
+    cmv2.account_id IS NOT NULL
+    OR wmca.conversation_id IS NOT NULL
+    OR (
+      c.type = 'public_channel'
+      AND (
+        wm.membership_kind <> 'guest'
+        OR wm.guest_scope = 'workspace_full'
+      )
+    )
+  )
 ORDER BY ee.id ASC
 LIMIT $4
 `
 
 type ListVisibleConversationExternalEventsByExternalMemberParams struct {
-	AccountID       string      `json:"account_id"`
-	HostWorkspaceID string      `json:"host_workspace_id"`
-	ID              int64       `json:"id"`
-	Limit           int32       `json:"limit"`
-	EventType       pgtype.Text `json:"event_type"`
-	ConversationID  pgtype.Text `json:"conversation_id"`
+	AccountID      string      `json:"account_id"`
+	WorkspaceID    string      `json:"workspace_id"`
+	ID             int64       `json:"id"`
+	Limit          int32       `json:"limit"`
+	EventType      pgtype.Text `json:"event_type"`
+	ConversationID pgtype.Text `json:"conversation_id"`
 }
 
 func (q *Queries) ListVisibleConversationExternalEventsByExternalMember(ctx context.Context, arg ListVisibleConversationExternalEventsByExternalMemberParams) ([]ExternalEvent, error) {
 	rows, err := q.db.Query(ctx, listVisibleConversationExternalEventsByExternalMember,
 		arg.AccountID,
-		arg.HostWorkspaceID,
+		arg.WorkspaceID,
 		arg.ID,
 		arg.Limit,
 		arg.EventType,
@@ -286,46 +304,86 @@ SELECT DISTINCT ee.id, ee.workspace_id, ee.type, ee.resource_type, ee.resource_i
 FROM external_events ee
 LEFT JOIN conversation_event_feed cef
   ON cef.external_event_id = ee.id AND ee.resource_type = 'conversation'
-LEFT JOIN external_members em_conv
-  ON em_conv.account_id = $1
- AND em_conv.host_workspace_id = $2
- AND em_conv.conversation_id = cef.conversation_id
- AND em_conv.revoked_at IS NULL
- AND (em_conv.expires_at IS NULL OR em_conv.expires_at > NOW())
+LEFT JOIN conversations c_conv
+  ON c_conv.id = cef.conversation_id
+ AND c_conv.owner_workspace_id = $2
+LEFT JOIN workspace_memberships wm_conv
+  ON wm_conv.workspace_id = $2
+ AND wm_conv.account_id = $1
+ AND wm_conv.status = 'active'
+LEFT JOIN conversation_members_v2 cm_conv
+  ON cm_conv.conversation_id = c_conv.id
+ AND cm_conv.account_id = $1
+LEFT JOIN workspace_membership_conversation_access wmca_conv
+  ON wmca_conv.workspace_membership_id = wm_conv.id
+ AND wmca_conv.conversation_id = c_conv.id
 LEFT JOIN file_event_feed fef
   ON fef.external_event_id = ee.id AND ee.resource_type = 'file'
 LEFT JOIN file_channels fc ON fc.file_id = fef.file_id
-LEFT JOIN external_members em_file
-  ON em_file.account_id = $1
- AND em_file.host_workspace_id = $2
- AND em_file.conversation_id = fc.channel_id
- AND em_file.revoked_at IS NULL
- AND (em_file.expires_at IS NULL OR em_file.expires_at > NOW())
+LEFT JOIN conversations c_file
+  ON c_file.id = fc.channel_id
+ AND c_file.owner_workspace_id = $2
+LEFT JOIN workspace_memberships wm_file
+  ON wm_file.workspace_id = $2
+ AND wm_file.account_id = $1
+ AND wm_file.status = 'active'
+LEFT JOIN conversation_members_v2 cm_file
+  ON cm_file.conversation_id = c_file.id
+ AND cm_file.account_id = $1
+LEFT JOIN workspace_membership_conversation_access wmca_file
+  ON wmca_file.workspace_membership_id = wm_file.id
+ AND wmca_file.conversation_id = c_file.id
 WHERE ee.workspace_id = $2
   AND ee.id > $3
   AND ee.resource_type = ANY($4::text[])
   AND ($6::text IS NULL OR ee.type = $6)
   AND (
-    (ee.resource_type = 'conversation' AND em_conv.id IS NOT NULL) OR
-    (ee.resource_type = 'file' AND em_file.id IS NOT NULL)
+    (
+      ee.resource_type = 'conversation'
+      AND (
+        cm_conv.account_id IS NOT NULL
+        OR wmca_conv.conversation_id IS NOT NULL
+        OR (
+          c_conv.type = 'public_channel'
+          AND (
+            wm_conv.membership_kind <> 'guest'
+            OR wm_conv.guest_scope = 'workspace_full'
+          )
+        )
+      )
+    ) OR
+    (
+      ee.resource_type = 'file'
+      AND (
+        cm_file.account_id IS NOT NULL
+        OR wmca_file.conversation_id IS NOT NULL
+        OR (
+          c_file.type = 'public_channel'
+          AND (
+            wm_file.membership_kind <> 'guest'
+            OR wm_file.guest_scope = 'workspace_full'
+          )
+        )
+      )
+    )
   )
 ORDER BY ee.id ASC
 LIMIT $5
 `
 
 type ListVisibleExternalEventsByExternalMemberAndResourceTypesParams struct {
-	AccountID       string      `json:"account_id"`
-	HostWorkspaceID string      `json:"host_workspace_id"`
-	ID              int64       `json:"id"`
-	Column4         []string    `json:"column_4"`
-	Limit           int32       `json:"limit"`
-	EventType       pgtype.Text `json:"event_type"`
+	AccountID        string      `json:"account_id"`
+	OwnerWorkspaceID pgtype.Text `json:"owner_workspace_id"`
+	ID               int64       `json:"id"`
+	Column4          []string    `json:"column_4"`
+	Limit            int32       `json:"limit"`
+	EventType        pgtype.Text `json:"event_type"`
 }
 
 func (q *Queries) ListVisibleExternalEventsByExternalMemberAndResourceTypes(ctx context.Context, arg ListVisibleExternalEventsByExternalMemberAndResourceTypesParams) ([]ExternalEvent, error) {
 	rows, err := q.db.Query(ctx, listVisibleExternalEventsByExternalMemberAndResourceTypes,
 		arg.AccountID,
-		arg.HostWorkspaceID,
+		arg.OwnerWorkspaceID,
 		arg.ID,
 		arg.Column4,
 		arg.Limit,
@@ -428,32 +486,50 @@ SELECT DISTINCT ee.id, ee.workspace_id, ee.type, ee.resource_type, ee.resource_i
 FROM external_events ee
 JOIN file_event_feed fef ON fef.external_event_id = ee.id
 JOIN file_channels fc ON fc.file_id = fef.file_id
-JOIN external_members em ON em.conversation_id = fc.channel_id
-WHERE em.account_id = $1
-  AND em.host_workspace_id = $2
+JOIN conversations c ON c.id = fc.channel_id
+JOIN workspace_memberships wm
+  ON wm.workspace_id = $2
+ AND wm.account_id = $1
+ AND wm.status = 'active'
+LEFT JOIN conversation_members_v2 cmv2
+  ON cmv2.conversation_id = c.id
+ AND cmv2.account_id = $1
+LEFT JOIN workspace_membership_conversation_access wmca
+  ON wmca.workspace_membership_id = wm.id
+ AND wmca.conversation_id = c.id
+WHERE c.owner_workspace_id = $2
   AND ee.workspace_id = $2
   AND ee.id > $3
-  AND em.revoked_at IS NULL
-  AND (em.expires_at IS NULL OR em.expires_at > NOW())
   AND ($5::text IS NULL OR ee.type = $5)
   AND ($6::text IS NULL OR fef.file_id = $6)
+  AND (
+    cmv2.account_id IS NOT NULL
+    OR wmca.conversation_id IS NOT NULL
+    OR (
+      c.type = 'public_channel'
+      AND (
+        wm.membership_kind <> 'guest'
+        OR wm.guest_scope = 'workspace_full'
+      )
+    )
+  )
 ORDER BY ee.id ASC
 LIMIT $4
 `
 
 type ListVisibleFileExternalEventsByExternalMemberParams struct {
-	AccountID       string      `json:"account_id"`
-	HostWorkspaceID string      `json:"host_workspace_id"`
-	ID              int64       `json:"id"`
-	Limit           int32       `json:"limit"`
-	EventType       pgtype.Text `json:"event_type"`
-	FileID          pgtype.Text `json:"file_id"`
+	AccountID   string      `json:"account_id"`
+	WorkspaceID string      `json:"workspace_id"`
+	ID          int64       `json:"id"`
+	Limit       int32       `json:"limit"`
+	EventType   pgtype.Text `json:"event_type"`
+	FileID      pgtype.Text `json:"file_id"`
 }
 
 func (q *Queries) ListVisibleFileExternalEventsByExternalMember(ctx context.Context, arg ListVisibleFileExternalEventsByExternalMemberParams) ([]ExternalEvent, error) {
 	rows, err := q.db.Query(ctx, listVisibleFileExternalEventsByExternalMember,
 		arg.AccountID,
-		arg.HostWorkspaceID,
+		arg.WorkspaceID,
 		arg.ID,
 		arg.Limit,
 		arg.EventType,

@@ -586,13 +586,13 @@ paths:
                 $ref: "#/components/schemas/Conversation"
         default:
           $ref: "#/components/responses/ApiErrorResponse"
-  /conversations/{id}/members/{user_id}:
+  /conversations/{id}/members/{account_id}:
     delete:
       tags: [Conversations]
       operationId: removeConversationMember
       parameters:
         - $ref: "#/components/parameters/ConversationIDPath"
-        - $ref: "#/components/parameters/UserIDPathNamed"
+        - $ref: "#/components/parameters/AccountIDPathNamed"
       responses:
         "204":
           $ref: "#/components/responses/NoContent"
@@ -1473,6 +1473,13 @@ components:
       description: User identifier.
       schema:
         type: string
+    AccountIDPathNamed:
+      name: account_id
+      in: path
+      required: true
+      description: Account identifier.
+      schema:
+        type: string
     ConversationIDPath:
       name: id
       in: path
@@ -1919,6 +1926,9 @@ components:
         workspace_id:
           type: string
           description: Workspace this user belongs to.
+        account_id:
+          type: string
+          description: Canonical account identity for this workspace-local user when linked.
         name:
           type: string
           description: Unique username within the workspace (used for @-mentions).
@@ -1973,10 +1983,9 @@ components:
       description: A conversation — a channel, DM, or group DM where messages are exchanged.
       required:
         - id
-        - workspace_id
+        - owner_type
         - name
         - type
-        - creator_id
         - is_archived
         - topic
         - purpose
@@ -1989,7 +1998,17 @@ components:
           description: Unique conversation identifier.
         workspace_id:
           type: string
-          description: Workspace this conversation belongs to.
+          description: Workspace context for workspace-owned conversations. Omitted for account-owned conversations.
+        owner_type:
+          type: string
+          enum: [account, workspace]
+          description: Whether the conversation is owned by an account or a workspace.
+        owner_account_id:
+          type: string
+          description: Owning account when `owner_type=account`.
+        owner_workspace_id:
+          type: string
+          description: Owning workspace when `owner_type=workspace`.
         name:
           type: string
           description: Display name of the conversation (e.g. "general", "deploy-alerts").
@@ -1997,7 +2016,7 @@ components:
           $ref: "#/components/schemas/ConversationType"
         creator_id:
           type: string
-          description: User who created this conversation.
+          description: User who created this conversation when it was created in a workspace context.
         is_archived:
           type: boolean
           description: Whether the conversation has been archived.
@@ -2050,7 +2069,7 @@ components:
       required:
         - ts
         - channel_id
-        - user_id
+        - author_account_id
         - text
         - type
         - reply_count
@@ -2067,7 +2086,13 @@ components:
           description: Conversation this message belongs to.
         user_id:
           type: string
-          description: User who sent the message.
+          description: Workspace-local user who sent the message, when the message was authored in a workspace context.
+        author_account_id:
+          type: string
+          description: Canonical account that authored the message.
+        author_workspace_membership_id:
+          type: string
+          description: Workspace membership used for workspace-local rendering, when applicable.
         text:
           type: string
           description: Plain-text content of the message.
@@ -2262,20 +2287,20 @@ components:
     AuthSession:
       type: object
       description: An authenticated session created via email auth or OAuth.
-      required: [id, workspace_id, provider, expires_at, created_at]
+      required: [id, provider, expires_at, created_at]
       properties:
         id:
           type: string
           description: Unique session identifier.
         workspace_id:
           type: string
-          description: Workspace the user authenticated into.
+          description: Selected workspace context for the session when one is active.
         account_id:
           type: string
           description: Canonical account identity for the session actor.
         user_id:
           type: string
-          description: Workspace-local user identity for the selected workspace context.
+          description: Workspace-local user record for the selected workspace context, when applicable.
         provider:
           $ref: "#/components/schemas/AuthProvider"
         token:
@@ -2355,7 +2380,7 @@ components:
           description: Raw invite code that can be accepted through the API.
         invite_url:
           type: string
-          description: Legacy login URL carrying the invite code.
+          description: Login URL carrying the invite code.
     AcceptWorkspaceInviteRequest:
       type: object
       required: [code]
@@ -2405,17 +2430,17 @@ components:
     AuthMeResponse:
       type: object
       description: The authenticated identity of the current request, with canonical account data plus selected workspace user context when available.
-      required: [workspace_id, principal_type, is_bot]
+      required: [principal_type, is_bot]
       properties:
         workspace_id:
           type: string
-          description: Workspace the caller is authenticated in.
+          description: Active workspace context when the request is scoped to a workspace.
         account_id:
           type: string
           description: Canonical account identity of the caller.
         user_id:
           type: string
-          description: Workspace-local user identity of the caller in the selected workspace context.
+          description: Workspace-local user identity of the caller in the selected workspace context, when one is resolved.
         principal_type:
           $ref: "#/components/schemas/PrincipalType"
         account_type:
@@ -2771,11 +2796,21 @@ components:
             $ref: "#/components/schemas/DelegatedRole"
     CreateConversationRequest:
       type: object
-      required: [workspace_id, name, type, creator_id, topic, purpose]
+      required: [owner_type, name, type, topic, purpose]
       properties:
         workspace_id:
           type: string
-          description: Workspace to create the conversation in.
+          description: Workspace context for workspace-owned conversations. Omit for account-owned conversations.
+        owner_type:
+          type: string
+          enum: [account, workspace]
+          description: Conversation owner type.
+        owner_account_id:
+          type: string
+          description: Owning account when creating an account-owned conversation.
+        owner_workspace_id:
+          type: string
+          description: Owning workspace when creating a workspace-owned conversation.
         name:
           type: string
           description: Display name for the conversation.
@@ -2783,10 +2818,15 @@ components:
           $ref: "#/components/schemas/ConversationType"
         creator_id:
           type: string
-          description: User creating the conversation (becomes the first member).
+          description: User creating the conversation in a workspace-owned conversation (becomes the first member).
         user_ids:
           type: array
-          description: Additional users to invite on creation.
+          description: Additional workspace-local users to invite on creation.
+          items:
+            type: string
+        account_ids:
+          type: array
+          description: Additional accounts to invite on creation.
           items:
             type: string
         topic:
@@ -2812,32 +2852,30 @@ components:
           description: New purpose text.
     ConversationInviteRequest:
       type: object
-      required: [user_ids]
       properties:
-        user_ids:
+        account_ids:
           type: array
-          description: User IDs to add as members.
+          description: Account IDs to add as members.
           items:
             type: string
     ConversationManagersResponse:
       type: object
-      required: [conversation_id, user_ids]
+      required: [conversation_id]
       properties:
         conversation_id:
           type: string
           description: Conversation identifier.
-        user_ids:
+        account_ids:
           type: array
-          description: User IDs who are managers of this conversation.
+          description: Account IDs who are managers of this conversation. Canonical for account-owned conversations.
           items:
             type: string
     ConversationManagersUpdateRequest:
       type: object
-      required: [user_ids]
       properties:
-        user_ids:
+        account_ids:
           type: array
-          description: Complete list of manager user IDs (replaces existing managers).
+          description: Complete list of manager account IDs (replaces existing managers). Canonical for account-owned conversations.
           items:
             type: string
     ConversationPostingPolicyResponse:
@@ -2856,7 +2894,7 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/DelegatedRole"
-        allowed_user_ids:
+        allowed_account_ids:
           type: array
           items:
             type: string
@@ -2879,7 +2917,7 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/DelegatedRole"
-        allowed_user_ids:
+        allowed_account_ids:
           type: array
           items:
             type: string
@@ -2892,14 +2930,17 @@ components:
           description: Timestamp of the last message the user has read.
     PostMessageRequest:
       type: object
-      required: [channel_id, user_id, text]
+      required: [channel_id, text]
       properties:
         channel_id:
           type: string
           description: Conversation to post the message in.
         user_id:
           type: string
-          description: User sending the message.
+          description: Workspace-local user sending the message, when posting in a workspace context.
+        author_account_id:
+          type: string
+          description: Canonical author account. Defaults to the authenticated account.
         text:
           type: string
           description: Plain-text content of the message.

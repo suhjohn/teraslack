@@ -3,10 +3,10 @@
 -- events into the read-side tables.
 
 -- name: ProjectorUpsertUser :exec
-INSERT INTO users (id, workspace_id, name, real_name, display_name, email, is_bot, account_type, deleted, profile, principal_type, owner_id, created_at, updated_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+INSERT INTO users (id, account_id, workspace_id, name, real_name, display_name, email, is_bot, account_type, deleted, profile, principal_type, owner_id, created_at, updated_at)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
 ON CONFLICT (id) DO UPDATE SET
-    workspace_id = EXCLUDED.workspace_id, name = EXCLUDED.name, real_name = EXCLUDED.real_name,
+    account_id = EXCLUDED.account_id, workspace_id = EXCLUDED.workspace_id, name = EXCLUDED.name, real_name = EXCLUDED.real_name,
     display_name = EXCLUDED.display_name, email = EXCLUDED.email, is_bot = EXCLUDED.is_bot,
     account_type = EXCLUDED.account_type, deleted = EXCLUDED.deleted, profile = EXCLUDED.profile,
     principal_type = EXCLUDED.principal_type, owner_id = EXCLUDED.owner_id,
@@ -24,13 +24,15 @@ INSERT INTO user_role_assignments (id, workspace_id, user_id, role_key, assigned
 VALUES ($1, $2, $3, $4, $5, $6);
 
 -- name: ProjectorUpsertConversation :exec
-INSERT INTO conversations (id, workspace_id, name, type, creator_id, is_archived,
+INSERT INTO conversations (id, workspace_id, owner_type, owner_account_id, owner_workspace_id, name, type, creator_id, is_archived,
     topic_value, topic_creator, topic_last_set,
     purpose_value, purpose_creator, purpose_last_set,
     num_members, created_at, updated_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
 ON CONFLICT (id) DO UPDATE SET
-    workspace_id = EXCLUDED.workspace_id, name = EXCLUDED.name, type = EXCLUDED.type,
+    workspace_id = EXCLUDED.workspace_id, owner_type = EXCLUDED.owner_type,
+    owner_account_id = EXCLUDED.owner_account_id, owner_workspace_id = EXCLUDED.owner_workspace_id,
+    name = EXCLUDED.name, type = EXCLUDED.type,
     creator_id = EXCLUDED.creator_id, is_archived = EXCLUDED.is_archived,
     topic_value = EXCLUDED.topic_value, topic_creator = EXCLUDED.topic_creator,
     topic_last_set = EXCLUDED.topic_last_set,
@@ -43,16 +45,32 @@ INSERT INTO conversation_members (conversation_id, user_id, joined_at)
 VALUES ($1, $2, $3)
 ON CONFLICT (conversation_id, user_id) DO NOTHING;
 
+-- name: ProjectorUpsertMemberV2 :exec
+INSERT INTO conversation_members_v2 (conversation_id, account_id, membership_role, added_by_account_id, created_at)
+VALUES ($1, $2, $3, $4, $5)
+ON CONFLICT (conversation_id, account_id) DO NOTHING;
+
 -- name: ProjectorDeleteMember :exec
 DELETE FROM conversation_members WHERE conversation_id = $1 AND user_id = $2;
+
+-- name: ProjectorDeleteMemberV2 :exec
+DELETE FROM conversation_members_v2 WHERE conversation_id = $1 AND account_id = $2;
 
 -- name: ProjectorUpsertConversationManager :exec
 INSERT INTO conversation_manager_assignments (conversation_id, user_id, assigned_by, created_at)
 VALUES ($1, $2, $3, $4)
 ON CONFLICT (conversation_id, user_id) DO NOTHING;
 
+-- name: ProjectorUpsertConversationManagerV2 :exec
+INSERT INTO conversation_manager_assignments_v2 (conversation_id, account_id, assigned_by_account_id, created_at)
+VALUES ($1, $2, $3, $4)
+ON CONFLICT (conversation_id, account_id) DO NOTHING;
+
 -- name: ProjectorDeleteConversationManager :exec
 DELETE FROM conversation_manager_assignments WHERE conversation_id = $1 AND user_id = $2;
+
+-- name: ProjectorDeleteConversationManagerV2 :exec
+DELETE FROM conversation_manager_assignments_v2 WHERE conversation_id = $1 AND account_id = $2;
 
 -- name: ProjectorUpsertConversationPostingPolicy :exec
 INSERT INTO conversation_posting_policies (conversation_id, policy_type, policy_json, updated_by, updated_at)
@@ -63,13 +81,23 @@ ON CONFLICT (conversation_id) DO UPDATE SET
     updated_by = EXCLUDED.updated_by,
     updated_at = EXCLUDED.updated_at;
 
+-- name: ProjectorReplaceConversationPostingPolicyAllowedAccounts :exec
+WITH deleted AS (
+    DELETE FROM conversation_posting_policy_allowed_accounts_v2
+    WHERE conversation_id = sqlc.arg(conversation_id)
+)
+INSERT INTO conversation_posting_policy_allowed_accounts_v2 (conversation_id, account_id, created_at)
+SELECT DISTINCT sqlc.arg(conversation_id), UNNEST(sqlc.arg(account_ids)::text[]), CURRENT_TIMESTAMP;
+
 -- name: ProjectorUpsertMessage :exec
-INSERT INTO messages (ts, channel_id, user_id, text, thread_ts, type, subtype,
+INSERT INTO messages (ts, channel_id, user_id, author_account_id, author_workspace_membership_id, text, thread_ts, type, subtype,
     blocks, metadata, edited_by, edited_at, reply_count, reply_users_count,
     latest_reply, is_deleted, created_at, updated_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
 ON CONFLICT (channel_id, ts) DO UPDATE SET
-    user_id = EXCLUDED.user_id, text = EXCLUDED.text, thread_ts = EXCLUDED.thread_ts,
+    user_id = EXCLUDED.user_id, author_account_id = EXCLUDED.author_account_id,
+    author_workspace_membership_id = EXCLUDED.author_workspace_membership_id,
+    text = EXCLUDED.text, thread_ts = EXCLUDED.thread_ts,
     type = EXCLUDED.type, subtype = EXCLUDED.subtype, blocks = EXCLUDED.blocks,
     metadata = EXCLUDED.metadata, edited_by = EXCLUDED.edited_by,
     edited_at = EXCLUDED.edited_at, reply_count = EXCLUDED.reply_count,
@@ -173,11 +201,23 @@ FROM internal_events
 WHERE id > $1
 ORDER BY id ASC;
 
+-- name: ProjectorGetWorkspaceMembershipByWorkspaceAndAccount :one
+SELECT id
+FROM workspace_memberships
+WHERE workspace_id = $1 AND account_id = $2;
+
 -- name: ProjectorTruncateUserProjection :exec
 TRUNCATE user_role_assignments, users CASCADE;
 
 -- name: ProjectorTruncateConversationProjection :exec
-TRUNCATE conversation_posting_policies, conversation_manager_assignments, conversation_members, conversations CASCADE;
+TRUNCATE
+    conversation_posting_policy_allowed_accounts_v2,
+    conversation_manager_assignments_v2,
+    conversation_members_v2,
+    conversation_posting_policies,
+    conversation_manager_assignments,
+    conversation_members,
+    conversations CASCADE;
 
 -- name: ProjectorTruncateMessageProjection :exec
 TRUNCATE reactions, messages CASCADE;

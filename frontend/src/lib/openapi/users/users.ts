@@ -51,6 +51,9 @@ export type HTTPStatusCode5xx = 500 | 501 | 502 | 503 | 504 | 505 | 507 | 511;
 export type HTTPStatusCodes = HTTPStatusCode1xx | HTTPStatusCode2xx | HTTPStatusCode3xx | HTTPStatusCode4xx | HTTPStatusCode5xx;
 
 
+/**
+ * Canonical workspace-local user directory for the selected workspace. Top-level /users routes are not part of the public API.
+ */
 export type listUsersResponse200 = {
   data: UsersCollection
   status: 200
@@ -177,6 +180,9 @@ export function useListUsers<TData = Awaited<ReturnType<typeof listUsers>>, TErr
 
 
 
+/**
+ * Create a workspace-local user in the selected workspace.
+ */
 export type createUserResponse201 = {
   data: User
   status: 201
@@ -261,7 +267,10 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       > => {
       return useMutation(getCreateUserMutationOptions(options), queryClient);
     }
-    export type getUserResponse200 = {
+    /**
+ * Read a workspace-local user from the canonical workspace-scoped user surface.
+ */
+export type getUserResponse200 = {
   data: User
   status: 200
 }
@@ -380,6 +389,9 @@ export function useGetUser<TData = Awaited<ReturnType<typeof getUser>>, TError =
 
 
 
+/**
+ * Update a workspace-local user in the selected workspace.
+ */
 export type updateUserResponse200 = {
   data: User
   status: 200
@@ -466,7 +478,10 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       > => {
       return useMutation(getUpdateUserMutationOptions(options), queryClient);
     }
-    export type getUserRolesResponse200 = {
+    /**
+ * Read delegated roles for a workspace-local user.
+ */
+export type getUserRolesResponse200 = {
   data: UserRolesResponse
   status: 200
 }
@@ -585,6 +600,9 @@ export function useGetUserRoles<TData = Awaited<ReturnType<typeof getUserRoles>>
 
 
 
+/**
+ * Replace delegated roles for a workspace-local user.
+ */
 export type updateUserRolesResponse200 = {
   data: UserRolesResponse
   status: 200

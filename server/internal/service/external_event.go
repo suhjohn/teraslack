@@ -14,6 +14,7 @@ import (
 
 type ExternalEventService struct {
 	repo            repository.ExternalEventRepository
+	userRepo        repository.UserRepository
 	externalMembers repository.ExternalMemberRepository
 }
 
@@ -23,6 +24,10 @@ func NewExternalEventService(repo repository.ExternalEventRepository) *ExternalE
 
 func (s *ExternalEventService) SetExternalMemberRepository(repo repository.ExternalMemberRepository) {
 	s.externalMembers = repo
+}
+
+func (s *ExternalEventService) SetUserRepository(repo repository.UserRepository) {
+	s.userRepo = repo
 }
 
 func (s *ExternalEventService) List(ctx context.Context, params domain.ListExternalEventsParams) (*domain.CursorPage[domain.ExternalEvent], error) {
@@ -39,7 +44,6 @@ func (s *ExternalEventService) List(ctx context.Context, params domain.ListExter
 	if err := validateExternalResourceType(params.ResourceType); err != nil {
 		return nil, err
 	}
-
 	principal := repository.ExternalEventPrincipal{
 		WorkspaceID:             workspaceID,
 		UserID:                  actorUserID(ctx),
@@ -103,17 +107,15 @@ func (s *ExternalEventService) resolveListWorkspace(ctx context.Context, request
 		return resolveWorkspaceID(ctx, requested)
 	}
 	if ctxWorkspace == "" || requested == ctxWorkspace {
+		if ctxWorkspace == "" && requiresAuthenticatedActor(ctx) {
+			if err := ensureWorkspaceMembershipAccess(ctx, s.userRepo, requested); err != nil {
+				return "", err
+			}
+		}
 		return resolveWorkspaceID(ctx, requested)
 	}
-	if s.externalMembers == nil || ctxutil.GetAccountID(ctx) == "" {
-		return "", domain.ErrForbidden
-	}
-	items, err := s.externalMembers.ListActiveByAccountAndWorkspace(ctx, ctxutil.GetAccountID(ctx), requested)
-	if err != nil {
+	if err := ensureWorkspaceMembershipAccess(ctx, s.userRepo, requested); err != nil {
 		return "", err
-	}
-	if len(items) == 0 {
-		return "", domain.ErrForbidden
 	}
 	return requested, nil
 }

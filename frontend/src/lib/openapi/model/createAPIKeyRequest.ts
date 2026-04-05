@@ -5,13 +5,14 @@
  * Canonical HTTP API for Teraslack.
  * OpenAPI spec version: 1.0.0
  */
+import type { APIKeyScope } from './aPIKeyScope';
 
 export interface CreateAPIKeyRequest {
   /** Human-readable name for the key. */
   name: string;
   /** Optional longer description of the key's purpose. */
   description?: string;
-  scope: 'account' | 'workspace_system';
+  scope: APIKeyScope;
   /** Required when `scope` is `workspace_system`. Also accepted as the explicit request workspace context for account-scoped keys. */
   workspace_id?: string;
   /** Optional explicit account owner for internal account-scoped key creation. Authenticated requests default to the current account. */

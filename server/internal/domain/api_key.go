@@ -95,13 +95,14 @@ type ListAPIKeysParams struct {
 
 // APIKeyValidation is the result of validating an API key.
 type APIKeyValidation struct {
-	Scope         APIKeyScope   `json:"scope"`
-	WorkspaceID   string        `json:"workspace_id"`
-	UserID        string        `json:"user_id"`
-	AccountID     string        `json:"account_id,omitempty"`
-	PrincipalType PrincipalType `json:"principal_type"`
-	AccountType   AccountType   `json:"account_type,omitempty"`
-	IsBot         bool          `json:"is_bot"`
-	KeyID         string        `json:"key_id"`
-	Permissions   []string      `json:"permissions"`
+	Scope                 APIKeyScope   `json:"scope"`
+	WorkspaceID           string        `json:"workspace_id"`
+	WorkspaceMembershipID string        `json:"workspace_membership_id,omitempty"`
+	UserID                string        `json:"user_id"`
+	AccountID             string        `json:"account_id,omitempty"`
+	PrincipalType         PrincipalType `json:"principal_type"`
+	AccountType           AccountType   `json:"account_type,omitempty"`
+	IsBot                 bool          `json:"is_bot"`
+	KeyID                 string        `json:"key_id"`
+	Permissions           []string      `json:"permissions"`
 }

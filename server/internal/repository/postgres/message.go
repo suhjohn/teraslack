@@ -41,18 +41,39 @@ func (r *MessageRepo) Create(ctx context.Context, params domain.PostMessageParam
 	}
 	qtx := r.q.WithTx(tx)
 
-	row, err := qtx.CreateMessage(ctx, sqlcgen.CreateMessageParams{
-		Ts:        ts,
-		ChannelID: params.ChannelID,
-		UserID:    params.UserID,
-		Text:      params.Text,
-		ThreadTs:  stringToText(params.ThreadTS),
-		Type:      "message",
-		Blocks:    params.Blocks,
-		Metadata:  params.Metadata,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("insert message: %w", err)
+	var row *domain.Message
+	if params.UserID != "" {
+		created, err := qtx.CreateMessageByUser(ctx, sqlcgen.CreateMessageByUserParams{
+			Ts:        ts,
+			ChannelID: params.ChannelID,
+			Text:      params.Text,
+			ThreadTs:  stringToText(params.ThreadTS),
+			Type:      "message",
+			Blocks:    params.Blocks,
+			Metadata:  params.Metadata,
+			UserID:    params.UserID,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("insert message: %w", err)
+		}
+		row = msgToDomain(created)
+	} else {
+		created, err := qtx.CreateMessage(ctx, sqlcgen.CreateMessageParams{
+			Ts:                          ts,
+			ChannelID:                   params.ChannelID,
+			UserID:                      "",
+			AuthorAccountID:             stringToText(params.AuthorAccountID),
+			AuthorWorkspaceMembershipID: pgtype.Text{},
+			Text:                        params.Text,
+			ThreadTs:                    stringToText(params.ThreadTS),
+			Type:                        "message",
+			Blocks:                      params.Blocks,
+			Metadata:                    params.Metadata,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("insert message: %w", err)
+		}
+		row = msgToDomain(created)
 	}
 
 	if params.ThreadTS != "" {
@@ -101,7 +122,7 @@ func (r *MessageRepo) Create(ctx context.Context, params domain.PostMessageParam
 		}
 	}
 
-	return msgToDomain(row), nil
+	return row, nil
 }
 
 func (r *MessageRepo) GetRow(ctx context.Context, channelID, ts string) (*domain.Message, error) {
@@ -187,15 +208,12 @@ func (r *MessageRepo) ListHistory(ctx context.Context, params domain.ListMessage
 		limit = 100
 	}
 
-	var msgs []sqlcgen.Message
-	var err error
-
 	cursor := params.Cursor
 	if cursor == "" {
 		cursor = fmt.Sprintf("%d.999999", time.Now().Add(time.Hour).Unix())
 	}
 
-	msgs, err = r.q.ListMessagesHistory(ctx, sqlcgen.ListMessagesHistoryParams{
+	rows, err := r.q.ListMessagesHistory(ctx, sqlcgen.ListMessagesHistoryParams{
 		ChannelID: params.ChannelID,
 		Ts:        cursor,
 		Limit:     int32(limit + 1),
@@ -204,9 +222,9 @@ func (r *MessageRepo) ListHistory(ctx context.Context, params domain.ListMessage
 		return nil, fmt.Errorf("list messages: %w", err)
 	}
 
-	messages := make([]domain.Message, 0, len(msgs))
-	for _, m := range msgs {
-		messages = append(messages, *msgToDomain(m))
+	messages := make([]domain.Message, 0, len(rows))
+	for _, row := range rows {
+		messages = append(messages, *msgToDomain(row))
 	}
 
 	page := &domain.CursorPage[domain.Message]{}
@@ -231,44 +249,58 @@ func (r *MessageRepo) ListReplies(ctx context.Context, params domain.ListReplies
 
 	threadTs := pgtype.Text{String: params.ThreadTS, Valid: true}
 
-	var msgs []sqlcgen.Message
-	var err error
-
 	if params.Cursor != "" {
-		msgs, err = r.q.ListReplies(ctx, sqlcgen.ListRepliesParams{
+		rows, err := r.q.ListReplies(ctx, sqlcgen.ListRepliesParams{
 			ChannelID: params.ChannelID,
 			ThreadTs:  threadTs,
 			Ts:        params.Cursor,
 			Limit:     int32(limit + 1),
 		})
+		if err != nil {
+			return nil, fmt.Errorf("list replies: %w", err)
+		}
+		messages := make([]domain.Message, 0, len(rows))
+		for _, row := range rows {
+			messages = append(messages, *msgToDomain(row))
+		}
+		page := &domain.CursorPage[domain.Message]{}
+		if len(messages) > limit {
+			page.HasMore = true
+			page.NextCursor = messages[limit].TS
+			page.Items = messages[:limit]
+		} else {
+			page.Items = messages
+		}
+		if page.Items == nil {
+			page.Items = []domain.Message{}
+		}
+		return page, nil
 	} else {
-		msgs, err = r.q.ListRepliesNoCursor(ctx, sqlcgen.ListRepliesNoCursorParams{
+		rows, err := r.q.ListRepliesNoCursor(ctx, sqlcgen.ListRepliesNoCursorParams{
 			ChannelID: params.ChannelID,
 			ThreadTs:  threadTs,
 			Limit:     int32(limit + 1),
 		})
+		if err != nil {
+			return nil, fmt.Errorf("list replies: %w", err)
+		}
+		messages := make([]domain.Message, 0, len(rows))
+		for _, row := range rows {
+			messages = append(messages, *msgToDomain(row))
+		}
+		page := &domain.CursorPage[domain.Message]{}
+		if len(messages) > limit {
+			page.HasMore = true
+			page.NextCursor = messages[limit].TS
+			page.Items = messages[:limit]
+		} else {
+			page.Items = messages
+		}
+		if page.Items == nil {
+			page.Items = []domain.Message{}
+		}
+		return page, nil
 	}
-	if err != nil {
-		return nil, fmt.Errorf("list replies: %w", err)
-	}
-
-	messages := make([]domain.Message, 0, len(msgs))
-	for _, m := range msgs {
-		messages = append(messages, *msgToDomain(m))
-	}
-
-	page := &domain.CursorPage[domain.Message]{}
-	if len(messages) > limit {
-		page.HasMore = true
-		page.NextCursor = messages[limit].TS
-		page.Items = messages[:limit]
-	} else {
-		page.Items = messages
-	}
-	if page.Items == nil {
-		page.Items = []domain.Message{}
-	}
-	return page, nil
 }
 
 func (r *MessageRepo) AddReaction(ctx context.Context, params domain.AddReactionParams) error {

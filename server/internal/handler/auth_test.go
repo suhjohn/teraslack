@@ -3,11 +3,14 @@ package handler
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/suhjohn/teraslack/internal/crypto"
 	"github.com/suhjohn/teraslack/internal/ctxutil"
 	"github.com/suhjohn/teraslack/internal/domain"
 	"github.com/suhjohn/teraslack/internal/repository"
@@ -58,6 +61,123 @@ func TestAuthMiddleware_NoHeader(t *testing.T) {
 	}
 	if w.Code != http.StatusUnauthorized {
 		t.Errorf("expected 401, got %d", w.Code)
+	}
+}
+
+type authMiddlewareRepo struct {
+	sessions map[string]*domain.AuthSession
+}
+
+func (r *authMiddlewareRepo) WithTx(_ pgx.Tx) repository.AuthRepository { return r }
+
+func (r *authMiddlewareRepo) CreateSession(_ context.Context, params domain.CreateAuthSessionParams) (*domain.AuthSession, error) {
+	session := &domain.AuthSession{
+		ID:          "AS123",
+		WorkspaceID: params.WorkspaceID,
+		AccountID:   params.AccountID,
+		UserID:      params.UserID,
+		Provider:    params.Provider,
+		Token:       "sess_handler",
+		ExpiresAt:   params.ExpiresAt,
+		CreatedAt:   time.Now().UTC(),
+	}
+	if r.sessions == nil {
+		r.sessions = map[string]*domain.AuthSession{}
+	}
+	r.sessions[crypto.HashToken(session.Token)] = session
+	return session, nil
+}
+
+func (r *authMiddlewareRepo) GetSessionByHash(_ context.Context, sessionHash string) (*domain.AuthSession, error) {
+	session, ok := r.sessions[sessionHash]
+	if !ok {
+		return nil, domain.ErrInvalidAuth
+	}
+	return session, nil
+}
+
+func (r *authMiddlewareRepo) RevokeSessionByHash(_ context.Context, _ string) error {
+	return nil
+}
+
+func (r *authMiddlewareRepo) DeletePendingEmailVerificationChallenges(_ context.Context, _ string) error {
+	return nil
+}
+
+func (r *authMiddlewareRepo) CreateEmailVerificationChallenge(_ context.Context, _ domain.CreateEmailVerificationChallengeParams) (*domain.EmailVerificationChallenge, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (r *authMiddlewareRepo) GetEmailVerificationChallenge(_ context.Context, _, _ string) (*domain.EmailVerificationChallenge, error) {
+	return nil, domain.ErrNotFound
+}
+
+func (r *authMiddlewareRepo) ConsumeEmailVerificationChallenge(_ context.Context, _ string, _ time.Time) error {
+	return nil
+}
+
+func (r *authMiddlewareRepo) GetOAuthAccount(_ context.Context, _ domain.AuthProvider, _ string) (*domain.OAuthAccount, error) {
+	return nil, domain.ErrNotFound
+}
+
+func (r *authMiddlewareRepo) ListOAuthAccountsBySubject(_ context.Context, _ domain.AuthProvider, _ string) ([]domain.OAuthAccount, error) {
+	return nil, nil
+}
+
+func (r *authMiddlewareRepo) UpsertOAuthAccount(_ context.Context, _ domain.UpsertOAuthAccountParams) (*domain.OAuthAccount, error) {
+	return nil, errors.New("not implemented")
+}
+
+func TestAuthMiddleware_AttachesAccountWorkspaceAndMembershipContext(t *testing.T) {
+	authRepo := &authMiddlewareRepo{
+		sessions: map[string]*domain.AuthSession{
+			crypto.HashToken("sess_handler"): {
+				ID:          "AS123",
+				WorkspaceID: "T123",
+				AccountID:   "A123",
+				UserID:      "U123",
+				Provider:    domain.AuthProviderGitHub,
+				Token:       "sess_handler",
+				ExpiresAt:   time.Now().UTC().Add(time.Hour),
+				CreatedAt:   time.Now().UTC(),
+			},
+		},
+	}
+	userRepo := &authTestUserRepo{
+		user: &domain.User{
+			ID:            "U123",
+			AccountID:     "A123",
+			WorkspaceID:   "T123",
+			PrincipalType: domain.PrincipalTypeHuman,
+			AccountType:   domain.AccountTypeAdmin,
+		},
+	}
+	authSvc := service.NewAuthService(authRepo, userRepo, nil, nil, nil, nil, nil, service.AuthConfig{})
+
+	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := ctxutil.GetWorkspaceID(r.Context()); got != "T123" {
+			t.Fatalf("workspace_id = %q, want T123", got)
+		}
+			if got := ctxutil.GetUserID(r.Context()); got != "U123" {
+				t.Fatalf("user_id = %q, want U123", got)
+			}
+		if got := ctxutil.GetAccountID(r.Context()); got != "A123" {
+			t.Fatalf("account_id = %q, want A123", got)
+		}
+		if got := ctxutil.GetWorkspaceMembershipID(r.Context()); got != "WM_U123" {
+			t.Fatalf("workspace_membership_id = %q, want WM_U123", got)
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/auth/me", nil)
+	req.Header.Set("Authorization", "Bearer sess_handler")
+	w := httptest.NewRecorder()
+
+	AuthMiddleware(authSvc, nil)(next).ServeHTTP(w, req)
+
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusNoContent)
 	}
 }
 
@@ -127,6 +247,59 @@ func TestAuthMiddleware_BypassPaths(t *testing.T) {
 	}
 	if w.Code != http.StatusUnauthorized {
 		t.Errorf("expected 401 for GET /auth/me, got %d", w.Code)
+	}
+}
+
+func TestAuthMiddleware_AttachesCanonicalAccountAndWorkspaceIdentity(t *testing.T) {
+	repo := &authTestAuthRepo{}
+	session := &domain.AuthSession{
+		ID:          "AS123",
+		WorkspaceID: "T123",
+		AccountID:   "A123",
+		UserID:      "U123",
+		Provider:    domain.AuthProviderGitHub,
+		Token:       "sess_valid",
+		ExpiresAt:   time.Now().UTC().Add(time.Hour),
+		CreatedAt:   time.Now().UTC(),
+	}
+	repo.session = session
+
+	authSvc := service.NewAuthService(repo, &authTestUserRepo{
+		user: &domain.User{
+			ID:            "U123",
+			AccountID:     "A123",
+			WorkspaceID:   "T123",
+			PrincipalType: domain.PrincipalTypeHuman,
+			AccountType:   domain.AccountTypeMember,
+		},
+	}, nil, nil, nil, nil, nil, service.AuthConfig{})
+
+	called := false
+	middleware := AuthMiddleware(authSvc, nil)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+		if got := ctxutil.GetAccountID(r.Context()); got != "A123" {
+			t.Fatalf("account_id = %q, want A123", got)
+		}
+		if got := ctxutil.GetWorkspaceID(r.Context()); got != "T123" {
+			t.Fatalf("workspace_id = %q, want T123", got)
+		}
+			if got := ctxutil.GetUserID(r.Context()); got != "U123" {
+				t.Fatalf("user_id = %q, want U123", got)
+			}
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	req.Header.Set("Authorization", "Bearer "+session.Token)
+	w := httptest.NewRecorder()
+
+	middleware.ServeHTTP(w, req)
+
+	if !called {
+		t.Fatal("expected next handler to be called")
+	}
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", w.Code)
 	}
 }
 
@@ -204,6 +377,43 @@ func (r *authTestUserRepo) GetByWorkspaceAndAccount(_ context.Context, workspace
 	return nil, domain.ErrNotFound
 }
 
+func (r *authTestUserRepo) GetWorkspaceMembership(_ context.Context, workspaceID, accountID string) (*domain.WorkspaceMembership, error) {
+	if r.user != nil && r.user.WorkspaceID == workspaceID && r.user.AccountID == accountID {
+		return &domain.WorkspaceMembership{
+			ID:             "WM_" + r.user.ID,
+			WorkspaceID:    workspaceID,
+			AccountID:      accountID,
+			Role:           string(r.user.EffectiveAccountType()),
+			Status:         domain.WorkspaceMembershipStatusActive,
+			MembershipKind: domain.WorkspaceMembershipKindFull,
+			GuestScope:     domain.WorkspaceGuestScopeWorkspaceFull,
+		}, nil
+	}
+	return nil, domain.ErrNotFound
+}
+
+func (r *authTestUserRepo) GetWorkspaceMembershipID(_ context.Context, workspaceID, accountID string) (string, error) {
+	if r.user != nil && r.user.WorkspaceID == workspaceID && r.user.AccountID == accountID {
+		return "WM_" + r.user.ID, nil
+	}
+	return "", domain.ErrNotFound
+}
+
+func (r *authTestUserRepo) ListWorkspaceMembershipsByAccount(_ context.Context, accountID string) ([]domain.WorkspaceMembership, error) {
+	if r.user != nil && r.user.AccountID == accountID {
+		return []domain.WorkspaceMembership{{
+			ID:             "WM_" + r.user.ID,
+			WorkspaceID:    r.user.WorkspaceID,
+			AccountID:      r.user.AccountID,
+			Role:           string(r.user.EffectiveAccountType()),
+			Status:         domain.WorkspaceMembershipStatusActive,
+			MembershipKind: domain.WorkspaceMembershipKindFull,
+			GuestScope:     domain.WorkspaceGuestScopeWorkspaceFull,
+		}}, nil
+	}
+	return nil, nil
+}
+
 func (r *authTestUserRepo) ListByAccount(_ context.Context, accountID string) ([]domain.User, error) {
 	if r.user != nil && r.user.AccountID == accountID {
 		return []domain.User{*r.user}, nil
@@ -216,6 +426,53 @@ func (r *authTestUserRepo) Update(_ context.Context, _ string, _ domain.UpdateUs
 }
 
 func (r *authTestUserRepo) List(_ context.Context, _ domain.ListUsersParams) (*domain.CursorPage[domain.User], error) {
+	return nil, nil
+}
+
+type authTestAuthRepo struct {
+	session *domain.AuthSession
+}
+
+func (r *authTestAuthRepo) WithTx(_ pgx.Tx) repository.AuthRepository { return r }
+
+func (r *authTestAuthRepo) CreateSession(_ context.Context, _ domain.CreateAuthSessionParams) (*domain.AuthSession, error) {
+	return nil, nil
+}
+
+func (r *authTestAuthRepo) GetSessionByHash(_ context.Context, _ string) (*domain.AuthSession, error) {
+	if r.session != nil {
+		return r.session, nil
+	}
+	return nil, domain.ErrInvalidAuth
+}
+
+func (r *authTestAuthRepo) RevokeSessionByHash(_ context.Context, _ string) error { return nil }
+
+func (r *authTestAuthRepo) DeletePendingEmailVerificationChallenges(_ context.Context, _ string) error {
+	return nil
+}
+
+func (r *authTestAuthRepo) CreateEmailVerificationChallenge(_ context.Context, _ domain.CreateEmailVerificationChallengeParams) (*domain.EmailVerificationChallenge, error) {
+	return nil, nil
+}
+
+func (r *authTestAuthRepo) GetEmailVerificationChallenge(_ context.Context, _, _ string) (*domain.EmailVerificationChallenge, error) {
+	return nil, domain.ErrNotFound
+}
+
+func (r *authTestAuthRepo) ConsumeEmailVerificationChallenge(_ context.Context, _ string, _ time.Time) error {
+	return nil
+}
+
+func (r *authTestAuthRepo) GetOAuthAccount(_ context.Context, _ domain.AuthProvider, _ string) (*domain.OAuthAccount, error) {
+	return nil, domain.ErrNotFound
+}
+
+func (r *authTestAuthRepo) ListOAuthAccountsBySubject(_ context.Context, _ domain.AuthProvider, _ string) ([]domain.OAuthAccount, error) {
+	return nil, nil
+}
+
+func (r *authTestAuthRepo) UpsertOAuthAccount(_ context.Context, _ domain.UpsertOAuthAccountParams) (*domain.OAuthAccount, error) {
 	return nil, nil
 }
 
@@ -260,14 +517,17 @@ func TestAuthHandlerMeReturnsAccountFirstIdentityWithWorkspaceUser(t *testing.T)
 		t.Fatalf("json.Unmarshal() error = %v", err)
 	}
 
-	if got.AccountID != "A123" || got.UserID != "U123" || got.WorkspaceID != "T123" {
+	if got.AccountID != "A123" || got.UserID != "" || got.WorkspaceID != "T123" {
 		t.Fatalf("unexpected identity envelope: %+v", got)
 	}
 	if got.Account == nil || got.Account.Email != "member@example.com" {
 		t.Fatalf("expected canonical account on /auth/me, got %+v", got.Account)
 	}
-	if got.User == nil || got.User.ID != "U123" {
-		t.Fatalf("expected workspace-local user on /auth/me, got %+v", got.User)
+	if got.User == nil {
+		t.Fatalf("expected workspace membership actor on /auth/me, got %+v", got.User)
+	}
+	if got.User.ID != "" || got.User.AccountID != "A123" || got.User.WorkspaceID != "T123" {
+		t.Fatalf("expected synthesized workspace actor on /auth/me, got %+v", got.User)
 	}
 	if got.User.Email != "member@example.com" {
 		t.Fatalf("expected user email mirrored from canonical account email, got %+v", got.User)

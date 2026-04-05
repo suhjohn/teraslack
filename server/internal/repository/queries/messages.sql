@@ -1,13 +1,44 @@
 -- name: CreateMessage :one
-INSERT INTO messages (ts, channel_id, user_id, text, thread_ts, type, blocks, metadata)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-RETURNING ts, channel_id, user_id, text, thread_ts, type, subtype,
+INSERT INTO messages (ts, channel_id, user_id, author_account_id, author_workspace_membership_id, text, thread_ts, type, blocks, metadata)
+VALUES (
+    sqlc.arg(ts),
+    sqlc.arg(channel_id),
+    sqlc.arg(user_id),
+    sqlc.arg(author_account_id),
+    sqlc.arg(author_workspace_membership_id),
+    sqlc.arg(text),
+    sqlc.arg(thread_ts),
+    sqlc.arg(type),
+    sqlc.arg(blocks),
+    sqlc.arg(metadata)
+)
+RETURNING ts, channel_id, user_id, author_account_id, author_workspace_membership_id, text, thread_ts, type, subtype,
+          blocks, metadata, edited_by, edited_at,
+          reply_count, reply_users_count, latest_reply,
+          is_deleted, created_at, updated_at;
+
+-- name: CreateMessageByUser :one
+WITH actor AS (
+    SELECT u.id AS user_id, u.account_id, wm.id AS author_workspace_membership_id
+    FROM users u
+    JOIN conversations c
+      ON c.id = sqlc.arg(channel_id)
+    LEFT JOIN workspace_memberships wm
+      ON wm.workspace_id = c.owner_workspace_id
+     AND wm.account_id = u.account_id
+    WHERE u.id = sqlc.arg(user_id)
+)
+INSERT INTO messages (ts, channel_id, user_id, author_account_id, author_workspace_membership_id, text, thread_ts, type, blocks, metadata)
+SELECT sqlc.arg(ts), sqlc.arg(channel_id), actor.user_id, actor.account_id, actor.author_workspace_membership_id,
+       sqlc.arg(text), sqlc.arg(thread_ts), sqlc.arg(type), sqlc.arg(blocks), sqlc.arg(metadata)
+FROM actor
+RETURNING ts, channel_id, user_id, author_account_id, author_workspace_membership_id, text, thread_ts, type, subtype,
           blocks, metadata, edited_by, edited_at,
           reply_count, reply_users_count, latest_reply,
           is_deleted, created_at, updated_at;
 
 -- name: GetMessageRow :one
-SELECT ts, channel_id, user_id, text, thread_ts, type, subtype,
+SELECT ts, channel_id, user_id, author_account_id, author_workspace_membership_id, text, thread_ts, type, subtype,
        blocks, metadata, edited_by, edited_at,
        reply_count, reply_users_count, latest_reply,
        is_deleted, created_at, updated_at
@@ -17,7 +48,7 @@ FROM messages WHERE channel_id = $1 AND ts = $2;
 UPDATE messages
 SET text = $3, blocks = $4, metadata = $5, edited_by = $6, edited_at = $7
 WHERE channel_id = $1 AND ts = $2
-RETURNING ts, channel_id, user_id, text, thread_ts, type, subtype,
+RETURNING ts, channel_id, user_id, author_account_id, author_workspace_membership_id, text, thread_ts, type, subtype,
           blocks, metadata, edited_by, edited_at,
           reply_count, reply_users_count, latest_reply,
           is_deleted, created_at, updated_at;
@@ -26,7 +57,7 @@ RETURNING ts, channel_id, user_id, text, thread_ts, type, subtype,
 UPDATE messages SET is_deleted = TRUE, text = '' WHERE channel_id = $1 AND ts = $2 AND is_deleted = FALSE;
 
 -- name: ListMessagesHistory :many
-SELECT ts, channel_id, user_id, text, thread_ts, type, subtype,
+SELECT ts, channel_id, user_id, author_account_id, author_workspace_membership_id, text, thread_ts, type, subtype,
        blocks, metadata, edited_by, edited_at,
        reply_count, reply_users_count, latest_reply,
        is_deleted, created_at, updated_at
@@ -36,7 +67,7 @@ ORDER BY ts DESC
 LIMIT $3;
 
 -- name: ListMessagesHistoryNocursor :many
-SELECT ts, channel_id, user_id, text, thread_ts, type, subtype,
+SELECT ts, channel_id, user_id, author_account_id, author_workspace_membership_id, text, thread_ts, type, subtype,
        blocks, metadata, edited_by, edited_at,
        reply_count, reply_users_count, latest_reply,
        is_deleted, created_at, updated_at
@@ -46,7 +77,7 @@ ORDER BY ts DESC
 LIMIT $2;
 
 -- name: ListReplies :many
-SELECT ts, channel_id, user_id, text, thread_ts, type, subtype,
+SELECT ts, channel_id, user_id, author_account_id, author_workspace_membership_id, text, thread_ts, type, subtype,
        blocks, metadata, edited_by, edited_at,
        reply_count, reply_users_count, latest_reply,
        is_deleted, created_at, updated_at
@@ -56,7 +87,7 @@ ORDER BY ts ASC
 LIMIT $4;
 
 -- name: ListRepliesNoCursor :many
-SELECT ts, channel_id, user_id, text, thread_ts, type, subtype,
+SELECT ts, channel_id, user_id, author_account_id, author_workspace_membership_id, text, thread_ts, type, subtype,
        blocks, metadata, edited_by, edited_at,
        reply_count, reply_users_count, latest_reply,
        is_deleted, created_at, updated_at

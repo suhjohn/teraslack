@@ -7,6 +7,7 @@
  */
 import type { CursorQueryParameter } from './cursorQueryParameter';
 import type { LimitQueryParameter } from './limitQueryParameter';
+import type { ListApiKeysScope } from './listApiKeysScope';
 import type { WorkspaceIDQueryParameter } from './workspaceIDQueryParameter';
 
 export type ListApiKeysParams = {
@@ -21,7 +22,7 @@ account_id?: string;
 /**
  * Filter keys to a single scope.
  */
-scope?: 'account' | 'workspace_system';
+scope?: ListApiKeysScope;
 /**
  * When true, include revoked API keys in results.
  */

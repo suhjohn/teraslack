@@ -3,9 +3,11 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sort"
+	"strings"
 
 	"github.com/suhjohn/teraslack/internal/domain"
 	"github.com/suhjohn/teraslack/internal/repository"
@@ -66,11 +68,21 @@ func (s *ConversationAccessService) ListManagers(ctx context.Context, conversati
 	if err != nil {
 		return nil, err
 	}
-	userIDs := make([]string, 0, len(assignments))
+	accountIDs := make([]string, 0, len(assignments))
+	seen := make(map[string]struct{}, len(assignments))
 	for _, assignment := range assignments {
-		userIDs = append(userIDs, assignment.UserID)
+		accountID := assignment.AccountID
+		if accountID == "" {
+			continue
+		}
+		if _, ok := seen[accountID]; ok {
+			continue
+		}
+		seen[accountID] = struct{}{}
+		accountIDs = append(accountIDs, accountID)
 	}
-	return userIDs, nil
+	sort.Strings(accountIDs)
+	return accountIDs, nil
 }
 
 func (s *ConversationAccessService) SetManagers(ctx context.Context, conversationID string, userIDs []string) ([]string, error) {
@@ -84,18 +96,24 @@ func (s *ConversationAccessService) SetManagers(ctx context.Context, conversatio
 	if err != nil {
 		return nil, err
 	}
-	if err := ensureWorkspaceAccess(ctx, conv.WorkspaceID); err != nil {
+	if err := ensureWorkspaceMembershipAccess(ctx, s.userRepo, conversationWorkspaceID(conv)); err != nil {
 		return nil, err
 	}
 	if err := s.authorizeManagerMutation(ctx, conv); err != nil {
 		return nil, err
 	}
 
-	normalizedUserIDs, err := s.normalizeManagerUserIDs(ctx, conv.WorkspaceID, userIDs)
+	_, normalizedAccountIDs, err := s.normalizeManagerIDs(ctx, conv, userIDs)
 	if err != nil {
 		return nil, err
 	}
-	assignedBy := actorUserID(ctx)
+	assignedBy, err := resolveActorAccountID(ctx, s.userRepo)
+	if err != nil {
+		return nil, err
+	}
+	if isAccountOwnedConversation(conv) && assignedBy == "" {
+		assignedBy = conv.OwnerAccountID
+	}
 	if assignedBy == "" {
 		assignedBy = conv.CreatorID
 	}
@@ -104,9 +122,12 @@ func (s *ConversationAccessService) SetManagers(ctx context.Context, conversatio
 	if err != nil {
 		return nil, err
 	}
-	currentUserIDs := make([]string, 0, len(currentAssignments))
+	currentAccountIDs := make([]string, 0, len(currentAssignments))
 	for _, assignment := range currentAssignments {
-		currentUserIDs = append(currentUserIDs, assignment.UserID)
+		accountID := assignment.AccountID
+		if accountID != "" {
+			currentAccountIDs = append(currentAccountIDs, accountID)
+		}
 	}
 
 	tx, err := s.db.Begin(ctx)
@@ -116,37 +137,37 @@ func (s *ConversationAccessService) SetManagers(ctx context.Context, conversatio
 	defer tx.Rollback(ctx)
 
 	txRepo := s.repo.WithTx(tx)
-	if err := txRepo.ReplaceManagers(ctx, conversationID, normalizedUserIDs, assignedBy); err != nil {
+	if err := txRepo.ReplaceManagers(ctx, conversationID, normalizedAccountIDs, assignedBy); err != nil {
 		return nil, err
 	}
 
-	added, removed := diffStringSets(currentUserIDs, normalizedUserIDs)
-	for _, userID := range added {
+	added, removed := diffStringSets(currentAccountIDs, normalizedAccountIDs)
+	for _, accountID := range added {
 		payload, _ := json.Marshal(map[string]string{
 			"conversation_id": conversationID,
-			"user_id":         userID,
+			"account_id":      accountID,
 		})
 		if err := s.recorder.WithTx(tx).Record(ctx, domain.InternalEvent{
 			EventType:     domain.EventConversationManagerAdded,
 			AggregateType: domain.AggregateConversation,
 			AggregateID:   conversationID,
-			WorkspaceID:   conv.WorkspaceID,
+			WorkspaceID:   conversationWorkspaceID(conv),
 			ActorID:       assignedBy,
 			Payload:       payload,
 		}); err != nil {
 			return nil, fmt.Errorf("record conversation.manager_added event: %w", err)
 		}
 	}
-	for _, userID := range removed {
+	for _, accountID := range removed {
 		payload, _ := json.Marshal(map[string]string{
 			"conversation_id": conversationID,
-			"user_id":         userID,
+			"account_id":      accountID,
 		})
 		if err := s.recorder.WithTx(tx).Record(ctx, domain.InternalEvent{
 			EventType:     domain.EventConversationManagerRemoved,
 			AggregateType: domain.AggregateConversation,
 			AggregateID:   conversationID,
-			WorkspaceID:   conv.WorkspaceID,
+			WorkspaceID:   conversationWorkspaceID(conv),
 			ActorID:       assignedBy,
 			Payload:       payload,
 		}); err != nil {
@@ -157,12 +178,12 @@ func (s *ConversationAccessService) SetManagers(ctx context.Context, conversatio
 	if err := tx.Commit(ctx); err != nil {
 		return nil, fmt.Errorf("commit tx: %w", err)
 	}
-	if err := recordAuthorizationAudit(ctx, s.auditRepo, nil, conv.WorkspaceID, domain.AuditActionConversationManagersUpdated, "conversation", conversationID, map[string]any{
-		"user_ids": normalizedUserIDs,
+	if err := recordAuthorizationAudit(ctx, s.auditRepo, nil, conversationWorkspaceID(conv), domain.AuditActionConversationManagersUpdated, "conversation", conversationID, map[string]any{
+		"account_ids": normalizedAccountIDs,
 	}); err != nil {
 		return nil, fmt.Errorf("record authorization audit log: %w", err)
 	}
-	return normalizedUserIDs, nil
+	return normalizedAccountIDs, nil
 }
 
 func (s *ConversationAccessService) GetPostingPolicy(ctx context.Context, conversationID string) (*domain.ConversationPostingPolicy, error) {
@@ -184,6 +205,7 @@ func (s *ConversationAccessService) GetPostingPolicy(ctx context.Context, conver
 		defaultPolicy := domain.DefaultConversationPostingPolicy(conversationID)
 		return &defaultPolicy, nil
 	}
+	s.normalizePostingPolicy(ctx, conv, policy)
 	return policy, nil
 }
 
@@ -198,17 +220,24 @@ func (s *ConversationAccessService) SetPostingPolicy(ctx context.Context, policy
 	if err != nil {
 		return nil, err
 	}
-	if err := ensureWorkspaceAccess(ctx, conv.WorkspaceID); err != nil {
+	if err := ensureWorkspaceMembershipAccess(ctx, s.userRepo, conversationWorkspaceID(conv)); err != nil {
 		return nil, err
 	}
 	if err := s.authorizePostingPolicyMutation(ctx, conv); err != nil {
 		return nil, err
 	}
-	if err := s.validatePostingPolicy(ctx, conv.WorkspaceID, &policy); err != nil {
+	s.normalizePostingPolicy(ctx, conv, &policy)
+	if err := s.validatePostingPolicy(ctx, conv, &policy); err != nil {
 		return nil, err
 	}
 
-	policy.UpdatedBy = actorUserID(ctx)
+	policy.UpdatedBy, err = resolveActorAccountID(ctx, s.userRepo)
+	if err != nil {
+		return nil, err
+	}
+	if isAccountOwnedConversation(conv) && policy.UpdatedBy == "" {
+		policy.UpdatedBy = conv.OwnerAccountID
+	}
 	if policy.UpdatedBy == "" {
 		policy.UpdatedBy = conv.CreatorID
 	}
@@ -228,7 +257,7 @@ func (s *ConversationAccessService) SetPostingPolicy(ctx context.Context, policy
 		EventType:     domain.EventConversationPostingPolicyUpdated,
 		AggregateType: domain.AggregateConversation,
 		AggregateID:   policy.ConversationID,
-		WorkspaceID:   conv.WorkspaceID,
+		WorkspaceID:   conversationWorkspaceID(conv),
 		ActorID:       policy.UpdatedBy,
 		Payload:       payload,
 	}); err != nil {
@@ -238,7 +267,7 @@ func (s *ConversationAccessService) SetPostingPolicy(ctx context.Context, policy
 	if err := tx.Commit(ctx); err != nil {
 		return nil, fmt.Errorf("commit tx: %w", err)
 	}
-	if err := recordAuthorizationAudit(ctx, s.auditRepo, nil, conv.WorkspaceID, domain.AuditActionPostingPolicyUpdated, "conversation", policy.ConversationID, updated); err != nil {
+	if err := recordAuthorizationAudit(ctx, s.auditRepo, nil, conversationWorkspaceID(conv), domain.AuditActionPostingPolicyUpdated, "conversation", policy.ConversationID, updated); err != nil {
 		return nil, fmt.Errorf("record authorization audit log: %w", err)
 	}
 	return updated, nil
@@ -248,19 +277,26 @@ func (s *ConversationAccessService) CanManageConversation(ctx context.Context, c
 	if conv == nil {
 		return fmt.Errorf("conversation: %w", domain.ErrInvalidArgument)
 	}
-	if err := ensureWorkspaceAccess(ctx, conv.WorkspaceID); err != nil {
+	if isAccountOwnedConversation(conv) {
+		if isInternalCallWithoutAuth(ctx) || isConversationOwnerAccount(ctx, conv) {
+			return nil
+		}
+		return domain.ErrForbidden
+	}
+	if err := ensureWorkspaceMembershipAccess(ctx, s.userRepo, conversationWorkspaceID(conv)); err != nil {
 		return err
 	}
 	if isInternalCallWithoutAuth(ctx) {
 		return nil
 	}
-	if actorID := actorUserID(ctx); actorID != "" && actorID == conv.CreatorID {
+	isCreator, err := s.actorMatchesConversationCreator(ctx, conv)
+	if err != nil {
+		return err
+	}
+	if isCreator {
 		return nil
 	}
-	if actor, err := loadActingUser(ctx, s.userRepo); err == nil && defaultAuthorizer.IsWorkspaceAdminAccount(actor.EffectiveAccountType()) {
-		return nil
-	}
-	if s.actorCanAdministerConversation(ctx, conv) {
+	if actorIsWorkspaceAdmin(ctx, s.userRepo, conversationWorkspaceID(conv)) {
 		return nil
 	}
 	isManager, err := s.isActorConversationManager(ctx, conv.ID)
@@ -277,22 +313,45 @@ func (s *ConversationAccessService) CanArchiveConversation(ctx context.Context, 
 	if conv == nil {
 		return fmt.Errorf("conversation: %w", domain.ErrInvalidArgument)
 	}
-	if err := ensureWorkspaceAccess(ctx, conv.WorkspaceID); err != nil {
+	if isAccountOwnedConversation(conv) {
+		if isInternalCallWithoutAuth(ctx) || isConversationOwnerAccount(ctx, conv) {
+			return nil
+		}
+		return domain.ErrForbidden
+	}
+	if err := ensureWorkspaceMembershipAccess(ctx, s.userRepo, conversationWorkspaceID(conv)); err != nil {
 		return err
 	}
 	if isInternalCallWithoutAuth(ctx) {
 		return nil
 	}
-	if actorID := actorUserID(ctx); actorID != "" && actorID == conv.CreatorID {
+	isCreator, err := s.actorMatchesConversationCreator(ctx, conv)
+	if err != nil {
+		return err
+	}
+	if isCreator {
 		return nil
 	}
-	if actor, err := loadActingUser(ctx, s.userRepo); err == nil && defaultAuthorizer.IsWorkspaceAdminAccount(actor.EffectiveAccountType()) {
-		return nil
-	}
-	if s.actorCanAdministerConversation(ctx, conv) {
+	if actorIsWorkspaceAdmin(ctx, s.userRepo, conversationWorkspaceID(conv)) {
 		return nil
 	}
 	return domain.ErrForbidden
+}
+
+func (s *ConversationAccessService) actorMatchesConversationCreator(ctx context.Context, conv *domain.Conversation) (bool, error) {
+	if conv == nil || strings.TrimSpace(conv.CreatorID) == "" {
+		return false, nil
+	}
+	if accountID := actorAccountID(ctx); accountID != "" && s.userRepo != nil {
+		creatorAccountID, err := resolveUserAccountID(ctx, s.userRepo, conv.CreatorID)
+		if err != nil {
+			return false, err
+		}
+		if creatorAccountID != "" {
+			return creatorAccountID == accountID, nil
+		}
+	}
+	return actorUserID(ctx) != "" && actorUserID(ctx) == conv.CreatorID, nil
 }
 
 func (s *ConversationAccessService) CanManageMembers(ctx context.Context, conv *domain.Conversation) error {
@@ -306,19 +365,67 @@ func (s *ConversationAccessService) CanPost(ctx context.Context, conv *domain.Co
 	if conv == nil {
 		return fmt.Errorf("conversation: %w", domain.ErrInvalidArgument)
 	}
-	if err := ensureWorkspaceAccess(ctx, conv.WorkspaceID); err != nil {
-		return err
-	}
 	if isInternalCallWithoutAuth(ctx) {
 		return nil
+	}
+	if isAccountOwnedConversation(conv) {
+		accountID, err := resolveActorAccountID(ctx, s.userRepo)
+		if err != nil {
+			return err
+		}
+		if accountID == "" {
+			return domain.ErrForbidden
+		}
+		if err := ensureAccountConversationAccess(ctx, s.convRepo, conv); err != nil {
+			return err
+		}
+
+		policy, err := s.repo.GetPostingPolicy(ctx, conv.ID)
+		if err != nil {
+			return err
+		}
+		if policy == nil || policy.PolicyType == domain.ConversationPostingPolicyEveryone {
+			return nil
+		}
+		switch policy.PolicyType {
+		case domain.ConversationPostingPolicyAdminsOnly, domain.ConversationPostingPolicyMembersWithPermission:
+			if isConversationOwnerAccount(ctx, conv) {
+				return nil
+			}
+			isManager, err := s.repo.IsManager(ctx, conv.ID, accountID)
+			if err != nil {
+				return err
+			}
+			if isManager {
+				return nil
+			}
+			return domain.ErrForbidden
+		case domain.ConversationPostingPolicyCustom:
+			if isConversationOwnerAccount(ctx, conv) || containsString(policy.AllowedAccountIDs, accountID) {
+				return nil
+			}
+			return domain.ErrForbidden
+		default:
+			return domain.ErrForbidden
+		}
+	}
+	if err := ensureWorkspaceMembershipAccess(ctx, s.userRepo, conversationWorkspaceID(conv)); err != nil {
+		return err
 	}
 	if actorID == "" {
 		actorID = actorUserID(ctx)
 	}
+	accountID, err := resolveActorAccountID(ctx, s.userRepo)
+	if err != nil {
+		return err
+	}
+	if actorID == "" {
+		actorID = accountID
+	}
 	if actorID == "" {
 		return domain.ErrForbidden
 	}
-	if actor, err := loadActingUser(ctx, s.userRepo); err == nil && defaultAuthorizer.IsWorkspaceAdminAccount(actor.EffectiveAccountType()) {
+	if actorIsWorkspaceAdmin(ctx, s.userRepo, conversationWorkspaceID(conv)) {
 		return nil
 	}
 
@@ -337,10 +444,7 @@ func (s *ConversationAccessService) CanPost(ctx context.Context, conv *domain.Co
 	case domain.ConversationPostingPolicyAdminsOnly:
 		return domain.ErrForbidden
 	case domain.ConversationPostingPolicyMembersWithPermission:
-		if actorID == conv.CreatorID || s.actorCanAdministerConversation(ctx, conv) {
-			return nil
-		}
-		isManager, err := s.repo.IsManager(ctx, conv.ID, actorID)
+		isManager, err := s.repo.IsManager(ctx, conv.ID, accountID)
 		if err != nil {
 			return err
 		}
@@ -349,7 +453,7 @@ func (s *ConversationAccessService) CanPost(ctx context.Context, conv *domain.Co
 		}
 		return domain.ErrForbidden
 	case domain.ConversationPostingPolicyCustom:
-		allowed, err := s.actorMatchesCustomPostingPolicy(ctx, conv.WorkspaceID, actorID, policy)
+		allowed, err := s.actorMatchesCustomPostingPolicy(ctx, conversationWorkspaceID(conv), actorID, policy)
 		if err != nil {
 			return err
 		}
@@ -366,7 +470,10 @@ func (s *ConversationAccessService) ensureConversationVisible(ctx context.Contex
 	if conv == nil {
 		return fmt.Errorf("conversation: %w", domain.ErrInvalidArgument)
 	}
-	if err := ensureWorkspaceAccess(ctx, conv.WorkspaceID); err != nil {
+	if isAccountOwnedConversation(conv) {
+		return ensureAccountConversationAccess(ctx, s.convRepo, conv)
+	}
+	if err := ensureWorkspaceMembershipAccess(ctx, s.userRepo, conversationWorkspaceID(conv)); err != nil {
 		return err
 	}
 	switch conv.Type {
@@ -374,14 +481,17 @@ func (s *ConversationAccessService) ensureConversationVisible(ctx context.Contex
 		if isInternalCallWithoutAuth(ctx) {
 			return nil
 		}
-		if contextIsWorkspaceAdmin(ctx) {
+		if actorIsWorkspaceAdmin(ctx, s.userRepo, conversationWorkspaceID(conv)) {
 			return nil
 		}
-		actorID := actorUserID(ctx)
-		if actorID == "" {
+		accountID, err := resolveActorAccountID(ctx, s.userRepo)
+		if err != nil {
+			return err
+		}
+		if accountID == "" {
 			return domain.ErrForbidden
 		}
-		isMember, err := s.convRepo.IsMember(ctx, conv.ID, actorID)
+		isMember, err := s.convRepo.IsAccountMember(ctx, conv.ID, accountID)
 		if err != nil {
 			return err
 		}
@@ -393,10 +503,16 @@ func (s *ConversationAccessService) ensureConversationVisible(ctx context.Contex
 }
 
 func (s *ConversationAccessService) authorizeManagerMutation(ctx context.Context, conv *domain.Conversation) error {
+	if isAccountOwnedConversation(conv) {
+		if isInternalCallWithoutAuth(ctx) || isConversationOwnerAccount(ctx, conv) {
+			return nil
+		}
+		return domain.ErrForbidden
+	}
 	if isInternalCallWithoutAuth(ctx) {
 		return nil
 	}
-	if actor, err := loadActingUser(ctx, s.userRepo); err == nil && defaultAuthorizer.IsWorkspaceAdminAccount(actor.EffectiveAccountType()) {
+	if actorIsWorkspaceAdmin(ctx, s.userRepo, conversationWorkspaceID(conv)) {
 		return nil
 	}
 	if s.actorCanAdministerConversation(ctx, conv) {
@@ -410,17 +526,24 @@ func (s *ConversationAccessService) authorizePostingPolicyMutation(ctx context.C
 }
 
 func (s *ConversationAccessService) actorCanAdministerConversation(ctx context.Context, conv *domain.Conversation) bool {
-	actor, err := loadActingUser(ctx, s.userRepo)
+	if isAccountOwnedConversation(conv) {
+		return false
+	}
+	membership, err := actorWorkspaceMembership(ctx, s.userRepo, conversationWorkspaceID(conv))
 	if err != nil {
 		return false
 	}
-	if !hasDelegatedRole(ctx, s.roleRepo, actor, domain.DelegatedRoleChannelsAdmin) {
+	if !defaultAuthorizer.IsWorkspaceAdminAccount(membership.EffectiveAccountType()) {
 		return false
 	}
 	if conv.Type != domain.ConversationTypePrivateChannel {
 		return true
 	}
-	isMember, err := s.convRepo.IsMember(ctx, conv.ID, actor.ID)
+	accountID := actorAccountID(ctx)
+	if accountID == "" {
+		return false
+	}
+	isMember, err := s.convRepo.IsAccountMember(ctx, conv.ID, accountID)
 	if err != nil {
 		return false
 	}
@@ -428,44 +551,117 @@ func (s *ConversationAccessService) actorCanAdministerConversation(ctx context.C
 }
 
 func (s *ConversationAccessService) isActorConversationManager(ctx context.Context, conversationID string) (bool, error) {
-	actorID := actorUserID(ctx)
-	if actorID == "" {
+	accountID, err := resolveActorAccountID(ctx, s.userRepo)
+	if err != nil {
+		return false, err
+	}
+	if accountID == "" {
 		return false, nil
 	}
-	return s.repo.IsManager(ctx, conversationID, actorID)
-}
-
-func (s *ConversationAccessService) normalizeManagerUserIDs(ctx context.Context, workspaceID string, userIDs []string) ([]string, error) {
-	seen := make(map[string]struct{}, len(userIDs))
-	normalized := make([]string, 0, len(userIDs))
-	for _, userID := range userIDs {
-		if userID == "" {
-			continue
-		}
-		if _, ok := seen[userID]; ok {
-			continue
-		}
-		user, err := loadUser(ctx, s.userRepo, userID)
-		if err != nil {
-			return nil, fmt.Errorf("manager user %s: %w", userID, err)
-		}
-		if user.WorkspaceID != workspaceID || user.PrincipalType != domain.PrincipalTypeHuman {
-			return nil, fmt.Errorf("manager user_ids: %w", domain.ErrInvalidArgument)
-		}
-		seen[userID] = struct{}{}
-		normalized = append(normalized, userID)
+	isManager, err := s.repo.IsManager(ctx, conversationID, accountID)
+	if err != nil {
+		return false, err
 	}
-	sort.Strings(normalized)
-	return normalized, nil
+	return isManager, nil
 }
 
-func (s *ConversationAccessService) validatePostingPolicy(ctx context.Context, workspaceID string, policy *domain.ConversationPostingPolicy) error {
+func (s *ConversationAccessService) normalizeManagerIDs(ctx context.Context, conv *domain.Conversation, ids []string) ([]string, []string, error) {
+	seenAccounts := make(map[string]struct{}, len(ids))
+	accountIDs := make([]string, 0, len(ids))
+	for _, rawID := range ids {
+		id := strings.TrimSpace(rawID)
+		if id == "" {
+			continue
+		}
+		if isAccountOwnedConversation(conv) {
+			accountID := id
+			if user, err := loadUser(ctx, s.userRepo, id); err == nil {
+				if user.AccountID == "" {
+					return nil, nil, fmt.Errorf("manager account_ids: %w", domain.ErrInvalidArgument)
+				}
+				accountID = user.AccountID
+			}
+			if _, ok := seenAccounts[accountID]; ok {
+				continue
+			}
+			seenAccounts[accountID] = struct{}{}
+			accountIDs = append(accountIDs, accountID)
+			continue
+		}
+
+		if user, err := loadUser(ctx, s.userRepo, id); err == nil {
+			if user.WorkspaceID != conversationWorkspaceID(conv) || user.PrincipalType != domain.PrincipalTypeHuman {
+				return nil, nil, fmt.Errorf("manager user_ids: %w", domain.ErrInvalidArgument)
+			}
+			accountID := user.AccountID
+			if accountID == "" {
+				return nil, nil, fmt.Errorf("manager account_ids: %w", domain.ErrInvalidArgument)
+			}
+			if _, ok := seenAccounts[accountID]; !ok {
+				seenAccounts[accountID] = struct{}{}
+				accountIDs = append(accountIDs, accountID)
+			}
+			continue
+		}
+
+		if _, err := s.userRepo.GetWorkspaceMembershipID(ctx, conversationWorkspaceID(conv), id); err != nil {
+			return nil, nil, fmt.Errorf("manager account_ids: %w", err)
+		}
+		if _, ok := seenAccounts[id]; !ok {
+			seenAccounts[id] = struct{}{}
+			accountIDs = append(accountIDs, id)
+		}
+	}
+	sort.Strings(accountIDs)
+	return nil, accountIDs, nil
+}
+
+func (s *ConversationAccessService) normalizePostingPolicy(ctx context.Context, conv *domain.Conversation, policy *domain.ConversationPostingPolicy) {
+	_ = ctx
+	_ = conv
+	policy.AllowedAccountTypes = dedupeAccountTypes(policy.AllowedAccountTypes)
+	policy.AllowedDelegatedRoles = dedupeDelegatedRoles(policy.AllowedDelegatedRoles)
+	policy.AllowedAccountIDs = dedupeStrings(policy.AllowedAccountIDs)
+	policy.AllowedUserIDs = nil
+	if s.userRepo == nil {
+		return
+	}
+
+	seen := make(map[string]struct{}, len(policy.AllowedAccountIDs))
+	accountIDs := make([]string, 0, len(policy.AllowedAccountIDs))
+	for _, accountID := range policy.AllowedAccountIDs {
+		if _, ok := seen[accountID]; ok {
+			continue
+		}
+		seen[accountID] = struct{}{}
+		accountIDs = append(accountIDs, accountID)
+	}
+	sort.Strings(accountIDs)
+	policy.AllowedAccountIDs = accountIDs
+}
+
+func (s *ConversationAccessService) normalizeAccountOwnedPostingPolicy(ctx context.Context, policy *domain.ConversationPostingPolicy) *domain.ConversationPostingPolicy {
+	clone := *policy
+	s.normalizePostingPolicy(ctx, &domain.Conversation{OwnerType: domain.ConversationOwnerTypeAccount}, &clone)
+	return &clone
+}
+
+func (s *ConversationAccessService) validatePostingPolicy(ctx context.Context, conv *domain.Conversation, policy *domain.ConversationPostingPolicy) error {
 	if !domain.IsValidConversationPostingPolicyType(policy.PolicyType) {
 		return fmt.Errorf("policy_type: %w", domain.ErrInvalidArgument)
 	}
-	policy.AllowedAccountTypes = dedupeAccountTypes(policy.AllowedAccountTypes)
-	policy.AllowedDelegatedRoles = dedupeDelegatedRoles(policy.AllowedDelegatedRoles)
-	policy.AllowedUserIDs = dedupeStrings(policy.AllowedUserIDs)
+	if isAccountOwnedConversation(conv) {
+		for _, accountID := range policy.AllowedAccountIDs {
+			if accountID == "" {
+				return fmt.Errorf("allowed_account_ids: %w", domain.ErrInvalidArgument)
+			}
+		}
+		return nil
+	}
+	workspaceID := conversationWorkspaceID(conv)
+	if s.userRepo == nil && len(policy.AllowedAccountIDs) > 0 {
+		return fmt.Errorf("allowed_account_ids: %w", domain.ErrInvalidArgument)
+	}
 
 	for _, accountType := range policy.AllowedAccountTypes {
 		switch accountType {
@@ -479,41 +675,47 @@ func (s *ConversationAccessService) validatePostingPolicy(ctx context.Context, w
 			return fmt.Errorf("allowed_delegated_roles: %w", domain.ErrInvalidArgument)
 		}
 	}
-	for _, userID := range policy.AllowedUserIDs {
-		user, err := loadUser(ctx, s.userRepo, userID)
-		if err != nil {
-			return fmt.Errorf("allowed_user_ids: %w", err)
+	for _, accountID := range policy.AllowedAccountIDs {
+		if accountID == "" {
+			return fmt.Errorf("allowed_account_ids: %w", domain.ErrInvalidArgument)
 		}
-		if user.WorkspaceID != workspaceID {
-			return fmt.Errorf("allowed_user_ids: %w", domain.ErrInvalidArgument)
+		if _, err := s.userRepo.GetWorkspaceMembershipID(ctx, workspaceID, accountID); err != nil {
+			return fmt.Errorf("allowed_account_ids: %w", err)
 		}
+	}
+	if len(policy.AllowedUserIDs) > 0 {
+		return fmt.Errorf("allowed_user_ids: %w", domain.ErrInvalidArgument)
 	}
 	return nil
 }
 
-func (s *ConversationAccessService) actorMatchesCustomPostingPolicy(ctx context.Context, workspaceID, actorID string, policy *domain.ConversationPostingPolicy) (bool, error) {
-	if containsString(policy.AllowedUserIDs, actorID) {
-		return true, nil
+func (s *ConversationAccessService) actorMatchesCustomPostingPolicy(ctx context.Context, workspaceID, _ string, policy *domain.ConversationPostingPolicy) (bool, error) {
+	if workspaceID == "" {
+		accountID, err := resolveActorAccountID(ctx, s.userRepo)
+		if err != nil {
+			return false, err
+		}
+		return containsString(policy.AllowedAccountIDs, accountID), nil
 	}
-	actor, err := loadUser(ctx, s.userRepo, actorID)
+	accountID, err := resolveActorAccountID(ctx, s.userRepo)
 	if err != nil {
 		return false, err
 	}
-	if actor.WorkspaceID != workspaceID {
-		return false, domain.ErrForbidden
-	}
-	if containsAccountType(policy.AllowedAccountTypes, actor.EffectiveAccountType()) {
+	if containsString(policy.AllowedAccountIDs, accountID) {
 		return true, nil
 	}
-	if s.roleRepo != nil {
-		roles, err := s.roleRepo.ListByUser(ctx, workspaceID, actorID)
-		if err == nil {
-			for _, role := range roles {
-				if containsDelegatedRole(policy.AllowedDelegatedRoles, role) {
-					return true, nil
-				}
-			}
+	membership, err := actorWorkspaceMembership(ctx, s.userRepo, workspaceID)
+	if err != nil {
+		if errors.Is(err, domain.ErrForbidden) {
+			return false, nil
 		}
+		return false, err
+	}
+	if membership == nil {
+		return false, nil
+	}
+	if containsAccountType(policy.AllowedAccountTypes, membership.EffectiveAccountType()) {
+		return true, nil
 	}
 	return false, nil
 }

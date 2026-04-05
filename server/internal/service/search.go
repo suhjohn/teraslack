@@ -20,6 +20,7 @@ import (
 type SearchService struct {
 	turbopuffer     TurbopufferClient
 	externalMembers repository.ExternalMemberRepository
+	convRepo        repository.ConversationRepository
 }
 
 // TurbopufferClient defines the interface for vector search operations.
@@ -82,6 +83,10 @@ func NewSearchService(turbopuffer TurbopufferClient) *SearchService {
 
 func (s *SearchService) SetExternalMemberRepository(repo repository.ExternalMemberRepository) {
 	s.externalMembers = repo
+}
+
+func (s *SearchService) SetConversationRepository(repo repository.ConversationRepository) {
+	s.convRepo = repo
 }
 
 // Search performs a unified search across all resource types using Turbopuffer.
@@ -230,23 +235,56 @@ func (s *SearchService) resolveSearchWorkspace(ctx context.Context, requested st
 }
 
 func (s *SearchService) searchVisibilityScope(ctx context.Context, workspaceID string) (searchVisibilityScope, error) {
-	if hasWorkspaceUserContext(ctx, workspaceID) {
+	if actorAccountID(ctx) == "" && hasWorkspaceUserContext(ctx, workspaceID) {
 		return searchVisibilityScope{}, nil
 	}
-	if s.externalMembers != nil && ctxutil.GetAccountID(ctx) != "" {
-		items, err := s.externalMembers.ListActiveByAccountAndWorkspace(ctx, ctxutil.GetAccountID(ctx), workspaceID)
-		if err != nil {
-			return searchVisibilityScope{}, err
-		}
-		if len(items) > 0 {
-			conversationIDs := make([]string, 0, len(items))
-			for _, item := range items {
-				conversationIDs = append(conversationIDs, item.ConversationID)
-			}
-			return newSearchVisibilityScope(conversationIDs), nil
-		}
+	conversationIDs, err := s.listVisibleConversationIDs(ctx, workspaceID)
+	if err != nil {
+		return searchVisibilityScope{}, err
+	}
+	if len(conversationIDs) > 0 {
+		return newSearchVisibilityScope(conversationIDs), nil
 	}
 	return searchVisibilityScope{}, nil
+}
+
+func (s *SearchService) listVisibleConversationIDs(ctx context.Context, workspaceID string) ([]string, error) {
+	accountID := actorAccountID(ctx)
+	if s.convRepo == nil || workspaceID == "" || accountID == "" {
+		return nil, nil
+	}
+
+	cursor := ""
+	allowed := make(map[string]struct{})
+	for {
+		page, err := s.convRepo.List(ctx, domain.ListConversationsParams{
+			WorkspaceID:     workspaceID,
+			AccountID:       accountID,
+			ExcludeArchived: true,
+			Cursor:          cursor,
+			Limit:           100,
+		})
+		if err != nil {
+			return nil, err
+		}
+		for _, conv := range page.Items {
+			if conversationWorkspaceID(&conv) != workspaceID {
+				continue
+			}
+			allowed[conv.ID] = struct{}{}
+		}
+		if !page.HasMore || page.NextCursor == "" {
+			break
+		}
+		cursor = page.NextCursor
+	}
+
+	conversationIDs := make([]string, 0, len(allowed))
+	for id := range allowed {
+		conversationIDs = append(conversationIDs, id)
+	}
+	sort.Strings(conversationIDs)
+	return conversationIDs, nil
 }
 
 func newSearchVisibilityScope(conversationIDs []string) searchVisibilityScope {

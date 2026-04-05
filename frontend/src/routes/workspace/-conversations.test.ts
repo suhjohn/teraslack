@@ -33,6 +33,18 @@ describe('conversation external-member helpers', () => {
     expect(
       getExternalMemberLabel({
         account_id: 'A123',
+        account: {
+          display_name: '',
+          real_name: 'Real Name',
+          name: '',
+          email: '',
+        },
+      } as never),
+    ).toBe('Real Name')
+
+    expect(
+      getExternalMemberLabel({
+        account_id: 'A123',
       } as never),
     ).toBe('A123')
   })
@@ -45,11 +57,11 @@ describe('conversation external-member helpers', () => {
       },
     ]
 
-    expect(
-      getExternalWorkspaceLabel(workspaces as never, 'T_EXT'),
-    ).toBe('Partner Workspace')
-    expect(
-      getExternalWorkspaceLabel(workspaces as never, 'T_UNKNOWN'),
-    ).toBe('T_UNKNOWN')
+    expect(getExternalWorkspaceLabel(workspaces as never, 'T_EXT')).toBe(
+      'Partner Workspace',
+    )
+    expect(getExternalWorkspaceLabel(workspaces as never, 'T_UNKNOWN')).toBe(
+      'T_UNKNOWN',
+    )
   })
 })

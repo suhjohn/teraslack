@@ -7,6 +7,6 @@
  */
 
 export interface ConversationInviteRequest {
-  /** User IDs to add as members. */
-  user_ids: string[];
+  /** Account IDs to add as members. */
+  account_ids?: string[];
 }

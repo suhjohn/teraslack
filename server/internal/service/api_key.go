@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -18,6 +19,7 @@ import (
 type APIKeyService struct {
 	repo            repository.APIKeyRepository
 	userRepo        repository.UserRepository
+	accountRepo     repository.AccountRepository
 	externalMembers repository.ExternalMemberRepository
 	auditRepo       repository.AuthorizationAuditRepository
 	recorder        EventRecorder
@@ -37,7 +39,9 @@ func (s *APIKeyService) SetExternalMemberRepository(repo repository.ExternalMemb
 	s.externalMembers = repo
 }
 
-func (s *APIKeyService) SetIdentityRepositories(_ ...any) {}
+func (s *APIKeyService) SetIdentityRepositories(accountRepo repository.AccountRepository, _ ...any) {
+	s.accountRepo = accountRepo
+}
 
 func (s *APIKeyService) SetAuthorizationAuditRepository(repo repository.AuthorizationAuditRepository) {
 	s.auditRepo = repo
@@ -116,6 +120,20 @@ func (s *APIKeyService) Create(ctx context.Context, params domain.CreateAPIKeyPa
 		params.WorkspaceIDs = nil
 		if actor != nil && !defaultAuthorizer.IsWorkspaceAdminAccount(actor.EffectiveAccountType()) {
 			return nil, "", domain.ErrForbidden
+		}
+	}
+
+	if params.CreatedBy == "" && s.userRepo != nil && params.AccountID != "" {
+		candidateWorkspaceIDs := append([]string{}, params.WorkspaceIDs...)
+		if params.WorkspaceID != "" {
+			candidateWorkspaceIDs = append(candidateWorkspaceIDs, params.WorkspaceID)
+		}
+		for _, workspaceID := range candidateWorkspaceIDs {
+			user, err := s.userRepo.GetByWorkspaceAndAccount(ctx, workspaceID, params.AccountID)
+			if err == nil {
+				params.CreatedBy = user.ID
+				break
+			}
 		}
 	}
 
@@ -259,11 +277,6 @@ func (s *APIKeyService) Update(ctx context.Context, id string, params domain.Upd
 	if params.Permissions != nil && !isInternalCallWithoutAuth(ctx) {
 		if err := validateAPIKeyPermissions(actor, *params.Permissions); err != nil {
 			return nil, err
-		}
-		if existing.Scope == domain.APIKeyScopeAccount {
-			if err := s.validateExternalMemberPermissions(ctx, ctxutil.GetWorkspaceID(ctx), actor, *params.Permissions); err != nil {
-				return nil, err
-			}
 		}
 	}
 	if params.WorkspaceIDs != nil {
@@ -452,10 +465,6 @@ func (s *APIKeyService) ValidateAPIKey(ctx context.Context, rawKey string) (*dom
 	if err != nil {
 		return nil, domain.ErrInvalidAuth
 	}
-	if caps, capsErr := s.externalMemberCapabilitiesForUser(ctx, key.WorkspaceID, user); capsErr == nil && len(caps) > 0 {
-		key.Permissions = intersectPermissions(key.Permissions, caps)
-	}
-
 	validation := &domain.APIKeyValidation{
 		Scope:         key.Scope,
 		WorkspaceID:   key.WorkspaceID,
@@ -469,6 +478,11 @@ func (s *APIKeyService) ValidateAPIKey(ctx context.Context, rawKey string) (*dom
 	}
 	if user.WorkspaceID != "" {
 		validation.WorkspaceID = user.WorkspaceID
+	}
+	if s.userRepo != nil && validation.WorkspaceID != "" && validation.AccountID != "" {
+		if membershipID, membershipErr := s.userRepo.GetWorkspaceMembershipID(ctx, validation.WorkspaceID, validation.AccountID); membershipErr == nil {
+			validation.WorkspaceMembershipID = membershipID
+		}
 	}
 
 	return validation, nil
@@ -548,18 +562,22 @@ func (s *APIKeyService) apiKeyEventWorkspaceID(ctx context.Context, key *domain.
 	if strings.TrimSpace(key.AccountID) == "" || s.userRepo == nil {
 		return ""
 	}
-	users, err := s.userRepo.ListByAccount(ctx, key.AccountID)
-	if err != nil || len(users) != 1 {
+	memberships, err := s.userRepo.ListWorkspaceMembershipsByAccount(ctx, key.AccountID)
+	if err != nil || len(memberships) != 1 {
 		return ""
 	}
-	return users[0].WorkspaceID
+	return memberships[0].WorkspaceID
 }
 
 func (s *APIKeyService) validateAccountKeyWorkspaceIDs(ctx context.Context, accountID string, workspaceIDs []string) error {
 	for _, workspaceID := range workspaceIDs {
-		if _, err := s.userRepo.GetByWorkspaceAndAccount(ctx, workspaceID, accountID); err != nil {
-			return fmt.Errorf("workspace_ids: %w", domain.ErrInvalidArgument)
+		if _, err := s.userRepo.GetWorkspaceMembershipID(ctx, workspaceID, accountID); err == nil {
+			continue
 		}
+		if _, err := s.userRepo.GetByWorkspaceAndAccount(ctx, workspaceID, accountID); err == nil {
+			continue
+		}
+		return fmt.Errorf("workspace_ids: %w", domain.ErrInvalidArgument)
 	}
 	return nil
 }
@@ -577,7 +595,7 @@ func (s *APIKeyService) authorizeAPIKeyManagement(ctx context.Context, key *doma
 	}
 	switch key.Scope {
 	case domain.APIKeyScopeWorkspaceSystem:
-		if err := ensureWorkspaceAccess(ctx, key.WorkspaceID); err != nil {
+		if err := ensureWorkspaceMembershipAccess(ctx, s.userRepo, key.WorkspaceID); err != nil {
 			return nil, err
 		}
 		if !defaultAuthorizer.IsWorkspaceAdminAccount(actor.EffectiveAccountType()) {
@@ -625,32 +643,42 @@ func (s *APIKeyService) resolveAccountAPIKeyUser(ctx context.Context, key *domai
 	if strings.TrimSpace(key.AccountID) == "" {
 		return nil, domain.ErrInvalidAuth
 	}
+	account := &domain.Account{ID: key.AccountID, PrincipalType: domain.PrincipalTypeHuman}
+	if s.accountRepo != nil {
+		resolvedAccount, err := s.accountRepo.Get(ctx, key.AccountID)
+		if err != nil && !errors.Is(err, domain.ErrNotFound) {
+			return nil, err
+		}
+		if resolvedAccount != nil {
+			account = resolvedAccount
+		}
+	}
 	if requestedWorkspaceID := strings.TrimSpace(ctxutil.GetWorkspaceID(ctx)); requestedWorkspaceID != "" {
 		if !workspaceAllowedForAccountKey(key, requestedWorkspaceID) {
 			return nil, domain.ErrForbidden
 		}
-		user, err := s.userRepo.GetByWorkspaceAndAccount(ctx, requestedWorkspaceID, key.AccountID)
+		membership, err := s.userRepo.GetWorkspaceMembership(ctx, requestedWorkspaceID, key.AccountID)
 		if err != nil {
 			return nil, err
 		}
-		key.WorkspaceID = user.WorkspaceID
-		return user, nil
+		key.WorkspaceID = membership.WorkspaceID
+		return workspaceUserFromMembership(account, membership, nil), nil
 	}
-	users, err := s.userRepo.ListByAccount(ctx, key.AccountID)
+	memberships, err := s.userRepo.ListWorkspaceMembershipsByAccount(ctx, key.AccountID)
 	if err != nil {
 		return nil, err
 	}
-	eligible := make([]domain.User, 0, len(users))
-	for _, user := range users {
-		if workspaceAllowedForAccountKey(key, user.WorkspaceID) {
-			eligible = append(eligible, user)
+	eligible := make([]domain.WorkspaceMembership, 0, len(memberships))
+	for _, membership := range memberships {
+		if workspaceAllowedForAccountKey(key, membership.WorkspaceID) {
+			eligible = append(eligible, membership)
 		}
 	}
 	if len(eligible) != 1 {
 		return nil, domain.ErrForbidden
 	}
 	key.WorkspaceID = eligible[0].WorkspaceID
-	return &eligible[0], nil
+	return workspaceUserFromMembership(account, &eligible[0], nil), nil
 }
 
 func validateAPIKeyPermissions(principal *domain.User, permissions []string) error {
@@ -679,65 +707,4 @@ func validateAPIKeyPermissions(principal *domain.User, permissions []string) err
 		}
 	}
 	return nil
-}
-
-func (s *APIKeyService) validateExternalMemberPermissions(ctx context.Context, workspaceID string, principal *domain.User, permissions []string) error {
-	if principal == nil || principal.PrincipalType != domain.PrincipalTypeAgent || workspaceID == "" || principal.WorkspaceID == workspaceID {
-		return nil
-	}
-	allowedCapabilities, err := s.externalMemberCapabilitiesForUser(ctx, workspaceID, principal)
-	if err != nil || len(allowedCapabilities) == 0 {
-		return domain.ErrForbidden
-	}
-	if len(permissions) == 0 {
-		return nil
-	}
-	allowed := make(map[string]struct{}, len(allowedCapabilities))
-	for _, capability := range allowedCapabilities {
-		allowed[capability] = struct{}{}
-	}
-	for _, permission := range permissions {
-		if _, ok := allowed[permission]; !ok {
-			return domain.ErrForbidden
-		}
-	}
-	return nil
-}
-
-func (s *APIKeyService) externalMemberCapabilitiesForUser(ctx context.Context, workspaceID string, principal *domain.User) ([]string, error) {
-	if principal == nil || s.externalMembers == nil || workspaceID == "" || strings.TrimSpace(principal.AccountID) == "" {
-		return nil, nil
-	}
-	items, err := s.externalMembers.ListActiveByAccountAndWorkspace(ctx, principal.AccountID, workspaceID)
-	if err != nil {
-		return nil, err
-	}
-	allowed := make(map[string]struct{})
-	for _, item := range items {
-		for _, capability := range item.AllowedCapabilities {
-			allowed[capability] = struct{}{}
-		}
-	}
-	out := make([]string, 0, len(allowed))
-	for capability := range allowed {
-		out = append(out, capability)
-	}
-	return out, nil
-}
-
-func intersectPermissions(keyPermissions, allowedCapabilities []string) []string {
-	if len(allowedCapabilities) == 0 {
-		return []string{}
-	}
-	allowed := make(map[string]struct{}, len(allowedCapabilities))
-	for _, capability := range allowedCapabilities {
-		allowed[capability] = struct{}{}
-	}
-	out := make([]string, 0, len(keyPermissions))
-	for _, permission := range keyPermissions {
-		if _, ok := allowed[permission]; ok {
-			out = append(out, permission)
-		}
-	}
-	return out
 }

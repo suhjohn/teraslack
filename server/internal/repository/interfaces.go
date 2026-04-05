@@ -52,6 +52,9 @@ type UserRepository interface {
 	Create(ctx context.Context, params domain.CreateUserParams) (*domain.User, error)
 	Get(ctx context.Context, id string) (*domain.User, error)
 	GetByWorkspaceAndAccount(ctx context.Context, workspaceID, accountID string) (*domain.User, error)
+	GetWorkspaceMembership(ctx context.Context, workspaceID, accountID string) (*domain.WorkspaceMembership, error)
+	GetWorkspaceMembershipID(ctx context.Context, workspaceID, accountID string) (string, error)
+	ListWorkspaceMembershipsByAccount(ctx context.Context, accountID string) ([]domain.WorkspaceMembership, error)
 	ListByAccount(ctx context.Context, accountID string) ([]domain.User, error)
 	Update(ctx context.Context, id string, params domain.UpdateUserParams) (*domain.User, error)
 	List(ctx context.Context, params domain.ListUsersParams) (*domain.CursorPage[domain.User], error)
@@ -104,9 +107,13 @@ type ConversationRepository interface {
 	Unarchive(ctx context.Context, id string) error
 
 	AddMember(ctx context.Context, conversationID, userID string) error
+	AddMemberByAccount(ctx context.Context, conversationID, accountID string) error
 	RemoveMember(ctx context.Context, conversationID, userID string) error
+	RemoveMemberByAccount(ctx context.Context, conversationID, accountID string) error
 	ListMembers(ctx context.Context, conversationID string, cursor string, limit int) (*domain.CursorPage[domain.ConversationMember], error)
+	ListMemberAccounts(ctx context.Context, conversationID string, cursor string, limit int) (*domain.CursorPage[domain.ConversationMember], error)
 	IsMember(ctx context.Context, conversationID, userID string) (bool, error)
+	IsAccountMember(ctx context.Context, conversationID, accountID string) (bool, error)
 }
 
 // MessageRepository defines data access operations for messages.
@@ -129,7 +136,8 @@ type MessageRepository interface {
 type ConversationReadRepository interface {
 	WithTx(tx pgx.Tx) ConversationReadRepository
 	Upsert(ctx context.Context, read domain.ConversationRead) error
-	Get(ctx context.Context, conversationID, userID string) (*domain.ConversationRead, error)
+	UpsertByAccount(ctx context.Context, conversationID, accountID, lastReadTS string, lastReadAt time.Time) error
+	GetByAccount(ctx context.Context, conversationID, accountID string) (*domain.ConversationRead, error)
 }
 
 // ProjectorCheckpointRepository stores durable progress for background projectors.
@@ -172,7 +180,7 @@ type AuthRepository interface {
 	CreateEmailVerificationChallenge(ctx context.Context, params domain.CreateEmailVerificationChallengeParams) (*domain.EmailVerificationChallenge, error)
 	GetEmailVerificationChallenge(ctx context.Context, email, codeHash string) (*domain.EmailVerificationChallenge, error)
 	ConsumeEmailVerificationChallenge(ctx context.Context, id string, consumedAt time.Time) error
-	GetOAuthAccount(ctx context.Context, workspaceID string, provider domain.AuthProvider, providerSubject string) (*domain.OAuthAccount, error)
+	GetOAuthAccount(ctx context.Context, provider domain.AuthProvider, providerSubject string) (*domain.OAuthAccount, error)
 	ListOAuthAccountsBySubject(ctx context.Context, provider domain.AuthProvider, providerSubject string) ([]domain.OAuthAccount, error)
 	UpsertOAuthAccount(ctx context.Context, params domain.UpsertOAuthAccountParams) (*domain.OAuthAccount, error)
 }

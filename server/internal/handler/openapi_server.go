@@ -141,7 +141,7 @@ func (s *openAPIServer) AddConversationMembers(w http.ResponseWriter, r *http.Re
 	s.convH.Invite(w, r)
 }
 
-func (s *openAPIServer) RemoveConversationMember(w http.ResponseWriter, r *http.Request, _ openapi.ConversationIDPath, _ openapi.UserIDPathNamed) {
+func (s *openAPIServer) RemoveConversationMember(w http.ResponseWriter, r *http.Request, _ openapi.ConversationIDPath, _ openapi.AccountIDPathNamed) {
 	s.convH.Kick(w, r)
 }
 

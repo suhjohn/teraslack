@@ -9,6 +9,29 @@ import (
 	"github.com/suhjohn/teraslack/internal/repository"
 )
 
+func activeExternalMembersByWorkspace(ctx context.Context, repo repository.ExternalMemberRepository, workspaceID string) ([]domain.ExternalMember, error) {
+	if repo == nil || workspaceID == "" {
+		return nil, nil
+	}
+	accountID := ctxutil.GetAccountID(ctx)
+	if accountID == "" {
+		return nil, nil
+	}
+	items, err := repo.ListActiveByAccountAndWorkspace(ctx, accountID, workspaceID)
+	if err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+func hasGuestWorkspaceAccess(ctx context.Context, repo repository.ExternalMemberRepository, workspaceID string) (bool, error) {
+	items, err := activeExternalMembersByWorkspace(ctx, repo, workspaceID)
+	if err != nil {
+		return false, err
+	}
+	return len(items) > 0, nil
+}
+
 func activeExternalMember(ctx context.Context, repo repository.ExternalMemberRepository, conversationID string) (*domain.ExternalMember, error) {
 	if repo == nil || conversationID == "" {
 		return nil, nil
@@ -51,15 +74,26 @@ func ensureExternalMemberConversationAccess(ctx context.Context, repo repository
 }
 
 func ensureConversationAccess(ctx context.Context, externalMembers repository.ExternalMemberRepository, conv *domain.Conversation, capability string, requireWrite bool) (bool, error) {
+	guest := false
 	if hasWorkspaceUserContext(ctx, conv.WorkspaceID) {
-		if err := ensureWorkspaceAccess(ctx, conv.WorkspaceID); err != nil {
+		var err error
+		guest, err = hasGuestWorkspaceAccess(ctx, externalMembers, conv.WorkspaceID)
+		if err != nil {
 			return false, err
 		}
-		return false, nil
+		if !guest {
+			if err := ensureWorkspaceAccess(ctx, conv.WorkspaceID); err != nil {
+				return false, err
+			}
+			return false, nil
+		}
 	}
 	authorized, err := ensureExternalMemberConversationAccess(ctx, externalMembers, conv, capability, requireWrite)
 	if authorized || err != nil {
 		return authorized, err
+	}
+	if guest {
+		return false, domain.ErrForbidden
 	}
 	if err := ensureWorkspaceAccess(ctx, conv.WorkspaceID); err != nil {
 		return false, err
@@ -72,7 +106,10 @@ func isConversationExternalActor(ctx context.Context, externalMembers repository
 		return false, nil
 	}
 	if hasWorkspaceUserContext(ctx, conv.WorkspaceID) {
-		return false, nil
+		guest, err := hasGuestWorkspaceAccess(ctx, externalMembers, conv.WorkspaceID)
+		if err != nil || !guest {
+			return false, err
+		}
 	}
 	if member, err := activeExternalMember(ctx, externalMembers, conv.ID); err != nil {
 		return false, err
@@ -83,7 +120,12 @@ func isConversationExternalActor(ctx context.Context, externalMembers repository
 }
 
 func filterExternalSharedConversations(ctx context.Context, externalMembers repository.ExternalMemberRepository, conversations []domain.Conversation) ([]domain.Conversation, error) {
-	if ctxutil.GetAccountID(ctx) == "" || externalMembers == nil || hasWorkspaceUserContext(ctx, conversationsWorkspaceID(conversations)) {
+	if ctxutil.GetAccountID(ctx) == "" || externalMembers == nil {
+		return conversations, nil
+	}
+	if guest, err := hasGuestWorkspaceAccess(ctx, externalMembers, conversationsWorkspaceID(conversations)); err != nil {
+		return nil, err
+	} else if !guest && hasWorkspaceUserContext(ctx, conversationsWorkspaceID(conversations)) {
 		return conversations, nil
 	}
 	filtered := make([]domain.Conversation, 0, len(conversations))
@@ -139,15 +181,26 @@ func ensureExternalMemberFileAccess(ctx context.Context, repo repository.Externa
 }
 
 func ensureFileAccess(ctx context.Context, externalMembers repository.ExternalMemberRepository, f *domain.File, capability string, requireWrite bool) (bool, error) {
+	guest := false
 	if hasWorkspaceUserContext(ctx, f.WorkspaceID) {
-		if err := ensureWorkspaceAccess(ctx, f.WorkspaceID); err != nil {
+		var err error
+		guest, err = hasGuestWorkspaceAccess(ctx, externalMembers, f.WorkspaceID)
+		if err != nil {
 			return false, err
 		}
-		return false, nil
+		if !guest {
+			if err := ensureWorkspaceAccess(ctx, f.WorkspaceID); err != nil {
+				return false, err
+			}
+			return false, nil
+		}
 	}
 	authorized, err := ensureExternalMemberFileAccess(ctx, externalMembers, f, capability, requireWrite)
 	if authorized || err != nil {
 		return authorized, err
+	}
+	if guest {
+		return false, domain.ErrForbidden
 	}
 	if err := ensureWorkspaceAccess(ctx, f.WorkspaceID); err != nil {
 		return false, err

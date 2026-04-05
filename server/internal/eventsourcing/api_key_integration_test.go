@@ -47,7 +47,7 @@ func TestAPIKey_CreateAccountKeyAndValidateAcrossAllowedWorkspace(t *testing.T) 
 	if err != nil {
 		t.Fatalf("create user A: %v", err)
 	}
-	userB, err := userSvc.Create(ctx, domain.CreateUserParams{
+	_, err = userSvc.Create(ctx, domain.CreateUserParams{
 		AccountID:     account.ID,
 		WorkspaceID:   "T002",
 		Name:          "owner-b",
@@ -85,8 +85,11 @@ func TestAPIKey_CreateAccountKeyAndValidateAcrossAllowedWorkspace(t *testing.T) 
 	if err != nil {
 		t.Fatalf("validate api key: %v", err)
 	}
-	if validation.UserID != userB.ID || validation.WorkspaceID != "T002" {
+	if validation.UserID != "" || validation.WorkspaceID != "T002" || validation.AccountID != account.ID {
 		t.Fatalf("unexpected validation = %+v", validation)
+	}
+	if validation.WorkspaceMembershipID == "" {
+		t.Fatalf("expected workspace_membership_id in validation, got %+v", validation)
 	}
 	if validation.AccountType != domain.AccountTypeAdmin {
 		t.Fatalf("account_type = %q, want admin", validation.AccountType)

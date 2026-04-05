@@ -55,6 +55,51 @@ func (m *mockUserRepoTenant) GetByWorkspaceAndAccount(_ context.Context, workspa
 	return nil, domain.ErrNotFound
 }
 
+func (m *mockUserRepoTenant) GetWorkspaceMembership(_ context.Context, workspaceID, accountID string) (*domain.WorkspaceMembership, error) {
+	for _, u := range m.users {
+		if u.WorkspaceID == workspaceID && u.AccountID == accountID {
+			return &domain.WorkspaceMembership{
+				ID:             "WM_" + u.ID,
+				WorkspaceID:    workspaceID,
+				AccountID:      accountID,
+				Role:           string(u.EffectiveAccountType()),
+				Status:         domain.WorkspaceMembershipStatusActive,
+				MembershipKind: domain.WorkspaceMembershipKindFull,
+				GuestScope:     domain.WorkspaceGuestScopeWorkspaceFull,
+			}, nil
+		}
+	}
+	return nil, domain.ErrNotFound
+}
+
+func (m *mockUserRepoTenant) GetWorkspaceMembershipID(_ context.Context, workspaceID, accountID string) (string, error) {
+	for _, u := range m.users {
+		if u.WorkspaceID == workspaceID && u.AccountID == accountID {
+			return "WM_" + u.ID, nil
+		}
+	}
+	return "", domain.ErrNotFound
+}
+
+func (m *mockUserRepoTenant) ListWorkspaceMembershipsByAccount(_ context.Context, accountID string) ([]domain.WorkspaceMembership, error) {
+	items := make([]domain.WorkspaceMembership, 0)
+	for _, u := range m.users {
+		if u.AccountID != accountID {
+			continue
+		}
+		items = append(items, domain.WorkspaceMembership{
+			ID:             "WM_" + u.ID,
+			WorkspaceID:    u.WorkspaceID,
+			AccountID:      u.AccountID,
+			Role:           string(u.EffectiveAccountType()),
+			Status:         domain.WorkspaceMembershipStatusActive,
+			MembershipKind: domain.WorkspaceMembershipKindFull,
+			GuestScope:     domain.WorkspaceGuestScopeWorkspaceFull,
+		})
+	}
+	return items, nil
+}
+
 func (m *mockUserRepoTenant) ListByAccount(_ context.Context, accountID string) ([]domain.User, error) {
 	users := make([]domain.User, 0)
 	for _, u := range m.users {

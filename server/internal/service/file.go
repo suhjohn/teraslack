@@ -22,6 +22,9 @@ import (
 type FileService struct {
 	repo            repository.FileRepository
 	externalMembers repository.ExternalMemberRepository
+	userRepo        repository.UserRepository
+	convRepo        repository.ConversationRepository
+	access          *ConversationAccessService
 	s3              *s3client.Client
 	s3Prefix        string
 	baseURL         string
@@ -48,6 +51,18 @@ func NewFileService(repo repository.FileRepository, s3 *s3client.Client, s3Prefi
 
 func (s *FileService) SetExternalMemberRepository(repo repository.ExternalMemberRepository) {
 	s.externalMembers = repo
+}
+
+func (s *FileService) SetUserRepository(repo repository.UserRepository) {
+	s.userRepo = repo
+}
+
+func (s *FileService) SetConversationRepository(repo repository.ConversationRepository) {
+	s.convRepo = repo
+}
+
+func (s *FileService) SetAccessService(access *ConversationAccessService) {
+	s.access = access
 }
 
 func (s *FileService) GetUploadURL(ctx context.Context, params domain.GetUploadURLParams) (*domain.GetUploadURLResponse, error) {
@@ -222,7 +237,7 @@ func (s *FileService) Get(ctx context.Context, id string) (*domain.File, error) 
 	if err != nil {
 		return nil, err
 	}
-	if _, err := ensureFileAccess(ctx, s.externalMembers, f, domain.PermissionFilesRead, false); err != nil {
+	if err := s.ensureFileAccess(ctx, f, false); err != nil {
 		return nil, err
 	}
 	return f, nil
@@ -237,7 +252,7 @@ func (s *FileService) Delete(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
-	if _, err := ensureFileAccess(ctx, s.externalMembers, f, domain.PermissionFilesWrite, true); err != nil {
+	if err := s.ensureFileAccess(ctx, f, true); err != nil {
 		return err
 	}
 	if err := ensureFileOwnerOrAdmin(ctx, f.UserID); err != nil {
@@ -285,20 +300,19 @@ func (s *FileService) List(ctx context.Context, params domain.ListFilesParams) (
 		return nil, fmt.Errorf("workspace_id: %w", domain.ErrInvalidArgument)
 	}
 	if params.ChannelID != "" {
-		if member, err := activeExternalMember(ctx, s.externalMembers, params.ChannelID); err != nil {
+		conv, err := s.resolveChannelAccess(ctx, params.ChannelID, false)
+		if err != nil {
 			return nil, err
-		} else if member != nil {
-			if !capabilityAllowed(member.AllowedCapabilities, domain.PermissionFilesRead) {
-				return nil, domain.ErrForbidden
-			}
-			params.WorkspaceID = member.HostWorkspaceID
 		}
+		params.WorkspaceID = conversationWorkspaceID(conv)
 	}
 	if params.WorkspaceID == "" {
 		return nil, fmt.Errorf("workspace_id: %w", domain.ErrInvalidArgument)
 	}
-	if !hasWorkspaceUserContext(ctx, params.WorkspaceID) && ctxutil.GetAccountID(ctx) != "" && params.ChannelID == "" {
-		return nil, domain.ErrForbidden
+	if params.ChannelID == "" {
+		if err := s.ensureWorkspaceFileAccess(ctx, params.WorkspaceID); err != nil {
+			return nil, err
+		}
 	}
 	return s.repo.List(ctx, params)
 }
@@ -392,7 +406,7 @@ func (s *FileService) ShareRemoteFile(ctx context.Context, params domain.ShareRe
 	if err != nil {
 		return err
 	}
-	if _, err := ensureFileAccess(ctx, s.externalMembers, f, domain.PermissionFilesWrite, true); err != nil {
+	if err := s.ensureFileAccess(ctx, f, true); err != nil {
 		return err
 	}
 	if err := ensureFileOwnerOrAdmin(ctx, f.UserID); err != nil {
@@ -459,40 +473,21 @@ func (s *FileService) resolveCreateContext(ctx context.Context, channelID string
 	if userID == "" {
 		return "", "", false, fmt.Errorf("user_id: %w", domain.ErrInvalidArgument)
 	}
-	ctxWorkspaceID := ctxutil.GetWorkspaceID(ctx)
-	if channelID != "" && ctxutil.GetAccountID(ctx) != "" {
-		member, err := activeExternalMember(ctx, s.externalMembers, channelID)
+	if channelID != "" {
+		conv, err := s.resolveChannelAccess(ctx, channelID, true)
 		if err != nil {
 			return "", "", true, err
 		}
-		if member != nil && (ctxWorkspaceID == "" || member.HostWorkspaceID != ctxWorkspaceID || !hasWorkspaceUserContext(ctx, member.HostWorkspaceID)) {
-			if !capabilityAllowed(member.AllowedCapabilities, domain.PermissionFilesWrite) || member.AccessMode == domain.ExternalPrincipalAccessModeSharedReadOnly {
-				return "", "", true, domain.ErrForbidden
-			}
-			return member.HostWorkspaceID, userID, true, nil
-		}
+		return conversationWorkspaceID(conv), userID, false, nil
 	}
-	if hasWorkspaceUserContext(ctx, ctxWorkspaceID) || ctxutil.GetAccountID(ctx) == "" {
-		workspaceID, err = fileTeamContext(ctx)
-		if err != nil {
-			return "", "", false, err
-		}
-		return workspaceID, userID, false, nil
-	}
-	if channelID == "" {
-		return "", "", true, domain.ErrForbidden
-	}
-	member, err := activeExternalMember(ctx, s.externalMembers, channelID)
+	workspaceID, err = fileTeamContext(ctx)
 	if err != nil {
-		return "", "", true, err
+		return "", "", false, err
 	}
-	if member == nil {
-		return "", "", true, domain.ErrForbidden
+	if err := s.ensureWorkspaceFileAccess(ctx, workspaceID); err != nil {
+		return "", "", false, err
 	}
-	if !capabilityAllowed(member.AllowedCapabilities, domain.PermissionFilesWrite) || member.AccessMode == domain.ExternalPrincipalAccessModeSharedReadOnly {
-		return "", "", true, domain.ErrForbidden
-	}
-	return member.HostWorkspaceID, userID, true, nil
+	return workspaceID, userID, false, nil
 }
 
 func ensureFileOwnerOrAdmin(ctx context.Context, ownerUserID string) error {
@@ -515,4 +510,77 @@ func (s *FileService) objectKey(fileID, filename string) string {
 		return base
 	}
 	return s.s3Prefix + "/" + base
+}
+
+func (s *FileService) ensureWorkspaceFileAccess(ctx context.Context, workspaceID string) error {
+	if err := ensureWorkspaceMembershipAccess(ctx, s.userRepo, workspaceID); err != nil {
+		return err
+	}
+	if s.userRepo == nil || actorAccountID(ctx) == "" {
+		return nil
+	}
+	membership, err := s.userRepo.GetWorkspaceMembership(ctx, workspaceID, actorAccountID(ctx))
+	if err != nil {
+		if errors.Is(err, domain.ErrNotFound) {
+			return domain.ErrForbidden
+		}
+		return err
+	}
+	if membership.IsGuest() && !membership.HasWorkspaceWideAccess() {
+		return domain.ErrForbidden
+	}
+	return nil
+}
+
+func (s *FileService) resolveChannelAccess(ctx context.Context, channelID string, requireWrite bool) (*domain.Conversation, error) {
+	if s.convRepo == nil {
+		return nil, domain.ErrForbidden
+	}
+	conv, err := s.convRepo.Get(ctx, channelID)
+	if err != nil {
+		return nil, err
+	}
+	if s.access != nil {
+		if err := s.access.ensureConversationVisible(ctx, conv); err != nil {
+			return nil, err
+		}
+		if requireWrite {
+			if err := s.access.CanPost(ctx, conv, actorUserID(ctx)); err != nil {
+				return nil, err
+			}
+		}
+		return conv, nil
+	}
+	if err := ensureWorkspaceMembershipAccess(ctx, s.userRepo, conversationWorkspaceID(conv)); err != nil {
+		return nil, err
+	}
+	if conv.Type == domain.ConversationTypePrivateChannel || conv.Type == domain.ConversationTypeIM || conv.Type == domain.ConversationTypeMPIM {
+		accountID := actorAccountID(ctx)
+		if accountID == "" {
+			return nil, domain.ErrForbidden
+		}
+		isMember, err := s.convRepo.IsAccountMember(ctx, conv.ID, accountID)
+		if err != nil {
+			return nil, err
+		}
+		if !isMember {
+			return nil, domain.ErrForbidden
+		}
+	}
+	return conv, nil
+}
+
+func (s *FileService) ensureFileAccess(ctx context.Context, f *domain.File, requireWrite bool) error {
+	if f == nil {
+		return domain.ErrNotFound
+	}
+	if len(f.Channels) == 0 {
+		return s.ensureWorkspaceFileAccess(ctx, f.WorkspaceID)
+	}
+	for _, channelID := range f.Channels {
+		if _, err := s.resolveChannelAccess(ctx, channelID, requireWrite); err == nil {
+			return nil
+		}
+	}
+	return domain.ErrForbidden
 }

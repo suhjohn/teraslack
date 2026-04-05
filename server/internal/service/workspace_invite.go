@@ -109,11 +109,26 @@ func (s *WorkspaceInviteService) Accept(ctx context.Context, code string) (*doma
 		return nil, fmt.Errorf("code: %w", domain.ErrInvalidArgument)
 	}
 
-	actor, err := loadActingUser(ctx, s.userRepo)
-	if err != nil {
-		return nil, err
+	accountRepo := s.accountRepo
+	var actorAccount *domain.Account
+	var err error
+	if accountID := strings.TrimSpace(ctxutil.GetAccountID(ctx)); accountID != "" {
+		actorAccount, err = accountRepo.Get(ctx, accountID)
+		if err != nil && err != domain.ErrNotFound {
+			return nil, err
+		}
 	}
-	if actor.PrincipalType != domain.PrincipalTypeHuman || actor.Deleted || strings.TrimSpace(actor.Email) == "" {
+	if actorAccount == nil {
+		actor, actorErr := loadActingUser(ctx, s.userRepo)
+		if actorErr != nil {
+			return nil, actorErr
+		}
+		actorAccount, err = resolveInviteActorAccount(ctx, accountRepo, actor)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if actorAccount == nil || actorAccount.PrincipalType != domain.PrincipalTypeHuman || actorAccount.Deleted || strings.TrimSpace(actorAccount.Email) == "" {
 		return nil, domain.ErrForbidden
 	}
 
@@ -125,7 +140,7 @@ func (s *WorkspaceInviteService) Accept(ctx context.Context, code string) (*doma
 
 	inviteRepo := s.repo.WithTx(tx)
 	userRepo := s.userRepo.WithTx(tx)
-	accountRepo := s.accountRepo.WithTx(tx)
+	accountRepo = s.accountRepo.WithTx(tx)
 
 	invite, err := inviteRepo.GetByTokenHash(ctx, crypto.HashToken(code))
 	if err != nil {
@@ -134,15 +149,11 @@ func (s *WorkspaceInviteService) Accept(ctx context.Context, code string) (*doma
 	if invite.AcceptedAt != nil || invite.ExpiresAt.Before(time.Now().UTC()) {
 		return nil, domain.ErrForbidden
 	}
-	if !strings.EqualFold(strings.TrimSpace(invite.Email), strings.TrimSpace(actor.Email)) {
+	if !strings.EqualFold(strings.TrimSpace(invite.Email), strings.TrimSpace(actorAccount.Email)) {
 		return nil, domain.ErrForbidden
 	}
 
-	account, err := resolveInviteActorAccount(ctx, accountRepo, actor)
-	if err != nil {
-		return nil, err
-	}
-	targetUser, err := ensureInviteUser(ctx, userRepo, account, invite.WorkspaceID, s.recorder.WithTx(tx))
+	targetUser, err := ensureInviteUser(ctx, userRepo, actorAccount, invite.WorkspaceID, s.recorder.WithTx(tx))
 	if err != nil {
 		return nil, err
 	}
@@ -151,11 +162,11 @@ func (s *WorkspaceInviteService) Accept(ctx context.Context, code string) (*doma
 	}
 
 	acceptedAt := time.Now().UTC()
-	if err := inviteRepo.MarkAccepted(ctx, invite.ID, account.ID, acceptedAt); err != nil {
+	if err := inviteRepo.MarkAccepted(ctx, invite.ID, actorAccount.ID, acceptedAt); err != nil {
 		return nil, err
 	}
 
-	invite.AcceptedByAccountID = account.ID
+	invite.AcceptedByAccountID = actorAccount.ID
 	invite.AcceptedAt = &acceptedAt
 	invite.UpdatedAt = acceptedAt
 

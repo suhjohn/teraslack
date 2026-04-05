@@ -9,6 +9,6 @@
 export interface ConversationManagersResponse {
   /** Conversation identifier. */
   conversation_id: string;
-  /** User IDs who are managers of this conversation. */
-  user_ids: string[];
+  /** Account IDs who are managers of this conversation. Canonical for account-owned conversations. */
+  account_ids?: string[];
 }

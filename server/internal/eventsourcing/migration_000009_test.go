@@ -71,7 +71,7 @@ func setupMigrationHarness(t *testing.T) (*pgxpool.Pool, *migrate.Migrate) {
 	return pool, migrator
 }
 
-func TestMigration000009DropsLegacyExternalAccessTables(t *testing.T) {
+func TestMigration000009DropsPreviousExternalAccessTables(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test")
 	}

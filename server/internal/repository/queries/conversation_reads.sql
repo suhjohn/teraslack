@@ -1,12 +1,11 @@
--- name: UpsertConversationRead :exec
-INSERT INTO conversation_reads (workspace_id, conversation_id, user_id, last_read_ts, last_read_at)
-VALUES ($1, $2, $3, $4, $5)
-ON CONFLICT (conversation_id, user_id) DO UPDATE SET
-    workspace_id = EXCLUDED.workspace_id,
+-- name: UpsertConversationReadV2 :exec
+INSERT INTO conversation_reads_v2 (conversation_id, account_id, last_read_ts, last_read_at)
+VALUES ($1, $2, $3, $4)
+ON CONFLICT (conversation_id, account_id) DO UPDATE SET
     last_read_ts = EXCLUDED.last_read_ts,
     last_read_at = EXCLUDED.last_read_at;
 
--- name: GetConversationRead :one
-SELECT workspace_id, conversation_id, user_id, last_read_ts, last_read_at
-FROM conversation_reads
-WHERE conversation_id = $1 AND user_id = $2;
+-- name: GetConversationReadV2 :one
+SELECT conversation_id, account_id, last_read_ts, last_read_at
+FROM conversation_reads_v2
+WHERE conversation_id = $1 AND account_id = $2;

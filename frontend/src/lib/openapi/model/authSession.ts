@@ -17,7 +17,7 @@ export interface AuthSession {
   workspace_id: string;
   /** Canonical account identity for the session actor. */
   account_id?: string;
-  /** Workspace-local user identity for the selected workspace context. */
+  /** Workspace-local user record for the selected workspace context. */
   user_id?: string;
   provider: AuthProvider;
   /** Session token (only returned on creation). */

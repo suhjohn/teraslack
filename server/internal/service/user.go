@@ -85,6 +85,8 @@ func (s *UserService) Create(ctx context.Context, params domain.CreateUserParams
 	defer tx.Rollback(ctx)
 
 	if s.accountRepo != nil {
+		// Keep account-backed identity fields authoritative when creating the
+		// workspace-local user record.
 		account, err := resolveOrCreateAccountForCreateUserParams(ctx, s.accountRepo.WithTx(tx), params)
 		if err != nil {
 			return nil, fmt.Errorf("resolve account for user: %w", err)

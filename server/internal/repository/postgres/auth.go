@@ -38,7 +38,7 @@ func (r *AuthRepo) CreateSession(ctx context.Context, params domain.CreateAuthSe
 
 	row, err := r.q.CreateAuthSession(ctx, sqlcgen.CreateAuthSessionParams{
 		ID:          id,
-		WorkspaceID: params.WorkspaceID,
+		WorkspaceID: stringToText(params.WorkspaceID),
 		AccountID:   stringToText(params.AccountID),
 		UserID:      stringToText(params.UserID),
 		SessionHash: crypto.HashToken(raw),
@@ -114,9 +114,8 @@ func (r *AuthRepo) ConsumeEmailVerificationChallenge(ctx context.Context, id str
 	return nil
 }
 
-func (r *AuthRepo) GetOAuthAccount(ctx context.Context, workspaceID string, provider domain.AuthProvider, providerSubject string) (*domain.OAuthAccount, error) {
+func (r *AuthRepo) GetOAuthAccount(ctx context.Context, provider domain.AuthProvider, providerSubject string) (*domain.OAuthAccount, error) {
 	row, err := r.q.GetOAuthAccount(ctx, sqlcgen.GetOAuthAccountParams{
-		WorkspaceID:     workspaceID,
 		Provider:        string(provider),
 		ProviderSubject: providerSubject,
 	})
@@ -148,7 +147,7 @@ func (r *AuthRepo) ListOAuthAccountsBySubject(ctx context.Context, provider doma
 func (r *AuthRepo) UpsertOAuthAccount(ctx context.Context, params domain.UpsertOAuthAccountParams) (*domain.OAuthAccount, error) {
 	row, err := r.q.UpsertOAuthAccount(ctx, sqlcgen.UpsertOAuthAccountParams{
 		ID:              generateID("OA"),
-		WorkspaceID:     params.WorkspaceID,
+		WorkspaceID:     stringToText(params.WorkspaceID),
 		AccountID:       stringToText(params.AccountID),
 		UserID:          stringToText(params.UserID),
 		Provider:        string(params.Provider),

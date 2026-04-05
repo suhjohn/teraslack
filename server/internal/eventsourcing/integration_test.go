@@ -3,6 +3,7 @@ package eventsourcing_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -14,6 +15,7 @@ import (
 	"github.com/golang-migrate/migrate/v4"
 	_ "github.com/golang-migrate/migrate/v4/database/postgres"
 	_ "github.com/golang-migrate/migrate/v4/source/file"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/testcontainers/testcontainers-go"
 	tcpostgres "github.com/testcontainers/testcontainers-go/modules/postgres"
@@ -313,15 +315,25 @@ func TestReplayCorrectness_ConversationWithMembers(t *testing.T) {
 	ctx := context.Background()
 	logger := newTestLogger()
 
+	workspaceRepo := pgRepo.NewWorkspaceRepo(pool)
+	accountRepo := pgRepo.NewAccountRepo(pool)
 	userRepo := pgRepo.NewUserRepo(pool)
 	convRepo := pgRepo.NewConversationRepo(pool)
 	eventStoreRepo := pgRepo.NewEventStoreRepo(pool)
 	recorder := service.NewEventRecorder(eventStoreRepo)
 	userSvc := service.NewUserService(userRepo, recorder, pool, logger)
+	userSvc.SetIdentityRepositories(accountRepo)
 	convSvc := service.NewConversationService(convRepo, userRepo, recorder, pool, logger)
 
+	workspace, err := workspaceRepo.Create(ctx, domain.CreateWorkspaceParams{
+		Name: "conversation-with-members",
+	})
+	if err != nil {
+		t.Fatalf("create workspace: %v", err)
+	}
+
 	creator, err := userSvc.Create(ctx, domain.CreateUserParams{
-		WorkspaceID:   "T001",
+		WorkspaceID:   workspace.ID,
 		Name:          "creator",
 		Email:         "creator@example.com",
 		PrincipalType: domain.PrincipalTypeHuman,
@@ -331,7 +343,7 @@ func TestReplayCorrectness_ConversationWithMembers(t *testing.T) {
 	}
 
 	member, err := userSvc.Create(ctx, domain.CreateUserParams{
-		WorkspaceID:   "T001",
+		WorkspaceID:   workspace.ID,
 		Name:          "member",
 		Email:         "member@example.com",
 		PrincipalType: domain.PrincipalTypeHuman,
@@ -341,7 +353,8 @@ func TestReplayCorrectness_ConversationWithMembers(t *testing.T) {
 	}
 
 	conv, err := convSvc.Create(ctx, domain.CreateConversationParams{
-		WorkspaceID: "T001",
+		WorkspaceID: workspace.ID,
+		OwnerType:   domain.ConversationOwnerTypeWorkspace,
 		Name:        "general",
 		Type:        domain.ConversationTypePublicChannel,
 		CreatorID:   creator.ID,
@@ -382,6 +395,434 @@ func TestReplayCorrectness_ConversationWithMembers(t *testing.T) {
 	}
 	if rebuiltName != "general" {
 		t.Errorf("rebuilt conv name = %q, want %q", rebuiltName, "general")
+	}
+}
+
+func TestReplayCorrectness_ConversationOwnerModelV2(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test")
+	}
+
+	pool := setupTestDB(t)
+	ctx := context.Background()
+	logger := newTestLogger()
+
+	workspaceRepo := pgRepo.NewWorkspaceRepo(pool)
+	accountRepo := pgRepo.NewAccountRepo(pool)
+	userRepo := pgRepo.NewUserRepo(pool)
+	eventStoreRepo := pgRepo.NewEventStoreRepo(pool)
+	recorder := service.NewEventRecorder(eventStoreRepo)
+	userSvc := service.NewUserService(userRepo, recorder, pool, logger)
+	userSvc.SetIdentityRepositories(accountRepo)
+
+	workspace, err := workspaceRepo.Create(ctx, domain.CreateWorkspaceParams{
+		Name: "owner-model",
+	})
+	if err != nil {
+		t.Fatalf("create workspace: %v", err)
+	}
+
+	owner, err := userSvc.Create(ctx, domain.CreateUserParams{
+		WorkspaceID:   workspace.ID,
+		Name:          "owner",
+		Email:         "owner@example.com",
+		PrincipalType: domain.PrincipalTypeHuman,
+	})
+	if err != nil {
+		t.Fatalf("create owner: %v", err)
+	}
+
+	member, err := userSvc.Create(ctx, domain.CreateUserParams{
+		WorkspaceID:   workspace.ID,
+		Name:          "member",
+		Email:         "member@example.com",
+		PrincipalType: domain.PrincipalTypeHuman,
+	})
+	if err != nil {
+		t.Fatalf("create member: %v", err)
+	}
+
+	var workspaceMemberAccountID string
+	if err := pool.QueryRow(ctx, `
+		SELECT COALESCE(account_id, '')
+		FROM users
+		WHERE id = $1
+	`, member.ID).Scan(&workspaceMemberAccountID); err != nil {
+		t.Fatalf("load member account id: %v", err)
+	}
+	if workspaceMemberAccountID == "" {
+		t.Fatal("member account id is empty")
+	}
+	member.AccountID = workspaceMemberAccountID
+
+	var membershipID string
+	err = pool.QueryRow(ctx, `
+		SELECT id
+		FROM workspace_memberships
+		WHERE workspace_id = $1 AND account_id = $2
+	`, workspace.ID, workspaceMemberAccountID).Scan(&membershipID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		membershipID = "WM_" + member.ID
+		if _, err := pool.Exec(ctx, `
+			INSERT INTO workspace_memberships (
+				id, workspace_id, account_id, role, status, membership_kind, guest_scope,
+				created_by_account_id, updated_by_account_id, created_at, updated_at
+			)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8, NOW(), NOW())
+		`, membershipID, workspace.ID, workspaceMemberAccountID, "member", "active", "full", "workspace_full", owner.AccountID); err != nil {
+			t.Fatalf("insert workspace membership: %v", err)
+		}
+	} else if err != nil {
+		t.Fatalf("load workspace membership: %v", err)
+	}
+
+	convID := "C_owner_model"
+	createdAt := time.Date(2026, 4, 3, 12, 0, 0, 0, time.UTC)
+	conv := domain.Conversation{
+		ID:               convID,
+		WorkspaceID:      workspace.ID,
+		OwnerType:        domain.ConversationOwnerTypeWorkspace,
+		OwnerWorkspaceID: workspace.ID,
+		Name:             "general",
+		Type:             domain.ConversationTypePublicChannel,
+		CreatorID:        owner.ID,
+		Topic:            domain.TopicPurpose{Value: "topic", Creator: owner.ID},
+		Purpose:          domain.TopicPurpose{Value: "purpose", Creator: owner.ID},
+		NumMembers:       1,
+		CreatedAt:        createdAt,
+		UpdatedAt:        createdAt,
+	}
+	convWithMember := conv
+	convWithMember.NumMembers = 2
+
+	appendEvent := func(eventType string, aggregateType string, aggregateID string, workspaceID string, actorID string, payload any) {
+		t.Helper()
+		body, err := json.Marshal(payload)
+		if err != nil {
+			t.Fatalf("marshal %s: %v", eventType, err)
+		}
+		if _, err := eventStoreRepo.Append(ctx, domain.InternalEvent{
+			EventType:     eventType,
+			AggregateType: aggregateType,
+			AggregateID:   aggregateID,
+			WorkspaceID:   workspaceID,
+			ActorID:       actorID,
+			Payload:       body,
+			CreatedAt:     createdAt,
+		}); err != nil {
+			t.Fatalf("append %s: %v", eventType, err)
+		}
+	}
+
+	appendEvent(domain.EventConversationCreated, domain.AggregateConversation, convID, workspace.ID, owner.ID, conv)
+	appendEvent(domain.EventMemberJoined, domain.AggregateConversation, convID, workspace.ID, owner.ID, struct {
+		UserID       string               `json:"user_id"`
+		Conversation *domain.Conversation `json:"conversation"`
+	}{
+		UserID:       member.ID,
+		Conversation: &convWithMember,
+	})
+	appendEvent(domain.EventConversationManagerAdded, domain.AggregateConversation, convID, workspace.ID, owner.ID, map[string]string{
+		"conversation_id": convID,
+		"user_id":         member.ID,
+	})
+	appendEvent(domain.EventConversationPostingPolicyUpdated, domain.AggregateConversation, convID, workspace.ID, owner.ID, domain.ConversationPostingPolicy{
+		ConversationID:    convID,
+		PolicyType:        domain.ConversationPostingPolicyCustom,
+		AllowedAccountIDs: []string{member.AccountID},
+		UpdatedBy:         owner.ID,
+		UpdatedAt:         createdAt,
+	})
+	appendEvent(domain.EventMessagePosted, domain.AggregateMessage, "M_owner_model", workspace.ID, member.ID, domain.Message{
+		TS:        "1700000000.000001",
+		ChannelID: convID,
+		UserID:    member.ID,
+		Text:      "hello",
+		Type:      "message",
+		CreatedAt: createdAt,
+		UpdatedAt: createdAt,
+	})
+
+	projector := eventsourcing.NewProjector(pool, logger)
+	if err := projector.RebuildAll(ctx); err != nil {
+		t.Fatalf("rebuild all: %v", err)
+	}
+
+	var memberAccountID string
+	if err := pool.QueryRow(ctx, `
+		SELECT account_id
+		FROM conversation_members_v2
+		WHERE conversation_id = $1
+	`, convID).Scan(&memberAccountID); err != nil {
+		t.Fatalf("query conversation_members_v2: %v", err)
+	}
+	if memberAccountID != member.AccountID {
+		t.Fatalf("conversation_members_v2.account_id = %q, want %q", memberAccountID, member.AccountID)
+	}
+
+	var managerAccountID string
+	if err := pool.QueryRow(ctx, `
+		SELECT account_id
+		FROM conversation_manager_assignments_v2
+		WHERE conversation_id = $1
+	`, convID).Scan(&managerAccountID); err != nil {
+		t.Fatalf("query conversation_manager_assignments_v2: %v", err)
+	}
+	if managerAccountID != member.AccountID {
+		t.Fatalf("conversation_manager_assignments_v2.account_id = %q, want %q", managerAccountID, member.AccountID)
+	}
+
+	var allowedAccountID string
+	if err := pool.QueryRow(ctx, `
+		SELECT account_id
+		FROM conversation_posting_policy_allowed_accounts_v2
+		WHERE conversation_id = $1
+	`, convID).Scan(&allowedAccountID); err != nil {
+		t.Fatalf("query conversation_posting_policy_allowed_accounts_v2: %v", err)
+	}
+	if allowedAccountID != member.AccountID {
+		t.Fatalf("conversation_posting_policy_allowed_accounts_v2.account_id = %q, want %q", allowedAccountID, member.AccountID)
+	}
+
+	var authorAccountID, authorWorkspaceMembershipID string
+	if err := pool.QueryRow(ctx, `
+		SELECT author_account_id, author_workspace_membership_id
+		FROM messages
+		WHERE channel_id = $1 AND ts = $2
+	`, convID, "1700000000.000001").Scan(&authorAccountID, &authorWorkspaceMembershipID); err != nil {
+		t.Fatalf("query messages: %v", err)
+	}
+	if authorAccountID != member.AccountID {
+		t.Fatalf("messages.author_account_id = %q, want %q", authorAccountID, member.AccountID)
+	}
+	if authorWorkspaceMembershipID != membershipID {
+		t.Fatalf("messages.author_workspace_membership_id = %q, want %q", authorWorkspaceMembershipID, membershipID)
+	}
+}
+
+func TestReplayCorrectness_GuestWorkspaceMembershipProjection(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test")
+	}
+
+	pool := setupTestDB(t)
+	ctx := context.Background()
+	logger := newTestLogger()
+
+	workspaceRepo := pgRepo.NewWorkspaceRepo(pool)
+	accountRepo := pgRepo.NewAccountRepo(pool)
+	userRepo := pgRepo.NewUserRepo(pool)
+	eventStoreRepo := pgRepo.NewEventStoreRepo(pool)
+	recorder := service.NewEventRecorder(eventStoreRepo)
+	userSvc := service.NewUserService(userRepo, recorder, pool, logger)
+	userSvc.SetIdentityRepositories(accountRepo)
+	convRepo := pgRepo.NewConversationRepo(pool)
+	convSvc := service.NewConversationService(convRepo, userRepo, recorder, pool, logger)
+
+	hostWorkspace, err := workspaceRepo.Create(ctx, domain.CreateWorkspaceParams{
+		Name:   "host-workspace",
+		Domain: fmt.Sprintf("host-%d.example.com", time.Now().UnixNano()),
+	})
+	if err != nil {
+		t.Fatalf("create host workspace: %v", err)
+	}
+	guestWorkspace, err := workspaceRepo.Create(ctx, domain.CreateWorkspaceParams{
+		Name:   "guest-workspace",
+		Domain: fmt.Sprintf("guest-%d.example.com", time.Now().UnixNano()),
+	})
+	if err != nil {
+		t.Fatalf("create guest workspace: %v", err)
+	}
+
+	owner, err := userSvc.Create(ctx, domain.CreateUserParams{
+		WorkspaceID:   hostWorkspace.ID,
+		Name:          "owner",
+		Email:         "owner@example.com",
+		PrincipalType: domain.PrincipalTypeHuman,
+	})
+	if err != nil {
+		t.Fatalf("create owner: %v", err)
+	}
+	guest, err := userSvc.Create(ctx, domain.CreateUserParams{
+		WorkspaceID:   guestWorkspace.ID,
+		Name:          "guest",
+		Email:         "guest@example.com",
+		PrincipalType: domain.PrincipalTypeHuman,
+	})
+	if err != nil {
+		t.Fatalf("create guest: %v", err)
+	}
+
+	conv, err := convSvc.Create(ctx, domain.CreateConversationParams{
+		WorkspaceID: hostWorkspace.ID,
+		OwnerType:   domain.ConversationOwnerTypeWorkspace,
+		Name:        "shared",
+		Type:        domain.ConversationTypePublicChannel,
+		CreatorID:   owner.ID,
+	})
+	if err != nil {
+		t.Fatalf("create conversation: %v", err)
+	}
+	if err := convRepo.AddMemberByAccount(ctx, conv.ID, guest.AccountID); err != nil {
+		t.Fatalf("add guest member by account: %v", err)
+	}
+
+	var membershipID, membershipKind, guestScope string
+	if err := pool.QueryRow(ctx, `
+		SELECT id, membership_kind, guest_scope
+		FROM workspace_memberships
+		WHERE workspace_id = $1 AND account_id = $2
+	`, hostWorkspace.ID, guest.AccountID).Scan(&membershipID, &membershipKind, &guestScope); err != nil {
+		t.Fatalf("query workspace_memberships: %v", err)
+	}
+	if membershipKind != "guest" {
+		t.Fatalf("workspace_memberships.membership_kind = %q, want guest", membershipKind)
+	}
+	if guestScope != "single_conversation" {
+		t.Fatalf("workspace_memberships.guest_scope = %q, want single_conversation", guestScope)
+	}
+
+	var accessCount int
+	if err := pool.QueryRow(ctx, `
+		SELECT COUNT(*)
+		FROM workspace_membership_conversation_access
+		WHERE workspace_membership_id = $1 AND conversation_id = $2
+	`, membershipID, conv.ID).Scan(&accessCount); err != nil {
+		t.Fatalf("query workspace_membership_conversation_access: %v", err)
+	}
+	if accessCount != 1 {
+		t.Fatalf("workspace_membership_conversation_access count = %d, want 1", accessCount)
+	}
+
+	var profileCount int
+	if err := pool.QueryRow(ctx, `
+		SELECT COUNT(*)
+		FROM workspace_profiles
+		WHERE workspace_id = $1 AND account_id = $2
+	`, hostWorkspace.ID, guest.AccountID).Scan(&profileCount); err != nil {
+		t.Fatalf("query workspace_profiles: %v", err)
+	}
+	if profileCount != 1 {
+		t.Fatalf("workspace_profiles count = %d, want 1", profileCount)
+	}
+
+	var workspaceUserID string
+	if err := pool.QueryRow(ctx, `
+		SELECT id
+		FROM users
+		WHERE workspace_id = $1 AND account_id = $2
+	`, hostWorkspace.ID, guest.AccountID).Scan(&workspaceUserID); err != nil {
+		t.Fatalf("query guest workspace user: %v", err)
+	}
+	if workspaceUserID == "" {
+		t.Fatal("guest workspace user ID is empty")
+	}
+}
+
+func TestReplayCorrectness_GuestWorkspaceMembershipIsSingleConversationUntilExplicitlyAdded(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test")
+	}
+
+	pool := setupTestDB(t)
+	ctx := context.Background()
+	logger := newTestLogger()
+
+	workspaceRepo := pgRepo.NewWorkspaceRepo(pool)
+	accountRepo := pgRepo.NewAccountRepo(pool)
+	userRepo := pgRepo.NewUserRepo(pool)
+	eventStoreRepo := pgRepo.NewEventStoreRepo(pool)
+	recorder := service.NewEventRecorder(eventStoreRepo)
+	userSvc := service.NewUserService(userRepo, recorder, pool, logger)
+	userSvc.SetIdentityRepositories(accountRepo)
+	convRepo := pgRepo.NewConversationRepo(pool)
+	convSvc := service.NewConversationService(convRepo, userRepo, recorder, pool, logger)
+
+	hostWorkspace, err := workspaceRepo.Create(ctx, domain.CreateWorkspaceParams{
+		Name:   "host-restriction",
+		Domain: fmt.Sprintf("host-restriction-%d.example.com", time.Now().UnixNano()),
+	})
+	if err != nil {
+		t.Fatalf("create host workspace: %v", err)
+	}
+	guestWorkspace, err := workspaceRepo.Create(ctx, domain.CreateWorkspaceParams{
+		Name:   "guest-restriction",
+		Domain: fmt.Sprintf("guest-restriction-%d.example.com", time.Now().UnixNano()),
+	})
+	if err != nil {
+		t.Fatalf("create guest workspace: %v", err)
+	}
+
+	owner, err := userSvc.Create(ctx, domain.CreateUserParams{
+		WorkspaceID:   hostWorkspace.ID,
+		Name:          "owner",
+		Email:         "owner-restriction@example.com",
+		PrincipalType: domain.PrincipalTypeHuman,
+	})
+	if err != nil {
+		t.Fatalf("create owner: %v", err)
+	}
+	guest, err := userSvc.Create(ctx, domain.CreateUserParams{
+		WorkspaceID:   guestWorkspace.ID,
+		Name:          "guest",
+		Email:         "guest-restriction@example.com",
+		PrincipalType: domain.PrincipalTypeHuman,
+	})
+	if err != nil {
+		t.Fatalf("create guest: %v", err)
+	}
+
+	convOne, err := convSvc.Create(ctx, domain.CreateConversationParams{
+		WorkspaceID: hostWorkspace.ID,
+		OwnerType:   domain.ConversationOwnerTypeWorkspace,
+		Name:        "shared-one",
+		Type:        domain.ConversationTypePublicChannel,
+		CreatorID:   owner.ID,
+	})
+	if err != nil {
+		t.Fatalf("create first conversation: %v", err)
+	}
+	convTwo, err := convSvc.Create(ctx, domain.CreateConversationParams{
+		WorkspaceID: hostWorkspace.ID,
+		OwnerType:   domain.ConversationOwnerTypeWorkspace,
+		Name:        "shared-two",
+		Type:        domain.ConversationTypePublicChannel,
+		CreatorID:   owner.ID,
+	})
+	if err != nil {
+		t.Fatalf("create second conversation: %v", err)
+	}
+
+	if err := convRepo.AddMemberByAccount(ctx, convOne.ID, guest.AccountID); err != nil {
+		t.Fatalf("add guest to first conversation: %v", err)
+	}
+
+	allowed, err := convRepo.IsAccountMember(ctx, convOne.ID, guest.AccountID)
+	if err != nil {
+		t.Fatalf("check first conversation membership: %v", err)
+	}
+	if !allowed {
+		t.Fatal("expected guest to be allowed in first conversation")
+	}
+
+	allowed, err = convRepo.IsAccountMember(ctx, convTwo.ID, guest.AccountID)
+	if err != nil {
+		t.Fatalf("check second conversation membership before add: %v", err)
+	}
+	if allowed {
+		t.Fatal("expected guest to be restricted from second conversation before explicit add")
+	}
+
+	if err := convRepo.AddMemberByAccount(ctx, convTwo.ID, guest.AccountID); err != nil {
+		t.Fatalf("add guest to second conversation: %v", err)
+	}
+
+	allowed, err = convRepo.IsAccountMember(ctx, convTwo.ID, guest.AccountID)
+	if err != nil {
+		t.Fatalf("check second conversation membership after add: %v", err)
+	}
+	if !allowed {
+		t.Fatal("expected guest to be allowed in second conversation after explicit add")
 	}
 }
 

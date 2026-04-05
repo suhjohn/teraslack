@@ -12,7 +12,7 @@ const (
 
 type AuthSession struct {
 	ID           string       `json:"id"`
-	WorkspaceID  string       `json:"workspace_id"`
+	WorkspaceID  string       `json:"workspace_id,omitempty"`
 	AccountID    string       `json:"account_id,omitempty"`
 	UserID       string       `json:"user_id,omitempty"`
 	Provider     AuthProvider `json:"provider"`
@@ -29,18 +29,19 @@ func (s *AuthSession) Redacted() *AuthSession {
 }
 
 type AuthContext struct {
-	WorkspaceID   string        `json:"workspace_id"`
-	UserID        string        `json:"user_id"`
-	AccountID     string        `json:"account_id,omitempty"`
-	PrincipalType PrincipalType `json:"principal_type"`
-	AccountType   AccountType   `json:"account_type,omitempty"`
-	IsBot         bool          `json:"is_bot"`
-	Permissions   []string      `json:"permissions,omitempty"`
-	Scopes        []string      `json:"scopes,omitempty"`
+	WorkspaceID           string        `json:"workspace_id,omitempty"`
+	WorkspaceMembershipID string        `json:"workspace_membership_id,omitempty"`
+	UserID                string        `json:"user_id,omitempty"`
+	AccountID             string        `json:"account_id,omitempty"`
+	PrincipalType         PrincipalType `json:"principal_type"`
+	AccountType           AccountType   `json:"account_type,omitempty"`
+	IsBot                 bool          `json:"is_bot"`
+	Permissions           []string      `json:"permissions,omitempty"`
+	Scopes                []string      `json:"scopes,omitempty"`
 }
 
 type AuthMeResponse struct {
-	WorkspaceID   string        `json:"workspace_id"`
+	WorkspaceID   string        `json:"workspace_id,omitempty"`
 	AccountID     string        `json:"account_id,omitempty"`
 	UserID        string        `json:"user_id,omitempty"`
 	PrincipalType PrincipalType `json:"principal_type"`
@@ -94,7 +95,7 @@ type CompleteOAuthResult struct {
 
 type OAuthAccount struct {
 	ID              string       `json:"id"`
-	WorkspaceID     string       `json:"workspace_id"`
+	WorkspaceID     string       `json:"workspace_id,omitempty"`
 	AccountID       string       `json:"account_id,omitempty"`
 	UserID          string       `json:"user_id,omitempty"`
 	Provider        AuthProvider `json:"provider"`

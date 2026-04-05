@@ -178,27 +178,32 @@ func TestFileService_AddRemoteFile_UsesAuthContext(t *testing.T) {
 	}
 }
 
-func TestFileService_AddRemoteFile_AllowsExternalMemberSharedWrite(t *testing.T) {
+func TestFileService_AddRemoteFile_AllowsWorkspaceMemberSharedWrite(t *testing.T) {
 	repo := newMockFileRepo()
 	recorder := &captureRecorder{}
 	svc := NewFileService(repo, nil, "", "http://localhost:8080", recorder, mockTxBeginner{}, nil)
-	svc.SetExternalMemberRepository(&externalMemberRepoStub{
-		byConversationAccount: map[string]*domain.ExternalMember{
-			"C123|A123": {
-				ID:                  "EM123",
-				ConversationID:      "C123",
-				HostWorkspaceID:     "T123",
-				ExternalWorkspaceID: "T999",
-				AccountID:           "A123",
-				AccessMode:          domain.ExternalPrincipalAccessModeShared,
-				AllowedCapabilities: []string{domain.PermissionFilesWrite},
+	svc.SetUserRepository(&mockUserRepoMap{
+		users: map[string]*domain.User{
+			"U_EXT": {
+				ID:            "U_EXT",
+				WorkspaceID:   "T123",
+				AccountID:     "A123",
+				AccountType:   domain.AccountTypeMember,
+				PrincipalType: domain.PrincipalTypeHuman,
 			},
 		},
 	})
+	svc.SetConversationRepository(&conversationRepoStub{
+		conversation: &domain.Conversation{
+			ID:          "C123",
+			WorkspaceID: "T123",
+			Type:        domain.ConversationTypePrivateChannel,
+		},
+		isMember: true,
+	})
 
-	ctx := ctxutil.WithIdentity(context.Background(), "A123")
-	ctx = ctxutil.WithDelegation(ctx, "U_EXT", "")
-	ctx = ctxutil.WithPrincipal(ctx, domain.PrincipalTypeHuman, domain.AccountTypeMember, false)
+	ctx := ctxutil.WithUser(context.Background(), "U_EXT", "T123")
+	ctx = ctxutil.WithIdentity(ctx, "A123")
 	file, err := svc.AddRemoteFile(ctx, domain.AddRemoteFileParams{
 		Title:       "Design Doc",
 		ExternalURL: "https://example.com/design",
@@ -251,6 +256,39 @@ func TestFileService_AddRemoteFile_ExternalMemberRequiresChannel(t *testing.T) {
 		Filetype:    "gdoc",
 	}); err == nil {
 		t.Fatal("expected external member remote file creation without channel to be forbidden")
+	}
+}
+
+func TestFileService_AddRemoteFile_GuestWorkspaceContextStillRequiresChannel(t *testing.T) {
+	repo := newMockFileRepo()
+	svc := NewFileService(repo, nil, "", "http://localhost:8080", &captureRecorder{}, mockTxBeginner{}, nil)
+	svc.SetUserRepository(&mockGuestUserRepo{
+		user: &domain.User{
+			ID:            "U_EXT",
+			WorkspaceID:   "T123",
+			AccountID:     "A123",
+			AccountType:   domain.AccountTypeMember,
+			PrincipalType: domain.PrincipalTypeHuman,
+		},
+		membership: domain.WorkspaceMembership{
+			ID:             "WM_U_EXT",
+			WorkspaceID:    "T123",
+			AccountID:      "A123",
+			Role:           string(domain.AccountTypeMember),
+			Status:         domain.WorkspaceMembershipStatusActive,
+			MembershipKind: domain.WorkspaceMembershipKindGuest,
+			GuestScope:     domain.WorkspaceGuestScopeConversationAllow,
+		},
+	})
+
+	ctx := ctxutil.WithUser(context.Background(), "U_EXT", "T123")
+	ctx = ctxutil.WithIdentity(ctx, "A123")
+	if _, err := svc.AddRemoteFile(ctx, domain.AddRemoteFileParams{
+		Title:       "Design Doc",
+		ExternalURL: "https://example.com/design",
+		Filetype:    "gdoc",
+	}); err == nil {
+		t.Fatal("expected guest workspace remote file creation without channel to be forbidden")
 	}
 }
 
@@ -329,7 +367,7 @@ func TestFileService_FileOperations_UseTeamContext(t *testing.T) {
 	})
 }
 
-func TestFileService_Get_AllowsExternalMemberSharedFile(t *testing.T) {
+func TestFileService_Get_AllowsWorkspaceMemberSharedFile(t *testing.T) {
 	repo := newMockFileRepo()
 	repo.files["F_1"] = &domain.File{
 		ID:          "F_1",
@@ -339,23 +377,28 @@ func TestFileService_Get_AllowsExternalMemberSharedFile(t *testing.T) {
 		Channels:    []string{"C123"},
 	}
 	svc := NewFileService(repo, nil, "", "http://localhost:8080", nil, mockTxBeginner{}, nil)
-	svc.SetExternalMemberRepository(&externalMemberRepoStub{
-		byConversationAccount: map[string]*domain.ExternalMember{
-			"C123|A123": {
-				ID:                  "EM123",
-				ConversationID:      "C123",
-				HostWorkspaceID:     "T123",
-				ExternalWorkspaceID: "T999",
-				AccountID:           "A123",
-				AccessMode:          domain.ExternalPrincipalAccessModeShared,
-				AllowedCapabilities: []string{domain.PermissionFilesRead},
+	svc.SetUserRepository(&mockUserRepoMap{
+		users: map[string]*domain.User{
+			"U_EXT": {
+				ID:            "U_EXT",
+				WorkspaceID:   "T123",
+				AccountID:     "A123",
+				AccountType:   domain.AccountTypeMember,
+				PrincipalType: domain.PrincipalTypeHuman,
 			},
 		},
 	})
+	svc.SetConversationRepository(&conversationRepoStub{
+		conversation: &domain.Conversation{
+			ID:          "C123",
+			WorkspaceID: "T123",
+			Type:        domain.ConversationTypePrivateChannel,
+		},
+		isMember: true,
+	})
 
-	ctx := ctxutil.WithUser(context.Background(), "U_EXT", "T999")
+	ctx := ctxutil.WithUser(context.Background(), "U_EXT", "T123")
 	ctx = ctxutil.WithIdentity(ctx, "A123")
-	ctx = ctxutil.WithPrincipal(ctx, domain.PrincipalTypeHuman, domain.AccountTypeMember, false)
 
 	f, err := svc.Get(ctx, "F_1")
 	if err != nil {
@@ -366,27 +409,32 @@ func TestFileService_Get_AllowsExternalMemberSharedFile(t *testing.T) {
 	}
 }
 
-func TestFileService_List_AllowsExternalMemberChannelScope(t *testing.T) {
+func TestFileService_List_AllowsWorkspaceMemberChannelScope(t *testing.T) {
 	repo := newMockFileRepo()
 	repo.files["F_1"] = &domain.File{ID: "F_1", WorkspaceID: "T123", UserID: "U1", Name: "doc", Channels: []string{"C123"}}
 	svc := NewFileService(repo, nil, "", "http://localhost:8080", nil, mockTxBeginner{}, nil)
-	svc.SetExternalMemberRepository(&externalMemberRepoStub{
-		byConversationAccount: map[string]*domain.ExternalMember{
-			"C123|A123": {
-				ID:                  "EM123",
-				ConversationID:      "C123",
-				HostWorkspaceID:     "T123",
-				ExternalWorkspaceID: "T999",
-				AccountID:           "A123",
-				AccessMode:          domain.ExternalPrincipalAccessModeShared,
-				AllowedCapabilities: []string{domain.PermissionFilesRead},
+	svc.SetUserRepository(&mockUserRepoMap{
+		users: map[string]*domain.User{
+			"U_EXT": {
+				ID:            "U_EXT",
+				WorkspaceID:   "T123",
+				AccountID:     "A123",
+				AccountType:   domain.AccountTypeMember,
+				PrincipalType: domain.PrincipalTypeHuman,
 			},
 		},
 	})
+	svc.SetConversationRepository(&conversationRepoStub{
+		conversation: &domain.Conversation{
+			ID:          "C123",
+			WorkspaceID: "T123",
+			Type:        domain.ConversationTypePrivateChannel,
+		},
+		isMember: true,
+	})
 
-	ctx := ctxutil.WithUser(context.Background(), "U_EXT", "T999")
+	ctx := ctxutil.WithUser(context.Background(), "U_EXT", "T123")
 	ctx = ctxutil.WithIdentity(ctx, "A123")
-	ctx = ctxutil.WithPrincipal(ctx, domain.PrincipalTypeHuman, domain.AccountTypeMember, false)
 
 	page, err := svc.List(ctx, domain.ListFilesParams{ChannelID: "C123", Limit: 100})
 	if err != nil {
@@ -397,6 +445,36 @@ func TestFileService_List_AllowsExternalMemberChannelScope(t *testing.T) {
 	}
 	if len(page.Items) != 1 {
 		t.Fatalf("items = %d, want 1", len(page.Items))
+	}
+}
+
+func TestFileService_List_DeniesGuestWorkspaceWideListing(t *testing.T) {
+	repo := newMockFileRepo()
+	repo.files["F_1"] = &domain.File{ID: "F_1", WorkspaceID: "T123", UserID: "U1", Name: "doc"}
+	svc := NewFileService(repo, nil, "", "http://localhost:8080", nil, mockTxBeginner{}, nil)
+	svc.SetUserRepository(&mockGuestUserRepo{
+		user: &domain.User{
+			ID:            "U_EXT",
+			WorkspaceID:   "T123",
+			AccountID:     "A123",
+			AccountType:   domain.AccountTypeMember,
+			PrincipalType: domain.PrincipalTypeHuman,
+		},
+		membership: domain.WorkspaceMembership{
+			ID:             "WM_U_EXT",
+			WorkspaceID:    "T123",
+			AccountID:      "A123",
+			Role:           string(domain.AccountTypeMember),
+			Status:         domain.WorkspaceMembershipStatusActive,
+			MembershipKind: domain.WorkspaceMembershipKindGuest,
+			GuestScope:     domain.WorkspaceGuestScopeConversationAllow,
+		},
+	})
+
+	ctx := ctxutil.WithUser(context.Background(), "U_EXT", "T123")
+	ctx = ctxutil.WithIdentity(ctx, "A123")
+	if _, err := svc.List(ctx, domain.ListFilesParams{Limit: 100}); err == nil {
+		t.Fatal("expected guest workspace-wide listing to be forbidden")
 	}
 }
 
@@ -435,4 +513,53 @@ func TestFileService_DeleteAndShareRequireOwnerOrAdmin(t *testing.T) {
 	if err := svc.ShareRemoteFile(adminCtx, domain.ShareRemoteFileParams{FileID: "F_1", Channels: []string{"C1"}}); err != nil {
 		t.Fatalf("admin share should succeed: %v", err)
 	}
+}
+
+type mockGuestUserRepo struct {
+	mockUserRepoDefault
+	user       *domain.User
+	membership domain.WorkspaceMembership
+}
+
+func (m *mockGuestUserRepo) Get(_ context.Context, id string) (*domain.User, error) {
+	if m.user == nil || m.user.ID != id {
+		return nil, domain.ErrNotFound
+	}
+	copy := *m.user
+	return &copy, nil
+}
+
+func (m *mockGuestUserRepo) GetWorkspaceMembership(_ context.Context, workspaceID, accountID string) (*domain.WorkspaceMembership, error) {
+	if m.membership.WorkspaceID != workspaceID || m.membership.AccountID != accountID {
+		return nil, domain.ErrNotFound
+	}
+	copy := m.membership
+	if copy.ID == "" && m.user != nil {
+		copy.ID = "WM_" + m.user.ID
+	}
+	return &copy, nil
+}
+
+func (m *mockGuestUserRepo) GetWorkspaceMembershipID(_ context.Context, workspaceID, accountID string) (string, error) {
+	if m.membership.WorkspaceID != workspaceID || m.membership.AccountID != accountID {
+		return "", domain.ErrNotFound
+	}
+	if m.membership.ID != "" {
+		return m.membership.ID, nil
+	}
+	if m.user != nil {
+		return "WM_" + m.user.ID, nil
+	}
+	return "", domain.ErrNotFound
+}
+
+func (m *mockGuestUserRepo) ListWorkspaceMembershipsByAccount(_ context.Context, accountID string) ([]domain.WorkspaceMembership, error) {
+	if m.membership.AccountID != accountID {
+		return nil, nil
+	}
+	copy := m.membership
+	if copy.ID == "" && m.user != nil {
+		copy.ID = "WM_" + m.user.ID
+	}
+	return []domain.WorkspaceMembership{copy}, nil
 }

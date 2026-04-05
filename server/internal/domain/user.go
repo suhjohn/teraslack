@@ -35,8 +35,8 @@ func IsValidDelegatedRole(role DelegatedRole) bool {
 	}
 }
 
-// User represents the workspace-local identity, access record, and persona.
-// The linked Account remains the canonical global auth identity.
+// User is the workspace-local directory and persona record for a selected workspace.
+// The linked Account remains the canonical global auth identity and permission subject.
 type User struct {
 	ID            string        `json:"id"`
 	AccountID     string        `json:"account_id,omitempty"`

@@ -14,8 +14,8 @@ import type { User } from './user';
  * The authenticated identity of the current request, with canonical account data plus selected workspace user context when available.
  */
 export interface AuthMeResponse {
-  /** Workspace the caller is authenticated in. */
-  workspace_id: string;
+  /** Active workspace context when the request is scoped to a workspace. */
+  workspace_id?: string;
   /** Canonical account identity of the caller. */
   account_id?: string;
   /** Workspace-local user identity of the caller in the selected workspace context. */

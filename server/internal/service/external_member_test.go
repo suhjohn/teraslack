@@ -181,7 +181,7 @@ func TestExternalMemberService_CreateUsesCanonicalWorkspaceAdminUser(t *testing.
 	}
 	userRepo := &mockUserRepoMap{
 		users: map[string]*domain.User{
-			"U_ACTOR": {ID: "U_ACTOR", WorkspaceID: "T123", PrincipalType: domain.PrincipalTypeHuman, AccountType: domain.AccountTypeAdmin},
+			"U_ACTOR": {ID: "U_ACTOR", AccountID: "A_ADMIN", WorkspaceID: "T123", PrincipalType: domain.PrincipalTypeHuman, AccountType: domain.AccountTypeAdmin},
 		},
 	}
 	accessSvc := NewConversationAccessService(
@@ -197,7 +197,8 @@ func TestExternalMemberService_CreateUsesCanonicalWorkspaceAdminUser(t *testing.
 	svc.SetConversationAccessService(accessSvc)
 
 	ctx := ctxutil.WithUser(context.Background(), "U_ACTOR", "T123")
-	ctx = ctxutil.WithPrincipal(ctx, domain.PrincipalTypeHuman, domain.AccountTypeMember, false)
+	ctx = ctxutil.WithIdentity(ctx, "A_ADMIN")
+	ctx = ctxutil.WithPrincipal(ctx, domain.PrincipalTypeHuman, domain.AccountTypeAdmin, false)
 
 	item, err := svc.Create(ctx, "C123", domain.CreateExternalMemberParams{
 		ExternalWorkspaceID: "T999",

@@ -22,7 +22,7 @@ func newMockEventRepoTenant() *mockEventRepoTenant {
 func (m *mockEventRepoTenant) CreateSubscription(_ context.Context, params domain.CreateEventSubscriptionParams) (*domain.EventSubscription, error) {
 	sub := &domain.EventSubscription{
 		ID:           "ES123",
-		WorkspaceID:       params.WorkspaceID,
+		WorkspaceID:  params.WorkspaceID,
 		URL:          params.URL,
 		Type:         params.Type,
 		ResourceType: params.ResourceType,
@@ -81,35 +81,35 @@ func TestEventService_TenantAccessDenied(t *testing.T) {
 	}
 }
 
-func TestEventService_CreateSubscription_RejectsLegacyEventType(t *testing.T) {
+func TestEventService_CreateSubscription_RejectsDeprecatedEventType(t *testing.T) {
 	repo := newMockEventRepoTenant()
 	svc := NewEventService(repo, &mockUserRepoDefault{}, nil, mockTxBeginner{}, nil)
 
 	ctx := ctxutil.WithUser(context.Background(), "U123", "T123")
 	_, err := svc.CreateSubscription(ctx, domain.CreateEventSubscriptionParams{
 		WorkspaceID: "T123",
-		URL:    "https://example.com",
-		Type:   "message.posted",
+		URL:         "https://example.com",
+		Type:        "message.posted",
 	})
 	if err == nil || !errors.Is(err, domain.ErrInvalidArgument) {
 		t.Fatalf("expected invalid argument, got %v", err)
 	}
 }
 
-func TestEventService_UpdateSubscription_RejectsLegacyEventType(t *testing.T) {
+func TestEventService_UpdateSubscription_RejectsDeprecatedEventType(t *testing.T) {
 	repo := newMockEventRepoTenant()
 	repo.subs["ES123"] = &domain.EventSubscription{
-		ID:     "ES123",
+		ID:          "ES123",
 		WorkspaceID: "T123",
-		URL:    "https://example.com",
-		Type:   domain.EventTypeConversationMessageCreated,
+		URL:         "https://example.com",
+		Type:        domain.EventTypeConversationMessageCreated,
 	}
 	svc := NewEventService(repo, &mockUserRepoDefault{}, nil, mockTxBeginner{}, nil)
 
 	ctx := ctxutil.WithUser(context.Background(), "U123", "T123")
-	legacyType := "channel.created"
+	deprecatedType := "channel.created"
 	_, err := svc.UpdateSubscription(ctx, "ES123", domain.UpdateEventSubscriptionParams{
-		Type: &legacyType,
+		Type: &deprecatedType,
 	})
 	if err == nil || !errors.Is(err, domain.ErrInvalidArgument) {
 		t.Fatalf("expected invalid argument, got %v", err)
@@ -119,10 +119,10 @@ func TestEventService_UpdateSubscription_RejectsLegacyEventType(t *testing.T) {
 func TestEventService_SubscriptionMutationsRequireWorkspaceAdmin(t *testing.T) {
 	repo := newMockEventRepoTenant()
 	repo.subs["ES123"] = &domain.EventSubscription{
-		ID:     "ES123",
+		ID:          "ES123",
 		WorkspaceID: "T123",
-		URL:    "https://example.com",
-		Type:   domain.EventTypeConversationMessageCreated,
+		URL:         "https://example.com",
+		Type:        domain.EventTypeConversationMessageCreated,
 	}
 	userRepo := &mockUserRepoMap{
 		users: map[string]*domain.User{
@@ -135,8 +135,8 @@ func TestEventService_SubscriptionMutationsRequireWorkspaceAdmin(t *testing.T) {
 	memberCtx := ctxutil.WithUser(context.Background(), "U123", "T123")
 	if _, err := svc.CreateSubscription(memberCtx, domain.CreateEventSubscriptionParams{
 		WorkspaceID: "T123",
-		URL:    "https://example.com",
-		Type:   domain.EventTypeConversationMessageCreated,
+		URL:         "https://example.com",
+		Type:        domain.EventTypeConversationMessageCreated,
 	}); err == nil || !errors.Is(err, domain.ErrForbidden) {
 		t.Fatalf("expected forbidden for member create, got %v", err)
 	}
@@ -147,8 +147,8 @@ func TestEventService_SubscriptionMutationsRequireWorkspaceAdmin(t *testing.T) {
 	adminCtx := ctxutil.WithUser(context.Background(), "U999", "T123")
 	if _, err := svc.CreateSubscription(adminCtx, domain.CreateEventSubscriptionParams{
 		WorkspaceID: "T123",
-		URL:    "https://example.com",
-		Type:   domain.EventTypeConversationMessageCreated,
+		URL:         "https://example.com",
+		Type:        domain.EventTypeConversationMessageCreated,
 	}); err != nil {
 		t.Fatalf("admin create should succeed: %v", err)
 	}

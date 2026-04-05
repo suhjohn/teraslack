@@ -35,10 +35,10 @@ func (r *conversationAccessRepoStub) ReplaceManagers(ctx context.Context, conver
 		r.managers = map[string][]domain.ConversationManagerAssignment{}
 	}
 	assignments := make([]domain.ConversationManagerAssignment, 0, len(userIDs))
-	for _, userID := range userIDs {
+	for _, accountID := range userIDs {
 		assignments = append(assignments, domain.ConversationManagerAssignment{
 			ConversationID: conversationID,
-			UserID:         userID,
+			AccountID:      accountID,
 			AssignedBy:     assignedBy,
 			CreatedAt:      time.Now(),
 		})
@@ -47,9 +47,9 @@ func (r *conversationAccessRepoStub) ReplaceManagers(ctx context.Context, conver
 	return nil
 }
 
-func (r *conversationAccessRepoStub) IsManager(ctx context.Context, conversationID, userID string) (bool, error) {
+func (r *conversationAccessRepoStub) IsManager(ctx context.Context, conversationID, accountID string) (bool, error) {
 	for _, assignment := range r.managers[conversationID] {
-		if assignment.UserID == userID {
+		if assignment.AccountID == accountID {
 			return true, nil
 		}
 	}
@@ -93,7 +93,7 @@ func (r *roleAssignmentRepoStub) ReplaceForUser(ctx context.Context, workspaceID
 	return nil
 }
 
-func TestConversationAccessService_SetManagers_AllowsChannelsAdminOnPrivateChannel(t *testing.T) {
+func TestConversationAccessService_SetManagers_DeniesChannelsAdminOnPrivateChannel(t *testing.T) {
 	repo := &conversationAccessRepoStub{}
 	convRepo := &conversationRepoStub{
 		conversation: &domain.Conversation{
@@ -106,8 +106,8 @@ func TestConversationAccessService_SetManagers_AllowsChannelsAdminOnPrivateChann
 	}
 	userRepo := &mockUserRepoMap{
 		users: map[string]*domain.User{
-			"U_ACTOR": {ID: "U_ACTOR", WorkspaceID: "T123", PrincipalType: domain.PrincipalTypeHuman, AccountType: domain.AccountTypeMember},
-			"U_MGR":   {ID: "U_MGR", WorkspaceID: "T123", PrincipalType: domain.PrincipalTypeHuman, AccountType: domain.AccountTypeMember},
+			"U_ACTOR": {ID: "U_ACTOR", AccountID: "A_ACTOR", WorkspaceID: "T123", PrincipalType: domain.PrincipalTypeHuman, AccountType: domain.AccountTypeMember},
+			"U_MGR":   {ID: "U_MGR", AccountID: "A_MGR", WorkspaceID: "T123", PrincipalType: domain.PrincipalTypeHuman, AccountType: domain.AccountTypeMember},
 		},
 	}
 	roleRepo := &roleAssignmentRepoStub{
@@ -127,12 +127,8 @@ func TestConversationAccessService_SetManagers_AllowsChannelsAdminOnPrivateChann
 
 	ctx := ctxutil.WithUser(context.Background(), "U_ACTOR", "T123")
 	ctx = ctxutil.WithPrincipal(ctx, domain.PrincipalTypeHuman, domain.AccountTypeMember, false)
-	got, err := svc.SetManagers(ctx, "G123", []string{"U_MGR"})
-	if err != nil {
-		t.Fatalf("SetManagers() error = %v", err)
-	}
-	if len(got) != 1 || got[0] != "U_MGR" {
-		t.Fatalf("SetManagers() managers = %v, want [U_MGR]", got)
+	if _, err := svc.SetManagers(ctx, "G123", []string{"U_MGR"}); !errors.Is(err, domain.ErrForbidden) {
+		t.Fatalf("SetManagers() error = %v, want forbidden", err)
 	}
 }
 
@@ -176,12 +172,12 @@ func TestMessageService_PostMessage_AllowsConversationManagerWhenRestricted(t *t
 	conv := &domain.Conversation{ID: "C123", WorkspaceID: "T123", Type: domain.ConversationTypePublicChannel, CreatorID: "U_CREATOR"}
 	userRepo := &mockUserRepoMap{
 		users: map[string]*domain.User{
-			"U123": {ID: "U123", WorkspaceID: "T123", PrincipalType: domain.PrincipalTypeHuman, AccountType: domain.AccountTypeMember},
+			"U123": {ID: "U123", AccountID: "A123", WorkspaceID: "T123", PrincipalType: domain.PrincipalTypeHuman, AccountType: domain.AccountTypeMember},
 		},
 	}
 	accessRepo := &conversationAccessRepoStub{
 		managers: map[string][]domain.ConversationManagerAssignment{
-			"C123": {{ConversationID: "C123", UserID: "U123", AssignedBy: "U_ADMIN"}},
+			"C123": {{ConversationID: "C123", AccountID: "A123", AssignedBy: "A_ADMIN"}},
 		},
 		policies: map[string]*domain.ConversationPostingPolicy{
 			"C123": {ConversationID: "C123", PolicyType: domain.ConversationPostingPolicyMembersWithPermission},
@@ -207,7 +203,7 @@ func TestMessageService_PostMessage_AllowsConversationManagerWhenRestricted(t *t
 func TestConversationAccessService_CustomPolicyUsesCanonicalUserAccountType(t *testing.T) {
 	userRepo := &mockUserRepoMap{
 		users: map[string]*domain.User{
-			"U123": {ID: "U123", WorkspaceID: "T123", PrincipalType: domain.PrincipalTypeHuman, AccountType: domain.AccountTypeAdmin},
+			"U123": {ID: "U123", AccountID: "A123", WorkspaceID: "T123", PrincipalType: domain.PrincipalTypeHuman, AccountType: domain.AccountTypeAdmin},
 		},
 	}
 	svc := NewConversationAccessService(
@@ -221,6 +217,7 @@ func TestConversationAccessService_CustomPolicyUsesCanonicalUserAccountType(t *t
 	)
 
 	ctx := ctxutil.WithUser(context.Background(), "U123", "T123")
+	ctx = ctxutil.WithIdentity(ctx, "A123")
 	ctx = ctxutil.WithPrincipal(ctx, domain.PrincipalTypeHuman, domain.AccountTypeAdmin, false)
 	allowed, err := svc.actorMatchesCustomPostingPolicy(ctx, "T123", "U123", &domain.ConversationPostingPolicy{
 		ConversationID:      "C123",
@@ -247,8 +244,8 @@ func TestConversationAccessService_SetManagersIgnoresForgedAdminContext(t *testi
 	}
 	userRepo := &mockUserRepoMap{
 		users: map[string]*domain.User{
-			"U_ACTOR": {ID: "U_ACTOR", WorkspaceID: "T123", PrincipalType: domain.PrincipalTypeHuman, AccountType: domain.AccountTypeMember},
-			"U_MGR":   {ID: "U_MGR", WorkspaceID: "T123", PrincipalType: domain.PrincipalTypeHuman, AccountType: domain.AccountTypeMember},
+			"U_ACTOR": {ID: "U_ACTOR", AccountID: "A_ACTOR", WorkspaceID: "T123", PrincipalType: domain.PrincipalTypeHuman, AccountType: domain.AccountTypeMember},
+			"U_MGR":   {ID: "U_MGR", AccountID: "A_MGR", WorkspaceID: "T123", PrincipalType: domain.PrincipalTypeHuman, AccountType: domain.AccountTypeMember},
 		},
 	}
 	svc := NewConversationAccessService(
@@ -281,8 +278,8 @@ func TestConversationAccessService_SetManagersUsesCanonicalWorkspaceAdminUser(t 
 	}
 	userRepo := &mockUserRepoMap{
 		users: map[string]*domain.User{
-			"U_ACTOR": {ID: "U_ACTOR", WorkspaceID: "T123", PrincipalType: domain.PrincipalTypeHuman, AccountType: domain.AccountTypeAdmin},
-			"U_MGR":   {ID: "U_MGR", WorkspaceID: "T123", PrincipalType: domain.PrincipalTypeHuman, AccountType: domain.AccountTypeMember},
+			"U_ACTOR": {ID: "U_ACTOR", AccountID: "A_ACTOR", WorkspaceID: "T123", PrincipalType: domain.PrincipalTypeHuman, AccountType: domain.AccountTypeAdmin},
+			"U_MGR":   {ID: "U_MGR", AccountID: "A_MGR", WorkspaceID: "T123", PrincipalType: domain.PrincipalTypeHuman, AccountType: domain.AccountTypeMember},
 		},
 	}
 	svc := NewConversationAccessService(
@@ -302,7 +299,40 @@ func TestConversationAccessService_SetManagersUsesCanonicalWorkspaceAdminUser(t 
 	if err != nil {
 		t.Fatalf("SetManagers() error = %v", err)
 	}
-	if len(got) != 1 || got[0] != "U_MGR" {
-		t.Fatalf("SetManagers() managers = %v, want [U_MGR]", got)
+	if len(got) != 1 || got[0] != "A_MGR" {
+		t.Fatalf("SetManagers() managers = %v, want [A_MGR]", got)
+	}
+}
+
+func TestConversationAccessService_AccountOwnedConversationAllowsOwnerForManagementAndPosting(t *testing.T) {
+	conv := &domain.Conversation{
+		ID:             "C_ACCOUNT",
+		OwnerType:      domain.ConversationOwnerTypeAccount,
+		OwnerAccountID: "A123",
+	}
+	svc := NewConversationAccessService(
+		&conversationAccessRepoStub{},
+		&conversationRepoStub{conversation: conv},
+		&mockUserRepoDefault{},
+		nil,
+		nil,
+		mockTxBeginner{},
+		nil,
+	)
+
+	ctx := ctxutil.WithIdentity(context.Background(), "A123")
+	ctx = ctxutil.WithPrincipal(ctx, domain.PrincipalTypeHuman, domain.AccountTypeMember, false)
+
+	if err := svc.CanManageConversation(ctx, conv); err != nil {
+		t.Fatalf("CanManageConversation() error = %v", err)
+	}
+	if err := svc.CanPost(ctx, conv, ""); err != nil {
+		t.Fatalf("CanPost() error = %v", err)
+	}
+
+	otherCtx := ctxutil.WithIdentity(context.Background(), "A999")
+	otherCtx = ctxutil.WithPrincipal(otherCtx, domain.PrincipalTypeHuman, domain.AccountTypeMember, false)
+	if err := svc.CanManageConversation(otherCtx, conv); !errors.Is(err, domain.ErrForbidden) {
+		t.Fatalf("CanManageConversation() error = %v, want forbidden", err)
 	}
 }

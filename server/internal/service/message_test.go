@@ -255,6 +255,51 @@ func TestMessageService_PostMessage_DeniesPrivateConversationNonMember(t *testin
 	}
 }
 
+func TestMessageService_PostMessage_UsesAccountAuthorForAccountOwnedConversation(t *testing.T) {
+	msgRepo := &messageRepoStub{
+		created: &domain.Message{
+			TS:              "123.456",
+			ChannelID:       "C_ACCOUNT",
+			AuthorAccountID: "A123",
+			Text:            "hello",
+		},
+	}
+	svc := NewMessageService(
+		msgRepo,
+		&conversationRepoStub{
+			conversation: &domain.Conversation{
+				ID:             "C_ACCOUNT",
+				OwnerType:      domain.ConversationOwnerTypeAccount,
+				OwnerAccountID: "A123",
+			},
+			isMember: true,
+		},
+		nil,
+		mockTxBeginner{},
+		slog.New(slog.NewJSONHandler(io.Discard, nil)),
+	)
+
+	ctx := ctxutil.WithIdentity(context.Background(), "A123")
+	ctx = ctxutil.WithPrincipal(ctx, domain.PrincipalTypeHuman, domain.AccountTypeMember, false)
+
+	got, err := svc.PostMessage(ctx, domain.PostMessageParams{
+		ChannelID: "C_ACCOUNT",
+		Text:      "hello",
+	})
+	if err != nil {
+		t.Fatalf("PostMessage() error = %v", err)
+	}
+	if msgRepo.lastCreatedParams.UserID != "" {
+		t.Fatalf("Create() user_id = %q, want empty", msgRepo.lastCreatedParams.UserID)
+	}
+	if msgRepo.lastCreatedParams.AuthorAccountID != "A123" {
+		t.Fatalf("Create() author_account_id = %q, want %q", msgRepo.lastCreatedParams.AuthorAccountID, "A123")
+	}
+	if got.AuthorAccountID != "A123" {
+		t.Fatalf("returned author_account_id = %q, want %q", got.AuthorAccountID, "A123")
+	}
+}
+
 func TestMessageService_UpdateMessage_AllowsSystemPrincipalEditor(t *testing.T) {
 	conv := &domain.Conversation{ID: "C123", WorkspaceID: "T123"}
 	existing := &domain.Message{
@@ -371,23 +416,10 @@ func TestMessageService_DeleteMessage_AllowsWorkspaceAdmin(t *testing.T) {
 	}
 }
 
-func TestMessageService_History_AllowsExternalMemberPrivateConversation(t *testing.T) {
+func TestMessageService_History_AllowsWorkspaceMemberPrivateConversation(t *testing.T) {
 	repo := &messageRepoStub{
 		historyPage: &domain.CursorPage[domain.Message]{
 			Items: []domain.Message{{TS: "123.456", ChannelID: "G123", UserID: "U123", Text: "hello"}},
-		},
-	}
-	externalMembers := &externalMemberRepoStub{
-		byConversationAccount: map[string]*domain.ExternalMember{
-			"G123|A123": {
-				ID:                  "EM123",
-				ConversationID:      "G123",
-				HostWorkspaceID:     "T123",
-				ExternalWorkspaceID: "T999",
-				AccountID:           "A123",
-				AccessMode:          domain.ExternalPrincipalAccessModeShared,
-				AllowedCapabilities: []string{domain.PermissionMessagesRead},
-			},
 		},
 	}
 	svc := NewMessageService(
@@ -398,17 +430,15 @@ func TestMessageService_History_AllowsExternalMemberPrivateConversation(t *testi
 				WorkspaceID: "T123",
 				Type:        domain.ConversationTypePrivateChannel,
 			},
-			isMember: false,
+			isMember: true,
 		},
 		nil,
 		mockTxBeginner{},
 		slog.New(slog.NewJSONHandler(io.Discard, nil)),
 	)
-	svc.SetExternalMemberRepository(externalMembers)
 
-	ctx := ctxutil.WithUser(context.Background(), "U_EXT", "T999")
+	ctx := ctxutil.WithUser(context.Background(), "U_EXT", "T123")
 	ctx = ctxutil.WithIdentity(ctx, "A123")
-	ctx = ctxutil.WithPrincipal(ctx, domain.PrincipalTypeHuman, domain.AccountTypeMember, false)
 
 	page, err := svc.History(ctx, domain.ListMessagesParams{ChannelID: "G123"})
 	if err != nil {
@@ -419,7 +449,7 @@ func TestMessageService_History_AllowsExternalMemberPrivateConversation(t *testi
 	}
 }
 
-func TestMessageService_PostMessage_AllowsExternalMemberParticipant(t *testing.T) {
+func TestMessageService_PostMessage_AllowsWorkspaceMemberParticipant(t *testing.T) {
 	svc := NewMessageService(
 		&messageRepoStub{
 			created: &domain.Message{TS: "123.456", ChannelID: "G123", UserID: "U_EXT", Text: "hello"},
@@ -430,32 +460,22 @@ func TestMessageService_PostMessage_AllowsExternalMemberParticipant(t *testing.T
 				WorkspaceID: "T123",
 				Type:        domain.ConversationTypePrivateChannel,
 			},
-			isMember: false,
+			isMember: true,
 		},
 		nil,
 		mockTxBeginner{},
 		slog.New(slog.NewJSONHandler(io.Discard, nil)),
 	)
-	svc.SetExternalMemberRepository(&externalMemberRepoStub{
-		byConversationAccount: map[string]*domain.ExternalMember{
-			"G123|A123": {
-				ID:                  "EM123",
-				ConversationID:      "G123",
-				HostWorkspaceID:     "T123",
-				ExternalWorkspaceID: "T999",
-				AccountID:           "A123",
-				AccessMode:          domain.ExternalPrincipalAccessModeShared,
-				AllowedCapabilities: []string{domain.PermissionMessagesRead, domain.PermissionMessagesWrite},
-			},
-		},
-	})
 
-	ctx := ctxutil.WithUser(context.Background(), "U_EXT", "T999")
+	ctx := ctxutil.WithUser(context.Background(), "U_EXT", "T123")
 	ctx = ctxutil.WithIdentity(ctx, "A123")
-	ctx = ctxutil.WithPrincipal(ctx, domain.PrincipalTypeHuman, domain.AccountTypeMember, false)
 
-	if _, err := svc.PostMessage(ctx, domain.PostMessageParams{ChannelID: "G123", Text: "hello"}); err != nil {
+	msg, err := svc.PostMessage(ctx, domain.PostMessageParams{ChannelID: "G123", Text: "hello"})
+	if err != nil {
 		t.Fatalf("PostMessage() error = %v", err)
+	}
+	if msg.UserID != "U_EXT" {
+		t.Fatalf("PostMessage() user_id = %q, want %q", msg.UserID, "U_EXT")
 	}
 }
 
@@ -478,6 +498,7 @@ func (r *captureEventRecorder) WithTx(tx pgx.Tx) EventRecorder {
 
 type messageRepoStub struct {
 	created           *domain.Message
+	lastCreatedParams domain.PostMessageParams
 	existing          *domain.Message
 	updated           *domain.Message
 	deleted           bool
@@ -493,6 +514,7 @@ type messageRepoStub struct {
 func (r *messageRepoStub) WithTx(tx pgx.Tx) repository.MessageRepository { return r }
 
 func (r *messageRepoStub) Create(ctx context.Context, params domain.PostMessageParams) (*domain.Message, error) {
+	r.lastCreatedParams = params
 	if r.created == nil {
 		return nil, domain.ErrNotFound
 	}
@@ -602,7 +624,15 @@ func (r *conversationRepoStub) AddMember(ctx context.Context, conversationID, us
 	return nil
 }
 
+func (r *conversationRepoStub) AddMemberByAccount(ctx context.Context, conversationID, accountID string) error {
+	return nil
+}
+
 func (r *conversationRepoStub) RemoveMember(ctx context.Context, conversationID, userID string) error {
+	return nil
+}
+
+func (r *conversationRepoStub) RemoveMemberByAccount(ctx context.Context, conversationID, accountID string) error {
 	return nil
 }
 
@@ -610,7 +640,15 @@ func (r *conversationRepoStub) ListMembers(ctx context.Context, conversationID s
 	return nil, nil
 }
 
+func (r *conversationRepoStub) ListMemberAccounts(ctx context.Context, conversationID string, cursor string, limit int) (*domain.CursorPage[domain.ConversationMember], error) {
+	return nil, nil
+}
+
 func (r *conversationRepoStub) IsMember(ctx context.Context, conversationID, userID string) (bool, error) {
+	return r.isMember, nil
+}
+
+func (r *conversationRepoStub) IsAccountMember(ctx context.Context, conversationID, accountID string) (bool, error) {
 	return r.isMember, nil
 }
 

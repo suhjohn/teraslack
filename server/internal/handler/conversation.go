@@ -29,7 +29,7 @@ func (h *ConversationHandler) Create(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteError(w, r, domain.ErrInvalidArgument)
 		return
 	}
-	if workspaceID := ctxutil.GetWorkspaceID(r.Context()); workspaceID != "" && params.WorkspaceID == "" {
+	if workspaceID := ctxutil.GetWorkspaceID(r.Context()); workspaceID != "" && params.WorkspaceID == "" && params.OwnerType != domain.ConversationOwnerTypeAccount {
 		params.WorkspaceID = workspaceID
 	}
 
@@ -173,12 +173,12 @@ func (h *ConversationHandler) Invite(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	for _, uid := range req.UserIDs {
-		uid = strings.TrimSpace(uid)
-		if uid == "" {
+	for _, accountID := range req.AccountIDs {
+		accountID = strings.TrimSpace(accountID)
+		if accountID == "" {
 			continue
 		}
-		if err := h.svc.Invite(r.Context(), channelID, uid); err != nil {
+		if err := h.svc.InviteAccount(r.Context(), channelID, accountID); err != nil {
 			httputil.WriteError(w, r, err)
 			return
 		}
@@ -193,16 +193,16 @@ func (h *ConversationHandler) Invite(w http.ResponseWriter, r *http.Request) {
 	httputil.WriteResource(w, http.StatusOK, conv)
 }
 
-// Kick handles DELETE /conversations/{id}/members/{user_id}.
+// Kick handles DELETE /conversations/{id}/members/{account_id}.
 func (h *ConversationHandler) Kick(w http.ResponseWriter, r *http.Request) {
 	channelID := r.PathValue("id")
-	userID := r.PathValue("user_id")
-	if channelID == "" || userID == "" {
+	memberID := r.PathValue("account_id")
+	if channelID == "" || memberID == "" {
 		httputil.WriteError(w, r, domain.ErrInvalidArgument)
 		return
 	}
 
-	if err := h.svc.Kick(r.Context(), channelID, userID); err != nil {
+	if err := h.svc.Kick(r.Context(), channelID, memberID); err != nil {
 		httputil.WriteError(w, r, err)
 		return
 	}
@@ -227,16 +227,19 @@ func (h *ConversationHandler) Members(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userIDs := make([]string, len(page.Items))
+	accountIDs := make([]string, len(page.Items))
 	for i, m := range page.Items {
-		userIDs[i] = m.UserID
+		accountIDs[i] = m.AccountID
+		if accountIDs[i] == "" {
+			accountIDs[i] = m.UserID
+		}
 	}
 
 	nextCursor := ""
 	if page.HasMore {
 		nextCursor = page.NextCursor
 	}
-	httputil.WriteCollection(w, http.StatusOK, userIDs, nextCursor)
+	httputil.WriteCollection(w, http.StatusOK, accountIDs, nextCursor)
 }
 
 func (h *ConversationHandler) ListManagers(w http.ResponseWriter, r *http.Request) {
@@ -250,7 +253,7 @@ func (h *ConversationHandler) ListManagers(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	userIDs, err := h.accessSvc.ListManagers(r.Context(), channelID)
+	accountIDs, err := h.accessSvc.ListManagers(r.Context(), channelID)
 	if err != nil {
 		httputil.WriteError(w, r, err)
 		return
@@ -258,7 +261,7 @@ func (h *ConversationHandler) ListManagers(w http.ResponseWriter, r *http.Reques
 
 	httputil.WriteResource(w, http.StatusOK, ConversationManagersResponse{
 		ConversationID: channelID,
-		UserIDs:        userIDs,
+		AccountIDs:     accountIDs,
 	})
 }
 
@@ -279,7 +282,7 @@ func (h *ConversationHandler) SetManagers(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	userIDs, err := h.accessSvc.SetManagers(r.Context(), channelID, req.UserIDs)
+	accountIDs, err := h.accessSvc.SetManagers(r.Context(), channelID, req.AccountIDs)
 	if err != nil {
 		httputil.WriteError(w, r, err)
 		return
@@ -287,7 +290,7 @@ func (h *ConversationHandler) SetManagers(w http.ResponseWriter, r *http.Request
 
 	httputil.WriteResource(w, http.StatusOK, ConversationManagersResponse{
 		ConversationID: channelID,
-		UserIDs:        userIDs,
+		AccountIDs:     accountIDs,
 	})
 }
 
@@ -313,7 +316,7 @@ func (h *ConversationHandler) GetPostingPolicy(w http.ResponseWriter, r *http.Re
 		PolicyType:            policy.PolicyType,
 		AllowedAccountTypes:   policy.AllowedAccountTypes,
 		AllowedDelegatedRoles: policy.AllowedDelegatedRoles,
-		AllowedUserIDs:        policy.AllowedUserIDs,
+		AllowedAccountIDs:     policy.AllowedAccountIDs,
 		UpdatedBy:             policy.UpdatedBy,
 	}
 	if !policy.UpdatedAt.IsZero() {
@@ -344,7 +347,7 @@ func (h *ConversationHandler) SetPostingPolicy(w http.ResponseWriter, r *http.Re
 		PolicyType:            req.PolicyType,
 		AllowedAccountTypes:   req.AllowedAccountTypes,
 		AllowedDelegatedRoles: req.AllowedDelegatedRoles,
-		AllowedUserIDs:        req.AllowedUserIDs,
+		AllowedAccountIDs:     req.AllowedAccountIDs,
 	})
 	if err != nil {
 		httputil.WriteError(w, r, err)
@@ -356,7 +359,7 @@ func (h *ConversationHandler) SetPostingPolicy(w http.ResponseWriter, r *http.Re
 		PolicyType:            policy.PolicyType,
 		AllowedAccountTypes:   policy.AllowedAccountTypes,
 		AllowedDelegatedRoles: policy.AllowedDelegatedRoles,
-		AllowedUserIDs:        policy.AllowedUserIDs,
+		AllowedAccountIDs:     policy.AllowedAccountIDs,
 		UpdatedBy:             policy.UpdatedBy,
 		UpdatedAt:             &policy.UpdatedAt,
 	})

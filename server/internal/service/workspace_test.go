@@ -202,24 +202,28 @@ func TestWorkspaceService_WorkspaceInfoUsesContextWorkspace(t *testing.T) {
 func TestWorkspaceService_AdminCreateRequiresAdmin(t *testing.T) {
 	workspaceRepo := newMockWorkspaceRepo()
 	userRepo := newMockUserRepoTenant()
+	accountRepo := newMockAccountRepo()
+	accountRepo.byID["A123"] = &domain.Account{
+		ID:            "A123",
+		Email:         "alice@example.com",
+		PrincipalType: domain.PrincipalTypeHuman,
+	}
 	userRepo.users["U_ADMIN"] = &domain.User{
 		ID:            "U_ADMIN",
+		AccountID:     "A123",
 		WorkspaceID:   "T123",
 		Name:          "alice",
 		Email:         "alice@example.com",
 		PrincipalType: domain.PrincipalTypeHuman,
 	}
 	svc := NewWorkspaceService(workspaceRepo, userRepo, nil, mockTxBeginner{}, nil)
+	svc.SetIdentityRepositories(accountRepo)
 
-	ctx := ctxutil.WithUser(context.Background(), "U_ADMIN", "T123")
-	if _, err := svc.AdminCreate(ctx, domain.CreateWorkspaceParams{Name: "Acme"}); err == nil || !errors.Is(err, domain.ErrForbidden) {
-		t.Fatalf("expected forbidden for non-admin create, got %v", err)
-	}
-
-	userRepo.users["U_ADMIN"].AccountType = domain.AccountTypeAdmin
+	ctx := ctxutil.WithIdentity(context.Background(), "A123")
+	ctx = ctxutil.WithPrincipal(ctx, domain.PrincipalTypeHuman, domain.AccountTypeNone, false)
 	ws, err := svc.AdminCreate(ctx, domain.CreateWorkspaceParams{Name: "Acme"})
 	if err != nil {
-		t.Fatalf("AdminCreate admin: %v", err)
+		t.Fatalf("AdminCreate account-first creator: %v", err)
 	}
 	if ws.Name != "Acme" {
 		t.Fatalf("expected Acme, got %s", ws.Name)

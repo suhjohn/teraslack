@@ -311,12 +311,12 @@ func (r *ExternalEventRepo) listVisibleExternalMemberEvents(ctx context.Context,
 			return []sqlcgen.ExternalEvent{}, nil
 		}
 		rows, err := r.q.ListVisibleConversationExternalEventsByExternalMember(ctx, sqlcgen.ListVisibleConversationExternalEventsByExternalMemberParams{
-			AccountID:       principal.AccountID,
-			HostWorkspaceID: principal.WorkspaceID,
-			ID:              params.AfterID,
-			Limit:           int32(limit),
-			EventType:       stringToText(params.Type),
-			ConversationID:  stringToText(params.ResourceID),
+			AccountID:      principal.AccountID,
+			WorkspaceID:    principal.WorkspaceID,
+			ID:             params.AfterID,
+			Limit:          int32(limit),
+			EventType:      stringToText(params.Type),
+			ConversationID: stringToText(params.ResourceID),
 		})
 		if err != nil {
 			return nil, fmt.Errorf("list visible conversation external member events: %w", err)
@@ -327,12 +327,12 @@ func (r *ExternalEventRepo) listVisibleExternalMemberEvents(ctx context.Context,
 			return []sqlcgen.ExternalEvent{}, nil
 		}
 		rows, err := r.q.ListVisibleFileExternalEventsByExternalMember(ctx, sqlcgen.ListVisibleFileExternalEventsByExternalMemberParams{
-			AccountID:       principal.AccountID,
-			HostWorkspaceID: principal.WorkspaceID,
-			ID:              params.AfterID,
-			Limit:           int32(limit),
-			EventType:       stringToText(params.Type),
-			FileID:          stringToText(params.ResourceID),
+			AccountID:   principal.AccountID,
+			WorkspaceID: principal.WorkspaceID,
+			ID:          params.AfterID,
+			Limit:       int32(limit),
+			EventType:   stringToText(params.Type),
+			FileID:      stringToText(params.ResourceID),
 		})
 		if err != nil {
 			return nil, fmt.Errorf("list visible file external member events: %w", err)
@@ -344,12 +344,12 @@ func (r *ExternalEventRepo) listVisibleExternalMemberEvents(ctx context.Context,
 			return []sqlcgen.ExternalEvent{}, nil
 		}
 		rows, err := r.q.ListVisibleExternalEventsByExternalMemberAndResourceTypes(ctx, sqlcgen.ListVisibleExternalEventsByExternalMemberAndResourceTypesParams{
-			AccountID:       principal.AccountID,
-			HostWorkspaceID: principal.WorkspaceID,
-			ID:              params.AfterID,
-			Column4:         resourceTypes,
-			Limit:           int32(limit),
-			EventType:       stringToText(params.Type),
+			AccountID:        principal.AccountID,
+			OwnerWorkspaceID: stringToText(principal.WorkspaceID),
+			ID:               params.AfterID,
+			Column4:          resourceTypes,
+			Limit:            int32(limit),
+			EventType:        stringToText(params.Type),
 		})
 		if err != nil {
 			return nil, fmt.Errorf("list visible external member events: %w", err)

@@ -688,18 +688,18 @@ export type removeConversationMemberResponseError = (removeConversationMemberRes
 export type removeConversationMemberResponse = (removeConversationMemberResponseSuccess | removeConversationMemberResponseError)
 
 export const getRemoveConversationMemberUrl = (id: string,
-    userId: string,) => {
+    accountId: string,) => {
 
 
 
 
-  return `/conversations/${id}/members/${userId}`
+  return `/conversations/${id}/members/${accountId}`
 }
 
 export const removeConversationMember = async (id: string,
-    userId: string, options?: RequestInit): Promise<removeConversationMemberResponse> => {
+    accountId: string, options?: RequestInit): Promise<removeConversationMemberResponse> => {
 
-  return orvalFetch<removeConversationMemberResponse>(getRemoveConversationMemberUrl(id,userId),
+  return orvalFetch<removeConversationMemberResponse>(getRemoveConversationMemberUrl(id,accountId),
   {
     ...options,
     method: 'DELETE'
@@ -712,8 +712,8 @@ export const removeConversationMember = async (id: string,
 
 
 export const getRemoveConversationMemberMutationOptions = <TError = ErrorType<ApiErrorResponseResponse>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof removeConversationMember>>, TError,{id: string;userId: string}, TContext>, request?: SecondParameter<typeof orvalFetch>}
-): UseMutationOptions<Awaited<ReturnType<typeof removeConversationMember>>, TError,{id: string;userId: string}, TContext> => {
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof removeConversationMember>>, TError,{id: string;accountId: string}, TContext>, request?: SecondParameter<typeof orvalFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof removeConversationMember>>, TError,{id: string;accountId: string}, TContext> => {
 
 const mutationKey = ['removeConversationMember'];
 const {mutation: mutationOptions, request: requestOptions} = options ?
@@ -725,10 +725,10 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof removeConversationMember>>, {id: string;userId: string}> = (props) => {
-          const {id,userId} = props ?? {};
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof removeConversationMember>>, {id: string;accountId: string}> = (props) => {
+          const {id,accountId} = props ?? {};
 
-          return  removeConversationMember(id,userId,requestOptions)
+          return  removeConversationMember(id,accountId,requestOptions)
         }
 
 
@@ -743,11 +743,11 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type RemoveConversationMemberMutationError = ErrorType<ApiErrorResponseResponse>
 
     export const useRemoveConversationMember = <TError = ErrorType<ApiErrorResponseResponse>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof removeConversationMember>>, TError,{id: string;userId: string}, TContext>, request?: SecondParameter<typeof orvalFetch>}
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof removeConversationMember>>, TError,{id: string;accountId: string}, TContext>, request?: SecondParameter<typeof orvalFetch>}
  , queryClient?: QueryClient): UseMutationResult<
         Awaited<ReturnType<typeof removeConversationMember>>,
         TError,
-        {id: string;userId: string},
+        {id: string;accountId: string},
         TContext
       > => {
       return useMutation(getRemoveConversationMemberMutationOptions(options), queryClient);

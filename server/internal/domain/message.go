@@ -7,24 +7,26 @@ import (
 
 // Message represents a chat message within a conversation.
 type Message struct {
-	TS        string          `json:"ts"`
-	ChannelID string          `json:"channel_id"`
-	UserID    string          `json:"user_id"`
-	Text      string          `json:"text"`
-	ThreadTS  *string         `json:"thread_ts,omitempty"`
-	Type      string          `json:"type"`
-	Subtype   *string         `json:"subtype,omitempty"`
-	Blocks    json.RawMessage `json:"blocks,omitempty"`
-	Metadata  json.RawMessage `json:"metadata,omitempty"`
-	EditedBy  *string         `json:"edited_by,omitempty"`
-	EditedAt  *string         `json:"edited_at,omitempty"`
-	Reactions []Reaction      `json:"reactions,omitempty"`
-	ReplyCount     int        `json:"reply_count"`
-	ReplyUsersCount int       `json:"reply_users_count"`
-	LatestReply    *string    `json:"latest_reply,omitempty"`
-	IsDeleted bool            `json:"is_deleted"`
-	CreatedAt time.Time       `json:"created_at"`
-	UpdatedAt time.Time       `json:"updated_at"`
+	TS                          string          `json:"ts"`
+	ChannelID                   string          `json:"channel_id"`
+	UserID                      string          `json:"user_id,omitempty"`
+	AuthorAccountID             string          `json:"author_account_id,omitempty"`
+	AuthorWorkspaceMembershipID string          `json:"author_workspace_membership_id,omitempty"`
+	Text                        string          `json:"text"`
+	ThreadTS                    *string         `json:"thread_ts,omitempty"`
+	Type                        string          `json:"type"`
+	Subtype                     *string         `json:"subtype,omitempty"`
+	Blocks                      json.RawMessage `json:"blocks,omitempty"`
+	Metadata                    json.RawMessage `json:"metadata,omitempty"`
+	EditedBy                    *string         `json:"edited_by,omitempty"`
+	EditedAt                    *string         `json:"edited_at,omitempty"`
+	Reactions                   []Reaction      `json:"reactions,omitempty"`
+	ReplyCount                  int             `json:"reply_count"`
+	ReplyUsersCount             int             `json:"reply_users_count"`
+	LatestReply                 *string         `json:"latest_reply,omitempty"`
+	IsDeleted                   bool            `json:"is_deleted"`
+	CreatedAt                   time.Time       `json:"created_at"`
+	UpdatedAt                   time.Time       `json:"updated_at"`
 }
 
 // Reaction represents an emoji reaction on a message.
@@ -36,20 +38,21 @@ type Reaction struct {
 
 // PostMessageParams holds the parameters for posting a new message.
 type PostMessageParams struct {
-	ChannelID      string          `json:"channel_id"`
-	UserID         string          `json:"user_id"`
-	Text           string          `json:"text"`
-	ThreadTS       string          `json:"thread_ts,omitempty"`
-	Blocks         json.RawMessage `json:"blocks,omitempty"`
-	Metadata       json.RawMessage `json:"metadata,omitempty"`
-	ReplyBroadcast bool            `json:"reply_broadcast,omitempty"`
+	ChannelID       string          `json:"channel_id"`
+	UserID          string          `json:"user_id,omitempty"`
+	AuthorAccountID string          `json:"author_account_id,omitempty"`
+	Text            string          `json:"text"`
+	ThreadTS        string          `json:"thread_ts,omitempty"`
+	Blocks          json.RawMessage `json:"blocks,omitempty"`
+	Metadata        json.RawMessage `json:"metadata,omitempty"`
+	ReplyBroadcast  bool            `json:"reply_broadcast,omitempty"`
 }
 
 // UpdateMessageParams holds the parameters for updating a message.
 type UpdateMessageParams struct {
-	Text     *string          `json:"text,omitempty"`
-	Blocks   json.RawMessage  `json:"blocks,omitempty"`
-	Metadata json.RawMessage  `json:"metadata,omitempty"`
+	Text     *string         `json:"text,omitempty"`
+	Blocks   json.RawMessage `json:"blocks,omitempty"`
+	Metadata json.RawMessage `json:"metadata,omitempty"`
 }
 
 // ListMessagesParams holds pagination and filter options for message history.

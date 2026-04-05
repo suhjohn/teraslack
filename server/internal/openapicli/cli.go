@@ -830,7 +830,7 @@ var commandNameOverrides = map[string]string{
 	"PUT /workspaces/{id}/users/{user_id}/roles":                                "set-roles",
 	"GET /conversations/{id}/members":                                           "members",
 	"POST /conversations/{id}/members":                                          "add-members",
-	"DELETE /conversations/{id}/members/{user_id}":                              "remove-member",
+	"DELETE /conversations/{id}/members/{account_id}":                           "remove-member",
 	"GET /conversations/{id}/managers":                                          "managers",
 	"PUT /conversations/{id}/managers":                                          "set-managers",
 	"GET /conversations/{id}/posting-policy":                                    "posting-policy",
