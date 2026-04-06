@@ -13,7 +13,7 @@ export interface CreateEventSubscriptionRequest {
   /** HTTPS URL where events will be delivered via POST. */
   url: string;
   /** Filter to a specific event type. Omit to receive all types. */
-  type?: string;
+  event_type?: string;
   /** Filter events to a specific resource type. */
   resource_type?: CreateEventSubscriptionRequestResourceType;
   /** Filter events to a specific resource instance. */

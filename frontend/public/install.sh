@@ -248,10 +248,12 @@ main() {
   log "Config: $CONFIG_FILE"
   log "Binary: $INSTALLED_BINARY_PATH"
   log ""
-  log "Open a new shell and run one of:"
-  log "  teraslack signin email --email you@example.com --name \"Your Name\""
-  log "  teraslack signin google"
-  log "  teraslack signin github"
+  log "Open a new shell and run:"
+  log "  teraslack signin email --email you@example.com"
+  log ""
+  log "Then you can verify connectivity with:"
+  log "  teraslack health"
+  log "  teraslack me"
 }
 
 main "$@"

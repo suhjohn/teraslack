@@ -18,7 +18,7 @@ export interface EventSubscription {
   /** HTTPS URL where events are delivered via POST. */
   url: string;
   /** Filter to a specific event type (e.g. "conversation.message.created"). Omit to receive all types. */
-  type?: string;
+  event_type?: string;
   /** Filter events to a specific resource type. */
   resource_type?: EventSubscriptionResourceType;
   /** Filter events to a specific resource instance. */

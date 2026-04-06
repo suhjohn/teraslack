@@ -105,7 +105,7 @@ printf '%s\n' "$targets" | while read -r goos goarch platform; do
   (
     cd "$SERVER_DIR"
     CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch" go build \
-      -ldflags "-X github.com/suhjohn/teraslack/internal/openapicli.Version=$VERSION" \
+      -ldflags "-X github.com/johnsuh/teraslack/server/internal/openapicli.Version=$VERSION" \
       -o "$binary_path" ./cmd/teraslack-api
   )
 

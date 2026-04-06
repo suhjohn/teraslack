@@ -59,7 +59,12 @@ release-cli:
 	$(MAKE) upload-cli-release VERSION="$(VERSION)"
 
 railway-status:
-	$(RAILWAY) status
+	@set -eu; \
+	project_args=""; \
+	if [ -n "$(RAILWAY_PROJECT)" ]; then \
+		project_args="--project $(RAILWAY_PROJECT)"; \
+	fi; \
+	$(RAILWAY) status $$project_args
 
 define railway_role_for_service
 $(strip \
@@ -67,7 +72,7 @@ $(if $(filter server,$(1)),server, \
 $(if $(filter external-event-projector,$(1)),external-event-projector, \
 $(if $(filter webhook-producer,$(1)),webhook-producer, \
 $(if $(filter webhook-worker,$(1)),webhook-worker, \
-$(if $(filter indexer,$(1)),indexer, \)))))
+$(if $(filter indexer,$(1)),indexer, \))))))
 endef
 
 railway-ensure-service:
@@ -76,14 +81,18 @@ railway-ensure-service:
 		exit 1; \
 	fi
 	@set -eu; \
-	if $(RAILWAY) status --json | grep -Fq "\"name\": \"$(SERVICE)\""; then \
+	project_args=""; \
+	if [ -n "$(RAILWAY_PROJECT)" ]; then \
+		project_args="--project $(RAILWAY_PROJECT)"; \
+	fi; \
+	if $(RAILWAY) status $$project_args --json | grep -Fq "\"name\": \"$(SERVICE)\""; then \
 		echo "Railway service $(SERVICE) already exists"; \
 	else \
 		echo "Creating Railway service $(SERVICE)"; \
 		if [ -n "$(RAILWAY_SERVICE_VARS)" ]; then \
-			$(RAILWAY) add --service "$(SERVICE)" --variables "$(RAILWAY_SERVICE_VARS)"; \
+			$(RAILWAY) add $$project_args --service "$(SERVICE)" --variables "$(RAILWAY_SERVICE_VARS)"; \
 		else \
-			$(RAILWAY) add --service "$(SERVICE)"; \
+			$(RAILWAY) add $$project_args --service "$(SERVICE)"; \
 		fi; \
 	fi
 
@@ -110,6 +119,7 @@ railway-deploy:
 	$(RAILWAY) up $(RAILWAY_UP_FLAGS) $$project_args $$env_args --service "$(SERVICE)" --path-as-root "$$path"
 
 deploy-frontend:
+	$(MAKE) railway-ensure-service SERVICE=frontend
 	$(MAKE) railway-deploy SERVICE=frontend
 
 deploy-server:
@@ -134,6 +144,12 @@ deploy-indexer:
 
 deploy-core:
 	@set -eu; \
+	$(MAKE) railway-ensure-service SERVICE=frontend; \
+	$(MAKE) railway-ensure-service SERVICE=server RAILWAY_SERVICE_VARS="APP_ROLE=$(call railway_role_for_service,server)"; \
+	$(MAKE) railway-ensure-service SERVICE=external-event-projector RAILWAY_SERVICE_VARS="APP_ROLE=$(call railway_role_for_service,external-event-projector)"; \
+	$(MAKE) railway-ensure-service SERVICE=webhook-producer RAILWAY_SERVICE_VARS="APP_ROLE=$(call railway_role_for_service,webhook-producer)"; \
+	$(MAKE) railway-ensure-service SERVICE=webhook-worker RAILWAY_SERVICE_VARS="APP_ROLE=$(call railway_role_for_service,webhook-worker)"; \
+	$(MAKE) railway-ensure-service SERVICE=indexer RAILWAY_SERVICE_VARS="APP_ROLE=$(call railway_role_for_service,indexer)"; \
 	FLAGS="$(if $(RAILWAY_UP_FLAGS),$(RAILWAY_UP_FLAGS),$(RAILWAY_CHAIN_UP_FLAGS))"; \
 	status=0; \
 	$(MAKE) railway-deploy SERVICE=frontend RAILWAY_UP_FLAGS="$$FLAGS" & pid_frontend=$$!; \

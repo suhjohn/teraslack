@@ -1,6 +1,13 @@
 import { useQueryClient } from '@tanstack/react-query'
 import { createFileRoute } from '@tanstack/react-router'
-import { ChevronDown, ChevronRight, LoaderCircle, Plus, Trash2, X } from 'lucide-react'
+import {
+  ChevronDown,
+  ChevronRight,
+  LoaderCircle,
+  Plus,
+  Trash2,
+  X,
+} from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { Alert } from '../../components/ui/alert'
 import { Badge } from '../../components/ui/badge'
@@ -50,10 +57,7 @@ function EventsPage() {
     () =>
       (eventsQuery.data?.items ?? [])
         .filter((e) => e.workspace_id === workspaceID)
-        .sort(
-          (a, b) =>
-            Date.parse(b.occurred_at) - Date.parse(a.occurred_at),
-        ),
+        .sort((a, b) => Date.parse(b.occurred_at) - Date.parse(a.occurred_at)),
     [eventsQuery.data?.items, workspaceID],
   )
 
@@ -62,7 +66,9 @@ function EventsPage() {
     try {
       await deleteMutation.mutateAsync({ id })
       await queryClient.invalidateQueries({
-        queryKey: getListEventSubscriptionsQueryKey({ workspace_id: workspaceID }),
+        queryKey: getListEventSubscriptionsQueryKey({
+          workspace_id: workspaceID,
+        }),
       })
     } catch (err) {
       setDeleteError(getErrorMessage(err, 'Failed to delete subscription.'))
@@ -211,12 +217,17 @@ function SubscriptionRow({
           {sub.url}
         </div>
         <div className="flex flex-wrap gap-2">
-          {sub.type ? (
+          {sub.event_type ? (
             <span className="text-[11px] text-[var(--ink-soft)]">
-              type: <span className="font-mono text-[var(--ink)]">{sub.type}</span>
+              type:{' '}
+              <span className="font-mono text-[var(--ink)]">
+                {sub.event_type}
+              </span>
             </span>
           ) : (
-            <span className="text-[11px] text-[var(--ink-soft)]">all events</span>
+            <span className="text-[11px] text-[var(--ink-soft)]">
+              all events
+            </span>
           )}
           {sub.resource_type ? (
             <span className="text-[11px] text-[var(--ink-soft)]">
@@ -246,13 +257,7 @@ function SubscriptionRow({
   )
 }
 
-function EventRow({
-  event,
-  index,
-}: {
-  event: ExternalEvent
-  index: number
-}) {
+function EventRow({ event, index }: { event: ExternalEvent; index: number }) {
   const [expanded, setExpanded] = useState(false)
 
   return (
@@ -304,7 +309,7 @@ function CreateSubscriptionForm({
 }) {
   const [url, setUrl] = useState('')
   const [secret, setSecret] = useState('')
-  const [type, setType] = useState('')
+  const [eventType, setEventType] = useState('')
   const [error, setError] = useState('')
   const createMutation = useCreateEventSubscription()
 
@@ -317,7 +322,7 @@ function CreateSubscriptionForm({
           workspace_id: workspaceID,
           url: url.trim(),
           secret: secret.trim(),
-          type: type.trim() || undefined,
+          event_type: eventType.trim() || undefined,
         },
       })
       onDone()
@@ -348,8 +353,8 @@ function CreateSubscriptionForm({
           />
         </div>
         <Input
-          value={type}
-          onChange={(e) => setType(e.target.value)}
+          value={eventType}
+          onChange={(e) => setEventType(e.target.value)}
           placeholder="Event type filter — e.g. conversation.message.created (leave blank for all)"
         />
         <div className="flex gap-2 pt-1">

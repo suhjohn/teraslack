@@ -1,0 +1,1980 @@
+openapi: 3.0.3
+info:
+  title: Teraslack Messaging API
+  version: 0.1.0
+  description: Canonical HTTP API contract for the Teraslack server.
+servers:
+  - url: http://localhost:8080
+security:
+  - bearerAuth: []
+tags:
+  - name: Health
+    description: Operational health endpoints.
+  - name: Auth
+    description: Authentication and session lifecycle endpoints.
+  - name: Profile
+    description: Authenticated caller bootstrap and profile endpoints.
+  - name: API Keys
+    description: Personal and workspace-scoped API key management.
+  - name: Search
+    description: Cross-entity search endpoints.
+  - name: Workspaces
+    description: Workspace lifecycle, membership, and invite endpoints.
+  - name: Conversations
+    description: Conversation lifecycle, participants, invites, and read state.
+  - name: Messages
+    description: Message lifecycle endpoints.
+  - name: Events
+    description: External event feed endpoints.
+  - name: Event Subscriptions
+    description: Webhook subscription management endpoints.
+paths:
+  /healthz:
+    get:
+      tags:
+        - Health
+      operationId: getHealth
+      summary: Check API health
+      description: Returns a simple liveness response for the current server instance.
+      security: []
+      responses:
+        '200':
+          description: Server health status.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericStatusResponse'
+        default:
+          $ref: '#/components/responses/ApiErrorResponse'
+  /auth/email/start:
+    post:
+      tags:
+        - Auth
+      operationId: startEmailLogin
+      summary: Start email sign-in
+      description: Sends a one-time verification code to the supplied email address.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StartEmailLoginRequest'
+      responses:
+        '202':
+          description: Verification email queued.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericStatusResponse'
+        default:
+          $ref: '#/components/responses/ApiErrorResponse'
+  /auth/email/verify:
+    post:
+      tags:
+        - Auth
+      operationId: verifyEmailLogin
+      summary: Complete email sign-in
+      description: Exchanges an email verification code for a session and authenticated user payload.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VerifyEmailLoginRequest'
+      responses:
+        '200':
+          description: Session created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        default:
+          $ref: '#/components/responses/ApiErrorResponse'
+  /auth/oauth/google/start:
+    post:
+      tags:
+        - Auth
+      operationId: startGoogleOAuth
+      summary: Start Google OAuth
+      description: Creates an OAuth state record and returns the Google authorization URL to open in the browser.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OAuthStartRequest'
+      responses:
+        '200':
+          description: OAuth authorization URL.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OAuthStartResponse'
+        default:
+          $ref: '#/components/responses/ApiErrorResponse'
+  /auth/oauth/google/callback:
+    get:
+      tags:
+        - Auth
+      operationId: completeGoogleOAuth
+      summary: Complete Google OAuth
+      description: Completes the Google OAuth flow using the provider callback code and state.
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/OAuthCodeQuery'
+        - $ref: '#/components/parameters/OAuthStateQuery'
+      responses:
+        '200':
+          description: Session created when no redirect URI was supplied during OAuth start.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '302':
+          description: Redirect to the client-provided redirect URI after successful sign-in.
+        default:
+          $ref: '#/components/responses/ApiErrorResponse'
+  /auth/oauth/github/start:
+    post:
+      tags:
+        - Auth
+      operationId: startGitHubOAuth
+      summary: Start GitHub OAuth
+      description: Creates an OAuth state record and returns the GitHub authorization URL to open in the browser.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OAuthStartRequest'
+      responses:
+        '200':
+          description: OAuth authorization URL.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OAuthStartResponse'
+        default:
+          $ref: '#/components/responses/ApiErrorResponse'
+  /auth/oauth/github/callback:
+    get:
+      tags:
+        - Auth
+      operationId: completeGitHubOAuth
+      summary: Complete GitHub OAuth
+      description: Completes the GitHub OAuth flow using the provider callback code and state.
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/OAuthCodeQuery'
+        - $ref: '#/components/parameters/OAuthStateQuery'
+      responses:
+        '200':
+          description: Session created when no redirect URI was supplied during OAuth start.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '302':
+          description: Redirect to the client-provided redirect URI after successful sign-in.
+        default:
+          $ref: '#/components/responses/ApiErrorResponse'
+  /auth/sessions/current:
+    delete:
+      tags:
+        - Auth
+      operationId: revokeCurrentSession
+      summary: Revoke current session
+      description: Revokes the authenticated browser or bearer session. This endpoint requires a session credential rather than an API key.
+      responses:
+        '204':
+          description: Session revoked.
+        default:
+          $ref: '#/components/responses/ApiErrorResponse'
+  /me:
+    get:
+      tags:
+        - Profile
+      operationId: getProfile
+      summary: Get caller bootstrap state
+      description: Returns the authenticated user and the workspaces they can currently access.
+      responses:
+        '200':
+          description: Current caller bootstrap state.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MeResponse'
+        default:
+          $ref: '#/components/responses/ApiErrorResponse'
+  /me/profile:
+    patch:
+      tags:
+        - Profile
+      operationId: updateProfile
+      summary: Update caller profile
+      description: Updates the authenticated caller's handle, display name, avatar URL, or bio.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateProfileRequest'
+      responses:
+        '200':
+          description: Updated user profile.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        default:
+          $ref: '#/components/responses/ApiErrorResponse'
+  /api-keys:
+    get:
+      tags:
+        - API Keys
+      operationId: listApiKeys
+      summary: List API keys
+      description: Lists the caller's API keys. Workspace-scoped API keys cannot access this global user surface.
+      responses:
+        '200':
+          description: API keys owned by the authenticated user.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIKeysCollection'
+        default:
+          $ref: '#/components/responses/ApiErrorResponse'
+    post:
+      tags:
+        - API Keys
+      operationId: createApiKey
+      summary: Create API key
+      description: Creates a new personal or workspace-scoped API key and returns the secret once.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateAPIKeyRequest'
+      responses:
+        '201':
+          description: API key created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateAPIKeyResponse'
+        default:
+          $ref: '#/components/responses/ApiErrorResponse'
+  /api-keys/{key_id}:
+    delete:
+      tags:
+        - API Keys
+      operationId: deleteApiKey
+      summary: Revoke API key
+      description: Revokes one API key owned by the authenticated user.
+      parameters:
+        - $ref: '#/components/parameters/KeyIDPath'
+      responses:
+        '204':
+          description: API key revoked.
+        default:
+          $ref: '#/components/responses/ApiErrorResponse'
+  /search:
+    post:
+      tags:
+        - Search
+      operationId: runSearch
+      summary: Search users, workspaces, and conversations
+      description: Searches visible entities across the supported entity types.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SearchRequest'
+      responses:
+        '200':
+          description: Search results.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SearchItemsCollection'
+        default:
+          $ref: '#/components/responses/ApiErrorResponse'
+  /workspaces:
+    get:
+      tags:
+        - Workspaces
+      operationId: listWorkspaces
+      summary: List accessible workspaces
+      description: Lists workspaces visible to the caller. Workspace-scoped API keys return only their bound workspace.
+      responses:
+        '200':
+          description: Accessible workspaces.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkspacesCollection'
+        default:
+          $ref: '#/components/responses/ApiErrorResponse'
+    post:
+      tags:
+        - Workspaces
+      operationId: createWorkspace
+      summary: Create workspace
+      description: Creates a workspace, adds the caller as owner, and provisions the default general conversation.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateWorkspaceRequest'
+      responses:
+        '201':
+          description: Workspace created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Workspace'
+        default:
+          $ref: '#/components/responses/ApiErrorResponse'
+  /workspaces/{workspace_id}:
+    get:
+      tags:
+        - Workspaces
+      operationId: getWorkspace
+      summary: Get workspace
+      description: Returns one workspace visible to the caller.
+      parameters:
+        - $ref: '#/components/parameters/WorkspaceIDPath'
+      responses:
+        '200':
+          description: Workspace details.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Workspace'
+        default:
+          $ref: '#/components/responses/ApiErrorResponse'
+    patch:
+      tags:
+        - Workspaces
+      operationId: updateWorkspace
+      summary: Update workspace
+      description: Updates a workspace name or slug. Caller must be a workspace owner or admin.
+      parameters:
+        - $ref: '#/components/parameters/WorkspaceIDPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateWorkspaceRequest'
+      responses:
+        '200':
+          description: Updated workspace.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Workspace'
+        default:
+          $ref: '#/components/responses/ApiErrorResponse'
+  /workspaces/{workspace_id}/members:
+    get:
+      tags:
+        - Workspaces
+      operationId: listWorkspaceMembers
+      summary: List workspace members
+      description: Lists members of a workspace visible to the caller.
+      parameters:
+        - $ref: '#/components/parameters/WorkspaceIDPath'
+      responses:
+        '200':
+          description: Workspace members.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkspaceMembersCollection'
+        default:
+          $ref: '#/components/responses/ApiErrorResponse'
+  /workspaces/{workspace_id}/invites:
+    post:
+      tags:
+        - Workspaces
+      operationId: createWorkspaceInvite
+      summary: Create workspace invite
+      description: Creates a workspace invite token that can optionally be bound to one email address.
+      parameters:
+        - $ref: '#/components/parameters/WorkspaceIDPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateWorkspaceInviteRequest'
+      responses:
+        '201':
+          description: Workspace invite created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateWorkspaceInviteResponse'
+        default:
+          $ref: '#/components/responses/ApiErrorResponse'
+  /workspace-invites/{token}/accept:
+    post:
+      tags:
+        - Workspaces
+      operationId: acceptWorkspaceInvite
+      summary: Accept workspace invite
+      description: Accepts a workspace invite token for the authenticated caller.
+      parameters:
+        - $ref: '#/components/parameters/WorkspaceInviteTokenPath'
+      responses:
+        '200':
+          description: Accepted workspace membership.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkspaceMember'
+        default:
+          $ref: '#/components/responses/ApiErrorResponse'
+  /workspaces/{workspace_id}/members/{user_id}:
+    patch:
+      tags:
+        - Workspaces
+      operationId: updateWorkspaceMember
+      summary: Update workspace member
+      description: Updates a workspace member's role or status. Caller must be a workspace owner or admin.
+      parameters:
+        - $ref: '#/components/parameters/WorkspaceIDPath'
+        - $ref: '#/components/parameters/UserIDPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateWorkspaceMemberRequest'
+      responses:
+        '200':
+          description: Updated workspace member.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkspaceMember'
+        default:
+          $ref: '#/components/responses/ApiErrorResponse'
+  /conversations:
+    get:
+      tags:
+        - Conversations
+      operationId: listConversations
+      summary: List conversations
+      description: Lists conversations visible to the caller. Global results include only globally visible conversations; workspace results include conversations inside one workspace.
+      parameters:
+        - $ref: '#/components/parameters/WorkspaceIDQuery'
+        - $ref: '#/components/parameters/LimitQuery'
+        - $ref: '#/components/parameters/CursorQuery'
+        - $ref: '#/components/parameters/AccessPolicyQuery'
+      responses:
+        '200':
+          description: Visible conversations.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConversationsCollection'
+        default:
+          $ref: '#/components/responses/ApiErrorResponse'
+    post:
+      tags:
+        - Conversations
+      operationId: createConversation
+      summary: Create conversation
+      description: Creates a new conversation. For global two-person direct messages, the existing canonical conversation is returned instead of creating a duplicate.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateConversationRequest'
+      responses:
+        '200':
+          description: Existing canonical direct message returned.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Conversation'
+        '201':
+          description: Conversation created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Conversation'
+        default:
+          $ref: '#/components/responses/ApiErrorResponse'
+  /conversations/{conversation_id}:
+    get:
+      tags:
+        - Conversations
+      operationId: getConversation
+      summary: Get conversation
+      description: Returns one conversation visible to the caller.
+      parameters:
+        - $ref: '#/components/parameters/ConversationIDPath'
+      responses:
+        '200':
+          description: Conversation details.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Conversation'
+        default:
+          $ref: '#/components/responses/ApiErrorResponse'
+    patch:
+      tags:
+        - Conversations
+      operationId: updateConversation
+      summary: Update conversation
+      description: Updates conversation title, description, or archived state. Caller must be allowed to manage the conversation.
+      parameters:
+        - $ref: '#/components/parameters/ConversationIDPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateConversationRequest'
+      responses:
+        '200':
+          description: Updated conversation.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Conversation'
+        default:
+          $ref: '#/components/responses/ApiErrorResponse'
+  /conversations/{conversation_id}/participants:
+    get:
+      tags:
+        - Conversations
+      operationId: listConversationParticipants
+      summary: List conversation participants
+      description: Lists participants for a member-only conversation. Non-member conversations return an empty list.
+      parameters:
+        - $ref: '#/components/parameters/ConversationIDPath'
+      responses:
+        '200':
+          description: Conversation participants.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UsersCollection'
+        default:
+          $ref: '#/components/responses/ApiErrorResponse'
+    post:
+      tags:
+        - Conversations
+      operationId: addConversationParticipants
+      summary: Add conversation participants
+      description: Adds participants to a member-only conversation. Canonical direct messages cannot be mutated.
+      parameters:
+        - $ref: '#/components/parameters/ConversationIDPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddParticipantsRequest'
+      responses:
+        '200':
+          description: Updated participant list.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UsersCollection'
+        default:
+          $ref: '#/components/responses/ApiErrorResponse'
+  /conversations/{conversation_id}/participants/{user_id}:
+    delete:
+      tags:
+        - Conversations
+      operationId: removeConversationParticipant
+      summary: Remove conversation participant
+      description: Removes one participant from a member-only conversation. Canonical direct messages cannot be mutated.
+      parameters:
+        - $ref: '#/components/parameters/ConversationIDPath'
+        - $ref: '#/components/parameters/UserIDPath'
+      responses:
+        '204':
+          description: Participant removed.
+        default:
+          $ref: '#/components/responses/ApiErrorResponse'
+  /conversations/{conversation_id}/invites:
+    post:
+      tags:
+        - Conversations
+      operationId: createConversationInvite
+      summary: Create conversation invite
+      description: Creates an invite for a member-only conversation. Restricted invites can target specific users or email addresses.
+      parameters:
+        - $ref: '#/components/parameters/ConversationIDPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateConversationInviteRequest'
+      responses:
+        '201':
+          description: Conversation invite created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateConversationInviteResponse'
+        default:
+          $ref: '#/components/responses/ApiErrorResponse'
+  /conversation-invites/{token}/accept:
+    post:
+      tags:
+        - Conversations
+      operationId: acceptConversationInvite
+      summary: Accept conversation invite
+      description: Accepts a conversation invite token for the authenticated caller.
+      parameters:
+        - $ref: '#/components/parameters/ConversationInviteTokenPath'
+      responses:
+        '200':
+          description: Updated conversation after invite acceptance.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Conversation'
+        default:
+          $ref: '#/components/responses/ApiErrorResponse'
+  /conversations/{conversation_id}/messages:
+    get:
+      tags:
+        - Messages
+      operationId: listMessages
+      summary: List messages
+      description: Lists messages in one conversation in reverse chronological order.
+      parameters:
+        - $ref: '#/components/parameters/ConversationIDPath'
+        - $ref: '#/components/parameters/LimitQuery'
+        - $ref: '#/components/parameters/CursorQuery'
+        - $ref: '#/components/parameters/BeforeMessageIDQuery'
+      responses:
+        '200':
+          description: Conversation messages.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessagesCollection'
+        default:
+          $ref: '#/components/responses/ApiErrorResponse'
+    post:
+      tags:
+        - Messages
+      operationId: createMessage
+      summary: Create message
+      description: Posts one message to a conversation visible to the caller.
+      parameters:
+        - $ref: '#/components/parameters/ConversationIDPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateMessageRequest'
+      responses:
+        '201':
+          description: Message created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+        default:
+          $ref: '#/components/responses/ApiErrorResponse'
+  /messages/{message_id}:
+    patch:
+      tags:
+        - Messages
+      operationId: updateMessage
+      summary: Update message
+      description: Updates one message authored by the authenticated caller.
+      parameters:
+        - $ref: '#/components/parameters/MessageIDPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateMessageRequest'
+      responses:
+        '200':
+          description: Updated message.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+        default:
+          $ref: '#/components/responses/ApiErrorResponse'
+    delete:
+      tags:
+        - Messages
+      operationId: deleteMessage
+      summary: Delete message
+      description: Soft-deletes one message authored by the authenticated caller.
+      parameters:
+        - $ref: '#/components/parameters/MessageIDPath'
+      responses:
+        '204':
+          description: Message deleted.
+        default:
+          $ref: '#/components/responses/ApiErrorResponse'
+  /conversations/{conversation_id}/read-state:
+    put:
+      tags:
+        - Conversations
+      operationId: markConversationRead
+      summary: Update conversation read state
+      description: Marks a conversation read through one message in that conversation.
+      parameters:
+        - $ref: '#/components/parameters/ConversationIDPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateReadStateRequest'
+      responses:
+        '204':
+          description: Read state updated.
+        default:
+          $ref: '#/components/responses/ApiErrorResponse'
+  /events:
+    get:
+      tags:
+        - Events
+      operationId: listEvents
+      summary: List external events
+      description: Lists externally visible events visible to the caller, ordered by ascending event id.
+      parameters:
+        - $ref: '#/components/parameters/LimitQuery'
+        - $ref: '#/components/parameters/CursorQuery'
+        - $ref: '#/components/parameters/EventTypeQuery'
+        - $ref: '#/components/parameters/EventResourceTypeQuery'
+        - $ref: '#/components/parameters/EventResourceIDQuery'
+        - $ref: '#/components/parameters/WorkspaceIDQuery'
+      responses:
+        '200':
+          description: External events.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExternalEventsCollection'
+        default:
+          $ref: '#/components/responses/ApiErrorResponse'
+  /event-subscriptions:
+    get:
+      tags:
+        - Event Subscriptions
+      operationId: listEventSubscriptions
+      summary: List event subscriptions
+      description: Lists webhook subscriptions owned by the caller. Workspace-scoped API keys are limited to their bound workspace.
+      responses:
+        '200':
+          description: Event subscriptions.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventSubscriptionsCollection'
+        default:
+          $ref: '#/components/responses/ApiErrorResponse'
+    post:
+      tags:
+        - Event Subscriptions
+      operationId: createEventSubscription
+      summary: Create event subscription
+      description: Creates a signed webhook subscription for events visible to the caller.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateEventSubscriptionRequest'
+      responses:
+        '201':
+          description: Event subscription created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventSubscription'
+        default:
+          $ref: '#/components/responses/ApiErrorResponse'
+  /event-subscriptions/{subscription_id}:
+    patch:
+      tags:
+        - Event Subscriptions
+      operationId: updateEventSubscription
+      summary: Update event subscription
+      description: Enables or disables one webhook subscription owned by the caller.
+      parameters:
+        - $ref: '#/components/parameters/SubscriptionIDPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateEventSubscriptionRequest'
+      responses:
+        '200':
+          description: Updated event subscription.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventSubscription'
+        default:
+          $ref: '#/components/responses/ApiErrorResponse'
+    delete:
+      tags:
+        - Event Subscriptions
+      operationId: deleteEventSubscription
+      summary: Delete event subscription
+      description: Deletes one webhook subscription owned by the caller.
+      parameters:
+        - $ref: '#/components/parameters/SubscriptionIDPath'
+      responses:
+        '204':
+          description: Event subscription deleted.
+        default:
+          $ref: '#/components/responses/ApiErrorResponse'
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+  responses:
+    ApiErrorResponse:
+      description: Error response.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+  parameters:
+    KeyIDPath:
+      in: path
+      name: key_id
+      required: true
+      description: API key identifier.
+      schema:
+        type: string
+        format: uuid
+    WorkspaceIDPath:
+      in: path
+      name: workspace_id
+      required: true
+      description: Workspace identifier.
+      schema:
+        type: string
+        format: uuid
+    UserIDPath:
+      in: path
+      name: user_id
+      required: true
+      description: User identifier.
+      schema:
+        type: string
+        format: uuid
+    ConversationIDPath:
+      in: path
+      name: conversation_id
+      required: true
+      description: Conversation identifier.
+      schema:
+        type: string
+        format: uuid
+    MessageIDPath:
+      in: path
+      name: message_id
+      required: true
+      description: Message identifier.
+      schema:
+        type: string
+        format: uuid
+    SubscriptionIDPath:
+      in: path
+      name: subscription_id
+      required: true
+      description: Event subscription identifier.
+      schema:
+        type: string
+        format: uuid
+    WorkspaceInviteTokenPath:
+      in: path
+      name: token
+      required: true
+      description: Workspace invite token.
+      schema:
+        type: string
+    ConversationInviteTokenPath:
+      in: path
+      name: token
+      required: true
+      description: Conversation invite token.
+      schema:
+        type: string
+    OAuthCodeQuery:
+      in: query
+      name: code
+      required: true
+      description: Authorization code returned by the OAuth provider.
+      schema:
+        type: string
+    OAuthStateQuery:
+      in: query
+      name: state
+      required: true
+      description: OAuth state value returned by the OAuth provider.
+      schema:
+        type: string
+    WorkspaceIDQuery:
+      in: query
+      name: workspace_id
+      required: false
+      description: Restrict the request to one workspace.
+      schema:
+        type: string
+        format: uuid
+    LimitQuery:
+      in: query
+      name: limit
+      required: false
+      description: Maximum number of items to return. Use the next_cursor from the response to continue paging.
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 200
+    CursorQuery:
+      in: query
+      name: cursor
+      required: false
+      description: Opaque pagination cursor returned as next_cursor by a previous page.
+      schema:
+        type: string
+    AccessPolicyQuery:
+      in: query
+      name: access_policy
+      required: false
+      description: Filter conversations by access policy.
+      schema:
+        type: string
+        enum:
+          - members
+          - workspace
+          - authenticated
+    BeforeMessageIDQuery:
+      in: query
+      name: before_message_id
+      required: false
+      description: Return messages created before the referenced message.
+      schema:
+        type: string
+        format: uuid
+    EventTypeQuery:
+      in: query
+      name: type
+      required: false
+      description: Restrict the event feed to one event type.
+      schema:
+        type: string
+    EventResourceTypeQuery:
+      in: query
+      name: resource_type
+      required: false
+      description: Restrict the event feed to one resource type.
+      schema:
+        $ref: '#/components/schemas/EventResourceType'
+    EventResourceIDQuery:
+      in: query
+      name: resource_id
+      required: false
+      description: Restrict the event feed to one resource id. Requires resource_type.
+      schema:
+        type: string
+        format: uuid
+  schemas:
+    FreeFormObject:
+      type: object
+      description: Free-form JSON object.
+      additionalProperties: true
+    EventResourceType:
+      type: string
+      description: Public resource scope for external events. Message events are conversation-scoped.
+      enum:
+        - conversation
+        - user
+        - workspace
+    ErrorResponse:
+      type: object
+      required:
+        - code
+        - message
+      properties:
+        code:
+          type: string
+          description: Stable machine-readable error code.
+        message:
+          type: string
+          description: Human-readable error message.
+        request_id:
+          type: string
+          description: Request identifier for server-side troubleshooting.
+        errors:
+          type: array
+          description: Field-level validation details when request validation fails.
+          items:
+            $ref: '#/components/schemas/ValidationDetail'
+    ValidationDetail:
+      type: object
+      required:
+        - field
+        - code
+        - message
+      properties:
+        field:
+          type: string
+          description: Request field that failed validation.
+        code:
+          type: string
+          description: Stable machine-readable validation error code.
+        message:
+          type: string
+          description: Human-readable validation message.
+    SessionEnvelope:
+      type: object
+      required:
+        - token
+        - expires_at
+      properties:
+        token:
+          type: string
+          description: Bearer session token.
+        expires_at:
+          type: string
+          format: date-time
+          description: Session expiration time.
+    UserProfile:
+      type: object
+      required:
+        - handle
+        - display_name
+      properties:
+        handle:
+          type: string
+          description: Public user handle.
+        display_name:
+          type: string
+          description: Human-friendly display name.
+        avatar_url:
+          type: string
+          format: uri
+          nullable: true
+          description: Avatar image URL.
+        bio:
+          type: string
+          nullable: true
+          description: Optional profile bio.
+    User:
+      type: object
+      required:
+        - id
+        - principal_type
+        - status
+        - profile
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: User identifier.
+        principal_type:
+          type: string
+          description: Principal type for the user record.
+        status:
+          type: string
+          description: User status.
+        email:
+          type: string
+          format: email
+          nullable: true
+          description: Primary email address when available.
+        profile:
+          $ref: '#/components/schemas/UserProfile'
+    WorkspaceMembershipSummary:
+      type: object
+      required:
+        - workspace_id
+        - role
+        - status
+        - name
+      properties:
+        workspace_id:
+          type: string
+          format: uuid
+          description: Workspace identifier.
+        role:
+          type: string
+          enum:
+            - owner
+            - admin
+            - member
+          description: Role held in the workspace.
+        status:
+          type: string
+          enum:
+            - invited
+            - active
+            - suspended
+            - removed
+          description: Membership status in the workspace.
+        name:
+          type: string
+          description: Workspace display name.
+    MeResponse:
+      type: object
+      required:
+        - user
+        - workspaces
+      properties:
+        user:
+          $ref: '#/components/schemas/User'
+        workspaces:
+          type: array
+          description: Workspace memberships visible to the caller.
+          items:
+            $ref: '#/components/schemas/WorkspaceMembershipSummary'
+    UpdateProfileRequest:
+      type: object
+      description: Fields to update on the authenticated caller's profile.
+      properties:
+        handle:
+          type: string
+          description: New public handle. Empty values are rejected.
+        display_name:
+          type: string
+          description: New display name. Blank values clear the field server-side only when supported.
+        avatar_url:
+          type: string
+          format: uri
+          nullable: true
+          description: New avatar URL or null to clear it.
+        bio:
+          type: string
+          nullable: true
+          description: New bio or null to clear it.
+    StartEmailLoginRequest:
+      type: object
+      required:
+        - email
+      properties:
+        email:
+          type: string
+          format: email
+          description: Email address to receive a verification code.
+    VerifyEmailLoginRequest:
+      type: object
+      required:
+        - email
+        - code
+      properties:
+        email:
+          type: string
+          format: email
+          description: Email address used to start sign-in.
+        code:
+          type: string
+          description: Verification code delivered by email.
+    OAuthStartRequest:
+      type: object
+      required:
+        - redirect_uri
+      properties:
+        redirect_uri:
+          type: string
+          format: uri
+          description: Client URI to redirect to after OAuth completes successfully.
+    OAuthStartResponse:
+      type: object
+      required:
+        - auth_url
+        - state
+      properties:
+        auth_url:
+          type: string
+          format: uri
+          description: Provider authorization URL to open in the browser.
+        state:
+          type: string
+          description: OAuth state value associated with the authorization request.
+    GenericStatusResponse:
+      type: object
+      required:
+        - status
+      properties:
+        status:
+          type: string
+          description: Simple status string.
+    AuthResponse:
+      type: object
+      required:
+        - session
+        - user
+      properties:
+        session:
+          $ref: '#/components/schemas/SessionEnvelope'
+        user:
+          $ref: '#/components/schemas/User'
+    APIKey:
+      type: object
+      required:
+        - id
+        - label
+        - scope_type
+        - created_at
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: API key identifier.
+        label:
+          type: string
+          description: Human-readable API key label.
+        scope_type:
+          type: string
+          enum:
+            - user
+            - workspace
+          description: Whether the key is user-scoped or workspace-scoped.
+        scope_workspace_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Workspace bound to the key when scope_type is workspace.
+        expires_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: Optional API key expiration time.
+        last_used_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: Last observed use time.
+        revoked_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: Revocation time when the key has been revoked.
+        created_at:
+          type: string
+          format: date-time
+          description: Creation time.
+    APIKeysCollection:
+      type: object
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/APIKey'
+        next_cursor:
+          type: string
+          description: Pagination cursor when additional results are available.
+    CreateAPIKeyRequest:
+      type: object
+      required:
+        - label
+        - scope_type
+      properties:
+        label:
+          type: string
+          description: Human-readable API key label.
+        scope_type:
+          type: string
+          enum:
+            - user
+            - workspace
+          description: Whether to create a personal key or a workspace-scoped key.
+        scope_workspace_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Required when scope_type is workspace. Must be omitted for user-scoped keys.
+        expires_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: Optional RFC3339 expiration time for the key.
+    CreateAPIKeyResponse:
+      type: object
+      required:
+        - api_key
+        - secret
+      properties:
+        api_key:
+          $ref: '#/components/schemas/APIKey'
+        secret:
+          type: string
+          description: Plaintext API key secret. It is returned only once.
+    SearchRequest:
+      type: object
+      required:
+        - query
+      properties:
+        query:
+          type: string
+          description: Search text.
+        entity_types:
+          type: array
+          description: Entity types to include. Omit to search users, workspaces, and conversations.
+          items:
+            type: string
+            enum:
+              - user
+              - workspace
+              - conversation
+        workspace_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Restrict search visibility to one workspace.
+        limit:
+          type: integer
+          minimum: 1
+          maximum: 100
+          nullable: true
+          description: Maximum number of results to return.
+        cursor:
+          type: string
+          nullable: true
+          description: Opaque pagination cursor returned as next_cursor by a previous page.
+    SearchItem:
+      type: object
+      required:
+        - entity_type
+        - id
+        - title
+      properties:
+        entity_type:
+          type: string
+          description: Matched entity type.
+        id:
+          type: string
+          description: Matched entity identifier.
+        title:
+          type: string
+          description: Primary display string.
+        subtitle:
+          type: string
+          description: Secondary display string.
+        workspace_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Workspace scope for the result when applicable.
+    SearchItemsCollection:
+      type: object
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/SearchItem'
+        next_cursor:
+          type: string
+          description: Pagination cursor when additional results are available.
+    Workspace:
+      type: object
+      required:
+        - id
+        - slug
+        - name
+        - created_by_user_id
+        - created_at
+        - updated_at
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Workspace identifier.
+        slug:
+          type: string
+          description: Workspace slug.
+        name:
+          type: string
+          description: Workspace display name.
+        created_by_user_id:
+          type: string
+          format: uuid
+          description: Creator user identifier.
+        created_at:
+          type: string
+          format: date-time
+          description: Creation time.
+        updated_at:
+          type: string
+          format: date-time
+          description: Last update time.
+    WorkspacesCollection:
+      type: object
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Workspace'
+        next_cursor:
+          type: string
+          description: Pagination cursor when additional results are available.
+    CreateWorkspaceRequest:
+      type: object
+      required:
+        - name
+        - slug
+      properties:
+        name:
+          type: string
+          description: Workspace display name.
+        slug:
+          type: string
+          description: Workspace slug. The server normalizes it to lowercase.
+    UpdateWorkspaceRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          description: New workspace display name.
+        slug:
+          type: string
+          description: New workspace slug.
+    WorkspaceMember:
+      type: object
+      required:
+        - workspace_id
+        - user_id
+        - role
+        - status
+        - user
+      properties:
+        workspace_id:
+          type: string
+          format: uuid
+          description: Workspace identifier.
+        user_id:
+          type: string
+          format: uuid
+          description: User identifier.
+        role:
+          type: string
+          enum:
+            - owner
+            - admin
+            - member
+          description: Role held in the workspace.
+        status:
+          type: string
+          enum:
+            - invited
+            - active
+            - suspended
+            - removed
+          description: Membership status.
+        user:
+          $ref: '#/components/schemas/User'
+    WorkspaceMembersCollection:
+      type: object
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/WorkspaceMember'
+        next_cursor:
+          type: string
+          description: Pagination cursor when additional results are available.
+    CreateWorkspaceInviteRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+          nullable: true
+          description: Optional email address that must match the accepting user.
+    CreateWorkspaceInviteResponse:
+      type: object
+      required:
+        - invite_token
+        - invite_url
+      properties:
+        invite_token:
+          type: string
+          description: Raw workspace invite token.
+        invite_url:
+          type: string
+          format: uri
+          description: Accept URL for the invite token.
+    UpdateWorkspaceMemberRequest:
+      type: object
+      description: At least one field is required.
+      properties:
+        role:
+          type: string
+          enum:
+            - owner
+            - admin
+            - member
+          description: New workspace role.
+        status:
+          type: string
+          enum:
+            - invited
+            - active
+            - suspended
+            - removed
+          description: New workspace membership status.
+    Conversation:
+      type: object
+      required:
+        - id
+        - access_policy
+        - participant_count
+        - created_by_user_id
+        - archived
+        - created_at
+        - updated_at
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Conversation identifier.
+        workspace_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Workspace owning the conversation, or null for global conversations.
+        access_policy:
+          type: string
+          enum:
+            - members
+            - workspace
+            - authenticated
+          description: Conversation visibility policy.
+        participant_count:
+          type: integer
+          description: Number of participants currently in the conversation.
+        title:
+          type: string
+          nullable: true
+          description: Conversation title.
+        description:
+          type: string
+          nullable: true
+          description: Conversation description.
+        created_by_user_id:
+          type: string
+          format: uuid
+          description: Creator user identifier.
+        archived:
+          type: boolean
+          description: Whether the conversation is archived.
+        last_message_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: Timestamp of the most recent message.
+        created_at:
+          type: string
+          format: date-time
+          description: Creation time.
+        updated_at:
+          type: string
+          format: date-time
+          description: Last update time.
+    ConversationsCollection:
+      type: object
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Conversation'
+        next_cursor:
+          type: string
+          description: Pagination cursor when additional results are available.
+    CreateConversationRequest:
+      type: object
+      required:
+        - access_policy
+      properties:
+        workspace_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Workspace to create the conversation in. Omit for global conversations.
+        access_policy:
+          type: string
+          enum:
+            - members
+            - workspace
+            - authenticated
+          description: Visibility policy for the conversation.
+        participant_user_ids:
+          type: array
+          description: Participant user ids for member-only conversations. Omit for workspace or authenticated conversations.
+          items:
+            type: string
+            format: uuid
+        title:
+          type: string
+          nullable: true
+          description: Conversation title. Required for non-member conversations.
+        description:
+          type: string
+          nullable: true
+          description: Optional conversation description.
+    UpdateConversationRequest:
+      type: object
+      properties:
+        title:
+          type: string
+          nullable: true
+          description: New conversation title.
+        description:
+          type: string
+          nullable: true
+          description: New conversation description.
+        archived:
+          type: boolean
+          nullable: true
+          description: Whether to archive or unarchive the conversation.
+    UsersCollection:
+      type: object
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/User'
+        next_cursor:
+          type: string
+          description: Pagination cursor when additional results are available.
+    AddParticipantsRequest:
+      type: object
+      required:
+        - user_ids
+      properties:
+        user_ids:
+          type: array
+          description: Users to add to the conversation.
+          items:
+            type: string
+            format: uuid
+    CreateConversationInviteRequest:
+      type: object
+      required:
+        - mode
+      properties:
+        expires_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: Optional invite expiration time.
+        mode:
+          type: string
+          enum:
+            - link
+            - restricted
+          description: Link invites can be accepted by any eligible caller; restricted invites require allowed users or emails.
+        allowed_user_ids:
+          type: array
+          description: Allowed user ids for restricted invites.
+          items:
+            type: string
+            format: uuid
+        allowed_emails:
+          type: array
+          description: Allowed email addresses for restricted invites.
+          items:
+            type: string
+            format: email
+    CreateConversationInviteResponse:
+      type: object
+      required:
+        - invite_token
+        - invite_url
+      properties:
+        invite_token:
+          type: string
+          description: Raw conversation invite token.
+        invite_url:
+          type: string
+          format: uri
+          description: Accept URL for the invite token.
+    Message:
+      type: object
+      required:
+        - id
+        - conversation_id
+        - author_user_id
+        - body_text
+        - created_at
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Message identifier.
+        conversation_id:
+          type: string
+          format: uuid
+          description: Conversation identifier.
+        author_user_id:
+          type: string
+          format: uuid
+          description: Author user identifier.
+        body_text:
+          type: string
+          description: Plaintext message body.
+        body_rich:
+          allOf:
+            - $ref: '#/components/schemas/FreeFormObject'
+          nullable: true
+          description: Structured rich body payload.
+        metadata:
+          allOf:
+            - $ref: '#/components/schemas/FreeFormObject'
+          nullable: true
+          description: Message metadata payload.
+        edited_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: Message edit time.
+        deleted_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: Soft delete time.
+        created_at:
+          type: string
+          format: date-time
+          description: Creation time.
+    MessagesCollection:
+      type: object
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Message'
+        next_cursor:
+          type: string
+          description: Pagination cursor when additional results are available.
+    CreateMessageRequest:
+      type: object
+      description: body_text or body_rich must be provided.
+      properties:
+        body_text:
+          type: string
+          description: Plaintext message body.
+        body_rich:
+          allOf:
+            - $ref: '#/components/schemas/FreeFormObject'
+          nullable: true
+          description: Structured rich body payload.
+        metadata:
+          allOf:
+            - $ref: '#/components/schemas/FreeFormObject'
+          nullable: true
+          description: Message metadata payload.
+    UpdateMessageRequest:
+      type: object
+      description: body_text or body_rich must be provided.
+      properties:
+        body_text:
+          type: string
+          description: Replacement plaintext message body.
+        body_rich:
+          allOf:
+            - $ref: '#/components/schemas/FreeFormObject'
+          nullable: true
+          description: Replacement structured rich body payload.
+        metadata:
+          allOf:
+            - $ref: '#/components/schemas/FreeFormObject'
+          nullable: true
+          description: Replacement metadata payload.
+    UpdateReadStateRequest:
+      type: object
+      required:
+        - last_read_message_id
+      properties:
+        last_read_message_id:
+          type: string
+          format: uuid
+          description: Message id to mark as the caller's last read message.
+    ExternalEvent:
+      type: object
+      required:
+        - id
+        - type
+        - resource_type
+        - resource_id
+        - occurred_at
+        - payload
+      properties:
+        id:
+          type: integer
+          format: int64
+          description: Monotonic event identifier.
+        workspace_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Workspace that scoped the event when applicable.
+        type:
+          type: string
+          description: Event type.
+        resource_type:
+          $ref: '#/components/schemas/EventResourceType'
+        resource_id:
+          type: string
+          format: uuid
+          description: Resource identifier addressed by the event.
+        occurred_at:
+          type: string
+          format: date-time
+          description: Event occurrence time.
+        payload:
+          $ref: '#/components/schemas/FreeFormObject'
+    ExternalEventsCollection:
+      type: object
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ExternalEvent'
+        next_cursor:
+          type: string
+          description: Pagination cursor when additional results are available.
+    EventSubscription:
+      type: object
+      required:
+        - id
+        - url
+        - enabled
+        - created_at
+        - updated_at
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Event subscription identifier.
+        workspace_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Workspace scope for the subscription when applicable.
+        url:
+          type: string
+          format: uri
+          description: Webhook delivery URL.
+        enabled:
+          type: boolean
+          description: Whether deliveries are enabled.
+        event_type:
+          type: string
+          nullable: true
+          description: Optional event type filter.
+        resource_type:
+          allOf:
+            - $ref: '#/components/schemas/EventResourceType'
+          nullable: true
+          description: Optional resource type filter.
+        resource_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Optional resource id filter.
+        created_at:
+          type: string
+          format: date-time
+          description: Creation time.
+        updated_at:
+          type: string
+          format: date-time
+          description: Last update time.
+    EventSubscriptionsCollection:
+      type: object
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/EventSubscription'
+        next_cursor:
+          type: string
+          description: Pagination cursor when additional results are available.
+    CreateEventSubscriptionRequest:
+      type: object
+      required:
+        - url
+        - secret
+      properties:
+        workspace_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Workspace scope for the subscription. Omit for globally visible events.
+        url:
+          type: string
+          format: uri
+          description: Webhook delivery URL.
+        event_type:
+          type: string
+          nullable: true
+          description: Optional event type filter.
+        resource_type:
+          allOf:
+            - $ref: '#/components/schemas/EventResourceType'
+          nullable: true
+          description: Optional resource type filter.
+        resource_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Optional resource id filter. Requires resource_type.
+        secret:
+          type: string
+          description: Shared signing secret used for webhook signatures. Must not be blank.
+    UpdateEventSubscriptionRequest:
+      type: object
+      required:
+        - enabled
+      properties:
+        enabled:
+          type: boolean
+          description: Whether the subscription should be enabled.

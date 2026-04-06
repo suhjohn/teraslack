@@ -38,6 +38,118 @@ This removes the ambiguity that happens when a product has both a global user an
 - Make the API resource-oriented and unsurprising.
 - Let human users and agents share the same core identity and conversation model.
 
+### Runtime And Deployment Baseline
+
+- frontend remains a separate TypeScript app in `frontend/`
+- backend remains a Go service set rooted in `server/`
+- PostgreSQL remains the system-of-record database
+- local development remains Docker Compose based
+- deployment remains a multi-service Railway layout
+- the backend remains split into separate Go binaries for the API server and background workers
+
+Expected long-running services:
+
+- `frontend`
+- `server`
+- `external-event-projector`
+- `webhook-producer`
+- `webhook-worker`
+- `indexer`
+
+### Frontend Stack Baseline
+
+- React 19
+- TypeScript
+- Bun for package management and frontend scripts
+- Vite
+- TanStack Start
+- TanStack Router with file-based routes
+- TanStack Query
+- Tailwind CSS v4
+- Radix UI primitives where custom product-styled controls are needed
+- Lucide icons
+- Nitro runtime integration used by the TanStack Start setup
+- Vitest and Testing Library for frontend tests
+- ESLint and Prettier for linting and formatting
+
+### Frontend API Contract Baseline
+
+- generated client code lives under `frontend/src/lib/openapi/`
+- `orval` generates the frontend API client from `server/api/openapi.yaml`
+- custom fetch behavior continues to live in `frontend/src/lib/orval-mutator.ts`
+
+### Frontend Folder Structure Baseline
+
+- `frontend/src/routes/` for route files and route-local screens
+- `frontend/src/components/` for shared UI and feature components
+- `frontend/src/lib/` for API wrappers, generated clients, utilities, and non-visual helpers
+- `frontend/src/styles.css` for app-wide styling entrypoint
+- `frontend/src/routeTree.gen.ts` remains generated output, not handwritten architecture
+
+### Backend Stack Baseline
+
+- Go 1.25
+- standard `net/http` server flow with generated OpenAPI bindings
+- `oapi-codegen` for strict server interfaces and API models
+- PostgreSQL 16
+- `pgx/v5` for Postgres access
+- `golang-migrate` for schema migrations
+- `sqlc` for query code generation
+- `kin-openapi` for OpenAPI tooling and validation
+- AWS SDK v2 for S3-compatible object storage integration
+- object-storage queue files with CAS writes and per-process in-memory batching
+- `testcontainers-go` for integration-heavy backend tests
+
+### Supporting Integrations Baseline
+
+- Resend for email auth delivery
+- Google OAuth
+- GitHub OAuth
+- S3-compatible object storage
+- Turbopuffer for search/indexing
+
+### Backend Folder Structure Baseline
+
+- `server/api/` for the OpenAPI contract and generation config
+- `server/cmd/` for binary entrypoints
+- `server/internal/domain/` for core domain types, enums, and generated shared contracts
+- `server/internal/service/` for application services and write/read orchestration
+- `server/internal/handler/` for HTTP adapters and request/response wiring
+- `server/internal/repository/` for persistence interfaces, migrations, queries, and generated DB access
+- `server/internal/eventsourcing/` for the internal event log and projection machinery
+- `server/internal/queue/` for background queue producer and worker logic
+- `server/internal/search/` for search indexing integrations
+- `server/internal/s3/` for object storage integration
+- `server/internal/openapicli/` for CLI exposure of the API contract
+- `server/internal/teraslackmcp/` and `server/internal/teraslackstdio/` for MCP and stdio-facing server integrations
+- `server/pkg/` only for truly reusable non-domain helper packages
+
+### Backend Binary Baseline
+
+- `server`
+- `external-event-projector`
+- `webhook-producer`
+- `webhook-worker`
+- `indexer`
+- codegen and admin helpers may exist as separate commands when needed
+
+### Root Repository Layout Baseline
+
+- `docs/` for specs and supporting architecture docs
+- `frontend/` for the web app
+- `server/` for the Go backend and worker binaries
+- `scripts/` for release and integration scripts
+- `docker-compose.yml` and `docker-compose.dev.yml` for local orchestration
+- root `Makefile` for common dev, deploy, and release workflows
+
+### Contract And Codegen Baseline
+
+- `server/api/openapi.yaml` remains the canonical HTTP API contract
+- backend bindings are generated into `server/internal/api/openapi.gen.go`
+- frontend API client code is generated from the same OpenAPI document
+- SQL query code is generated from checked-in SQL and migrations, not handwritten ad hoc data access
+- generated files remain checked in where that was the v0 workflow
+
 ## Core Concepts
 
 ### User
@@ -267,6 +379,7 @@ Rules:
 - projectors may be restarted and replayed safely
 - projection output must be idempotent
 - projector failure must not roll back the original write transaction
+- malformed internal events are recorded as projection failures and skipped so later events in the shard can continue
 
 ### Visibility Rule
 
@@ -413,9 +526,6 @@ Use monotonically increasing bigint ids for:
 
 - `internal_events.id`
 - `external_events.id`
-- `workspace_event_feed.feed_id`
-- `conversation_event_feed.feed_id`
-- `user_event_feed.feed_id`
 - `external_event_projection_failures.id`
 
 ### Tables
@@ -605,10 +715,8 @@ Fields:
 - `aggregate_id`
 - `workspace_id` nullable FK `workspaces.id`
 - `actor_user_id` nullable FK `users.id`
-- `shard_key`
 - `shard_id`
 - `payload` JSONB
-- `metadata` nullable JSONB
 - `created_at`
 
 Rules:
@@ -616,7 +724,6 @@ Rules:
 - append-only
 - never updated in place
 - `payload` contains the event snapshot needed for replay or projection
-- `metadata` may contain actor and request context
 
 Recommended aggregate types:
 
@@ -791,7 +898,6 @@ Fields:
 - `occurred_at`
 - `payload` JSONB
 - `source_internal_event_id` nullable FK `internal_events.id`
-- `source_internal_event_ids` JSONB
 - `dedupe_key`
 - `created_at`
 
@@ -799,6 +905,7 @@ Rules:
 
 - `workspace_id` is nullable for global conversation events
 - `resource_type` is a public-facing type, not necessarily the internal aggregate type
+- message lifecycle events are conversation-scoped and therefore use `resource_type = conversation`
 - `dedupe_key` makes projector writes idempotent
 
 Recommended resource types:
@@ -806,7 +913,6 @@ Recommended resource types:
 - `user`
 - `workspace`
 - `conversation`
-- `message`
 
 #### `workspace_event_feed`
 
@@ -814,10 +920,8 @@ Resource feed index for workspace-scoped events.
 
 Fields:
 
-- `feed_id` PK bigint sequence
 - `workspace_id` FK `workspaces.id`
 - `external_event_id` FK `external_events.id`
-- `created_at`
 
 Unique key:
 
@@ -829,10 +933,8 @@ Resource feed index for conversation-scoped events.
 
 Fields:
 
-- `feed_id` PK bigint sequence
 - `conversation_id` FK `conversations.id`
 - `external_event_id` FK `external_events.id`
-- `created_at`
 
 Unique key:
 
@@ -844,10 +946,8 @@ Resource feed index for user-scoped events.
 
 Fields:
 
-- `feed_id` PK bigint sequence
 - `user_id` FK `users.id`
 - `external_event_id` FK `external_events.id`
-- `created_at`
 
 Unique key:
 
@@ -1748,6 +1848,8 @@ Rules:
 
 - `resource_id` requires `resource_type`
 - the caller may subscribe only to events they would be able to read
+- `resource_type` must be one of `conversation`, `user`, or `workspace`
+- `secret` must not be blank
 - the stored secret is encrypted at rest
 
 #### `PATCH /event-subscriptions/{subscription_id}`
@@ -1898,16 +2000,17 @@ Algorithm:
 1. claim owned internal-event shards
 2. load each shard checkpoint
 3. read internal events after the checkpoint
-4. map each internal event to zero or more `external_events`
-5. insert `external_events` idempotently using a dedupe key
-6. insert resource-feed rows such as `workspace_event_feed`, `conversation_event_feed`, and `user_event_feed`
-7. advance the shard checkpoint
+4. enqueue projection jobs into the object-storage queue
+5. projector workers claim jobs from the queue, map each internal event to zero or more `external_events`, and write feed rows
+6. insert `external_events` idempotently using a dedupe key
+7. advance the shard checkpoint only after the enqueue succeeds
 
 Rules:
 
 - projector work is replayable
 - projector writes are idempotent
 - projection failures are recorded in `external_event_projection_failures`
+- malformed internal events do not block later events in the same shard
 - projector retries do not create duplicate public events
 
 ### `/events` Read Logic
@@ -1933,9 +2036,10 @@ Webhook delivery is downstream of `external_events`.
 Flow:
 
 1. the external event projector inserts `external_events`
-2. webhook workers match enabled `event_subscriptions`
-3. each matching subscription receives the external event envelope
-4. delivery retries are keyed by subscription id plus external event id
+2. the webhook producer advances an `external_events` checkpoint and enqueues one delivery job per matching subscription into the object-storage queue
+3. queue state is persisted to S3-compatible storage with compare-and-set writes
+4. webhook workers claim jobs, heartbeat while in flight, and ack or retry back into the same queue
+5. each matching subscription receives the external event envelope
 
 Secrets are encrypted at rest and used only when signing outbound webhook requests.
 
