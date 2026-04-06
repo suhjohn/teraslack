@@ -37,7 +37,7 @@ jobs:
 
       - name: Verify targeted server tests
         working-directory: server
-        run: go test ./internal/service ./internal/handler ./internal/repository/postgres ./internal/openapicli ./cmd/server ./cmd/teraslack-api
+        run: go test ./internal/repository ./internal/handler ./internal/openapicli ./cmd/server ./cmd/teraslack-api
 
       - name: Install frontend dependencies
         working-directory: frontend
