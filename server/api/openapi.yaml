@@ -17,7 +17,7 @@ tags:
   - name: API Keys
     description: Personal and workspace-scoped API key management.
   - name: Search
-    description: Cross-entity search endpoints.
+    description: Search endpoint placeholder.
   - name: Workspaces
     description: Workspace lifecycle, membership, and invite endpoints.
   - name: Conversations
@@ -288,22 +288,10 @@ paths:
       tags:
         - Search
       operationId: runSearch
-      summary: Search users, workspaces, and conversations
-      description: Searches visible entities across the supported entity types.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/SearchRequest'
+      summary: Search is not implemented
+      description: Placeholder endpoint. Search is currently disabled and always returns not implemented.
       responses:
-        '200':
-          description: Search results.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/SearchItemsCollection'
-        default:
+        '501':
           $ref: '#/components/responses/ApiErrorResponse'
   /workspaces:
     get:
@@ -1331,74 +1319,6 @@ components:
         secret:
           type: string
           description: Plaintext API key secret. It is returned only once.
-    SearchRequest:
-      type: object
-      required:
-        - query
-      properties:
-        query:
-          type: string
-          description: Search text.
-        entity_types:
-          type: array
-          description: Entity types to include. Omit to search users, workspaces, and conversations.
-          items:
-            type: string
-            enum:
-              - user
-              - workspace
-              - conversation
-        workspace_id:
-          type: string
-          format: uuid
-          nullable: true
-          description: Restrict search visibility to one workspace.
-        limit:
-          type: integer
-          minimum: 1
-          maximum: 100
-          nullable: true
-          description: Maximum number of results to return.
-        cursor:
-          type: string
-          nullable: true
-          description: Opaque pagination cursor returned as next_cursor by a previous page.
-    SearchItem:
-      type: object
-      required:
-        - entity_type
-        - id
-        - title
-      properties:
-        entity_type:
-          type: string
-          description: Matched entity type.
-        id:
-          type: string
-          description: Matched entity identifier.
-        title:
-          type: string
-          description: Primary display string.
-        subtitle:
-          type: string
-          description: Secondary display string.
-        workspace_id:
-          type: string
-          format: uuid
-          nullable: true
-          description: Workspace scope for the result when applicable.
-    SearchItemsCollection:
-      type: object
-      required:
-        - items
-      properties:
-        items:
-          type: array
-          items:
-            $ref: '#/components/schemas/SearchItem'
-        next_cursor:
-          type: string
-          description: Pagination cursor when additional results are available.
     Workspace:
       type: object
       required:

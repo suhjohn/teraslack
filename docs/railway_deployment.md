@@ -30,10 +30,6 @@ Optional workers:
   - root directory: `server`
   - builder: Dockerfile
   - env: `APP_ROLE=webhook-worker`
-- `indexer`
-  - root directory: `server`
-  - builder: Dockerfile
-  - env: `APP_ROLE=indexer`
 
 ## Recommended Railway services
 
@@ -46,7 +42,6 @@ Minimum useful deployment:
 Add these if you want the corresponding features:
 
 - `webhook-producer` and `webhook-worker` for webhook delivery
-- `indexer` for Turbopuffer-backed search indexing
 
 The default GitHub Actions deploy workflow bootstraps and deploys the full service set. Use the service-specific Make targets only if you intentionally want a reduced topology.
 
@@ -58,7 +53,6 @@ Deploy every Go service from the `server/` directory using `server/Dockerfile`, 
 - `external-event-projector`: `APP_ROLE=external-event-projector`
 - `webhook-producer`: `APP_ROLE=webhook-producer`
 - `webhook-worker`: `APP_ROLE=webhook-worker`
-- `indexer`: `APP_ROLE=indexer`
 
 Deploy `frontend` from the `frontend/` directory. It is a separate TanStack Start app and uses its own `package.json`.
 
@@ -124,7 +118,7 @@ This repo includes two workflows:
    - triggers on push to `main`
    - can also be run manually for first-time bootstrap
    - verifies all deployed Go binaries build, runs targeted server tests, and verifies the frontend build
-   - creates missing Railway services, then deploys `frontend`, `server`, `external-event-projector`, `webhook-producer`, `webhook-worker`, and `indexer`
+   - creates missing Railway services, then deploys `frontend`, `server`, `external-event-projector`, `webhook-producer`, and `webhook-worker`
 2. [`release-cli.yml`](/Users/johnsuh/teraslack/.github/workflows/release-cli.yml)
    - triggers on tags like `cli-v0.1.0`
    - can also be run manually
@@ -156,7 +150,6 @@ The repo root `Makefile` includes Railway deploy helpers:
 - `make deploy-external-event-projector`
 - `make deploy-webhook-producer`
 - `make deploy-webhook-worker`
-- `make deploy-indexer`
 - `make deploy-core`
 
 For a generic target, use:
@@ -166,9 +159,9 @@ For a generic target, use:
 Important:
 
 - Service-specific deploy targets now create the Railway service first if it does not already exist in the configured project:
-  `make deploy-frontend`, `make deploy-server`, `make deploy-external-event-projector`, `make deploy-webhook-producer`, `make deploy-webhook-worker`, and `make deploy-indexer`.
+  `make deploy-frontend`, `make deploy-server`, `make deploy-external-event-projector`, `make deploy-webhook-producer`, and `make deploy-webhook-worker`.
 - The auto-created backend services are initialized with the matching `APP_ROLE`.
-- `make deploy-core` now bootstraps missing services first, then deploys the full service set in parallel: `frontend`, `server`, `external-event-projector`, `webhook-producer`, `webhook-worker`, and `indexer`.
+- `make deploy-core` now bootstraps missing services first, then deploys the full service set in parallel: `frontend`, `server`, `external-event-projector`, `webhook-producer`, and `webhook-worker`.
 - The generic `make railway-deploy SERVICE=...` target still expects the Railway service to already exist.
 - The `SERVICE=...` value must exactly match the Railway service name, for example `server`.
 
@@ -202,7 +195,7 @@ Important notes:
   Use `AWS_KMS_KEY_ID` plus `AWS_KMS_REGION` for AWS KMS, or use `ENCRYPTION_KEY`.
   If both are set, new secrets are written with KMS and `ENCRYPTION_KEY` remains available to decrypt legacy env-key ciphertext during migration.
 - `AUTH_STATE_SECRET` is only needed if you enable OAuth login flows.
-- File uploads, webhook queues, and indexing queues all rely on S3-compatible storage.
+- File uploads and webhook queues rely on S3-compatible storage.
 - `VITE_API_BASE_URL` should point the frontend at the API, for example `https://api.teraslack.ai`.
 - The frontend OAuth start flow does not require a `VITE_TEAM_ID`. It forwards `workspace_id` only when that query parameter is already present in the page URL.
 
@@ -215,7 +208,6 @@ Suggested key layout:
 - uploads: `S3_KEY_PREFIX=uploads`
 - projector queue: `PROJECTOR_QUEUE_S3_KEY=queues/projector/queue.json`
 - webhook queue: `WEBHOOK_QUEUE_S3_KEY=queues/webhooks/queue.json`
-- index queue: `INDEX_QUEUE_S3_KEY=queues/index/queue.json`
 
 ## PlanetScale Postgres
 
@@ -234,9 +226,8 @@ Recommended split:
 - If production serves the frontend from multiple origins, set `CORS_ALLOWED_ORIGINS` explicitly or some browsers will fail with a missing `Access-Control-Allow-Origin` header even when the API is otherwise healthy.
 - `external-event-projector` should always be running if you depend on `/events` or webhooks.
 - Queue state is stored directly in S3-compatible storage, and each worker process uses compare-and-set writes against its queue JSON object.
-- `external-event-projector`, `webhook-producer`, `webhook-worker`, and `indexer` should all agree on the same queue object keys.
+- `external-event-projector`, `webhook-producer`, and `webhook-worker` should all agree on the same queue object keys.
 - `webhook-producer` and `webhook-worker` should be deployed together.
-- `indexer` can be omitted entirely if search indexing is not needed.
 - The frontend reads `VITE_API_BASE_URL`, so if that variable is missing it will try `http://localhost:8080` and fail in production.
 - `server` already has a multi-binary Dockerfile plus `APP_ROLE` switcher, so no code changes are required to deploy the backend services.
 - `frontend` already has working Bun build and start scripts. It also includes `frontend/nixpacks.toml` if you choose to deploy it with Nixpacks instead of Railway's default builder.

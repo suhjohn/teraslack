@@ -14,7 +14,6 @@ x-app-env: &app-env
   S3_SECRET_KEY: ${S3_SECRET_KEY:-teraslack-secret}
   PROJECTOR_QUEUE_S3_KEY: ${PROJECTOR_QUEUE_S3_KEY:-queues/projector/queue.json}
   WEBHOOK_QUEUE_S3_KEY: ${WEBHOOK_QUEUE_S3_KEY:-queues/webhooks/queue.json}
-  INDEX_QUEUE_S3_KEY: ${INDEX_QUEUE_S3_KEY:-queues/index/queue.json}
   GITHUB_OAUTH_CLIENT_ID: ${GITHUB_OAUTH_CLIENT_ID:-}
   GITHUB_OAUTH_CLIENT_SECRET: ${GITHUB_OAUTH_CLIENT_SECRET:-}
   GOOGLE_OAUTH_CLIENT_ID: ${GOOGLE_OAUTH_CLIENT_ID:-}
@@ -115,13 +114,6 @@ services:
     environment:
       <<: *app-env
       WORKER_ID: ${WEBHOOK_WORKER_ID:-wh-1}
-
-  indexer:
-    <<: *app-service
-    command: ["/app/indexer"]
-    environment:
-      <<: *app-env
-      WORKER_ID: ${INDEXER_WORKER_ID:-idx-1}
 
 volumes:
   pgdata:

@@ -186,16 +186,6 @@ type ProjectorLease struct {
 	UpdatedAt  pgtype.Timestamptz `json:"updated_at"`
 }
 
-type SearchDocument struct {
-	EntityType  string             `json:"entity_type"`
-	EntityID    uuid.UUID          `json:"entity_id"`
-	WorkspaceID *uuid.UUID         `json:"workspace_id"`
-	Title       string             `json:"title"`
-	Subtitle    *string            `json:"subtitle"`
-	Content     string             `json:"content"`
-	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
-}
-
 type User struct {
 	ID            uuid.UUID          `json:"id"`
 	PrincipalType string             `json:"principal_type"`

@@ -449,25 +449,6 @@ func (h *workflowHarness) loginUser(t *testing.T, email string) actor {
 	}
 }
 
-func (h *workflowHarness) waitForSearchResults(t *testing.T, token string, request api.SearchRequest) api.CollectionResponse[api.SearchItem] {
-	t.Helper()
-
-	var response api.CollectionResponse[api.SearchItem]
-	waitForCondition(t, "search indexing", eventualTimeout, func() (bool, error) {
-		response = mustJSON[api.CollectionResponse[api.SearchItem]](
-			t,
-			h,
-			http.MethodPost,
-			"/search",
-			token,
-			request,
-			http.StatusOK,
-		)
-		return len(response.Items) > 0, nil
-	})
-	return response
-}
-
 func (h *workflowHarness) waitForExternalEvent(t *testing.T, token string, path string) api.ExternalEvent {
 	t.Helper()
 

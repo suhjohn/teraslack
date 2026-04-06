@@ -107,22 +107,6 @@ type CreateAPIKeyResponse struct {
 	Secret string `json:"secret"`
 }
 
-type SearchRequest struct {
-	Query       string   `json:"query"`
-	EntityTypes []string `json:"entity_types,omitempty"`
-	WorkspaceID *string  `json:"workspace_id,omitempty"`
-	Limit       *int     `json:"limit,omitempty"`
-	Cursor      *string  `json:"cursor,omitempty"`
-}
-
-type SearchItem struct {
-	EntityType  string  `json:"entity_type"`
-	ID          string  `json:"id"`
-	Title       string  `json:"title"`
-	Subtitle    string  `json:"subtitle,omitempty"`
-	WorkspaceID *string `json:"workspace_id,omitempty"`
-}
-
 type Workspace struct {
 	ID              string `json:"id"`
 	Slug            string `json:"slug"`

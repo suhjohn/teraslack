@@ -33,11 +33,9 @@ type Config struct {
 	S3SecretKey             string
 	ProjectorQueueS3Key     string
 	WebhookQueueS3Key       string
-	IndexQueueS3Key         string
 	WebhookProducerID       string
 	ProjectorWorkerID       string
 	WebhookWorkerID         string
-	IndexerWorkerID         string
 }
 
 func Load() (Config, error) {
@@ -67,11 +65,9 @@ func Load() (Config, error) {
 		S3SecretKey:             strings.TrimSpace(os.Getenv("S3_SECRET_KEY")),
 		ProjectorQueueS3Key:     getenvDefault("PROJECTOR_QUEUE_S3_KEY", "queues/projector/queue.json"),
 		WebhookQueueS3Key:       getenvDefault("WEBHOOK_QUEUE_S3_KEY", "queues/webhooks/queue.json"),
-		IndexQueueS3Key:         getenvDefault("INDEX_QUEUE_S3_KEY", "queues/index/queue.json"),
 		WebhookProducerID:       getenvWorkerID("WEBHOOK_PRODUCER_ID", "webhook-producer"),
 		ProjectorWorkerID:       getenvWorkerID("PROJECTOR_WORKER_ID", "external-event-projector"),
 		WebhookWorkerID:         getenvWorkerID("WEBHOOK_WORKER_ID", "webhook-worker"),
-		IndexerWorkerID:         getenvWorkerID("INDEXER_WORKER_ID", "indexer"),
 	}
 
 	if cfg.DatabaseURL == "" {

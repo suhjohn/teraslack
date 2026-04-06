@@ -72,13 +72,6 @@ insert into user_event_feed (user_id, external_event_id)
 values ($1, $2)
 on conflict do nothing;
 
--- name: ListExternalEventsAfterID :many
-select id, resource_type, resource_id
-from external_events
-where id > $1
-order by id asc
-limit $2;
-
 -- name: ListExternalEventsForWebhookQueueAfterID :many
 select id, workspace_id, type, resource_type, resource_id
 from external_events
@@ -157,70 +150,6 @@ from event_subscriptions es
 join external_events ee on ee.id = sqlc.arg(external_event_id)
 where es.id = sqlc.arg(subscription_id)
   and es.enabled = true;
-
--- name: GetUserSearchSource :one
-select p.display_name, p.handle, u.email
-from users u
-join user_profiles p on p.user_id = u.id
-where u.id = $1 and u.status = 'active';
-
--- name: DeleteUserSearchDocument :exec
-delete from search_documents
-where entity_type = 'user' and entity_id = $1;
-
--- name: UpsertUserSearchDocument :exec
-insert into search_documents (entity_type, entity_id, workspace_id, title, subtitle, content, updated_at)
-values ('user', $1, null, $2, $3, $4, $5)
-on conflict (entity_type, entity_id) do update
-set title = excluded.title,
-    subtitle = excluded.subtitle,
-    content = excluded.content,
-    updated_at = excluded.updated_at;
-
--- name: GetWorkspaceSearchSource :one
-select name, slug
-from workspaces
-where id = $1;
-
--- name: DeleteWorkspaceSearchDocument :exec
-delete from search_documents
-where entity_type = 'workspace' and entity_id = $1;
-
--- name: UpsertWorkspaceSearchDocument :exec
-insert into search_documents (entity_type, entity_id, workspace_id, title, subtitle, content, updated_at)
-values ('workspace', $1, $1, $2, $3, $4, $5)
-on conflict (entity_type, entity_id) do update
-set workspace_id = excluded.workspace_id,
-    title = excluded.title,
-    subtitle = excluded.subtitle,
-    content = excluded.content,
-    updated_at = excluded.updated_at;
-
--- name: GetConversationSearchSource :one
-select workspace_id, title, description, access_policy
-from conversations
-where id = $1;
-
--- name: ListConversationParticipantIdentities :many
-select p.display_name, p.handle
-from conversation_participants cp
-join user_profiles p on p.user_id = cp.user_id
-where cp.conversation_id = $1
-order by p.display_name asc;
-
--- name: DeleteConversationSearchDocument :exec
-delete from search_documents
-where entity_type = 'conversation' and entity_id = $1;
-
--- name: UpsertConversationSearchDocument :exec
-insert into search_documents (entity_type, entity_id, workspace_id, title, subtitle, content, updated_at)
-values ('conversation', $1, $2, $3, $4, $5, $6)
-on conflict (entity_type, entity_id) do update
-set workspace_id = excluded.workspace_id,
-    title = excluded.title,
-    subtitle = excluded.subtitle,
-    content = excluded.content,
-    updated_at = excluded.updated_at;
 
 -- name: EnqueueWebhookDeliveries :exec
 insert into webhook_deliveries (subscription_id, external_event_id, status, next_attempt_at, created_at, updated_at)

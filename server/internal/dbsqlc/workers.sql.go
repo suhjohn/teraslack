@@ -115,36 +115,6 @@ func (q *Queries) ClaimPendingWebhookDeliveries(ctx context.Context, limit int32
 	return items, nil
 }
 
-const deleteConversationSearchDocument = `-- name: DeleteConversationSearchDocument :exec
-delete from search_documents
-where entity_type = 'conversation' and entity_id = $1
-`
-
-func (q *Queries) DeleteConversationSearchDocument(ctx context.Context, entityID uuid.UUID) error {
-	_, err := q.db.Exec(ctx, deleteConversationSearchDocument, entityID)
-	return err
-}
-
-const deleteUserSearchDocument = `-- name: DeleteUserSearchDocument :exec
-delete from search_documents
-where entity_type = 'user' and entity_id = $1
-`
-
-func (q *Queries) DeleteUserSearchDocument(ctx context.Context, entityID uuid.UUID) error {
-	_, err := q.db.Exec(ctx, deleteUserSearchDocument, entityID)
-	return err
-}
-
-const deleteWorkspaceSearchDocument = `-- name: DeleteWorkspaceSearchDocument :exec
-delete from search_documents
-where entity_type = 'workspace' and entity_id = $1
-`
-
-func (q *Queries) DeleteWorkspaceSearchDocument(ctx context.Context, entityID uuid.UUID) error {
-	_, err := q.db.Exec(ctx, deleteWorkspaceSearchDocument, entityID)
-	return err
-}
-
 const enqueueWebhookDeliveries = `-- name: EnqueueWebhookDeliveries :exec
 insert into webhook_deliveries (subscription_id, external_event_id, status, next_attempt_at, created_at, updated_at)
 select es.id, ee.id, 'pending', now(), now(), now()
@@ -232,31 +202,6 @@ func (q *Queries) GetCheckpointForUpdate(ctx context.Context, name string) (int6
 	return last_event_id, err
 }
 
-const getConversationSearchSource = `-- name: GetConversationSearchSource :one
-select workspace_id, title, description, access_policy
-from conversations
-where id = $1
-`
-
-type GetConversationSearchSourceRow struct {
-	WorkspaceID  *uuid.UUID `json:"workspace_id"`
-	Title        *string    `json:"title"`
-	Description  *string    `json:"description"`
-	AccessPolicy string     `json:"access_policy"`
-}
-
-func (q *Queries) GetConversationSearchSource(ctx context.Context, id uuid.UUID) (GetConversationSearchSourceRow, error) {
-	row := q.db.QueryRow(ctx, getConversationSearchSource, id)
-	var i GetConversationSearchSourceRow
-	err := row.Scan(
-		&i.WorkspaceID,
-		&i.Title,
-		&i.Description,
-		&i.AccessPolicy,
-	)
-	return i, err
-}
-
 const getInternalEventForProjection = `-- name: GetInternalEventForProjection :one
 select id, event_type, workspace_id, payload, created_at
 from internal_events
@@ -281,26 +226,6 @@ func (q *Queries) GetInternalEventForProjection(ctx context.Context, id int64) (
 		&i.Payload,
 		&i.CreatedAt,
 	)
-	return i, err
-}
-
-const getUserSearchSource = `-- name: GetUserSearchSource :one
-select p.display_name, p.handle, u.email
-from users u
-join user_profiles p on p.user_id = u.id
-where u.id = $1 and u.status = 'active'
-`
-
-type GetUserSearchSourceRow struct {
-	DisplayName string  `json:"display_name"`
-	Handle      string  `json:"handle"`
-	Email       *string `json:"email"`
-}
-
-func (q *Queries) GetUserSearchSource(ctx context.Context, id uuid.UUID) (GetUserSearchSourceRow, error) {
-	row := q.db.QueryRow(ctx, getUserSearchSource, id)
-	var i GetUserSearchSourceRow
-	err := row.Scan(&i.DisplayName, &i.Handle, &i.Email)
 	return i, err
 }
 
@@ -343,24 +268,6 @@ func (q *Queries) GetWebhookDeliverySource(ctx context.Context, arg GetWebhookDe
 		&i.OccurredAt,
 		&i.Payload,
 	)
-	return i, err
-}
-
-const getWorkspaceSearchSource = `-- name: GetWorkspaceSearchSource :one
-select name, slug
-from workspaces
-where id = $1
-`
-
-type GetWorkspaceSearchSourceRow struct {
-	Name string `json:"name"`
-	Slug string `json:"slug"`
-}
-
-func (q *Queries) GetWorkspaceSearchSource(ctx context.Context, id uuid.UUID) (GetWorkspaceSearchSourceRow, error) {
-	row := q.db.QueryRow(ctx, getWorkspaceSearchSource, id)
-	var i GetWorkspaceSearchSourceRow
-	err := row.Scan(&i.Name, &i.Slug)
 	return i, err
 }
 
@@ -489,78 +396,6 @@ type InsertWorkspaceEventFeedParams struct {
 func (q *Queries) InsertWorkspaceEventFeed(ctx context.Context, arg InsertWorkspaceEventFeedParams) error {
 	_, err := q.db.Exec(ctx, insertWorkspaceEventFeed, arg.WorkspaceID, arg.ExternalEventID)
 	return err
-}
-
-const listConversationParticipantIdentities = `-- name: ListConversationParticipantIdentities :many
-select p.display_name, p.handle
-from conversation_participants cp
-join user_profiles p on p.user_id = cp.user_id
-where cp.conversation_id = $1
-order by p.display_name asc
-`
-
-type ListConversationParticipantIdentitiesRow struct {
-	DisplayName string `json:"display_name"`
-	Handle      string `json:"handle"`
-}
-
-func (q *Queries) ListConversationParticipantIdentities(ctx context.Context, conversationID uuid.UUID) ([]ListConversationParticipantIdentitiesRow, error) {
-	rows, err := q.db.Query(ctx, listConversationParticipantIdentities, conversationID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []ListConversationParticipantIdentitiesRow{}
-	for rows.Next() {
-		var i ListConversationParticipantIdentitiesRow
-		if err := rows.Scan(&i.DisplayName, &i.Handle); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const listExternalEventsAfterID = `-- name: ListExternalEventsAfterID :many
-select id, resource_type, resource_id
-from external_events
-where id > $1
-order by id asc
-limit $2
-`
-
-type ListExternalEventsAfterIDParams struct {
-	ID    int64 `json:"id"`
-	Limit int32 `json:"limit"`
-}
-
-type ListExternalEventsAfterIDRow struct {
-	ID           int64     `json:"id"`
-	ResourceType string    `json:"resource_type"`
-	ResourceID   uuid.UUID `json:"resource_id"`
-}
-
-func (q *Queries) ListExternalEventsAfterID(ctx context.Context, arg ListExternalEventsAfterIDParams) ([]ListExternalEventsAfterIDRow, error) {
-	rows, err := q.db.Query(ctx, listExternalEventsAfterID, arg.ID, arg.Limit)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []ListExternalEventsAfterIDRow{}
-	for rows.Next() {
-		var i ListExternalEventsAfterIDRow
-		if err := rows.Scan(&i.ID, &i.ResourceType, &i.ResourceID); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
 }
 
 const listExternalEventsForWebhookQueueAfterID = `-- name: ListExternalEventsForWebhookQueueAfterID :many
@@ -809,96 +644,5 @@ type UpdateCheckpointParams struct {
 
 func (q *Queries) UpdateCheckpoint(ctx context.Context, arg UpdateCheckpointParams) error {
 	_, err := q.db.Exec(ctx, updateCheckpoint, arg.Name, arg.LastEventID, arg.UpdatedAt)
-	return err
-}
-
-const upsertConversationSearchDocument = `-- name: UpsertConversationSearchDocument :exec
-insert into search_documents (entity_type, entity_id, workspace_id, title, subtitle, content, updated_at)
-values ('conversation', $1, $2, $3, $4, $5, $6)
-on conflict (entity_type, entity_id) do update
-set workspace_id = excluded.workspace_id,
-    title = excluded.title,
-    subtitle = excluded.subtitle,
-    content = excluded.content,
-    updated_at = excluded.updated_at
-`
-
-type UpsertConversationSearchDocumentParams struct {
-	EntityID    uuid.UUID          `json:"entity_id"`
-	WorkspaceID *uuid.UUID         `json:"workspace_id"`
-	Title       string             `json:"title"`
-	Subtitle    *string            `json:"subtitle"`
-	Content     string             `json:"content"`
-	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
-}
-
-func (q *Queries) UpsertConversationSearchDocument(ctx context.Context, arg UpsertConversationSearchDocumentParams) error {
-	_, err := q.db.Exec(ctx, upsertConversationSearchDocument,
-		arg.EntityID,
-		arg.WorkspaceID,
-		arg.Title,
-		arg.Subtitle,
-		arg.Content,
-		arg.UpdatedAt,
-	)
-	return err
-}
-
-const upsertUserSearchDocument = `-- name: UpsertUserSearchDocument :exec
-insert into search_documents (entity_type, entity_id, workspace_id, title, subtitle, content, updated_at)
-values ('user', $1, null, $2, $3, $4, $5)
-on conflict (entity_type, entity_id) do update
-set title = excluded.title,
-    subtitle = excluded.subtitle,
-    content = excluded.content,
-    updated_at = excluded.updated_at
-`
-
-type UpsertUserSearchDocumentParams struct {
-	EntityID  uuid.UUID          `json:"entity_id"`
-	Title     string             `json:"title"`
-	Subtitle  *string            `json:"subtitle"`
-	Content   string             `json:"content"`
-	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
-}
-
-func (q *Queries) UpsertUserSearchDocument(ctx context.Context, arg UpsertUserSearchDocumentParams) error {
-	_, err := q.db.Exec(ctx, upsertUserSearchDocument,
-		arg.EntityID,
-		arg.Title,
-		arg.Subtitle,
-		arg.Content,
-		arg.UpdatedAt,
-	)
-	return err
-}
-
-const upsertWorkspaceSearchDocument = `-- name: UpsertWorkspaceSearchDocument :exec
-insert into search_documents (entity_type, entity_id, workspace_id, title, subtitle, content, updated_at)
-values ('workspace', $1, $1, $2, $3, $4, $5)
-on conflict (entity_type, entity_id) do update
-set workspace_id = excluded.workspace_id,
-    title = excluded.title,
-    subtitle = excluded.subtitle,
-    content = excluded.content,
-    updated_at = excluded.updated_at
-`
-
-type UpsertWorkspaceSearchDocumentParams struct {
-	EntityID  uuid.UUID          `json:"entity_id"`
-	Title     string             `json:"title"`
-	Subtitle  *string            `json:"subtitle"`
-	Content   string             `json:"content"`
-	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
-}
-
-func (q *Queries) UpsertWorkspaceSearchDocument(ctx context.Context, arg UpsertWorkspaceSearchDocumentParams) error {
-	_, err := q.db.Exec(ctx, upsertWorkspaceSearchDocument,
-		arg.EntityID,
-		arg.Title,
-		arg.Subtitle,
-		arg.Content,
-		arg.UpdatedAt,
-	)
 	return err
 }

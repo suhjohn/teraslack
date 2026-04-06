@@ -18,7 +18,6 @@ import (
 	teracrypto "github.com/johnsuh/teraslack/server/internal/crypto"
 	"github.com/johnsuh/teraslack/server/internal/dbsqlc"
 	"github.com/johnsuh/teraslack/server/internal/domain"
-	"github.com/johnsuh/teraslack/server/internal/repository"
 )
 
 func (s *Server) handleStartEmailLogin(w http.ResponseWriter, r *http.Request) {
@@ -441,121 +440,8 @@ func (s *Server) handleDeleteAPIKey(w http.ResponseWriter, r *http.Request, auth
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request, auth domain.AuthContext) {
-	var request api.SearchRequest
-	if err := decodeJSON(r, &request); err != nil {
-		s.writeAppError(w, r, err)
-		return
-	}
-	query := strings.TrimSpace(request.Query)
-	if query == "" {
-		writeJSON(w, http.StatusOK, api.CollectionResponse[api.SearchItem]{Items: []api.SearchItem{}})
-		return
-	}
-	limit := 20
-	if request.Limit != nil {
-		if *request.Limit <= 0 || *request.Limit > 100 {
-			s.writeAppError(w, r, validationFailed("limit", "invalid_value", "Must be between 1 and 100."))
-			return
-		}
-		limit = *request.Limit
-	}
-	offset, appErr := parseBodyCursor(request.Cursor)
-	if appErr != nil {
-		s.writeAppError(w, r, appErr)
-		return
-	}
-	entityTypes := make([]string, 0, 3)
-	if len(request.EntityTypes) == 0 {
-		entityTypes = []string{"user", "workspace", "conversation"}
-	} else {
-		for _, entityType := range request.EntityTypes {
-			switch entityType {
-			case "user", "workspace", "conversation":
-				entityTypes = append(entityTypes, entityType)
-			}
-		}
-	}
-	if len(entityTypes) == 0 {
-		writeJSON(w, http.StatusOK, api.CollectionResponse[api.SearchItem]{Items: []api.SearchItem{}})
-		return
-	}
-	workspaceID, err := parseOptionalUUID(request.WorkspaceID)
-	if err != nil {
-		s.writeAppError(w, r, err)
-		return
-	}
-	if auth.APIKeyWorkspaceID != nil {
-		if workspaceID == nil {
-			workspaceID = auth.APIKeyWorkspaceID
-		} else if *workspaceID != *auth.APIKeyWorkspaceID {
-			s.writeAppError(w, r, forbidden("This API key can only search within its workspace."))
-			return
-		}
-	}
-	if workspaceID != nil {
-		if _, appErr := s.ensureWorkspaceActiveMember(r.Context(), auth, *workspaceID); appErr != nil {
-			s.writeAppError(w, r, appErr)
-			return
-		}
-	}
-
-	visibility := repository.SearchDocumentVisibilityPredicate("sd", "$1", "$2")
-	rows, err := s.db.Query(
-		r.Context(),
-		fmt.Sprintf(`select sd.entity_type, sd.entity_id, sd.title, coalesce(sd.subtitle, ''), sd.workspace_id
-		from search_documents sd
-		where sd.entity_type = any($4)
-		  and %s
-		  and sd.content ilike '%%' || $3 || '%%'
-		order by
-		  case
-			when lower(sd.title) = lower($3) then 0
-			when lower(sd.title) like lower($3) || '%%' then 1
-			when lower(coalesce(sd.subtitle, '')) like '%%' || lower($3) || '%%' then 2
-			else 3
-		  end,
-		  sd.updated_at desc,
-		  sd.title asc,
-		  sd.entity_type asc,
-		  sd.entity_id asc
-		limit $5 offset $6`, visibility),
-		auth.UserID,
-		workspaceID,
-		query,
-		entityTypes,
-		limit,
-		offset,
-	)
-	if err != nil {
-		s.writeAppError(w, r, internalError(err))
-		return
-	}
-	defer rows.Close()
-
-	items := make([]api.SearchItem, 0, limit)
-	for rows.Next() {
-		var item api.SearchItem
-		var entityID uuid.UUID
-		var itemWorkspaceID *uuid.UUID
-		if err := rows.Scan(&item.EntityType, &entityID, &item.Title, &item.Subtitle, &itemWorkspaceID); err != nil {
-			s.writeAppError(w, r, internalError(err))
-			return
-		}
-		item.ID = entityID.String()
-		item.WorkspaceID = uuidPtrToStringPtr(itemWorkspaceID)
-		items = append(items, item)
-	}
-	if err := rows.Err(); err != nil {
-		s.writeAppError(w, r, internalError(err))
-		return
-	}
-
-	response := api.CollectionResponse[api.SearchItem]{Items: items}
-	if len(items) == limit {
-		response.NextCursor = formatNextCursor(offset + len(items))
-	}
-	writeJSON(w, http.StatusOK, response)
+func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request, _ domain.AuthContext) {
+	s.writeAppError(w, r, notImplemented())
 }
 
 func (s *Server) handleListWorkspaces(w http.ResponseWriter, r *http.Request, auth domain.AuthContext) {

@@ -37,18 +37,14 @@ type Querier interface {
 	CreateWorkspaceInvite(ctx context.Context, arg CreateWorkspaceInviteParams) error
 	CreateWorkspaceMembership(ctx context.Context, arg CreateWorkspaceMembershipParams) error
 	DeleteConversationParticipant(ctx context.Context, arg DeleteConversationParticipantParams) (int64, error)
-	DeleteConversationSearchDocument(ctx context.Context, entityID uuid.UUID) error
 	DeleteEventSubscriptionByOwner(ctx context.Context, arg DeleteEventSubscriptionByOwnerParams) (int64, error)
 	DeleteOAuthState(ctx context.Context, id uuid.UUID) error
-	DeleteUserSearchDocument(ctx context.Context, entityID uuid.UUID) error
-	DeleteWorkspaceSearchDocument(ctx context.Context, entityID uuid.UUID) error
 	EnqueueWebhookDeliveries(ctx context.Context) error
 	GetAPIKeyAuthBySecretHash(ctx context.Context, arg GetAPIKeyAuthBySecretHashParams) (GetAPIKeyAuthBySecretHashRow, error)
 	GetCheckpointForUpdate(ctx context.Context, name string) (int64, error)
 	GetConversation(ctx context.Context, id uuid.UUID) (GetConversationRow, error)
 	GetConversationInviteByTokenHashForUpdate(ctx context.Context, tokenHash string) (GetConversationInviteByTokenHashForUpdateRow, error)
 	GetConversationPair(ctx context.Context, arg GetConversationPairParams) (uuid.UUID, error)
-	GetConversationSearchSource(ctx context.Context, id uuid.UUID) (GetConversationSearchSourceRow, error)
 	GetEmailLoginChallengeForVerification(ctx context.Context, arg GetEmailLoginChallengeForVerificationParams) (GetEmailLoginChallengeForVerificationRow, error)
 	GetEventSubscriptionByIDAndOwner(ctx context.Context, arg GetEventSubscriptionByIDAndOwnerParams) (GetEventSubscriptionByIDAndOwnerRow, error)
 	GetEventSubscriptionWorkspaceForOwnerForUpdate(ctx context.Context, arg GetEventSubscriptionWorkspaceForOwnerForUpdateParams) (*uuid.UUID, error)
@@ -59,13 +55,11 @@ type Querier interface {
 	GetUser(ctx context.Context, id uuid.UUID) (GetUserRow, error)
 	GetUserByEmail(ctx context.Context, email *string) (GetUserByEmailRow, error)
 	GetUserByOAuthAccount(ctx context.Context, arg GetUserByOAuthAccountParams) (GetUserByOAuthAccountRow, error)
-	GetUserSearchSource(ctx context.Context, id uuid.UUID) (GetUserSearchSourceRow, error)
 	GetWebhookDeliverySource(ctx context.Context, arg GetWebhookDeliverySourceParams) (GetWebhookDeliverySourceRow, error)
 	GetWorkspace(ctx context.Context, id uuid.UUID) (Workspace, error)
 	GetWorkspaceInviteByTokenHashForUpdate(ctx context.Context, arg GetWorkspaceInviteByTokenHashForUpdateParams) (GetWorkspaceInviteByTokenHashForUpdateRow, error)
 	GetWorkspaceMembership(ctx context.Context, arg GetWorkspaceMembershipParams) (GetWorkspaceMembershipRow, error)
 	GetWorkspaceMembershipForUpdate(ctx context.Context, arg GetWorkspaceMembershipForUpdateParams) (GetWorkspaceMembershipForUpdateRow, error)
-	GetWorkspaceSearchSource(ctx context.Context, id uuid.UUID) (GetWorkspaceSearchSourceRow, error)
 	InsertCheckpointIfMissing(ctx context.Context, arg InsertCheckpointIfMissingParams) error
 	InsertConversationEventFeed(ctx context.Context, arg InsertConversationEventFeedParams) error
 	InsertExternalEvent(ctx context.Context, arg InsertExternalEventParams) (int64, error)
@@ -77,10 +71,8 @@ type Querier interface {
 	IsDirectMessage(ctx context.Context, conversationID uuid.UUID) (bool, error)
 	ListAPIKeysByUser(ctx context.Context, userID uuid.UUID) ([]ListAPIKeysByUserRow, error)
 	ListActiveWorkspacesByUser(ctx context.Context, userID uuid.UUID) ([]Workspace, error)
-	ListConversationParticipantIdentities(ctx context.Context, conversationID uuid.UUID) ([]ListConversationParticipantIdentitiesRow, error)
 	ListConversationParticipants(ctx context.Context, conversationID uuid.UUID) ([]ListConversationParticipantsRow, error)
 	ListEventSubscriptionsByOwner(ctx context.Context, arg ListEventSubscriptionsByOwnerParams) ([]ListEventSubscriptionsByOwnerRow, error)
-	ListExternalEventsAfterID(ctx context.Context, arg ListExternalEventsAfterIDParams) ([]ListExternalEventsAfterIDRow, error)
 	ListExternalEventsForWebhookQueueAfterID(ctx context.Context, arg ListExternalEventsForWebhookQueueAfterIDParams) ([]ListExternalEventsForWebhookQueueAfterIDRow, error)
 	ListInternalEventsByShardAfterID(ctx context.Context, arg ListInternalEventsByShardAfterIDParams) ([]ListInternalEventsByShardAfterIDRow, error)
 	ListWebhookSubscriptionsForExternalEvent(ctx context.Context, arg ListWebhookSubscriptionsForExternalEventParams) ([]uuid.UUID, error)
@@ -104,10 +96,7 @@ type Querier interface {
 	UpdateWorkspace(ctx context.Context, arg UpdateWorkspaceParams) error
 	UpdateWorkspaceMembership(ctx context.Context, arg UpdateWorkspaceMembershipParams) error
 	UpsertConversationRead(ctx context.Context, arg UpsertConversationReadParams) error
-	UpsertConversationSearchDocument(ctx context.Context, arg UpsertConversationSearchDocumentParams) error
 	UpsertOAuthAccount(ctx context.Context, arg UpsertOAuthAccountParams) error
-	UpsertUserSearchDocument(ctx context.Context, arg UpsertUserSearchDocumentParams) error
-	UpsertWorkspaceSearchDocument(ctx context.Context, arg UpsertWorkspaceSearchDocumentParams) error
 }
 
 var _ Querier = (*Queries)(nil)

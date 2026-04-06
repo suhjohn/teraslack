@@ -6,7 +6,6 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
-	"net/url"
 	"slices"
 	"testing"
 	"time"
@@ -95,54 +94,10 @@ func TestSPECWorkflows_BootstrapAuthenticatedStateAndWorkspaceCreation(t *testin
 	}
 }
 
-func TestSPECWorkflows_WorkspaceUserSearchResolvesGlobalCanonicalDM(t *testing.T) {
+func TestSPECWorkflows_GlobalCanonicalDMIsReused(t *testing.T) {
 	h := newWorkflowHarness(t)
 	alpha := h.loginUser(t, "alpha@example.com")
 	beta := h.loginUser(t, "beta@example.com")
-
-	workspace := mustJSON[api.Workspace](
-		t,
-		h,
-		http.MethodPost,
-		"/workspaces",
-		alpha.Token,
-		api.CreateWorkspaceRequest{Name: "Acme", Slug: h.uniqueSlug("acme")},
-		http.StatusCreated,
-	)
-	invite := mustJSON[api.CreateWorkspaceInviteResponse](
-		t,
-		h,
-		http.MethodPost,
-		"/workspaces/"+workspace.ID+"/invites",
-		alpha.Token,
-		api.CreateWorkspaceInviteRequest{Email: &beta.Email},
-		http.StatusCreated,
-	)
-	mustJSON[api.WorkspaceMember](
-		t,
-		h,
-		http.MethodPost,
-		"/workspace-invites/"+url.PathEscape(invite.InviteToken)+"/accept",
-		beta.Token,
-		nil,
-		http.StatusOK,
-	)
-
-	searchResponse := h.waitForSearchResults(
-		t,
-		alpha.Token,
-		api.SearchRequest{
-			Query:       "beta",
-			EntityTypes: []string{"user"},
-			WorkspaceID: &workspace.ID,
-		},
-	)
-	if len(searchResponse.Items) == 0 {
-		t.Fatal("workspace-scoped user search returned no results")
-	}
-	if searchResponse.Items[0].EntityType != "user" || searchResponse.Items[0].ID != beta.User.ID {
-		t.Fatalf("search returned %+v, want user %s", searchResponse.Items[0], beta.User.ID)
-	}
 
 	dm := mustJSON[api.Conversation](
 		t,

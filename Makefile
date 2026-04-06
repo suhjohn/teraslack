@@ -10,7 +10,7 @@ COMPOSE_DEV := $(COMPOSE) -f docker-compose.yml -f docker-compose.dev.yml
 
 .PHONY: run build test lint migrate-up migrate-down docker-up docker-down integration_test openapi-generate openapi-check permissions-generate permissions-check \
 	dev dev-down dev-reset dev-logs railway-status railway-deploy railway-ensure-service deploy-frontend deploy-server deploy-external-event-projector \
-	deploy-webhook-producer deploy-webhook-worker deploy-indexer deploy-core build-cli-release upload-cli-release release-cli
+	deploy-webhook-producer deploy-webhook-worker deploy-core build-cli-release upload-cli-release release-cli
 
 run build test lint migrate-up migrate-down openapi-generate openapi-check permissions-generate permissions-check:
 	$(MAKE) -C $(SERVER_DIR) $@
@@ -71,8 +71,7 @@ $(strip \
 $(if $(filter server,$(1)),server, \
 $(if $(filter external-event-projector,$(1)),external-event-projector, \
 $(if $(filter webhook-producer,$(1)),webhook-producer, \
-$(if $(filter webhook-worker,$(1)),webhook-worker, \
-$(if $(filter indexer,$(1)),indexer, \))))))
+$(if $(filter webhook-worker,$(1)),webhook-worker, \)))))
 endef
 
 railway-ensure-service:
@@ -104,7 +103,7 @@ railway-deploy:
 	@set -eu; \
 	case "$(SERVICE)" in \
 		frontend) path="frontend" ;; \
-		server|external-event-projector|webhook-producer|webhook-worker|indexer) path="server" ;; \
+		server|external-event-projector|webhook-producer|webhook-worker) path="server" ;; \
 		*) echo "unknown Railway service: $(SERVICE)" >&2; exit 1 ;; \
 	esac; \
 	project_args=""; \
@@ -138,10 +137,6 @@ deploy-webhook-worker:
 	$(MAKE) railway-ensure-service SERVICE=webhook-worker RAILWAY_SERVICE_VARS="APP_ROLE=$(call railway_role_for_service,webhook-worker)"
 	$(MAKE) railway-deploy SERVICE=webhook-worker
 
-deploy-indexer:
-	$(MAKE) railway-ensure-service SERVICE=indexer RAILWAY_SERVICE_VARS="APP_ROLE=$(call railway_role_for_service,indexer)"
-	$(MAKE) railway-deploy SERVICE=indexer
-
 deploy-core:
 	@set -eu; \
 	$(MAKE) railway-ensure-service SERVICE=frontend; \
@@ -149,7 +144,6 @@ deploy-core:
 	$(MAKE) railway-ensure-service SERVICE=external-event-projector RAILWAY_SERVICE_VARS="APP_ROLE=$(call railway_role_for_service,external-event-projector)"; \
 	$(MAKE) railway-ensure-service SERVICE=webhook-producer RAILWAY_SERVICE_VARS="APP_ROLE=$(call railway_role_for_service,webhook-producer)"; \
 	$(MAKE) railway-ensure-service SERVICE=webhook-worker RAILWAY_SERVICE_VARS="APP_ROLE=$(call railway_role_for_service,webhook-worker)"; \
-	$(MAKE) railway-ensure-service SERVICE=indexer RAILWAY_SERVICE_VARS="APP_ROLE=$(call railway_role_for_service,indexer)"; \
 	FLAGS="$(if $(RAILWAY_UP_FLAGS),$(RAILWAY_UP_FLAGS),$(RAILWAY_CHAIN_UP_FLAGS))"; \
 	status=0; \
 	$(MAKE) railway-deploy SERVICE=frontend RAILWAY_UP_FLAGS="$$FLAGS" & pid_frontend=$$!; \
@@ -157,8 +151,7 @@ deploy-core:
 	$(MAKE) railway-deploy SERVICE=external-event-projector RAILWAY_UP_FLAGS="$$FLAGS" & pid_projector=$$!; \
 	$(MAKE) railway-deploy SERVICE=webhook-producer RAILWAY_UP_FLAGS="$$FLAGS" & pid_webhook_producer=$$!; \
 	$(MAKE) railway-deploy SERVICE=webhook-worker RAILWAY_UP_FLAGS="$$FLAGS" & pid_webhook_worker=$$!; \
-	$(MAKE) railway-deploy SERVICE=indexer RAILWAY_UP_FLAGS="$$FLAGS" & pid_indexer=$$!; \
-	for pid in $$pid_frontend $$pid_server $$pid_projector $$pid_webhook_producer $$pid_webhook_worker $$pid_indexer; do \
+	for pid in $$pid_frontend $$pid_server $$pid_projector $$pid_webhook_producer $$pid_webhook_worker; do \
 		if ! wait $$pid; then status=1; fi; \
 	done; \
 	exit $$status

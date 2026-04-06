@@ -275,17 +275,6 @@ create table if not exists webhook_deliveries (
   unique (subscription_id, external_event_id)
 );
 
-create table if not exists search_documents (
-  entity_type text not null check (entity_type in ('user', 'workspace', 'conversation')),
-  entity_id uuid not null,
-  workspace_id uuid references workspaces(id) on delete cascade,
-  title text not null,
-  subtitle text,
-  content text not null,
-  updated_at timestamptz not null,
-  primary key (entity_type, entity_id)
-);
-
 create index if not exists idx_workspace_memberships_workspace_user on workspace_memberships(workspace_id, user_id);
 create index if not exists idx_workspace_memberships_user_status on workspace_memberships(user_id, status);
 create index if not exists idx_conversations_workspace_access_updated on conversations(workspace_id, access_policy, updated_at desc);
@@ -302,8 +291,6 @@ create index if not exists idx_conversation_event_feed_conversation_event on con
 create index if not exists idx_user_event_feed_user_event on user_event_feed(user_id, external_event_id);
 create index if not exists idx_event_subscriptions_owner on event_subscriptions(owner_user_id);
 create index if not exists idx_projector_leases_name_owner on projector_leases(name, owner, lease_until);
-create index if not exists idx_search_documents_workspace on search_documents(workspace_id, entity_type, updated_at desc);
-create index if not exists idx_search_documents_title on search_documents(entity_type, title);
 
 create or replace function teraslack_check_active_workspace_owner() returns trigger as $$
 declare

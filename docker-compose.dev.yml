@@ -106,32 +106,6 @@ services:
         - action: rebuild
           path: ./server/Dockerfile.dev
 
-  indexer:
-    image: teraslack-server-local-dev
-    build:
-      context: ./server
-      dockerfile: Dockerfile.dev
-    working_dir: /workspace
-    command: ["go", "run", "./cmd/indexer"]
-    develop:
-      watch:
-        - action: sync+restart
-          path: ./server
-          target: /workspace
-          ignore:
-            - .git/
-            - bin/
-            - Dockerfile
-            - Dockerfile.dev
-            - go.mod
-            - go.sum
-        - action: rebuild
-          path: ./server/go.mod
-        - action: rebuild
-          path: ./server/go.sum
-        - action: rebuild
-          path: ./server/Dockerfile.dev
-
   frontend:
     image: teraslack-frontend-local-dev
     build:

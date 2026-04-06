@@ -54,7 +54,6 @@ Expected long-running services:
 - `external-event-projector`
 - `webhook-producer`
 - `webhook-worker`
-- `indexer`
 
 ### Frontend Stack Baseline
 
@@ -106,7 +105,6 @@ Expected long-running services:
 - Google OAuth
 - GitHub OAuth
 - S3-compatible object storage
-- Turbopuffer for search/indexing
 
 ### Backend Folder Structure Baseline
 
@@ -118,7 +116,6 @@ Expected long-running services:
 - `server/internal/repository/` for persistence interfaces, migrations, queries, and generated DB access
 - `server/internal/eventsourcing/` for the internal event log and projection machinery
 - `server/internal/queue/` for background queue producer and worker logic
-- `server/internal/search/` for search indexing integrations
 - `server/internal/s3/` for object storage integration
 - `server/internal/openapicli/` for CLI exposure of the API contract
 - `server/internal/teraslackmcp/` and `server/internal/teraslackstdio/` for MCP and stdio-facing server integrations
@@ -130,7 +127,6 @@ Expected long-running services:
 - `external-event-projector`
 - `webhook-producer`
 - `webhook-worker`
-- `indexer`
 - codegen and admin helpers may exist as separate commands when needed
 
 ### Root Repository Layout Baseline
@@ -1416,57 +1412,7 @@ Revoke an API key.
 
 #### `POST /search`
 
-Unified search across all caller-visible entities.
-
-Request:
-
-```json
-{
-  "query": "jane",
-  "entity_types": ["user", "workspace", "conversation"],
-  "workspace_id": "7c45a4b8-7d2f-4d2f-a8d4-3f6f9cbb7c12",
-  "limit": 20,
-  "cursor": null
-}
-```
-
-Rules:
-
-- `entity_types` is optional; when omitted, the server searches all searchable entity types
-- `workspace_id` is optional and narrows workspace-scoped results when present
-- all results are filtered by caller visibility rules
-- the endpoint is the only search surface in the API
-
-Searchable entity types in v1:
-
-- `user`
-- `workspace`
-- `conversation`
-
-Result shape:
-
-```json
-{
-  "items": [
-    {
-      "entity_type": "user",
-      "id": "550e8400-e29b-41d4-a716-446655440000",
-      "title": "Jane",
-      "subtitle": "@jane",
-      "workspace_id": null
-    }
-  ],
-  "next_cursor": "cursor_123"
-}
-```
-
-Visibility rules:
-
-- `user` results include only users that share at least one workspace with the caller
-- `workspace` results include only workspaces the caller belongs to
-- `conversation` results include only conversations visible to the caller
-
-This endpoint supports caller-driven entity discovery, including user lookup for direct-message creation and workspace lookup, without adding resource-specific search routes.
+This endpoint is currently disabled and returns `501 Not Implemented`.
 
 ### Workspaces
 
@@ -2114,7 +2060,7 @@ Rules:
 ### Resolve A One-to-One Direct Message Between User A And User B
 
 1. User A decides to start a one-to-one direct message with User B.
-2. The caller obtains User B's `user_id` through any valid discovery path, such as `POST /search`, `GET /workspaces/{workspace_id}/members`, or previously stored state.
+2. The caller obtains User B's `user_id` through any valid discovery path, such as `GET /workspaces/{workspace_id}/members` or previously stored state.
 3. The caller sends `POST /conversations` with `workspace_id = null`, `access_policy = members`, and `participant_user_ids = ["{user_b_id}"]`.
 4. The server implicitly includes User A, canonicalizes the unordered pair `(User A, User B)`, and returns the canonical direct message conversation.
 5. The caller may then send `GET /conversations/{conversation_id}/messages` to read or continue the direct message.
