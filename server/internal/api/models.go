@@ -283,3 +283,197 @@ type CreateEventSubscriptionRequest struct {
 type UpdateEventSubscriptionRequest struct {
 	Enabled bool `json:"enabled"`
 }
+
+type DashboardScope struct {
+	WorkspaceID   *string `json:"workspace_id,omitempty"`
+	WorkspaceName *string `json:"workspace_name,omitempty"`
+}
+
+type DashboardOverview struct {
+	Scope    DashboardScope          `json:"scope"`
+	APIKeys  DashboardAPIKeySummary  `json:"api_keys"`
+	Traffic  DashboardTrafficSummary `json:"traffic"`
+	Webhooks DashboardWebhookSummary `json:"webhooks"`
+	Data     DashboardDataSummary    `json:"data"`
+}
+
+type DashboardAPIKeySummary struct {
+	Total        int     `json:"total"`
+	Active       int     `json:"active"`
+	Revoked      int     `json:"revoked"`
+	ExpiringSoon int     `json:"expiring_soon"`
+	Stale        int     `json:"stale"`
+	LastUsedAt   *string `json:"last_used_at,omitempty"`
+}
+
+type DashboardTrafficSummary struct {
+	Requests24h    int `json:"requests_24h"`
+	Requests7d     int `json:"requests_7d"`
+	Success7d      int `json:"success_7d"`
+	ClientErrors7d int `json:"client_errors_7d"`
+	ServerErrors7d int `json:"server_errors_7d"`
+	RateLimited7d  int `json:"rate_limited_7d"`
+	AvgDurationMs  int `json:"avg_duration_ms"`
+	P95DurationMs  int `json:"p95_duration_ms"`
+}
+
+type DashboardWebhookSummary struct {
+	Subscriptions        int `json:"subscriptions"`
+	EnabledSubscriptions int `json:"enabled_subscriptions"`
+	PendingDeliveries    int `json:"pending_deliveries"`
+	FailedDeliveries     int `json:"failed_deliveries"`
+	Delivered24h         int `json:"delivered_24h"`
+	Failed24h            int `json:"failed_24h"`
+}
+
+type DashboardDataSummary struct {
+	Conversations          int `json:"conversations"`
+	Messages7d             int `json:"messages_7d"`
+	RecentEvents24h        int `json:"recent_events_24h"`
+	MemberConversations    int `json:"member_conversations"`
+	BroadcastConversations int `json:"broadcast_conversations"`
+}
+
+type DashboardTrafficResponse struct {
+	Scope       DashboardScope            `json:"scope"`
+	Days        int                       `json:"days"`
+	Totals      DashboardTrafficTotals    `json:"totals"`
+	Series      []DashboardTrafficPoint   `json:"series"`
+	ByEndpoint  []DashboardEndpointStat   `json:"by_endpoint"`
+	ByKey       []DashboardKeyTrafficStat `json:"by_key"`
+	StatusCodes []DashboardStatusCodeStat `json:"status_codes"`
+}
+
+type DashboardTrafficTotals struct {
+	Requests      int `json:"requests"`
+	Success       int `json:"success"`
+	ClientErrors  int `json:"client_errors"`
+	ServerErrors  int `json:"server_errors"`
+	RateLimited   int `json:"rate_limited"`
+	SessionReqs   int `json:"session_requests"`
+	APIKeyReqs    int `json:"api_key_requests"`
+	AvgDurationMs int `json:"avg_duration_ms"`
+	P95DurationMs int `json:"p95_duration_ms"`
+}
+
+type DashboardTrafficPoint struct {
+	Date         string `json:"date"`
+	Requests     int    `json:"requests"`
+	Success      int    `json:"success"`
+	ClientErrors int    `json:"client_errors"`
+	ServerErrors int    `json:"server_errors"`
+	RateLimited  int    `json:"rate_limited"`
+}
+
+type DashboardEndpointStat struct {
+	Method        string  `json:"method"`
+	Path          string  `json:"path"`
+	Requests      int     `json:"requests"`
+	SuccessRate   float64 `json:"success_rate"`
+	AvgDurationMs int     `json:"avg_duration_ms"`
+	P95DurationMs int     `json:"p95_duration_ms"`
+	LastSeenAt    *string `json:"last_seen_at,omitempty"`
+}
+
+type DashboardKeyTrafficStat struct {
+	APIKeyID         string  `json:"api_key_id"`
+	Label            string  `json:"label"`
+	ScopeType        string  `json:"scope_type"`
+	ScopeWorkspaceID *string `json:"scope_workspace_id,omitempty"`
+	Requests         int     `json:"requests"`
+	SuccessRate      float64 `json:"success_rate"`
+	LastUsedAt       *string `json:"last_used_at,omitempty"`
+	LastRequestAt    *string `json:"last_request_at,omitempty"`
+}
+
+type DashboardStatusCodeStat struct {
+	StatusCode int `json:"status_code"`
+	Count      int `json:"count"`
+}
+
+type DashboardWebhooksResponse struct {
+	Scope            DashboardScope                 `json:"scope"`
+	Summary          DashboardWebhookSummary        `json:"summary"`
+	Subscriptions    []DashboardWebhookSubscription `json:"subscriptions"`
+	RecentDeliveries []DashboardWebhookDelivery     `json:"recent_deliveries"`
+}
+
+type DashboardWebhookSubscription struct {
+	SubscriptionID  string  `json:"subscription_id"`
+	URL             string  `json:"url"`
+	Enabled         bool    `json:"enabled"`
+	EventType       *string `json:"event_type,omitempty"`
+	ResourceType    *string `json:"resource_type,omitempty"`
+	ResourceID      *string `json:"resource_id,omitempty"`
+	CreatedAt       string  `json:"created_at"`
+	UpdatedAt       string  `json:"updated_at"`
+	TotalDeliveries int     `json:"total_deliveries"`
+	DeliveredCount  int     `json:"delivered_count"`
+	FailedCount     int     `json:"failed_count"`
+	PendingCount    int     `json:"pending_count"`
+	LastDeliveryAt  *string `json:"last_delivery_at,omitempty"`
+	LastStatus      *string `json:"last_status,omitempty"`
+	LastError       *string `json:"last_error,omitempty"`
+}
+
+type DashboardWebhookDelivery struct {
+	DeliveryID     int64   `json:"delivery_id"`
+	SubscriptionID string  `json:"subscription_id"`
+	URL            string  `json:"url"`
+	EventID        int64   `json:"event_id"`
+	EventType      string  `json:"event_type"`
+	ResourceType   string  `json:"resource_type"`
+	ResourceID     string  `json:"resource_id"`
+	Status         string  `json:"status"`
+	AttemptCount   int     `json:"attempt_count"`
+	LastError      *string `json:"last_error,omitempty"`
+	DeliveredAt    *string `json:"delivered_at,omitempty"`
+	CreatedAt      string  `json:"created_at"`
+}
+
+type DashboardDataActivityResponse struct {
+	Scope            DashboardScope                  `json:"scope"`
+	Days             int                             `json:"days"`
+	Summary          DashboardDataSummary            `json:"summary"`
+	Series           []DashboardDataPoint            `json:"series"`
+	RoomMix          []DashboardCountBucket          `json:"room_mix"`
+	TopConversations []DashboardConversationActivity `json:"top_conversations"`
+}
+
+type DashboardDataPoint struct {
+	Date                 string `json:"date"`
+	ConversationsCreated int    `json:"conversations_created"`
+	MessagesCreated      int    `json:"messages_created"`
+	EventsPublished      int    `json:"events_published"`
+}
+
+type DashboardCountBucket struct {
+	Label string `json:"label"`
+	Count int    `json:"count"`
+}
+
+type DashboardConversationActivity struct {
+	ConversationID   string  `json:"conversation_id"`
+	Title            *string `json:"title,omitempty"`
+	AccessPolicy     string  `json:"access_policy"`
+	ParticipantCount int     `json:"participant_count"`
+	LastMessageAt    *string `json:"last_message_at,omitempty"`
+	MessageCount     int     `json:"message_count"`
+}
+
+type DashboardAuditResponse struct {
+	Scope    DashboardScope         `json:"scope"`
+	Items    []DashboardAuditItem   `json:"items"`
+	TopTypes []DashboardCountBucket `json:"top_types"`
+}
+
+type DashboardAuditItem struct {
+	ID            int64          `json:"id"`
+	EventType     string         `json:"event_type"`
+	AggregateType string         `json:"aggregate_type"`
+	AggregateID   string         `json:"aggregate_id"`
+	WorkspaceID   *string        `json:"workspace_id,omitempty"`
+	ActorUserID   *string        `json:"actor_user_id,omitempty"`
+	CreatedAt     string         `json:"created_at"`
+	Payload       map[string]any `json:"payload"`
+}

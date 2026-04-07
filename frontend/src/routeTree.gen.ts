@@ -15,8 +15,11 @@ import { Route as PrivacyRouteImport } from './routes/privacy'
 import { Route as DocsRouteImport } from './routes/docs'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as WorkspaceIndexRouteImport } from './routes/workspace/index'
+import { Route as WorkspaceTrafficRouteImport } from './routes/workspace/traffic'
 import { Route as WorkspaceSettingsRouteImport } from './routes/workspace/settings'
 import { Route as WorkspaceEventsRouteImport } from './routes/workspace/events'
+import { Route as WorkspaceDataActivityRouteImport } from './routes/workspace/data-activity'
+import { Route as WorkspaceAuditRouteImport } from './routes/workspace/audit'
 import { Route as WorkspaceApiKeysRouteImport } from './routes/workspace/api-keys'
 
 const WorkspaceRoute = WorkspaceRouteImport.update({
@@ -49,6 +52,11 @@ const WorkspaceIndexRoute = WorkspaceIndexRouteImport.update({
   path: '/',
   getParentRoute: () => WorkspaceRoute,
 } as any)
+const WorkspaceTrafficRoute = WorkspaceTrafficRouteImport.update({
+  id: '/traffic',
+  path: '/traffic',
+  getParentRoute: () => WorkspaceRoute,
+} as any)
 const WorkspaceSettingsRoute = WorkspaceSettingsRouteImport.update({
   id: '/settings',
   path: '/settings',
@@ -57,6 +65,16 @@ const WorkspaceSettingsRoute = WorkspaceSettingsRouteImport.update({
 const WorkspaceEventsRoute = WorkspaceEventsRouteImport.update({
   id: '/events',
   path: '/events',
+  getParentRoute: () => WorkspaceRoute,
+} as any)
+const WorkspaceDataActivityRoute = WorkspaceDataActivityRouteImport.update({
+  id: '/data-activity',
+  path: '/data-activity',
+  getParentRoute: () => WorkspaceRoute,
+} as any)
+const WorkspaceAuditRoute = WorkspaceAuditRouteImport.update({
+  id: '/audit',
+  path: '/audit',
   getParentRoute: () => WorkspaceRoute,
 } as any)
 const WorkspaceApiKeysRoute = WorkspaceApiKeysRouteImport.update({
@@ -72,8 +90,11 @@ export interface FileRoutesByFullPath {
   '/terms': typeof TermsRoute
   '/workspace': typeof WorkspaceRouteWithChildren
   '/workspace/api-keys': typeof WorkspaceApiKeysRoute
+  '/workspace/audit': typeof WorkspaceAuditRoute
+  '/workspace/data-activity': typeof WorkspaceDataActivityRoute
   '/workspace/events': typeof WorkspaceEventsRoute
   '/workspace/settings': typeof WorkspaceSettingsRoute
+  '/workspace/traffic': typeof WorkspaceTrafficRoute
   '/workspace/': typeof WorkspaceIndexRoute
 }
 export interface FileRoutesByTo {
@@ -82,8 +103,11 @@ export interface FileRoutesByTo {
   '/privacy': typeof PrivacyRoute
   '/terms': typeof TermsRoute
   '/workspace/api-keys': typeof WorkspaceApiKeysRoute
+  '/workspace/audit': typeof WorkspaceAuditRoute
+  '/workspace/data-activity': typeof WorkspaceDataActivityRoute
   '/workspace/events': typeof WorkspaceEventsRoute
   '/workspace/settings': typeof WorkspaceSettingsRoute
+  '/workspace/traffic': typeof WorkspaceTrafficRoute
   '/workspace': typeof WorkspaceIndexRoute
 }
 export interface FileRoutesById {
@@ -94,8 +118,11 @@ export interface FileRoutesById {
   '/terms': typeof TermsRoute
   '/workspace': typeof WorkspaceRouteWithChildren
   '/workspace/api-keys': typeof WorkspaceApiKeysRoute
+  '/workspace/audit': typeof WorkspaceAuditRoute
+  '/workspace/data-activity': typeof WorkspaceDataActivityRoute
   '/workspace/events': typeof WorkspaceEventsRoute
   '/workspace/settings': typeof WorkspaceSettingsRoute
+  '/workspace/traffic': typeof WorkspaceTrafficRoute
   '/workspace/': typeof WorkspaceIndexRoute
 }
 export interface FileRouteTypes {
@@ -107,8 +134,11 @@ export interface FileRouteTypes {
     | '/terms'
     | '/workspace'
     | '/workspace/api-keys'
+    | '/workspace/audit'
+    | '/workspace/data-activity'
     | '/workspace/events'
     | '/workspace/settings'
+    | '/workspace/traffic'
     | '/workspace/'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -117,8 +147,11 @@ export interface FileRouteTypes {
     | '/privacy'
     | '/terms'
     | '/workspace/api-keys'
+    | '/workspace/audit'
+    | '/workspace/data-activity'
     | '/workspace/events'
     | '/workspace/settings'
+    | '/workspace/traffic'
     | '/workspace'
   id:
     | '__root__'
@@ -128,8 +161,11 @@ export interface FileRouteTypes {
     | '/terms'
     | '/workspace'
     | '/workspace/api-keys'
+    | '/workspace/audit'
+    | '/workspace/data-activity'
     | '/workspace/events'
     | '/workspace/settings'
+    | '/workspace/traffic'
     | '/workspace/'
   fileRoutesById: FileRoutesById
 }
@@ -185,6 +221,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof WorkspaceIndexRouteImport
       parentRoute: typeof WorkspaceRoute
     }
+    '/workspace/traffic': {
+      id: '/workspace/traffic'
+      path: '/traffic'
+      fullPath: '/workspace/traffic'
+      preLoaderRoute: typeof WorkspaceTrafficRouteImport
+      parentRoute: typeof WorkspaceRoute
+    }
     '/workspace/settings': {
       id: '/workspace/settings'
       path: '/settings'
@@ -199,6 +242,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof WorkspaceEventsRouteImport
       parentRoute: typeof WorkspaceRoute
     }
+    '/workspace/data-activity': {
+      id: '/workspace/data-activity'
+      path: '/data-activity'
+      fullPath: '/workspace/data-activity'
+      preLoaderRoute: typeof WorkspaceDataActivityRouteImport
+      parentRoute: typeof WorkspaceRoute
+    }
+    '/workspace/audit': {
+      id: '/workspace/audit'
+      path: '/audit'
+      fullPath: '/workspace/audit'
+      preLoaderRoute: typeof WorkspaceAuditRouteImport
+      parentRoute: typeof WorkspaceRoute
+    }
     '/workspace/api-keys': {
       id: '/workspace/api-keys'
       path: '/api-keys'
@@ -211,15 +268,21 @@ declare module '@tanstack/react-router' {
 
 interface WorkspaceRouteChildren {
   WorkspaceApiKeysRoute: typeof WorkspaceApiKeysRoute
+  WorkspaceAuditRoute: typeof WorkspaceAuditRoute
+  WorkspaceDataActivityRoute: typeof WorkspaceDataActivityRoute
   WorkspaceEventsRoute: typeof WorkspaceEventsRoute
   WorkspaceSettingsRoute: typeof WorkspaceSettingsRoute
+  WorkspaceTrafficRoute: typeof WorkspaceTrafficRoute
   WorkspaceIndexRoute: typeof WorkspaceIndexRoute
 }
 
 const WorkspaceRouteChildren: WorkspaceRouteChildren = {
   WorkspaceApiKeysRoute: WorkspaceApiKeysRoute,
+  WorkspaceAuditRoute: WorkspaceAuditRoute,
+  WorkspaceDataActivityRoute: WorkspaceDataActivityRoute,
   WorkspaceEventsRoute: WorkspaceEventsRoute,
   WorkspaceSettingsRoute: WorkspaceSettingsRoute,
+  WorkspaceTrafficRoute: WorkspaceTrafficRoute,
   WorkspaceIndexRoute: WorkspaceIndexRoute,
 }
 

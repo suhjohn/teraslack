@@ -12,6 +12,8 @@ import {
   APIKeyScopeType,
   WorkspaceMemberRole,
   WorkspaceMemberStatus,
+  WorkspaceMembershipSummaryRole,
+  WorkspaceMembershipSummaryStatus,
   getGetWorkspaceQueryKey,
   getListWorkspacesQueryKey,
   useCreateWorkspace,
@@ -24,6 +26,7 @@ import {
 } from '../../lib/openapi'
 import type {
   APIKeysCollection,
+  AuthMeResponse,
   EventSubscriptionsCollection,
   ExternalEventsCollection,
   Workspace,
@@ -43,7 +46,7 @@ export const Route = createFileRoute('/workspace/settings')({
 function BillingMonitorPage() {
   const navigate = useNavigate({ from: '/workspace/settings' })
   const search = Route.useSearch()
-  const { workspaceID, selectWorkspace } = useAdmin()
+  const { workspaceID, selectWorkspace, auth } = useAdmin()
 
   const workspaceQuery = useGetWorkspace<Workspace>(workspaceID, {
     query: { enabled: !!workspaceID, retry: false, staleTime: 30_000 },
@@ -86,53 +89,65 @@ function BillingMonitorPage() {
     )
   }
 
-  if (!workspaceID) {
-    return (
-      <div className="flex min-h-[40vh] items-center justify-center">
-        <p className="text-sm text-[var(--ink-soft)]">
-          No workspace is selected.{' '}
-          <Link
-            to="/workspace/settings"
-            search={{ create: true }}
-            className="text-[var(--ink)] underline underline-offset-4"
-          >
-            Create a workspace
-          </Link>{' '}
-          to start tracking API usage.
-        </p>
-      </div>
-    )
-  }
-
-  if (workspaceQuery.isFetching && !workspaceQuery.data) {
-    return (
-      <div className="flex min-h-[40vh] items-center justify-center">
-        <span className="inline-flex items-center gap-2 text-sm text-[var(--ink-soft)]">
-          <LoaderCircle className="h-4 w-4 animate-spin" />
-          Loading billing monitor…
-        </span>
-      </div>
-    )
-  }
-
-  const workspace = workspaceQuery.data
-
-  if (!workspace) {
-    return (
-      <div className="flex min-h-[40vh] items-center justify-center">
-        <p className="text-sm text-[var(--ink-soft)]">
-          The selected workspace could not be loaded.
-        </p>
-      </div>
-    )
-  }
-
+  const workspace = workspaceQuery.data ?? null
   const members = membersQuery.data?.items ?? []
   const keys = keysQuery.data?.items ?? []
   const subscriptions = subscriptionsQuery.data?.items ?? []
   const allEvents = eventsQuery.data?.items ?? []
+  const memberships = Array.isArray(auth.workspaces) ? auth.workspaces : []
 
-  const usage = useMemo(() => {
+  const userUsage = useMemo(() => {
+    const activeMemberships = memberships.filter(
+      (membership) => membership.status === WorkspaceMembershipSummaryStatus.active,
+    )
+    const invitedMemberships = memberships.filter(
+      (membership) => membership.status === WorkspaceMembershipSummaryStatus.invited,
+    )
+    const ownerMemberships = activeMemberships.filter(
+      (membership) => membership.role === WorkspaceMembershipSummaryRole.owner,
+    )
+    const adminMemberships = activeMemberships.filter(
+      (membership) => membership.role === WorkspaceMembershipSummaryRole.admin,
+    )
+    const personalKeys = keys.filter(
+      (key) =>
+        key.scope_type === APIKeyScopeType.user &&
+        !key.revoked_at,
+    )
+    const visibleWorkspaceKeys = keys.filter(
+      (key) =>
+        key.scope_type === APIKeyScopeType.workspace &&
+        !key.revoked_at,
+    )
+    const enabledSubscriptions = subscriptions.filter(
+      (subscription) => subscription.enabled,
+    )
+    const visibleEvents = [...allEvents].sort(
+      (left, right) =>
+        Date.parse(right.occurred_at) - Date.parse(left.occurred_at),
+    )
+    const eventsLast7Days = visibleEvents.filter(
+      (event) => Date.parse(event.occurred_at) >= Date.now() - 7 * 86400_000,
+    )
+
+    return {
+      activeMemberships,
+      invitedMemberships,
+      ownerMemberships,
+      adminMemberships,
+      personalKeys,
+      visibleWorkspaceKeys,
+      enabledSubscriptions,
+      visibleEvents,
+      eventsLast7Days,
+    }
+  }, [allEvents, keys, memberships, subscriptions])
+
+  const workspaceUsage = useMemo(() => {
+    if (!workspaceID) {
+      return null
+    }
+
     const activeMembers = members.filter(
       (member) => member.status === WorkspaceMemberStatus.active,
     )
@@ -187,8 +202,14 @@ function BillingMonitorPage() {
     }
   }, [allEvents, keys, members, subscriptions, workspaceID])
 
+  const userLabel =
+    auth.user.profile.display_name ||
+    auth.user.profile.handle ||
+    auth.user.email ||
+    auth.user.id
+
   return (
-    <div className="space-y-8">
+    <div className="space-y-10">
       <div className="sys-panel">
         <div className="sys-panel-header">
           <span>Billing_Monitor</span>
@@ -196,131 +217,316 @@ function BillingMonitorPage() {
         </div>
         <div className="sys-panel-body">
           <h1 className="text-xl font-bold uppercase tracking-[0.05em] text-[var(--sys-home-fg)]">
-            {workspace.name}
+            Billing scopes
           </h1>
           <p className="mt-1 text-[13px] text-[var(--sys-home-muted)]">
-            Workspace usage, delivery footprint, and the inputs that matter for
-            API billing posture.
+            Derived billing signals for the current operator and, when selected,
+            the active workspace.
           </p>
         </div>
       </div>
 
       <Alert>
         The current OpenAPI surface does not expose invoices, plan state, or
-        spend totals. This page tracks the usage signals that exist today.
+        spend totals. This page tracks the user-level and workspace-level usage
+        signals that exist today.
       </Alert>
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <MetricCard
-          label="Active members"
-          value={usage.activeMembers.length}
-          detail={`${usage.owners.length} owners, ${usage.admins.length} admins`}
-        />
-        <MetricCard
-          label="Workspace keys"
-          value={usage.activeKeys.length}
-          detail={`${usage.expiringSoon.length} expiring in 30d`}
-        />
-        <MetricCard
-          label="Subscriptions"
-          value={usage.enabledSubscriptions.length}
-          detail={`${usage.workspaceSubscriptions.length} configured`}
-        />
-        <MetricCard
-          label="Events last 7d"
-          value={usage.eventsLast7Days.length}
-          detail={
-            usage.workspaceEvents[0]
-              ? `Latest ${formatDate(usage.workspaceEvents[0].occurred_at)}`
-              : 'No events yet'
-          }
-        />
-      </div>
+      <section className="space-y-8">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h2 className="text-sm font-bold uppercase tracking-[0.05em] text-[var(--sys-home-fg)]">
+              User scope
+            </h2>
+            <p className="mt-1 text-xs text-[var(--sys-home-muted)]">
+              Billing signals tied to the current operator across every visible
+              workspace.
+            </p>
+          </div>
+          <Badge variant="muted">{userLabel}</Badge>
+        </div>
 
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,1.05fr)_minmax(0,.95fr)]">
-        <WorkspaceProfileCard key={workspace.id} workspace={workspace} />
-        <section className="border border-[var(--sys-home-border)] bg-[var(--sys-home-bg)] p-5">
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <h2 className="text-sm font-bold uppercase tracking-[0.05em] text-[var(--sys-home-fg)]">
-                Usage snapshot
-              </h2>
-              <p className="mt-1 text-xs text-[var(--sys-home-muted)]">
-                Current billing inputs derived from the supported API.
-              </p>
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <MetricCard
+            label="Active workspaces"
+            value={userUsage.activeMemberships.length}
+            detail={`${userUsage.ownerMemberships.length} owned, ${userUsage.adminMemberships.length} admin`}
+          />
+          <MetricCard
+            label="Personal keys"
+            value={userUsage.personalKeys.length}
+            detail={`${userUsage.visibleWorkspaceKeys.length} workspace keys visible`}
+          />
+          <MetricCard
+            label="Enabled subscriptions"
+            value={userUsage.enabledSubscriptions.length}
+            detail={`${subscriptions.length} visible across accessible workspaces`}
+          />
+          <MetricCard
+            label="Events last 7d"
+            value={userUsage.eventsLast7Days.length}
+            detail={
+              userUsage.visibleEvents[0]
+                ? `Latest ${formatDate(userUsage.visibleEvents[0].occurred_at)}`
+                : 'No visible events yet'
+            }
+          />
+        </div>
+
+        <div className="grid gap-4 xl:grid-cols-[minmax(0,1.05fr)_minmax(0,.95fr)]">
+          <UserProfileCard
+            auth={auth}
+            activeWorkspaceID={workspaceID}
+            activeWorkspaceName={workspace?.name ?? null}
+          />
+          <SnapshotCard
+            title="User usage snapshot"
+            description="Current billing inputs derived for the signed-in operator."
+            payload={{
+              user_id: auth.user.id,
+              handle: auth.user.profile.handle || null,
+              display_name: auth.user.profile.display_name || null,
+              email: auth.user.email ?? null,
+              active_workspaces: userUsage.activeMemberships.length,
+              invited_workspaces: userUsage.invitedMemberships.length,
+              owner_workspaces: userUsage.ownerMemberships.length,
+              admin_workspaces: userUsage.adminMemberships.length,
+              personal_keys: userUsage.personalKeys.length,
+              workspace_keys_visible: userUsage.visibleWorkspaceKeys.length,
+              subscriptions_enabled: userUsage.enabledSubscriptions.length,
+              subscriptions_total: subscriptions.length,
+              events_last_7_days: userUsage.eventsLast7Days.length,
+              latest_event_at: userUsage.visibleEvents[0]?.occurred_at ?? null,
+              selected_workspace_id: workspaceID || null,
+            }}
+          />
+        </div>
+
+        <div className="grid gap-4 lg:grid-cols-2">
+          <section className="border border-[var(--sys-home-border)] bg-[var(--sys-home-bg)] p-5">
+            <h2 className="text-sm font-bold uppercase tracking-[0.05em] text-[var(--sys-home-fg)]">
+              Workspace access footprint
+            </h2>
+            <div className="mt-4 space-y-3">
+              <FootprintRow
+                label="Owned workspaces"
+                value={userUsage.ownerMemberships.map((membership) => membership.name).join(', ') || 'None'}
+              />
+              <FootprintRow
+                label="Admin workspaces"
+                value={userUsage.adminMemberships.map((membership) => membership.name).join(', ') || 'None'}
+              />
+              <FootprintRow
+                label="Invites pending"
+                value={String(userUsage.invitedMemberships.length)}
+              />
+              <FootprintRow
+                label="Current handle"
+                value={auth.user.profile.handle || 'Not set'}
+              />
             </div>
-            <Badge variant="muted">derived</Badge>
-          </div>
-          <CodeBlock className="mt-4 text-xs">
-            {JSON.stringify(
-              {
-                workspace_id: workspace.id,
-                slug: workspace.slug,
-                active_members: usage.activeMembers.length,
-                invited_members: usage.invitedMembers.length,
-                workspace_keys: usage.activeKeys.length,
-                subscriptions_enabled: usage.enabledSubscriptions.length,
-                subscriptions_total: usage.workspaceSubscriptions.length,
-                events_last_7_days: usage.eventsLast7Days.length,
-                latest_event_at: usage.workspaceEvents[0]?.occurred_at ?? null,
-              },
-              null,
-              2,
-            )}
-          </CodeBlock>
-        </section>
-      </div>
+          </section>
 
-      <div className="grid gap-4 lg:grid-cols-2">
-        <section className="border border-[var(--sys-home-border)] bg-[var(--sys-home-bg)] p-5">
-          <h2 className="text-sm font-bold uppercase tracking-[0.05em] text-[var(--sys-home-fg)]">
-            Membership footprint
-          </h2>
-          <div className="mt-4 space-y-3">
-            <FootprintRow
-              label="Owners"
-              value={usage.owners.map(getMemberLabel).join(', ') || 'None'}
-            />
-            <FootprintRow
-              label="Admins"
-              value={usage.admins.map(getMemberLabel).join(', ') || 'None'}
-            />
-            <FootprintRow
-              label="Invites pending"
-              value={String(usage.invitedMembers.length)}
-            />
-            <FootprintRow
-              label="Workspace created"
-              value={formatDate(workspace.created_at)}
-            />
-          </div>
-        </section>
+          <section className="border border-[var(--sys-home-border)] bg-[var(--sys-home-bg)] p-5">
+            <h2 className="text-sm font-bold uppercase tracking-[0.05em] text-[var(--sys-home-fg)]">
+              Credential + delivery footprint
+            </h2>
+            <div className="mt-4 space-y-3">
+              <FootprintRow
+                label="Personal keys"
+                value={String(userUsage.personalKeys.length)}
+              />
+              <FootprintRow
+                label="Workspace keys visible"
+                value={String(userUsage.visibleWorkspaceKeys.length)}
+              />
+              <FootprintRow
+                label="Enabled subscriptions"
+                value={String(userUsage.enabledSubscriptions.length)}
+              />
+              <FootprintRow
+                label="Recent visible events"
+                value={String(userUsage.visibleEvents.slice(0, 20).length)}
+              />
+            </div>
+          </section>
+        </div>
+      </section>
 
-        <section className="border border-[var(--sys-home-border)] bg-[var(--sys-home-bg)] p-5">
-          <h2 className="text-sm font-bold uppercase tracking-[0.05em] text-[var(--sys-home-fg)]">
-            Delivery footprint
-          </h2>
-          <div className="mt-4 space-y-3">
-            <FootprintRow
-              label="Workspace-scoped keys"
-              value={String(usage.workspaceKeys.length)}
-            />
-            <FootprintRow
-              label="Enabled subscriptions"
-              value={String(usage.enabledSubscriptions.length)}
-            />
-            <FootprintRow
-              label="Recent events"
-              value={String(usage.workspaceEvents.slice(0, 20).length)}
-            />
-            <FootprintRow
-              label="Last update"
-              value={formatDate(workspace.updated_at)}
-            />
+      <section className="space-y-8">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h2 className="text-sm font-bold uppercase tracking-[0.05em] text-[var(--sys-home-fg)]">
+              Workspace scope
+            </h2>
+            <p className="mt-1 text-xs text-[var(--sys-home-muted)]">
+              Billing signals tied to the currently selected workspace.
+            </p>
           </div>
-        </section>
-      </div>
+          {workspace ? <Badge variant="muted">{workspace.name}</Badge> : null}
+        </div>
+
+        {!workspaceID ? (
+          <EmptyWorkspaceBillingState />
+        ) : workspaceQuery.isFetching && !workspace ? (
+          <div className="flex min-h-[20vh] items-center justify-center border border-[var(--sys-home-border)] bg-[var(--sys-home-bg)]">
+            <span className="inline-flex items-center gap-2 text-sm text-[var(--ink-soft)]">
+              <LoaderCircle className="h-4 w-4 animate-spin" />
+              Loading workspace billing…
+            </span>
+          </div>
+        ) : !workspace || !workspaceUsage ? (
+          <section className="border border-[var(--sys-home-border)] bg-[var(--sys-home-bg)] p-6">
+            <p className="text-sm text-[var(--ink-soft)]">
+              The selected workspace could not be loaded.
+            </p>
+          </section>
+        ) : (
+          <>
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+              <MetricCard
+                label="Active members"
+                value={workspaceUsage.activeMembers.length}
+                detail={`${workspaceUsage.owners.length} owners, ${workspaceUsage.admins.length} admins`}
+              />
+              <MetricCard
+                label="Workspace keys"
+                value={workspaceUsage.activeKeys.length}
+                detail={`${workspaceUsage.expiringSoon.length} expiring in 30d`}
+              />
+              <MetricCard
+                label="Subscriptions"
+                value={workspaceUsage.enabledSubscriptions.length}
+                detail={`${workspaceUsage.workspaceSubscriptions.length} configured`}
+              />
+              <MetricCard
+                label="Events last 7d"
+                value={workspaceUsage.eventsLast7Days.length}
+                detail={
+                  workspaceUsage.workspaceEvents[0]
+                    ? `Latest ${formatDate(workspaceUsage.workspaceEvents[0].occurred_at)}`
+                    : 'No events yet'
+                }
+              />
+            </div>
+
+            <div className="grid gap-4 xl:grid-cols-[minmax(0,1.05fr)_minmax(0,.95fr)]">
+              <WorkspaceProfileCard key={workspace.id} workspace={workspace} />
+              <SnapshotCard
+                title="Workspace usage snapshot"
+                description="Current billing inputs derived for the active workspace."
+                payload={{
+                  workspace_id: workspace.id,
+                  slug: workspace.slug,
+                  active_members: workspaceUsage.activeMembers.length,
+                  invited_members: workspaceUsage.invitedMembers.length,
+                  workspace_keys: workspaceUsage.activeKeys.length,
+                  subscriptions_enabled: workspaceUsage.enabledSubscriptions.length,
+                  subscriptions_total: workspaceUsage.workspaceSubscriptions.length,
+                  events_last_7_days: workspaceUsage.eventsLast7Days.length,
+                  latest_event_at: workspaceUsage.workspaceEvents[0]?.occurred_at ?? null,
+                }}
+              />
+            </div>
+
+            <div className="grid gap-4 lg:grid-cols-2">
+              <section className="border border-[var(--sys-home-border)] bg-[var(--sys-home-bg)] p-5">
+                <h2 className="text-sm font-bold uppercase tracking-[0.05em] text-[var(--sys-home-fg)]">
+                  Membership footprint
+                </h2>
+                <div className="mt-4 space-y-3">
+                  <FootprintRow
+                    label="Owners"
+                    value={workspaceUsage.owners.map(getMemberLabel).join(', ') || 'None'}
+                  />
+                  <FootprintRow
+                    label="Admins"
+                    value={workspaceUsage.admins.map(getMemberLabel).join(', ') || 'None'}
+                  />
+                  <FootprintRow
+                    label="Invites pending"
+                    value={String(workspaceUsage.invitedMembers.length)}
+                  />
+                  <FootprintRow
+                    label="Workspace created"
+                    value={formatDate(workspace.created_at)}
+                  />
+                </div>
+              </section>
+
+              <section className="border border-[var(--sys-home-border)] bg-[var(--sys-home-bg)] p-5">
+                <h2 className="text-sm font-bold uppercase tracking-[0.05em] text-[var(--sys-home-fg)]">
+                  Delivery footprint
+                </h2>
+                <div className="mt-4 space-y-3">
+                  <FootprintRow
+                    label="Workspace-scoped keys"
+                    value={String(workspaceUsage.workspaceKeys.length)}
+                  />
+                  <FootprintRow
+                    label="Enabled subscriptions"
+                    value={String(workspaceUsage.enabledSubscriptions.length)}
+                  />
+                  <FootprintRow
+                    label="Recent events"
+                    value={String(workspaceUsage.workspaceEvents.slice(0, 20).length)}
+                  />
+                  <FootprintRow
+                    label="Last update"
+                    value={formatDate(workspace.updated_at)}
+                  />
+                </div>
+              </section>
+            </div>
+          </>
+        )}
+      </section>
     </div>
+  )
+}
+
+function UserProfileCard({
+  auth,
+  activeWorkspaceID,
+  activeWorkspaceName,
+}: {
+  auth: AuthMeResponse
+  activeWorkspaceID: string
+  activeWorkspaceName: string | null
+}) {
+  return (
+    <section className="border border-[var(--sys-home-border)] bg-[var(--sys-home-bg)] p-5">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h2 className="text-sm font-bold uppercase tracking-[0.05em] text-[var(--sys-home-fg)]">
+            User profile
+          </h2>
+          <p className="mt-1 text-xs text-[var(--sys-home-muted)]">
+            Operator identity and current workspace selection used for billing views.
+          </p>
+        </div>
+        <Badge variant="muted">{auth.user.principal_type}</Badge>
+      </div>
+
+      <div className="mt-4 space-y-3">
+        <FootprintRow
+          label="Display name"
+          value={auth.user.profile.display_name || 'Not set'}
+        />
+        <FootprintRow
+          label="Handle"
+          value={auth.user.profile.handle || 'Not set'}
+        />
+        <FootprintRow
+          label="Email"
+          value={auth.user.email ?? 'Not set'}
+        />
+        <FootprintRow
+          label="Selected workspace"
+          value={activeWorkspaceName ?? (activeWorkspaceID || 'None selected')}
+        />
+      </div>
+    </section>
   )
 }
 
@@ -410,6 +616,58 @@ function WorkspaceProfileCard({ workspace }: { workspace: Workspace }) {
   )
 }
 
+function SnapshotCard({
+  title,
+  description,
+  payload,
+}: {
+  title: string
+  description: string
+  payload: Record<string, unknown>
+}) {
+  return (
+    <section className="border border-[var(--sys-home-border)] bg-[var(--sys-home-bg)] p-5">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h2 className="text-sm font-bold uppercase tracking-[0.05em] text-[var(--sys-home-fg)]">
+            {title}
+          </h2>
+          <p className="mt-1 text-xs text-[var(--sys-home-muted)]">
+            {description}
+          </p>
+        </div>
+        <Badge variant="muted">derived</Badge>
+      </div>
+      <CodeBlock className="mt-4 text-xs">
+        {JSON.stringify(payload, null, 2)}
+      </CodeBlock>
+    </section>
+  )
+}
+
+function EmptyWorkspaceBillingState() {
+  return (
+    <section className="border border-[var(--sys-home-border)] bg-[var(--sys-home-bg)] p-6">
+      <h3 className="text-sm font-bold uppercase tracking-[0.05em] text-[var(--sys-home-fg)]">
+        No workspace selected
+      </h3>
+      <p className="mt-2 text-sm text-[var(--sys-home-muted)]">
+        User-level billing signals are available above. Create a workspace to unlock
+        tenant-level billing, membership, and delivery posture.
+      </p>
+      <div className="mt-5">
+        <Link
+          to="/workspace/settings"
+          search={{ create: true }}
+          className="sys-command-button no-underline"
+        >
+          Create workspace
+        </Link>
+      </div>
+    </section>
+  )
+}
+
 function CreateWorkspacePanel({
   onCancel,
   onCreated,
@@ -441,10 +699,13 @@ function CreateWorkspacePanel({
           slug: trimmedSlug,
         },
       })
+      if (created.status !== 201) {
+        throw new Error('Failed to create workspace.')
+      }
       await queryClient.invalidateQueries({
         queryKey: getListWorkspacesQueryKey(),
       })
-      await onCreated(created.id)
+      await onCreated(created.data.id)
     } catch (err) {
       setError(getErrorMessage(err, 'Failed to create workspace.'))
     }

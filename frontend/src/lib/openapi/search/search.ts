@@ -16,32 +16,49 @@ import type {
 } from '@tanstack/react-query';
 
 import type {
-  ApiErrorResponseResponse
+  ApiErrorResponseResponse,
+  SearchRequest,
+  SearchResponse
 } from '../model';
 
 import { orvalFetch } from '../../orval-mutator';
-import type { ErrorType } from '../../orval-mutator';
+import type { ErrorType , BodyType } from '../../orval-mutator';
 
 
 type SecondParameter<T extends (...args: never) => unknown> = Parameters<T>[1];
 
 
 
+export type HTTPStatusCode1xx = 100 | 101 | 102 | 103;
+export type HTTPStatusCode2xx = 200 | 201 | 202 | 203 | 204 | 205 | 206 | 207;
+export type HTTPStatusCode3xx = 300 | 301 | 302 | 303 | 304 | 305 | 307 | 308;
+export type HTTPStatusCode4xx = 400 | 401 | 402 | 403 | 404 | 405 | 406 | 407 | 408 | 409 | 410 | 411 | 412 | 413 | 414 | 415 | 416 | 417 | 418 | 419 | 420 | 421 | 422 | 423 | 424 | 426 | 428 | 429 | 431 | 451;
+export type HTTPStatusCode5xx = 500 | 501 | 502 | 503 | 504 | 505 | 507 | 511;
+export type HTTPStatusCodes = HTTPStatusCode1xx | HTTPStatusCode2xx | HTTPStatusCode3xx | HTTPStatusCode4xx | HTTPStatusCode5xx;
+
+
 /**
- * Placeholder endpoint. Search is currently disabled and always returns not implemented.
- * @summary Search is not implemented
+ * Runs hybrid search across the resources the caller is allowed to access.
+ * @summary Search across accessible resources
  */
-export type runSearchResponse501 = {
-  data: ApiErrorResponseResponse
-  status: 501
+export type runSearchResponse200 = {
+  data: SearchResponse
+  status: 200
 }
 
-;
-export type runSearchResponseError = (runSearchResponse501) & {
+export type runSearchResponseDefault = {
+  data: ApiErrorResponseResponse
+  status: Exclude<HTTPStatusCodes, 200>
+}
+
+export type runSearchResponseSuccess = (runSearchResponse200) & {
+  headers: Headers;
+};
+export type runSearchResponseError = (runSearchResponseDefault) & {
   headers: Headers;
 };
 
-export type runSearchResponse = (runSearchResponseError)
+export type runSearchResponse = (runSearchResponseSuccess | runSearchResponseError)
 
 export const getRunSearchUrl = () => {
 
@@ -51,14 +68,15 @@ export const getRunSearchUrl = () => {
   return `/search`
 }
 
-export const runSearch = async ( options?: RequestInit): Promise<runSearchResponse> => {
+export const runSearch = async (searchRequest: SearchRequest, options?: RequestInit): Promise<runSearchResponse> => {
 
   return orvalFetch<runSearchResponse>(getRunSearchUrl(),
   {
     ...options,
-    method: 'POST'
-
-
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      searchRequest,)
   }
 );}
 
@@ -66,8 +84,8 @@ export const runSearch = async ( options?: RequestInit): Promise<runSearchRespon
 
 
 export const getRunSearchMutationOptions = <TError = ErrorType<ApiErrorResponseResponse>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof runSearch>>, TError,void, TContext>, request?: SecondParameter<typeof orvalFetch>}
-): UseMutationOptions<Awaited<ReturnType<typeof runSearch>>, TError,void, TContext> => {
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof runSearch>>, TError,{data: BodyType<SearchRequest>}, TContext>, request?: SecondParameter<typeof orvalFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof runSearch>>, TError,{data: BodyType<SearchRequest>}, TContext> => {
 
 const mutationKey = ['runSearch'];
 const {mutation: mutationOptions, request: requestOptions} = options ?
@@ -79,10 +97,10 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof runSearch>>, void> = () => {
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof runSearch>>, {data: BodyType<SearchRequest>}> = (props) => {
+          const {data} = props ?? {};
 
-
-          return  runSearch(requestOptions)
+          return  runSearch(data,requestOptions)
         }
 
 
@@ -93,18 +111,18 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
   return  { mutationFn, ...mutationOptions }}
 
     export type RunSearchMutationResult = NonNullable<Awaited<ReturnType<typeof runSearch>>>
-
+    export type RunSearchMutationBody = BodyType<SearchRequest>
     export type RunSearchMutationError = ErrorType<ApiErrorResponseResponse>
 
     /**
- * @summary Search is not implemented
+ * @summary Search across accessible resources
  */
 export const useRunSearch = <TError = ErrorType<ApiErrorResponseResponse>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof runSearch>>, TError,void, TContext>, request?: SecondParameter<typeof orvalFetch>}
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof runSearch>>, TError,{data: BodyType<SearchRequest>}, TContext>, request?: SecondParameter<typeof orvalFetch>}
  , queryClient?: QueryClient): UseMutationResult<
         Awaited<ReturnType<typeof runSearch>>,
         TError,
-        void,
+        {data: BodyType<SearchRequest>},
         TContext
       > => {
       return useMutation(getRunSearchMutationOptions(options), queryClient);

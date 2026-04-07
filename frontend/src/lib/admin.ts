@@ -12,6 +12,7 @@ export type AdminContextValue = {
 export const AdminContext = createContext<AdminContextValue | null>(null)
 
 const adminWorkspaceCookie = 'admin_workspace_id'
+export const allWorkspacesValue = '__all__'
 
 export function useAdmin (): AdminContextValue {
   const ctx = useContext(AdminContext)
@@ -37,7 +38,7 @@ export function setPreferredAdminWorkspaceID (workspaceID: string) {
   }
 
   document.cookie = `${adminWorkspaceCookie}=${encodeURIComponent(
-    workspaceID
+    workspaceID || allWorkspacesValue
   )}; Path=/; Max-Age=31536000; SameSite=Lax`
 }
 
@@ -51,4 +52,16 @@ export function formatDate (value: string) {
 export function getErrorMessage (error: unknown, fallback: string) {
   if (error instanceof Error) return error.message
   return fallback
+}
+
+export function getDashboardWorkspaceParams (workspaceID: string) {
+  return workspaceID ? { workspace_id: workspaceID } : undefined
+}
+
+export function formatNumber (value: number) {
+  return new Intl.NumberFormat().format(value)
+}
+
+export function formatPercent (value: number) {
+  return `${Math.round(value * 100)}%`
 }

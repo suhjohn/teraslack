@@ -16,6 +16,8 @@ tags:
     description: Authenticated caller bootstrap and profile endpoints.
   - name: API Keys
     description: Personal and workspace-scoped API key management.
+  - name: Dashboard
+    description: API-first operational reporting for keys, traffic, webhooks, activity, and audit state.
   - name: Search
     description: Search endpoint placeholder.
   - name: Workspaces
@@ -281,6 +283,100 @@ paths:
       responses:
         '204':
           description: API key revoked.
+        default:
+          $ref: '#/components/responses/ApiErrorResponse'
+  /dashboard/overview:
+    get:
+      tags:
+        - Dashboard
+      operationId: getDashboardOverview
+      summary: Get dashboard overview
+      description: Returns the top-level key, traffic, webhook, and data summaries for the caller. Workspace-scoped API keys are restricted to their bound workspace.
+      parameters:
+        - $ref: '#/components/parameters/WorkspaceIDQuery'
+      responses:
+        '200':
+          description: Dashboard overview.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DashboardOverview'
+        default:
+          $ref: '#/components/responses/ApiErrorResponse'
+  /dashboard/traffic:
+    get:
+      tags:
+        - Dashboard
+      operationId: getDashboardTraffic
+      summary: Get dashboard traffic analytics
+      description: Returns recent request volume, latency, status code, endpoint, and API key breakdowns for the caller.
+      parameters:
+        - $ref: '#/components/parameters/WorkspaceIDQuery'
+        - $ref: '#/components/parameters/DashboardDaysQuery'
+      responses:
+        '200':
+          description: Traffic analytics.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DashboardTrafficResponse'
+        default:
+          $ref: '#/components/responses/ApiErrorResponse'
+  /dashboard/webhooks:
+    get:
+      tags:
+        - Dashboard
+      operationId: getDashboardWebhooks
+      summary: Get dashboard webhook health
+      description: Returns webhook subscription inventory plus recent delivery outcomes for the caller.
+      parameters:
+        - $ref: '#/components/parameters/WorkspaceIDQuery'
+        - $ref: '#/components/parameters/LimitQuery'
+      responses:
+        '200':
+          description: Webhook subscription and delivery state.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DashboardWebhooksResponse'
+        default:
+          $ref: '#/components/responses/ApiErrorResponse'
+  /dashboard/data-activity:
+    get:
+      tags:
+        - Dashboard
+      operationId: getDashboardDataActivity
+      summary: Get dashboard data activity
+      description: Returns conversation, message, event, and room mix activity summaries for accessible conversations.
+      parameters:
+        - $ref: '#/components/parameters/WorkspaceIDQuery'
+        - $ref: '#/components/parameters/DashboardDaysQuery'
+      responses:
+        '200':
+          description: Data activity analytics.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DashboardDataActivityResponse'
+        default:
+          $ref: '#/components/responses/ApiErrorResponse'
+  /dashboard/audit:
+    get:
+      tags:
+        - Dashboard
+      operationId: getDashboardAudit
+      summary: Get dashboard audit trail
+      description: Returns recent internal lifecycle events initiated by the caller, optionally filtered to one workspace.
+      parameters:
+        - $ref: '#/components/parameters/WorkspaceIDQuery'
+        - $ref: '#/components/parameters/LimitQuery'
+      responses:
+        '200':
+          description: Audit trail entries.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DashboardAuditResponse'
         default:
           $ref: '#/components/responses/ApiErrorResponse'
   /search:
@@ -966,6 +1062,15 @@ components:
       description: Opaque pagination cursor returned as next_cursor by a previous page.
       schema:
         type: string
+    DashboardDaysQuery:
+      in: query
+      name: days
+      required: false
+      description: Number of trailing UTC days to include in the report.
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 90
     AccessPolicyQuery:
       in: query
       name: access_policy
@@ -1331,6 +1436,544 @@ components:
         secret:
           type: string
           description: Plaintext API key secret. It is returned only once.
+    DashboardScope:
+      type: object
+      properties:
+        workspace_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Active workspace scope for the report when one workspace is selected.
+        workspace_name:
+          type: string
+          nullable: true
+          description: Workspace display name for the active report scope.
+    DashboardOverview:
+      type: object
+      required:
+        - scope
+        - api_keys
+        - traffic
+        - webhooks
+        - data
+      properties:
+        scope:
+          $ref: '#/components/schemas/DashboardScope'
+        api_keys:
+          $ref: '#/components/schemas/DashboardAPIKeySummary'
+        traffic:
+          $ref: '#/components/schemas/DashboardTrafficSummary'
+        webhooks:
+          $ref: '#/components/schemas/DashboardWebhookSummary'
+        data:
+          $ref: '#/components/schemas/DashboardDataSummary'
+    DashboardAPIKeySummary:
+      type: object
+      required:
+        - total
+        - active
+        - revoked
+        - expiring_soon
+        - stale
+      properties:
+        total:
+          type: integer
+        active:
+          type: integer
+        revoked:
+          type: integer
+        expiring_soon:
+          type: integer
+        stale:
+          type: integer
+        last_used_at:
+          type: string
+          format: date-time
+          nullable: true
+    DashboardTrafficSummary:
+      type: object
+      required:
+        - requests_24h
+        - requests_7d
+        - success_7d
+        - client_errors_7d
+        - server_errors_7d
+        - rate_limited_7d
+        - avg_duration_ms
+        - p95_duration_ms
+      properties:
+        requests_24h:
+          type: integer
+        requests_7d:
+          type: integer
+        success_7d:
+          type: integer
+        client_errors_7d:
+          type: integer
+        server_errors_7d:
+          type: integer
+        rate_limited_7d:
+          type: integer
+        avg_duration_ms:
+          type: integer
+        p95_duration_ms:
+          type: integer
+    DashboardWebhookSummary:
+      type: object
+      required:
+        - subscriptions
+        - enabled_subscriptions
+        - pending_deliveries
+        - failed_deliveries
+        - delivered_24h
+        - failed_24h
+      properties:
+        subscriptions:
+          type: integer
+        enabled_subscriptions:
+          type: integer
+        pending_deliveries:
+          type: integer
+        failed_deliveries:
+          type: integer
+        delivered_24h:
+          type: integer
+        failed_24h:
+          type: integer
+    DashboardDataSummary:
+      type: object
+      required:
+        - conversations
+        - messages_7d
+        - recent_events_24h
+        - member_conversations
+        - broadcast_conversations
+      properties:
+        conversations:
+          type: integer
+        messages_7d:
+          type: integer
+        recent_events_24h:
+          type: integer
+        member_conversations:
+          type: integer
+        broadcast_conversations:
+          type: integer
+    DashboardTrafficResponse:
+      type: object
+      required:
+        - scope
+        - days
+        - totals
+        - series
+        - by_endpoint
+        - by_key
+        - status_codes
+      properties:
+        scope:
+          $ref: '#/components/schemas/DashboardScope'
+        days:
+          type: integer
+        totals:
+          $ref: '#/components/schemas/DashboardTrafficTotals'
+        series:
+          type: array
+          items:
+            $ref: '#/components/schemas/DashboardTrafficPoint'
+        by_endpoint:
+          type: array
+          items:
+            $ref: '#/components/schemas/DashboardEndpointStat'
+        by_key:
+          type: array
+          items:
+            $ref: '#/components/schemas/DashboardKeyTrafficStat'
+        status_codes:
+          type: array
+          items:
+            $ref: '#/components/schemas/DashboardStatusCodeStat'
+    DashboardTrafficTotals:
+      type: object
+      required:
+        - requests
+        - success
+        - client_errors
+        - server_errors
+        - rate_limited
+        - session_requests
+        - api_key_requests
+        - avg_duration_ms
+        - p95_duration_ms
+      properties:
+        requests:
+          type: integer
+        success:
+          type: integer
+        client_errors:
+          type: integer
+        server_errors:
+          type: integer
+        rate_limited:
+          type: integer
+        session_requests:
+          type: integer
+        api_key_requests:
+          type: integer
+        avg_duration_ms:
+          type: integer
+        p95_duration_ms:
+          type: integer
+    DashboardTrafficPoint:
+      type: object
+      required:
+        - date
+        - requests
+        - success
+        - client_errors
+        - server_errors
+        - rate_limited
+      properties:
+        date:
+          type: string
+          description: UTC calendar day in YYYY-MM-DD format.
+        requests:
+          type: integer
+        success:
+          type: integer
+        client_errors:
+          type: integer
+        server_errors:
+          type: integer
+        rate_limited:
+          type: integer
+    DashboardEndpointStat:
+      type: object
+      required:
+        - method
+        - path
+        - requests
+        - success_rate
+        - avg_duration_ms
+        - p95_duration_ms
+      properties:
+        method:
+          type: string
+        path:
+          type: string
+        requests:
+          type: integer
+        success_rate:
+          type: number
+          format: double
+        avg_duration_ms:
+          type: integer
+        p95_duration_ms:
+          type: integer
+        last_seen_at:
+          type: string
+          format: date-time
+          nullable: true
+    DashboardKeyTrafficStat:
+      type: object
+      required:
+        - api_key_id
+        - label
+        - scope_type
+        - requests
+        - success_rate
+      properties:
+        api_key_id:
+          type: string
+          format: uuid
+        label:
+          type: string
+        scope_type:
+          type: string
+          enum:
+            - user
+            - workspace
+        scope_workspace_id:
+          type: string
+          format: uuid
+          nullable: true
+        requests:
+          type: integer
+        success_rate:
+          type: number
+          format: double
+        last_used_at:
+          type: string
+          format: date-time
+          nullable: true
+        last_request_at:
+          type: string
+          format: date-time
+          nullable: true
+    DashboardStatusCodeStat:
+      type: object
+      required:
+        - status_code
+        - count
+      properties:
+        status_code:
+          type: integer
+        count:
+          type: integer
+    DashboardWebhooksResponse:
+      type: object
+      required:
+        - scope
+        - summary
+        - subscriptions
+        - recent_deliveries
+      properties:
+        scope:
+          $ref: '#/components/schemas/DashboardScope'
+        summary:
+          $ref: '#/components/schemas/DashboardWebhookSummary'
+        subscriptions:
+          type: array
+          items:
+            $ref: '#/components/schemas/DashboardWebhookSubscription'
+        recent_deliveries:
+          type: array
+          items:
+            $ref: '#/components/schemas/DashboardWebhookDelivery'
+    DashboardWebhookSubscription:
+      type: object
+      required:
+        - subscription_id
+        - url
+        - enabled
+        - created_at
+        - updated_at
+        - total_deliveries
+        - delivered_count
+        - failed_count
+        - pending_count
+      properties:
+        subscription_id:
+          type: string
+          format: uuid
+        url:
+          type: string
+          format: uri
+        enabled:
+          type: boolean
+        event_type:
+          type: string
+          nullable: true
+        resource_type:
+          type: string
+          nullable: true
+        resource_id:
+          type: string
+          format: uuid
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        total_deliveries:
+          type: integer
+        delivered_count:
+          type: integer
+        failed_count:
+          type: integer
+        pending_count:
+          type: integer
+        last_delivery_at:
+          type: string
+          format: date-time
+          nullable: true
+        last_status:
+          type: string
+          nullable: true
+        last_error:
+          type: string
+          nullable: true
+    DashboardWebhookDelivery:
+      type: object
+      required:
+        - delivery_id
+        - subscription_id
+        - url
+        - event_id
+        - event_type
+        - resource_type
+        - resource_id
+        - status
+        - attempt_count
+        - created_at
+      properties:
+        delivery_id:
+          type: integer
+          format: int64
+        subscription_id:
+          type: string
+          format: uuid
+        url:
+          type: string
+          format: uri
+        event_id:
+          type: integer
+          format: int64
+        event_type:
+          type: string
+        resource_type:
+          type: string
+        resource_id:
+          type: string
+          format: uuid
+        status:
+          type: string
+        attempt_count:
+          type: integer
+        last_error:
+          type: string
+          nullable: true
+        delivered_at:
+          type: string
+          format: date-time
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+    DashboardDataActivityResponse:
+      type: object
+      required:
+        - scope
+        - days
+        - summary
+        - series
+        - room_mix
+        - top_conversations
+      properties:
+        scope:
+          $ref: '#/components/schemas/DashboardScope'
+        days:
+          type: integer
+        summary:
+          $ref: '#/components/schemas/DashboardDataSummary'
+        series:
+          type: array
+          items:
+            $ref: '#/components/schemas/DashboardDataPoint'
+        room_mix:
+          type: array
+          items:
+            $ref: '#/components/schemas/DashboardCountBucket'
+        top_conversations:
+          type: array
+          items:
+            $ref: '#/components/schemas/DashboardConversationActivity'
+    DashboardDataPoint:
+      type: object
+      required:
+        - date
+        - conversations_created
+        - messages_created
+        - events_published
+      properties:
+        date:
+          type: string
+          description: UTC calendar day in YYYY-MM-DD format.
+        conversations_created:
+          type: integer
+        messages_created:
+          type: integer
+        events_published:
+          type: integer
+    DashboardCountBucket:
+      type: object
+      required:
+        - label
+        - count
+      properties:
+        label:
+          type: string
+        count:
+          type: integer
+    DashboardConversationActivity:
+      type: object
+      required:
+        - conversation_id
+        - access_policy
+        - participant_count
+        - message_count
+      properties:
+        conversation_id:
+          type: string
+          format: uuid
+        title:
+          type: string
+          nullable: true
+        access_policy:
+          type: string
+          enum:
+            - members
+            - workspace
+            - authenticated
+        participant_count:
+          type: integer
+        last_message_at:
+          type: string
+          format: date-time
+          nullable: true
+        message_count:
+          type: integer
+    DashboardAuditResponse:
+      type: object
+      required:
+        - scope
+        - items
+        - top_types
+      properties:
+        scope:
+          $ref: '#/components/schemas/DashboardScope'
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/DashboardAuditItem'
+        top_types:
+          type: array
+          items:
+            $ref: '#/components/schemas/DashboardCountBucket'
+    DashboardAuditItem:
+      type: object
+      required:
+        - id
+        - event_type
+        - aggregate_type
+        - aggregate_id
+        - created_at
+        - payload
+      properties:
+        id:
+          type: integer
+          format: int64
+        event_type:
+          type: string
+        aggregate_type:
+          type: string
+        aggregate_id:
+          type: string
+          format: uuid
+        workspace_id:
+          type: string
+          format: uuid
+          nullable: true
+        actor_user_id:
+          type: string
+          format: uuid
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        payload:
+          $ref: '#/components/schemas/FreeFormObject'
     SearchRequest:
       type: object
       required:

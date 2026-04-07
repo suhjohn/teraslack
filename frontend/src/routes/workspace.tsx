@@ -1,15 +1,17 @@
 import { useQueryClient } from '@tanstack/react-query'
 import { createFileRoute, Link, Outlet } from '@tanstack/react-router'
 import {
-  Building2,
+  BarChart3,
   Check,
   ChevronsUpDown,
-  CalendarClock,
+  Database,
   Plus,
   KeyRound,
   LayoutDashboard,
   LoaderCircle,
   LogOut,
+  RadioTower,
+  Shield,
 } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Button } from '../components/ui/button'
@@ -23,6 +25,7 @@ import {
 import { APIClientError } from '../lib/api'
 import {
   AdminContext,
+  allWorkspacesValue,
   getPreferredAdminWorkspaceID,
   setPreferredAdminWorkspaceID,
 } from '../lib/admin'
@@ -41,9 +44,11 @@ export const Route = createFileRoute('/workspace')({
 
 const navItems = [
   { to: '/workspace', label: 'Overview', icon: LayoutDashboard, exact: true },
-  { to: '/workspace/settings', label: 'Billing', icon: Building2, exact: false },
   { to: '/workspace/api-keys', label: 'API Keys', icon: KeyRound, exact: false },
-  { to: '/workspace/events', label: 'Events', icon: CalendarClock, exact: false },
+  { to: '/workspace/traffic', label: 'Traffic', icon: BarChart3, exact: false },
+  { to: '/workspace/events', label: 'Webhooks', icon: RadioTower, exact: false },
+  { to: '/workspace/data-activity', label: 'Data Activity', icon: Database, exact: false },
+  { to: '/workspace/audit', label: 'Audit', icon: Shield, exact: false },
 ]
 
 function AdminLayout() {
@@ -72,24 +77,19 @@ function AdminLayout() {
 
   const auth = authQuery.data ?? null
   const workspaces = workspacesQuery.data?.items ?? []
-  const authMemberships = Array.isArray(auth?.workspaces) ? auth.workspaces : []
 
   const workspaceID = useMemo(() => {
+    if (preferredWorkspaceID === allWorkspacesValue) {
+      return ''
+    }
     if (
       preferredWorkspaceID &&
       workspaces.some((workspace) => workspace.id === preferredWorkspaceID)
     ) {
       return preferredWorkspaceID
     }
-    const firstMembershipWorkspaceID = authMemberships[0]?.workspace_id
-    if (
-      firstMembershipWorkspaceID &&
-      workspaces.some((workspace) => workspace.id === firstMembershipWorkspaceID)
-    ) {
-      return firstMembershipWorkspaceID
-    }
-    return workspaces[0]?.id ?? ''
-  }, [preferredWorkspaceID, workspaces, authMemberships])
+    return ''
+  }, [preferredWorkspaceID, workspaces])
 
   const activeWorkspace =
     workspaces.find((workspace) => workspace.id === workspaceID) ?? null
@@ -275,10 +275,10 @@ function WorkspaceSwitcher({
         className="flex w-full items-center gap-2 rounded-none border border-[var(--sys-home-border)] bg-[var(--sys-home-bg)] px-3 py-2.5 text-left sys-hover"
       >
         <div className="flex h-6 w-6 flex-none items-center justify-center border border-[var(--sys-home-border)] bg-[var(--sys-home-bg)] text-xs font-bold text-[var(--sys-home-fg)]">
-          {active ? active.name.charAt(0).toUpperCase() : '?'}
+          {active ? active.name.charAt(0).toUpperCase() : 'A'}
         </div>
         <span className="min-w-0 flex-1 truncate text-[12px] font-bold uppercase tracking-[0.04em] text-[var(--sys-home-fg)]">
-          {active?.name ?? 'Select workspace'}
+          {active?.name ?? 'All scopes'}
         </span>
         <ChevronsUpDown className="h-3.5 w-3.5 flex-none text-[var(--sys-home-muted)]" />
       </button>
@@ -288,6 +288,27 @@ function WorkspaceSwitcher({
           <div className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.08em] text-[var(--sys-home-muted)]">
             Workspaces
           </div>
+          <button
+            type="button"
+            onClick={() => {
+              setPendingWorkspaceID(allWorkspacesValue)
+              void onSelect('').finally(() => {
+                setPendingWorkspaceID('')
+                setOpen(false)
+              })
+            }}
+            className="flex w-full items-center gap-2 px-3 py-2 text-left text-[12px] text-[var(--sys-home-fg)] sys-hover"
+          >
+            <div className="flex h-5 w-5 flex-none items-center justify-center border border-[var(--sys-home-border)] bg-[var(--sys-home-bg)] text-[10px] font-bold text-[var(--sys-home-fg)]">
+              A
+            </div>
+            <span className="min-w-0 flex-1 truncate">All scopes</span>
+            {pendingWorkspaceID === allWorkspacesValue ? (
+              <LoaderCircle className="h-3.5 w-3.5 flex-none animate-spin text-[var(--sys-home-fg)]" />
+            ) : !activeWorkspaceID ? (
+              <Check className="h-3.5 w-3.5 flex-none text-[var(--sys-home-fg)]" />
+            ) : null}
+          </button>
           {workspaces.map((workspace) => (
             <button
               key={workspace.id}

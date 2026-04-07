@@ -257,9 +257,12 @@ function CreateKeyForm({
           expires_at: expiresAt ? new Date(expiresAt).toISOString() : null,
         },
       })
+      if (created.status !== 201) {
+        throw new Error('Failed to create API key.')
+      }
       setLabel('')
       setExpiresAt('')
-      await onCreated(created.secret)
+      await onCreated(created.data.secret)
     } catch (err) {
       setError(getErrorMessage(err, 'Failed to create API key.'))
     }
