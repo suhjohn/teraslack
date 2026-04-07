@@ -59,12 +59,14 @@ function RootLayout() {
   const pathname = useRouterState({
     select: (state) => state.location.pathname,
   })
-  const isWorkspace = pathname.startsWith('/workspace')
+  const isWorkspace = pathname.startsWith('/event-feed')
+  const isSettings = pathname.startsWith('/settings')
   const isHome = pathname === '/'
   const isDocs = pathname === '/docs'
   const isTerms = pathname === '/terms'
   const isPrivacy = pathname === '/privacy'
-  const hideChrome = isWorkspace || isHome || isDocs || isTerms || isPrivacy
+  const hideChrome =
+    isWorkspace || isSettings || isHome || isDocs || isTerms || isPrivacy
 
   return (
     <>

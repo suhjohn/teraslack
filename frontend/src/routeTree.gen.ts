@@ -9,31 +9,35 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
-import { Route as WorkspaceRouteImport } from './routes/workspace'
 import { Route as TermsRouteImport } from './routes/terms'
+import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as PrivacyRouteImport } from './routes/privacy'
+import { Route as EventFeedRouteImport } from './routes/event-feed'
 import { Route as DocsRouteImport } from './routes/docs'
 import { Route as IndexRouteImport } from './routes/index'
-import { Route as WorkspaceIndexRouteImport } from './routes/workspace/index'
-import { Route as WorkspaceSettingsRouteImport } from './routes/workspace/settings'
-import { Route as WorkspaceEventsRouteImport } from './routes/workspace/events'
-import { Route as WorkspaceDataActivityRouteImport } from './routes/workspace/data-activity'
-import { Route as WorkspaceAuditRouteImport } from './routes/workspace/audit'
-import { Route as WorkspaceApiKeysRouteImport } from './routes/workspace/api-keys'
+import { Route as SettingsIndexRouteImport } from './routes/settings/index'
+import { Route as SettingsEventsRouteImport } from './routes/settings/events'
+import { Route as SettingsAuditRouteImport } from './routes/settings/audit'
+import { Route as SettingsApiKeysRouteImport } from './routes/settings/api-keys'
 
-const WorkspaceRoute = WorkspaceRouteImport.update({
-  id: '/workspace',
-  path: '/workspace',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const TermsRoute = TermsRouteImport.update({
   id: '/terms',
   path: '/terms',
   getParentRoute: () => rootRouteImport,
 } as any)
+const SettingsRoute = SettingsRouteImport.update({
+  id: '/settings',
+  path: '/settings',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const PrivacyRoute = PrivacyRouteImport.update({
   id: '/privacy',
   path: '/privacy',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const EventFeedRoute = EventFeedRouteImport.update({
+  id: '/event-feed',
+  path: '/event-feed',
   getParentRoute: () => rootRouteImport,
 } as any)
 const DocsRoute = DocsRouteImport.update({
@@ -46,134 +50,112 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
-const WorkspaceIndexRoute = WorkspaceIndexRouteImport.update({
+const SettingsIndexRoute = SettingsIndexRouteImport.update({
   id: '/',
   path: '/',
-  getParentRoute: () => WorkspaceRoute,
+  getParentRoute: () => SettingsRoute,
 } as any)
-const WorkspaceSettingsRoute = WorkspaceSettingsRouteImport.update({
-  id: '/settings',
-  path: '/settings',
-  getParentRoute: () => WorkspaceRoute,
-} as any)
-const WorkspaceEventsRoute = WorkspaceEventsRouteImport.update({
+const SettingsEventsRoute = SettingsEventsRouteImport.update({
   id: '/events',
   path: '/events',
-  getParentRoute: () => WorkspaceRoute,
+  getParentRoute: () => SettingsRoute,
 } as any)
-const WorkspaceDataActivityRoute = WorkspaceDataActivityRouteImport.update({
-  id: '/data-activity',
-  path: '/data-activity',
-  getParentRoute: () => WorkspaceRoute,
-} as any)
-const WorkspaceAuditRoute = WorkspaceAuditRouteImport.update({
+const SettingsAuditRoute = SettingsAuditRouteImport.update({
   id: '/audit',
   path: '/audit',
-  getParentRoute: () => WorkspaceRoute,
+  getParentRoute: () => SettingsRoute,
 } as any)
-const WorkspaceApiKeysRoute = WorkspaceApiKeysRouteImport.update({
+const SettingsApiKeysRoute = SettingsApiKeysRouteImport.update({
   id: '/api-keys',
   path: '/api-keys',
-  getParentRoute: () => WorkspaceRoute,
+  getParentRoute: () => SettingsRoute,
 } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/docs': typeof DocsRoute
+  '/event-feed': typeof EventFeedRoute
   '/privacy': typeof PrivacyRoute
+  '/settings': typeof SettingsRouteWithChildren
   '/terms': typeof TermsRoute
-  '/workspace': typeof WorkspaceRouteWithChildren
-  '/workspace/api-keys': typeof WorkspaceApiKeysRoute
-  '/workspace/audit': typeof WorkspaceAuditRoute
-  '/workspace/data-activity': typeof WorkspaceDataActivityRoute
-  '/workspace/events': typeof WorkspaceEventsRoute
-  '/workspace/settings': typeof WorkspaceSettingsRoute
-  '/workspace/': typeof WorkspaceIndexRoute
+  '/settings/api-keys': typeof SettingsApiKeysRoute
+  '/settings/audit': typeof SettingsAuditRoute
+  '/settings/events': typeof SettingsEventsRoute
+  '/settings/': typeof SettingsIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/docs': typeof DocsRoute
+  '/event-feed': typeof EventFeedRoute
   '/privacy': typeof PrivacyRoute
   '/terms': typeof TermsRoute
-  '/workspace/api-keys': typeof WorkspaceApiKeysRoute
-  '/workspace/audit': typeof WorkspaceAuditRoute
-  '/workspace/data-activity': typeof WorkspaceDataActivityRoute
-  '/workspace/events': typeof WorkspaceEventsRoute
-  '/workspace/settings': typeof WorkspaceSettingsRoute
-  '/workspace': typeof WorkspaceIndexRoute
+  '/settings/api-keys': typeof SettingsApiKeysRoute
+  '/settings/audit': typeof SettingsAuditRoute
+  '/settings/events': typeof SettingsEventsRoute
+  '/settings': typeof SettingsIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/docs': typeof DocsRoute
+  '/event-feed': typeof EventFeedRoute
   '/privacy': typeof PrivacyRoute
+  '/settings': typeof SettingsRouteWithChildren
   '/terms': typeof TermsRoute
-  '/workspace': typeof WorkspaceRouteWithChildren
-  '/workspace/api-keys': typeof WorkspaceApiKeysRoute
-  '/workspace/audit': typeof WorkspaceAuditRoute
-  '/workspace/data-activity': typeof WorkspaceDataActivityRoute
-  '/workspace/events': typeof WorkspaceEventsRoute
-  '/workspace/settings': typeof WorkspaceSettingsRoute
-  '/workspace/': typeof WorkspaceIndexRoute
+  '/settings/api-keys': typeof SettingsApiKeysRoute
+  '/settings/audit': typeof SettingsAuditRoute
+  '/settings/events': typeof SettingsEventsRoute
+  '/settings/': typeof SettingsIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
     | '/docs'
+    | '/event-feed'
     | '/privacy'
+    | '/settings'
     | '/terms'
-    | '/workspace'
-    | '/workspace/api-keys'
-    | '/workspace/audit'
-    | '/workspace/data-activity'
-    | '/workspace/events'
-    | '/workspace/settings'
-    | '/workspace/'
+    | '/settings/api-keys'
+    | '/settings/audit'
+    | '/settings/events'
+    | '/settings/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
     | '/docs'
+    | '/event-feed'
     | '/privacy'
     | '/terms'
-    | '/workspace/api-keys'
-    | '/workspace/audit'
-    | '/workspace/data-activity'
-    | '/workspace/events'
-    | '/workspace/settings'
-    | '/workspace'
+    | '/settings/api-keys'
+    | '/settings/audit'
+    | '/settings/events'
+    | '/settings'
   id:
     | '__root__'
     | '/'
     | '/docs'
+    | '/event-feed'
     | '/privacy'
+    | '/settings'
     | '/terms'
-    | '/workspace'
-    | '/workspace/api-keys'
-    | '/workspace/audit'
-    | '/workspace/data-activity'
-    | '/workspace/events'
-    | '/workspace/settings'
-    | '/workspace/'
+    | '/settings/api-keys'
+    | '/settings/audit'
+    | '/settings/events'
+    | '/settings/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   DocsRoute: typeof DocsRoute
+  EventFeedRoute: typeof EventFeedRoute
   PrivacyRoute: typeof PrivacyRoute
+  SettingsRoute: typeof SettingsRouteWithChildren
   TermsRoute: typeof TermsRoute
-  WorkspaceRoute: typeof WorkspaceRouteWithChildren
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    '/workspace': {
-      id: '/workspace'
-      path: '/workspace'
-      fullPath: '/workspace'
-      preLoaderRoute: typeof WorkspaceRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/terms': {
       id: '/terms'
       path: '/terms'
@@ -181,11 +163,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof TermsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/settings': {
+      id: '/settings'
+      path: '/settings'
+      fullPath: '/settings'
+      preLoaderRoute: typeof SettingsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/privacy': {
       id: '/privacy'
       path: '/privacy'
       fullPath: '/privacy'
       preLoaderRoute: typeof PrivacyRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/event-feed': {
+      id: '/event-feed'
+      path: '/event-feed'
+      fullPath: '/event-feed'
+      preLoaderRoute: typeof EventFeedRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/docs': {
@@ -202,89 +198,63 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/workspace/': {
-      id: '/workspace/'
+    '/settings/': {
+      id: '/settings/'
       path: '/'
-      fullPath: '/workspace/'
-      preLoaderRoute: typeof WorkspaceIndexRouteImport
-      parentRoute: typeof WorkspaceRoute
+      fullPath: '/settings/'
+      preLoaderRoute: typeof SettingsIndexRouteImport
+      parentRoute: typeof SettingsRoute
     }
-    '/workspace/settings': {
-      id: '/workspace/settings'
-      path: '/settings'
-      fullPath: '/workspace/settings'
-      preLoaderRoute: typeof WorkspaceSettingsRouteImport
-      parentRoute: typeof WorkspaceRoute
-    }
-    '/workspace/events': {
-      id: '/workspace/events'
+    '/settings/events': {
+      id: '/settings/events'
       path: '/events'
-      fullPath: '/workspace/events'
-      preLoaderRoute: typeof WorkspaceEventsRouteImport
-      parentRoute: typeof WorkspaceRoute
+      fullPath: '/settings/events'
+      preLoaderRoute: typeof SettingsEventsRouteImport
+      parentRoute: typeof SettingsRoute
     }
-    '/workspace/data-activity': {
-      id: '/workspace/data-activity'
-      path: '/data-activity'
-      fullPath: '/workspace/data-activity'
-      preLoaderRoute: typeof WorkspaceDataActivityRouteImport
-      parentRoute: typeof WorkspaceRoute
-    }
-    '/workspace/audit': {
-      id: '/workspace/audit'
+    '/settings/audit': {
+      id: '/settings/audit'
       path: '/audit'
-      fullPath: '/workspace/audit'
-      preLoaderRoute: typeof WorkspaceAuditRouteImport
-      parentRoute: typeof WorkspaceRoute
+      fullPath: '/settings/audit'
+      preLoaderRoute: typeof SettingsAuditRouteImport
+      parentRoute: typeof SettingsRoute
     }
-    '/workspace/api-keys': {
-      id: '/workspace/api-keys'
+    '/settings/api-keys': {
+      id: '/settings/api-keys'
       path: '/api-keys'
-      fullPath: '/workspace/api-keys'
-      preLoaderRoute: typeof WorkspaceApiKeysRouteImport
-      parentRoute: typeof WorkspaceRoute
+      fullPath: '/settings/api-keys'
+      preLoaderRoute: typeof SettingsApiKeysRouteImport
+      parentRoute: typeof SettingsRoute
     }
   }
 }
 
-interface WorkspaceRouteChildren {
-  WorkspaceApiKeysRoute: typeof WorkspaceApiKeysRoute
-  WorkspaceAuditRoute: typeof WorkspaceAuditRoute
-  WorkspaceDataActivityRoute: typeof WorkspaceDataActivityRoute
-  WorkspaceEventsRoute: typeof WorkspaceEventsRoute
-  WorkspaceSettingsRoute: typeof WorkspaceSettingsRoute
-  WorkspaceIndexRoute: typeof WorkspaceIndexRoute
+interface SettingsRouteChildren {
+  SettingsApiKeysRoute: typeof SettingsApiKeysRoute
+  SettingsAuditRoute: typeof SettingsAuditRoute
+  SettingsEventsRoute: typeof SettingsEventsRoute
+  SettingsIndexRoute: typeof SettingsIndexRoute
 }
 
-const WorkspaceRouteChildren: WorkspaceRouteChildren = {
-  WorkspaceApiKeysRoute: WorkspaceApiKeysRoute,
-  WorkspaceAuditRoute: WorkspaceAuditRoute,
-  WorkspaceDataActivityRoute: WorkspaceDataActivityRoute,
-  WorkspaceEventsRoute: WorkspaceEventsRoute,
-  WorkspaceSettingsRoute: WorkspaceSettingsRoute,
-  WorkspaceIndexRoute: WorkspaceIndexRoute,
+const SettingsRouteChildren: SettingsRouteChildren = {
+  SettingsApiKeysRoute: SettingsApiKeysRoute,
+  SettingsAuditRoute: SettingsAuditRoute,
+  SettingsEventsRoute: SettingsEventsRoute,
+  SettingsIndexRoute: SettingsIndexRoute,
 }
 
-const WorkspaceRouteWithChildren = WorkspaceRoute._addFileChildren(
-  WorkspaceRouteChildren,
+const SettingsRouteWithChildren = SettingsRoute._addFileChildren(
+  SettingsRouteChildren,
 )
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   DocsRoute: DocsRoute,
+  EventFeedRoute: EventFeedRoute,
   PrivacyRoute: PrivacyRoute,
+  SettingsRoute: SettingsRouteWithChildren,
   TermsRoute: TermsRoute,
-  WorkspaceRoute: WorkspaceRouteWithChildren,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
-
-import type { getRouter } from './router.tsx'
-import type { createStart } from '@tanstack/react-start'
-declare module '@tanstack/react-start' {
-  interface Register {
-    ssr: true
-    router: Awaited<ReturnType<typeof getRouter>>
-  }
-}

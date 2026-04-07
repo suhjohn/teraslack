@@ -159,6 +159,7 @@ GitHub Actions secrets and vars:
 The repo root `Makefile` includes Railway deploy helpers:
 
 - `make railway-status`
+- `make deploy`
 - `make deploy-frontend`
 - `make deploy-server`
 - `make deploy-queue-broker`
@@ -174,6 +175,7 @@ For a generic target, use:
 
 Important:
 
+- `make deploy` is the plain alias for `make deploy-core`.
 - Service-specific deploy targets now create the Railway service first if it does not already exist in the configured project:
   `make deploy-frontend`, `make deploy-server`, `make deploy-queue-broker`, `make deploy-indexer`, `make deploy-external-event-projector`, `make deploy-webhook-producer`, and `make deploy-webhook-worker`.
 - Backend deploy targets now enforce the matching `APP_ROLE` even when the Railway service already exists.

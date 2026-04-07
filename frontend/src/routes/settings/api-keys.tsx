@@ -23,7 +23,7 @@ import type {
   WorkspacesCollection,
 } from '../../lib/openapi'
 
-export const Route = createFileRoute('/workspace/api-keys')({
+export const Route = createFileRoute('/settings/api-keys')({
   component: ApiKeysPage,
 })
 

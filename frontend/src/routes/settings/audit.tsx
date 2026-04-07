@@ -28,7 +28,7 @@ import {
 import { useGetDashboardAudit } from '../../lib/openapi'
 import type { DashboardAuditResponse } from '../../lib/openapi'
 
-export const Route = createFileRoute('/workspace/audit')({
+export const Route = createFileRoute('/settings/audit')({
   component: AuditPage,
 })
 
@@ -62,6 +62,8 @@ function AuditPage() {
   }
 
   const response = auditQuery.data
+  const items = response.items ?? []
+  const topTypes = response.top_types ?? []
 
   return (
     <div className="space-y-8">
@@ -78,10 +80,10 @@ function AuditPage() {
             workspaceName={response.scope.workspace_name ?? null}
           />
           <Badge variant="muted">
-            Events {formatNumber(response.items.length)}
+            Events {formatNumber(items.length)}
           </Badge>
           <Badge variant="muted">
-            Types {formatNumber(response.top_types.length)}
+            Types {formatNumber(topTypes.length)}
           </Badge>
         </div>
 
@@ -103,15 +105,15 @@ function AuditPage() {
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <DashboardMetric
           label="Loaded events"
-          value={formatNumber(response.items.length)}
+          value={formatNumber(items.length)}
           detail="Returned in the current page"
         />
         <DashboardMetric
           label="Top type"
-          value={response.top_types[0]?.label ?? 'None'}
+          value={topTypes[0]?.label ?? 'None'}
           detail={
-            response.top_types[0]
-              ? `${formatNumber(response.top_types[0].count)} occurrences`
+            topTypes[0]
+              ? `${formatNumber(topTypes[0].count)} occurrences`
               : 'No event types recorded'
           }
         />
@@ -136,7 +138,7 @@ function AuditPage() {
           title="Top event types"
           description="Most frequent internal event types in the current result set."
         >
-          {response.top_types.length ? (
+          {topTypes.length ? (
             <Table>
               <TableHeader>
                 <TableRow>
@@ -145,7 +147,7 @@ function AuditPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {response.top_types.map((bucket) => (
+                {topTypes.map((bucket) => (
                   <TableRow key={bucket.label}>
                     <TableCell>{bucket.label}</TableCell>
                     <TableCell className="text-right">{formatNumber(bucket.count)}</TableCell>
@@ -164,7 +166,7 @@ function AuditPage() {
           title="Event log"
           description="Most recent internal events for the authenticated actor."
         >
-          {response.items.length ? (
+          {items.length ? (
             <Table>
               <TableHeader>
                 <TableRow>
@@ -175,7 +177,7 @@ function AuditPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {response.items.map((item) => (
+                {items.map((item) => (
                   <TableRow key={item.id}>
                     <TableCell className="align-top">
                       <div className="font-bold">{item.event_type}</div>

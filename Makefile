@@ -30,7 +30,7 @@ fi;
 endef
 
 .PHONY: run build test lint migrate-up migrate-down docker-up docker-down integration_test openapi-generate openapi-check permissions-generate permissions-check \
-		integration-search dev dev-down dev-reset dev-logs railway-status railway-deploy railway-ensure-service deploy-frontend deploy-server deploy-queue-broker deploy-indexer deploy-external-event-projector \
+		integration-search dev dev-down dev-reset dev-logs railway-status railway-deploy railway-ensure-service deploy deploy-frontend deploy-server deploy-queue-broker deploy-indexer deploy-external-event-projector \
 		deploy-webhook-producer deploy-webhook-worker deploy-core build-cli-release upload-cli-release release-cli
 
 run build test lint migrate-up migrate-down openapi-generate openapi-check permissions-generate permissions-check:
@@ -188,6 +188,8 @@ deploy-webhook-producer:
 deploy-webhook-worker:
 	$(MAKE) railway-ensure-service SERVICE=webhook-worker RAILWAY_SERVICE_VARS="APP_ROLE=$(call railway_role_for_service,webhook-worker)"
 	$(MAKE) railway-deploy SERVICE=webhook-worker
+
+deploy: deploy-core
 
 deploy-core:
 	@set -eu; \

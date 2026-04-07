@@ -134,7 +134,7 @@ export async function apiFetch<T>(
   return (await response.json()) as T
 }
 
-export async function startOAuth(provider: 'github' | 'google', redirectPath = '/workspace') {
+export async function startOAuth(provider: 'github' | 'google', redirectPath = '/event-feed') {
   if (typeof window === 'undefined') {
     return
   }

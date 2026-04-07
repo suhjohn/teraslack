@@ -323,7 +323,9 @@ func (s *Server) loadDashboardDataSummary(ctx context.Context, auth domain.AuthC
 
 func (s *Server) loadDashboardWebhooksResponse(ctx context.Context, userID uuid.UUID, workspaceID *uuid.UUID, scope api.DashboardScope, limit int) (api.DashboardWebhooksResponse, error) {
 	response := api.DashboardWebhooksResponse{
-		Scope: scope,
+		Scope:            scope,
+		Subscriptions:    []api.DashboardWebhookSubscription{},
+		RecentDeliveries: []api.DashboardWebhookDelivery{},
 	}
 
 	summary, err := s.loadDashboardWebhookSummary(ctx, userID, workspaceID)
@@ -460,8 +462,11 @@ func (s *Server) loadDashboardDataActivityResponse(ctx context.Context, auth dom
 	cutoff = utcStartOfDay(cutoff)
 
 	response := api.DashboardDataActivityResponse{
-		Scope: scope,
-		Days:  days,
+		Scope:            scope,
+		Days:             days,
+		RoomMix:          []api.DashboardCountBucket{},
+		TopConversations: []api.DashboardConversationActivity{},
+		Series:           []api.DashboardDataPoint{},
 	}
 
 	summary, err := s.loadDashboardDataSummary(ctx, auth, workspaceID)
@@ -645,7 +650,9 @@ func (s *Server) loadDashboardDataActivityResponse(ctx context.Context, auth dom
 
 func (s *Server) loadDashboardAuditResponse(ctx context.Context, userID uuid.UUID, workspaceID *uuid.UUID, scope api.DashboardScope, limit int) (api.DashboardAuditResponse, error) {
 	response := api.DashboardAuditResponse{
-		Scope: scope,
+		Scope:    scope,
+		Items:    []api.DashboardAuditItem{},
+		TopTypes: []api.DashboardCountBucket{},
 	}
 
 	rows, err := s.db.Query(ctx, `select

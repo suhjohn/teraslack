@@ -98,25 +98,25 @@ export function AdminOverview() {
           label="Active keys"
           value={formatNumber(overview.api_keys.active)}
           detail={`${formatNumber(overview.api_keys.expiring_soon)} expiring soon`}
-          href="/workspace/api-keys"
+          href="/settings/api-keys"
         />
         <DashboardMetric
           label="Subscriptions"
           value={formatNumber(overview.webhooks.enabled_subscriptions)}
           detail={`${formatNumber(overview.webhooks.subscriptions)} configured`}
-          href="/workspace/events"
+          href="/settings/events"
         />
         <DashboardMetric
           label="Failed deliveries"
           value={formatNumber(overview.webhooks.failed_deliveries)}
           detail={`${formatNumber(overview.webhooks.enabled_subscriptions)} enabled subscriptions`}
-          href="/workspace/events"
+          href="/settings/events"
         />
         <DashboardMetric
           label="Messages 7d"
           value={formatNumber(overview.data.messages_7d)}
           detail={`${formatNumber(overview.data.conversations)} visible conversations`}
-          href="/workspace/data-activity"
+          href="/settings/data-activity"
         />
       </div>
 
@@ -166,7 +166,7 @@ export function AdminOverview() {
           description="Latest internal lifecycle events initiated by the current caller."
           action={
             <Link
-              to="/workspace/audit"
+              to="/settings/audit"
               className="text-xs uppercase tracking-[0.06em] text-[var(--sys-home-muted)] no-underline hover:text-[var(--sys-home-fg)]"
             >
               Open audit

@@ -49,7 +49,7 @@ import type {
   DashboardWebhooksResponse,
 } from '../../lib/openapi'
 
-export const Route = createFileRoute('/workspace/events')({
+export const Route = createFileRoute('/settings/events')({
   component: WebhooksPage,
 })
 
@@ -118,6 +118,8 @@ function WebhooksPage() {
 
   const response = webhooksQuery.data
   const summary = response.summary
+  const subscriptions = response.subscriptions ?? []
+  const recentDeliveries = response.recent_deliveries ?? []
 
   return (
     <div className="space-y-8">
@@ -206,9 +208,9 @@ function WebhooksPage() {
           />
         ) : null}
 
-        {response.subscriptions.length ? (
+        {subscriptions.length ? (
           <div>
-            {response.subscriptions.map((subscription, index) => (
+            {subscriptions.map((subscription, index) => (
               <SubscriptionRow
                 key={subscription.subscription_id}
                 subscription={subscription}
@@ -230,7 +232,7 @@ function WebhooksPage() {
         title="Recent deliveries"
         description="Most recent delivery attempts ordered by delivery time."
       >
-        {response.recent_deliveries.length ? (
+        {recentDeliveries.length ? (
           <Table>
             <TableHeader>
               <TableRow>
@@ -242,7 +244,7 @@ function WebhooksPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {response.recent_deliveries.map((delivery) => (
+              {recentDeliveries.map((delivery) => (
                 <DeliveryRow key={delivery.delivery_id} delivery={delivery} />
               ))}
             </TableBody>

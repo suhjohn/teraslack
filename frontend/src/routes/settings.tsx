@@ -3,10 +3,7 @@ import { createFileRoute, Link, Outlet } from '@tanstack/react-router'
 import {
   Check,
   ChevronsUpDown,
-  Database,
-  Plus,
   KeyRound,
-  LayoutDashboard,
   LoaderCircle,
   LogOut,
   RadioTower,
@@ -37,16 +34,14 @@ import {
 } from '../lib/openapi'
 import type { AuthMeResponse, WorkspacesCollection } from '../lib/openapi'
 
-export const Route = createFileRoute('/workspace')({
+export const Route = createFileRoute('/settings')({
   component: AdminLayout,
 })
 
 const navItems = [
-  { to: '/workspace', label: 'Overview', icon: LayoutDashboard, exact: true },
-  { to: '/workspace/api-keys', label: 'API Keys', icon: KeyRound, exact: false },
-  { to: '/workspace/events', label: 'Webhooks', icon: RadioTower, exact: false },
-  { to: '/workspace/data-activity', label: 'Data Activity', icon: Database, exact: false },
-  { to: '/workspace/audit', label: 'Audit', icon: Shield, exact: false },
+  { to: '/settings/api-keys', label: 'API Keys', icon: KeyRound, exact: false },
+  { to: '/settings/events', label: 'Webhooks', icon: RadioTower, exact: false },
+  { to: '/settings/audit', label: 'Audit', icon: Shield, exact: false },
 ]
 
 function AdminLayout() {
@@ -198,7 +193,7 @@ function AdminLayout() {
 
               <div className="space-y-2 px-1.5">
                 <div className="px-0.5 text-[10px] font-bold uppercase tracking-[0.08em] text-[var(--sys-home-muted)]">
-                  Workspace
+                  Settings
                 </div>
                 <nav className="flex flex-col gap-1">
                   {navItems.map((item) => (
@@ -331,17 +326,7 @@ function WorkspaceSwitcher({
               ) : null}
             </button>
           ))}
-          <div className="mt-1 border-t border-[var(--sys-home-border)] pt-1">
-            <Link
-              to="/workspace/settings"
-              search={{ create: true }}
-              onClick={() => setOpen(false)}
-              className="flex w-full items-center gap-2 px-3 py-2 text-left text-[12px] text-[var(--sys-home-muted)] no-underline sys-hover"
-            >
-              <Plus className="h-3.5 w-3.5 flex-none" />
-              <span>Create workspace</span>
-            </Link>
-          </div>
+
         </div>
       ) : null}
     </div>
