@@ -309,6 +309,15 @@ h2 { letter-spacing: -0.035em; }
   color: var(--sys-home-fg);
 }
 
+.workspace-rail-button {
+  text-decoration: none;
+  border-bottom-color: var(--sys-home-border) !important;
+}
+
+.workspace-rail-button:hover {
+  border-bottom-color: var(--sys-home-border) !important;
+}
+
 .sys-home {
   min-height: 100vh;
   background-color: var(--sys-home-bg);

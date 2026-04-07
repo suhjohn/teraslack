@@ -1,6 +1,9 @@
-import { Link, createFileRoute } from '@tanstack/react-router'
+import { useQuery } from '@tanstack/react-query'
+import { Link, Navigate, createFileRoute } from '@tanstack/react-router'
 import { useEffect, useRef } from 'react'
 import { startOAuth } from '../lib/api'
+import { getProfile, getGetAuthMeQueryKey } from '../lib/openapi'
+import type { AuthMeResponse } from '../lib/openapi'
 import Header from '#/components/Header'
 
 export const Route = createFileRoute('/')({ component: App })
@@ -417,6 +420,25 @@ const capabilities = [
 // ---------------------------------------------------------------------------
 
 function App () {
+  const authQuery = useQuery<AuthMeResponse>({
+    queryKey: getGetAuthMeQueryKey(),
+    queryFn: async () => (await getProfile()) as unknown as AuthMeResponse,
+    retry: false,
+    staleTime: 30_000
+  })
+
+  if (authQuery.isSuccess) {
+    return <Navigate to='/workspaces/me' replace />
+  }
+
+  if (authQuery.status === 'pending') {
+    return (
+      <main className='sys-home'>
+        <Header />
+      </main>
+    )
+  }
+
   return (
     <main className='sys-home'>
       {/* Header */}

@@ -1,13 +1,14 @@
 import { useQueryClient } from '@tanstack/react-query'
 import { createFileRoute, Link, Outlet } from '@tanstack/react-router'
 import {
+  ArrowLeft,
   Check,
   ChevronsUpDown,
   KeyRound,
   LoaderCircle,
   LogOut,
   RadioTower,
-  Shield,
+  ScrollText,
 } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Button } from '../components/ui/button'
@@ -41,7 +42,7 @@ export const Route = createFileRoute('/settings')({
 const navItems = [
   { to: '/settings/api-keys', label: 'API Keys', icon: KeyRound, exact: false },
   { to: '/settings/events', label: 'Webhooks', icon: RadioTower, exact: false },
-  { to: '/settings/audit', label: 'Audit', icon: Shield, exact: false },
+  { to: '/settings/audit', label: 'Events', icon: ScrollText, exact: false },
 ]
 
 function AdminLayout() {
@@ -180,9 +181,17 @@ function AdminLayout() {
       value={{ workspaceID, workspaces, activeWorkspace, auth, selectWorkspace }}
     >
       <main className="admin-shell min-h-dvh bg-[var(--sys-home-bg)]">
-        <div className="mx-auto flex min-h-dvh w-full max-w-[1560px]">
+        <div className="flex min-h-dvh w-full">
           <aside className="admin-rail hidden w-[240px] shrink-0 border-r border-[var(--sys-home-border)] lg:block">
             <div className="flex min-h-dvh flex-col gap-6 px-3 py-4">
+              <Link
+                to="/workspaces/me"
+                className="inline-flex items-center gap-2 px-2 py-1.5 text-[12px] text-[var(--sys-home-muted)] sys-hover no-underline"
+              >
+                <ArrowLeft className="h-3.5 w-3.5" />
+                Back to application
+              </Link>
+
               {workspaces.length > 0 ? (
                 <WorkspaceSwitcher
                   workspaces={workspaces}
@@ -225,7 +234,7 @@ function AdminLayout() {
           </aside>
 
           <section className="admin-content min-w-0 flex-1 overflow-y-auto">
-            <div className="mx-auto min-h-full w-full max-w-[1320px] px-4 py-5 md:px-6 md:py-6 xl:px-8">
+            <div className="min-h-full w-full px-4 py-5 md:px-6 md:py-6 xl:px-8">
               <Outlet />
             </div>
           </section>
