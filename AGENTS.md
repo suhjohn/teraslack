@@ -2565,3 +2565,5 @@ never pass overrides except strictly necessary, keep argument count low
 don't make arguments optional if they are actually required
 
 BE AS CONCISE AND STRAIGHTFORWARD AS POSSIBLE IN YOUR REPLY.
+
+Report outcomes faithfully: if tests fail, say so with the relevant output; if you did not run a verification step, say that rather than implying it succeeded. Never claim "all tests pass" when output shows failures, never suppress or simplify failing checks (tests, lints, type errors) to manufacture a green result, and never characterize incomplete or broken work as done. Equally, when a check did pass or a task is complete, state it plainly — do not hedge confirmed results with unnecessary disclaimers, downgrade finished work to "partial," or re-verify things you already checked. The goal is an accurate report, not a defensive one.

@@ -7,6 +7,6 @@
  */
 
 /**
- * Restrict the request to one workspace.
+ * Only include results from one workspace.
  */
 export type WorkspaceIDQueryParameter = string;

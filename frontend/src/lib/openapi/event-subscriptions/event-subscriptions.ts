@@ -49,8 +49,8 @@ export type HTTPStatusCodes = HTTPStatusCode1xx | HTTPStatusCode2xx | HTTPStatus
 
 
 /**
- * Lists webhook subscriptions owned by the caller. Workspace-scoped API keys are limited to their bound workspace.
- * @summary List event subscriptions
+ * Returns webhook subscriptions owned by the caller. Workspace-scoped API keys are limited to their bound workspace.
+ * @summary List webhook subscriptions
  */
 export type listEventSubscriptionsResponse200 = {
   data: EventSubscriptionsCollection
@@ -148,7 +148,7 @@ export function useListEventSubscriptions<TData = Awaited<ReturnType<typeof list
  , queryClient?: QueryClient
   ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
 /**
- * @summary List event subscriptions
+ * @summary List webhook subscriptions
  */
 
 export function useListEventSubscriptions<TData = Awaited<ReturnType<typeof listEventSubscriptions>>, TError = ErrorType<ApiErrorResponseResponse>>(
@@ -168,7 +168,7 @@ export function useListEventSubscriptions<TData = Awaited<ReturnType<typeof list
 
 /**
  * Creates a signed webhook subscription for events visible to the caller.
- * @summary Create event subscription
+ * @summary Create a webhook subscription
  */
 export type createEventSubscriptionResponse201 = {
   data: EventSubscription
@@ -244,7 +244,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type CreateEventSubscriptionMutationError = ErrorType<ApiErrorResponseResponse>
 
     /**
- * @summary Create event subscription
+ * @summary Create a webhook subscription
  */
 export const useCreateEventSubscription = <TError = ErrorType<ApiErrorResponseResponse>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createEventSubscription>>, TError,{data: BodyType<CreateEventSubscriptionRequest>}, TContext>, request?: SecondParameter<typeof orvalFetch>}
@@ -257,8 +257,8 @@ export const useCreateEventSubscription = <TError = ErrorType<ApiErrorResponseRe
       return useMutation(getCreateEventSubscriptionMutationOptions(options), queryClient);
     }
     /**
- * Enables or disables one webhook subscription owned by the caller.
- * @summary Update event subscription
+ * Enables or disables a webhook subscription owned by the caller.
+ * @summary Update a webhook subscription
  */
 export type updateEventSubscriptionResponse200 = {
   data: EventSubscription
@@ -335,7 +335,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type UpdateEventSubscriptionMutationError = ErrorType<ApiErrorResponseResponse>
 
     /**
- * @summary Update event subscription
+ * @summary Update a webhook subscription
  */
 export const useUpdateEventSubscription = <TError = ErrorType<ApiErrorResponseResponse>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateEventSubscription>>, TError,{subscriptionId: string;data: BodyType<UpdateEventSubscriptionRequest>}, TContext>, request?: SecondParameter<typeof orvalFetch>}
@@ -348,8 +348,8 @@ export const useUpdateEventSubscription = <TError = ErrorType<ApiErrorResponseRe
       return useMutation(getUpdateEventSubscriptionMutationOptions(options), queryClient);
     }
     /**
- * Deletes one webhook subscription owned by the caller.
- * @summary Delete event subscription
+ * Deletes a webhook subscription owned by the caller.
+ * @summary Delete a webhook subscription
  */
 export type deleteEventSubscriptionResponse204 = {
   data: void
@@ -424,7 +424,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type DeleteEventSubscriptionMutationError = ErrorType<ApiErrorResponseResponse>
 
     /**
- * @summary Delete event subscription
+ * @summary Delete a webhook subscription
  */
 export const useDeleteEventSubscription = <TError = ErrorType<ApiErrorResponseResponse>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteEventSubscription>>, TError,{subscriptionId: string}, TContext>, request?: SecondParameter<typeof orvalFetch>}

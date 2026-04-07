@@ -54,10 +54,6 @@ export function getErrorMessage (error: unknown, fallback: string) {
   return fallback
 }
 
-export function getDashboardWorkspaceParams (workspaceID: string) {
-  return workspaceID ? { workspace_id: workspaceID } : undefined
-}
-
 export function formatNumber (value: number) {
   return new Intl.NumberFormat().format(value)
 }

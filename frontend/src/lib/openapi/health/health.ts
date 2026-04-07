@@ -43,7 +43,7 @@ export type HTTPStatusCodes = HTTPStatusCode1xx | HTTPStatusCode2xx | HTTPStatus
 
 /**
  * Returns a simple liveness response for the current server instance.
- * @summary Check API health
+ * @summary Check whether the API is up
  */
 export type getHealthResponse200 = {
   data: GenericStatusResponse
@@ -141,7 +141,7 @@ export function useGetHealth<TData = Awaited<ReturnType<typeof getHealth>>, TErr
  , queryClient?: QueryClient
   ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
 /**
- * @summary Check API health
+ * @summary Check whether the API is up
  */
 
 export function useGetHealth<TData = Awaited<ReturnType<typeof getHealth>>, TError = ErrorType<ApiErrorResponseResponse>>(

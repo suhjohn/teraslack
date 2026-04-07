@@ -79,6 +79,7 @@ insert into conversation_invites (
   conversation_id,
   created_by_user_id,
   token_hash,
+  encrypted_token,
   expires_at,
   mode,
   allowed_user_ids,
@@ -93,7 +94,8 @@ insert into conversation_invites (
   $6,
   $7,
   $8,
-  $9
+  $9,
+  $10
 )
 `
 
@@ -102,6 +104,7 @@ type CreateConversationInviteParams struct {
 	ConversationID  uuid.UUID          `json:"conversation_id"`
 	CreatedByUserID uuid.UUID          `json:"created_by_user_id"`
 	TokenHash       string             `json:"token_hash"`
+	EncryptedToken  *string            `json:"encrypted_token"`
 	ExpiresAt       pgtype.Timestamptz `json:"expires_at"`
 	Mode            string             `json:"mode"`
 	AllowedUserIds  *json.RawMessage   `json:"allowed_user_ids"`
@@ -115,6 +118,7 @@ func (q *Queries) CreateConversationInvite(ctx context.Context, arg CreateConver
 		arg.ConversationID,
 		arg.CreatedByUserID,
 		arg.TokenHash,
+		arg.EncryptedToken,
 		arg.ExpiresAt,
 		arg.Mode,
 		arg.AllowedUserIds,
@@ -331,6 +335,59 @@ func (q *Queries) DeleteEventSubscriptionByOwner(ctx context.Context, arg Delete
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const getActiveConversationInvite = `-- name: GetActiveConversationInvite :one
+select id, conversation_id, encrypted_token, created_at
+from conversation_invites
+where conversation_id = $1
+  and revoked_at is null
+`
+
+type GetActiveConversationInviteRow struct {
+	ID             uuid.UUID          `json:"id"`
+	ConversationID uuid.UUID          `json:"conversation_id"`
+	EncryptedToken *string            `json:"encrypted_token"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+}
+
+func (q *Queries) GetActiveConversationInvite(ctx context.Context, conversationID uuid.UUID) (GetActiveConversationInviteRow, error) {
+	row := q.db.QueryRow(ctx, getActiveConversationInvite, conversationID)
+	var i GetActiveConversationInviteRow
+	err := row.Scan(
+		&i.ID,
+		&i.ConversationID,
+		&i.EncryptedToken,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const getActiveConversationInviteForUpdate = `-- name: GetActiveConversationInviteForUpdate :one
+select id, conversation_id, encrypted_token, created_at
+from conversation_invites
+where conversation_id = $1
+  and revoked_at is null
+for update
+`
+
+type GetActiveConversationInviteForUpdateRow struct {
+	ID             uuid.UUID          `json:"id"`
+	ConversationID uuid.UUID          `json:"conversation_id"`
+	EncryptedToken *string            `json:"encrypted_token"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+}
+
+func (q *Queries) GetActiveConversationInviteForUpdate(ctx context.Context, conversationID uuid.UUID) (GetActiveConversationInviteForUpdateRow, error) {
+	row := q.db.QueryRow(ctx, getActiveConversationInviteForUpdate, conversationID)
+	var i GetActiveConversationInviteForUpdateRow
+	err := row.Scan(
+		&i.ID,
+		&i.ConversationID,
+		&i.EncryptedToken,
+		&i.CreatedAt,
+	)
+	return i, err
 }
 
 const getConversationInviteByTokenHashForUpdate = `-- name: GetConversationInviteByTokenHashForUpdate :one
@@ -570,6 +627,26 @@ func (q *Queries) MessageExistsInConversation(ctx context.Context, arg MessageEx
 	var exists bool
 	err := row.Scan(&exists)
 	return exists, err
+}
+
+const revokeActiveConversationInvite = `-- name: RevokeActiveConversationInvite :execrows
+update conversation_invites
+set revoked_at = $1
+where conversation_id = $2
+  and revoked_at is null
+`
+
+type RevokeActiveConversationInviteParams struct {
+	RevokedAt      pgtype.Timestamptz `json:"revoked_at"`
+	ConversationID uuid.UUID          `json:"conversation_id"`
+}
+
+func (q *Queries) RevokeActiveConversationInvite(ctx context.Context, arg RevokeActiveConversationInviteParams) (int64, error) {
+	result, err := q.db.Exec(ctx, revokeActiveConversationInvite, arg.RevokedAt, arg.ConversationID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const softDeleteMessage = `-- name: SoftDeleteMessage :exec

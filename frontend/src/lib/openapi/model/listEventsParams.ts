@@ -15,17 +15,17 @@ import type { WorkspaceIDQueryParameter } from './workspaceIDQueryParameter';
 
 export type ListEventsParams = {
 /**
- * Maximum number of items to return. Use the next_cursor from the response to continue paging.
+ * Maximum number of items to return per page.
  * @minimum 1
  * @maximum 200
  */
 limit?: LimitQueryParameter;
 /**
- * Opaque pagination cursor returned as next_cursor by a previous page.
+ * Pagination cursor from a previous response.
  */
 cursor?: CursorQueryParameter;
 /**
- * Restrict the event feed to one event type.
+ * Only include one event type.
  */
 type?: EventTypeQueryParameter;
 /**
@@ -33,11 +33,11 @@ type?: EventTypeQueryParameter;
  */
 resource_type?: EventResourceTypeQueryParameter;
 /**
- * Restrict the event feed to one resource id. Requires resource_type.
+ * Only include one resource id. Requires resource_type.
  */
 resource_id?: EventResourceIDQueryParameter;
 /**
- * Restrict the request to one workspace.
+ * Only include results from one workspace.
  */
 workspace_id?: WorkspaceIDQueryParameter;
 };

@@ -47,11 +47,10 @@ func (r *Runtime) buildDocumentsForResource(ctx context.Context, resourceKind st
 	}
 }
 
-func parseEventID(value string) (int64, error) {
-	var eventID int64
-	_, err := fmt.Sscanf(strings.TrimSpace(value), "%d", &eventID)
-	if err != nil || eventID <= 0 {
-		return 0, fmt.Errorf("invalid event id %q", value)
+func parseEventID(value string) (uuid.UUID, error) {
+	eventID, err := uuid.Parse(strings.TrimSpace(value))
+	if err != nil {
+		return uuid.Nil, fmt.Errorf("invalid event id %q", value)
 	}
 	return eventID, nil
 }
@@ -271,7 +270,7 @@ func (r *Runtime) buildUserDocuments(ctx context.Context, userID uuid.UUID) ([]s
 	return mergeDocumentsByID(documents), nil
 }
 
-func (r *Runtime) buildEventDocuments(ctx context.Context, eventID int64) ([]searchDocument, error) {
+func (r *Runtime) buildEventDocuments(ctx context.Context, eventID uuid.UUID) ([]searchDocument, error) {
 	event, err := r.loadExternalEventByID(ctx, eventID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
@@ -282,7 +281,7 @@ func (r *Runtime) buildEventDocuments(ctx context.Context, eventID int64) ([]sea
 	return r.buildEventDocumentsFromRow(ctx, event)
 }
 
-func (r *Runtime) buildEventDocumentsFromSource(ctx context.Context, sourceInternalEventID int64) ([]searchDocument, error) {
+func (r *Runtime) buildEventDocumentsFromSource(ctx context.Context, sourceInternalEventID uuid.UUID) ([]searchDocument, error) {
 	event, err := r.loadExternalEventBySourceInternalEventID(ctx, sourceInternalEventID)
 	if err != nil {
 		return nil, err
@@ -299,11 +298,12 @@ func (r *Runtime) buildEventDocumentsFromRow(ctx context.Context, event external
 	body := strings.Join(nonEmpty(event.ResourceType, event.ResourceID.String(), flattenJSONText(event.Payload)), "\n")
 	documents := make([]searchDocument, 0, len(anchors))
 	for _, anchor := range anchors {
+		eventID := event.ID.String()
 		documents = append(documents, searchDocument{
 			Kind:             documentKindEvent,
-			CanonicalID:      int64String(event.ID),
-			ResultKey:        resultKey(documentKindEvent, int64String(event.ID)),
-			DocID:            documentID(documentKindEvent, int64String(event.ID), anchor),
+			CanonicalID:      eventID,
+			ResultKey:        resultKey(documentKindEvent, eventID),
+			DocID:            documentID(documentKindEvent, eventID, anchor),
 			WorkspaceID:      anchor.WorkspaceID,
 			ConversationID:   anchor.ConversationID,
 			ReadPrincipalIDs: []uuid.UUID{anchor.PrincipalID},

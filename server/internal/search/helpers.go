@@ -120,8 +120,8 @@ func documentID(kind string, canonicalID string, anchor documentAnchor) string {
 }
 
 func (t syncTarget) key() string {
-	if t.SourceEventID > 0 {
-		return "source:" + int64String(t.SourceEventID)
+	if strings.TrimSpace(t.SourceEventID) != "" {
+		return "source:" + strings.TrimSpace(t.SourceEventID)
 	}
 	return resultKey(t.ResourceKind, t.ResourceID)
 }
@@ -302,7 +302,7 @@ func userToAPI(row userRow) api.User {
 
 func eventToAPI(row externalEventRow) api.ExternalEvent {
 	return api.ExternalEvent{
-		ID:           row.ID,
+		ID:           row.ID.String(),
 		WorkspaceID:  uuidPtrToStringPtr(row.WorkspaceID),
 		Type:         row.Type,
 		ResourceType: row.ResourceType,
@@ -367,11 +367,6 @@ func currentUpdatedAt(createdAt time.Time, updatedAt *time.Time) time.Time {
 
 func conversationAccessAnchors(conversation conversationRow) []documentAnchor {
 	switch {
-	case conversation.WorkspaceID == nil && conversation.AccessPolicy == "authenticated":
-		return []documentAnchor{{
-			PrincipalID: authenticatedPrincipalID(),
-			AnchorKey:   "authenticated",
-		}}
 	case conversation.AccessPolicy == "workspace" && conversation.WorkspaceID != nil:
 		return []documentAnchor{{
 			PrincipalID: workspacePrincipalID(*conversation.WorkspaceID),
@@ -537,10 +532,6 @@ func parseUUID(value string, field string) (*uuid.UUID, error) {
 		return nil, invalid(field, "invalid_uuid", "Must be a valid UUID.")
 	}
 	return &parsed, nil
-}
-
-func int64String(value int64) string {
-	return fmt.Sprintf("%d", value)
 }
 
 func sameStrings(left []string, right []string) bool {

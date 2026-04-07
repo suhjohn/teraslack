@@ -615,11 +615,11 @@ func (r *Runtime) syncResource(ctx context.Context, resourceKind string, resourc
 	})
 }
 
-func (r *Runtime) syncEventFromSource(ctx context.Context, sourceInternalEventID int64) error {
+func (r *Runtime) syncEventFromSource(ctx context.Context, sourceInternalEventID uuid.UUID) error {
 	if !r.Configured() {
 		return ErrNotConfigured
 	}
-	mutation, err := r.prepareSyncMutation(ctx, syncTarget{SourceEventID: sourceInternalEventID})
+	mutation, err := r.prepareSyncMutation(ctx, syncTarget{SourceEventID: sourceInternalEventID.String()})
 	if err != nil {
 		return err
 	}
@@ -632,8 +632,12 @@ func (r *Runtime) syncEventFromSource(ctx context.Context, sourceInternalEventID
 }
 
 func (r *Runtime) prepareSyncMutation(ctx context.Context, target syncTarget) (preparedMutation, error) {
-	if target.SourceEventID > 0 {
-		documents, err := r.buildEventDocumentsFromSource(ctx, target.SourceEventID)
+	if strings.TrimSpace(target.SourceEventID) != "" {
+		sourceInternalEventID, err := uuid.Parse(strings.TrimSpace(target.SourceEventID))
+		if err != nil {
+			return preparedMutation{}, err
+		}
+		documents, err := r.buildEventDocumentsFromSource(ctx, sourceInternalEventID)
 		if err != nil {
 			return preparedMutation{}, err
 		}
@@ -641,14 +645,14 @@ func (r *Runtime) prepareSyncMutation(ctx context.Context, target syncTarget) (p
 		if len(documents) > 0 {
 			resourceID = documents[0].CanonicalID
 		} else {
-			event, err := r.loadExternalEventBySourceInternalEventID(ctx, target.SourceEventID)
+			event, err := r.loadExternalEventBySourceInternalEventID(ctx, sourceInternalEventID)
 			if errors.Is(err, pgx.ErrNoRows) {
-				return preparedMutation{}, fmt.Errorf("external event for source %d is not projected yet", target.SourceEventID)
+				return preparedMutation{}, fmt.Errorf("external event for source %s is not projected yet", sourceInternalEventID)
 			}
 			if err != nil {
 				return preparedMutation{}, err
 			}
-			resourceID = int64String(event.ID)
+			resourceID = event.ID.String()
 		}
 		target = syncTarget{
 			ResourceKind:  documentKindEvent,

@@ -83,10 +83,10 @@ func enqueueIndexerShard(ctx context.Context, queries *dbsqlc.Queries, producer 
 		return err
 	}
 
-	rows, err := queries.ListInternalEventsByShardAfterID(ctx, dbsqlc.ListInternalEventsByShardAfterIDParams{
-		ShardID: int32(shardID),
-		ID:      checkpoint,
-		Limit:   indexerBatchSize,
+	rows, err := queries.ListInternalEventsByShardAfterSequenceID(ctx, dbsqlc.ListInternalEventsByShardAfterSequenceIDParams{
+		ShardID:    int32(shardID),
+		SequenceID: checkpoint,
+		Limit:      indexerBatchSize,
 	})
 	if err != nil {
 		return err
@@ -96,7 +96,7 @@ func enqueueIndexerShard(ctx context.Context, queries *dbsqlc.Queries, producer 
 	}
 
 	items := make([]queue.EnqueueItem, 0, len(rows)*2)
-	lastID := checkpoint
+	lastSequenceID := checkpoint
 	for _, row := range rows {
 		payloads, err := searchJobsForInternalEvent(row)
 		if err != nil {
@@ -112,7 +112,7 @@ func enqueueIndexerShard(ctx context.Context, queries *dbsqlc.Queries, producer 
 				Payload: raw,
 			})
 		}
-		lastID = row.ID
+		lastSequenceID = row.SequenceID
 	}
 	if len(items) > 0 {
 		if err := producer.Enqueue(ctx, items...); err != nil {
@@ -120,9 +120,9 @@ func enqueueIndexerShard(ctx context.Context, queries *dbsqlc.Queries, producer 
 		}
 	}
 	return queries.UpdateCheckpoint(ctx, dbsqlc.UpdateCheckpointParams{
-		Name:        checkpointName,
-		LastEventID: lastID,
-		UpdatedAt:   dbsqlc.Timestamptz(time.Now().UTC()),
+		Name:           checkpointName,
+		LastSequenceID: lastSequenceID,
+		UpdatedAt:      dbsqlc.Timestamptz(time.Now().UTC()),
 	})
 }
 
@@ -135,16 +135,16 @@ func loadIndexerCheckpoint(ctx context.Context, queries *dbsqlc.Queries, name st
 		return 0, err
 	}
 	if err := queries.InsertCheckpointIfMissing(ctx, dbsqlc.InsertCheckpointIfMissingParams{
-		Name:        name,
-		LastEventID: 0,
-		UpdatedAt:   dbsqlc.Timestamptz(time.Now().UTC()),
+		Name:           name,
+		LastSequenceID: 0,
+		UpdatedAt:      dbsqlc.Timestamptz(time.Now().UTC()),
 	}); err != nil {
 		return 0, err
 	}
 	return 0, nil
 }
 
-func searchJobsForInternalEvent(row dbsqlc.ListInternalEventsByShardAfterIDRow) ([]syncJobPayload, error) {
+func searchJobsForInternalEvent(row dbsqlc.ListInternalEventsByShardAfterSequenceIDRow) ([]syncJobPayload, error) {
 	payload := map[string]any{}
 	if len(row.Payload) > 0 {
 		if err := json.Unmarshal(row.Payload, &payload); err != nil {
@@ -169,7 +169,7 @@ func searchJobsForInternalEvent(row dbsqlc.ListInternalEventsByShardAfterIDRow) 
 
 	jobs := make([]syncJobPayload, 0, 3)
 	addExternal := func() {
-		jobs = append(jobs, syncJobPayload{ResourceKind: documentKindEvent, SourceEventID: row.ID})
+		jobs = append(jobs, syncJobPayload{ResourceKind: documentKindEvent, SourceEventID: row.ID.String()})
 	}
 
 	switch row.EventType {
@@ -367,7 +367,7 @@ func parseSyncTarget(raw []byte) (syncTarget, error) {
 	if err := json.Unmarshal(raw, &payload); err != nil {
 		return syncTarget{}, err
 	}
-	if payload.SourceEventID > 0 {
+	if strings.TrimSpace(payload.SourceEventID) != "" {
 		return syncTarget{SourceEventID: payload.SourceEventID}, nil
 	}
 	if payload.ResourceKind == "" || payload.ResourceID == "" {

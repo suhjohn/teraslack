@@ -37,6 +37,7 @@ type topLevelAlias struct {
 type Group struct {
 	DisplayName string
 	Name        string
+	Description string
 	Operations  []*Operation
 	byName      map[string]*Operation
 }
@@ -127,6 +128,7 @@ func New() (*CLI, error) {
 	cli := &CLI{
 		groupByName: map[string]*Group{},
 	}
+	tagDescriptions := tagDescriptionByName(swagger.Tags)
 
 	for _, path := range swagger.Paths.InMatchingOrder() {
 		pathItem := swagger.Paths.Value(path)
@@ -137,6 +139,7 @@ func New() (*CLI, error) {
 				group = &Group{
 					DisplayName: op.GroupDisplayName,
 					Name:        op.GroupName,
+					Description: strings.TrimSpace(tagDescriptions[op.GroupDisplayName]),
 					byName:      map[string]*Operation{},
 				}
 				cli.groupByName[group.Name] = group
@@ -247,7 +250,7 @@ func (c *CLI) runHelp(args []string, stdout, stderr io.Writer) int {
 	if args[0] == "routes" {
 		fmt.Fprintln(stdout, "Usage:\n  teraslack routes")
 		fmt.Fprintln(stdout)
-		fmt.Fprintln(stdout, "List the API routes discovered from the embedded OpenAPI document.")
+		fmt.Fprintln(stdout, "List the API routes available in this CLI build.")
 		return 0
 	}
 	if isLifecycleCommand(args[0]) {
@@ -698,27 +701,28 @@ func (c *CLI) printRootHelp(w io.Writer) {
 	fmt.Fprintln(w, "Usage:\n  teraslack [global flags] <group> <command> [command flags]")
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "Built-in commands:")
-	fmt.Fprintln(w, "  signin            Sign in with email and store the session token locally")
-	fmt.Fprintln(w, "  signout           Remove the stored session token")
-	fmt.Fprintln(w, "  me                Alias for `profile get`")
-	fmt.Fprintln(w, "  whoami            Alias for `profile get`")
-	fmt.Fprintln(w, "  health            Alias for `health get`")
-	fmt.Fprintln(w, "  search            Alias for `search run`")
-	fmt.Fprintln(w, "  routes            List API routes from the embedded OpenAPI document")
-	fmt.Fprintln(w, "  version           Print the installed CLI version")
-	fmt.Fprintln(w, "  update            Download and install the latest published CLI release")
-	fmt.Fprintln(w, "  uninstall         Remove the installed CLI binary")
-	fmt.Fprintln(w, "  help              Show help for a group or command")
+	fmt.Fprintln(w, "  signin            Start an email sign-in and save the session locally")
+	fmt.Fprintln(w, "  signout           Clear the saved session token")
+	fmt.Fprintln(w, "  me                Show your account and workspace access")
+	fmt.Fprintln(w, "  whoami            Show your account and workspace access")
+	fmt.Fprintln(w, "  health            Check whether the API is reachable")
+	fmt.Fprintln(w, "  search            Search the resources you can access")
+	fmt.Fprintln(w, "  routes            List the API routes in this CLI build")
+	fmt.Fprintln(w, "  version           Show the installed CLI version")
+	fmt.Fprintln(w, "  update            Install the latest published CLI release")
+	fmt.Fprintln(w, "  uninstall         Remove the installed CLI")
+	fmt.Fprintln(w, "  help              Show help for a command or group")
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "Global flags:")
-	fmt.Fprintln(w, "  --base-url        Override the API base URL")
-	fmt.Fprintln(w, "  --session-token   Override the saved session token")
-	fmt.Fprintln(w, "  --api-key         Override the saved API key")
+	fmt.Fprintln(w, "  --base-url        API base URL to send requests to")
+	fmt.Fprintln(w, "  --session-token   Session token to use for authenticated requests")
+	fmt.Fprintln(w, "  --api-key         API key to use for authenticated requests")
 	fmt.Fprintln(w, "  --output          Output format: pretty or json")
 	fmt.Fprintln(w)
 	fmt.Fprintf(w, "Groups (%d operations):\n", c.operationCnt)
 	for _, group := range c.groups {
-		fmt.Fprintf(w, "  %-24s %s\n", group.Name, group.DisplayName)
+		description := firstNonEmpty(oneLine(group.Description), group.DisplayName)
+		fmt.Fprintf(w, "  %-24s %s\n", group.Name, description)
 	}
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "Use `teraslack help <group>` to list commands in a group.")
@@ -727,6 +731,9 @@ func (c *CLI) printRootHelp(w io.Writer) {
 func (c *CLI) printGroupHelp(group *Group, w io.Writer) {
 	fmt.Fprintf(w, "Usage:\n  teraslack [global flags] %s <command> [command flags]\n\n", group.Name)
 	fmt.Fprintf(w, "%s commands:\n", group.DisplayName)
+	if description := oneLine(group.Description); description != "" {
+		fmt.Fprintf(w, "  About: %s\n", description)
+	}
 	for _, op := range group.Operations {
 		summary := firstNonEmpty(op.Summary, op.Description, op.Method+" "+op.Path)
 		fmt.Fprintf(w, "  %-28s %s\n", op.Name, oneLine(summary))
@@ -784,13 +791,24 @@ func (c *CLI) printOperationHelp(op *Operation, w io.Writer) {
 		}
 	}
 	if op.RequestBody != nil {
-		fmt.Fprintln(w, "  --body                    JSON request body.")
-		fmt.Fprintln(w, "  --body-file               Read a JSON request body from a file.")
-		fmt.Fprintln(w, "  --set                     Override body fields using key=value.")
+		fmt.Fprintln(w, "  --body                    Send the request body as inline JSON.")
+		fmt.Fprintln(w, "  --body-file               Read the request body from a JSON file.")
+		fmt.Fprintln(w, "  --set                     Override request body fields with key=value.")
 	}
 	if op.CursorField != "" {
-		fmt.Fprintln(w, "  --all                     Follow pagination using next_cursor.")
+		fmt.Fprintln(w, "  --all                     Keep fetching pages until next_cursor is empty.")
 	}
+}
+
+func tagDescriptionByName(tags openapi3.Tags) map[string]string {
+	descriptions := make(map[string]string, len(tags))
+	for _, tag := range tags {
+		if tag == nil {
+			continue
+		}
+		descriptions[strings.TrimSpace(tag.Name)] = strings.TrimSpace(tag.Description)
+	}
+	return descriptions
 }
 
 func flagUsage(param Parameter) string {

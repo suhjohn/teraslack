@@ -128,6 +128,49 @@ func (q *Queries) CreateAPIKey(ctx context.Context, arg CreateAPIKeyParams) erro
 	return err
 }
 
+const createAgent = `-- name: CreateAgent :exec
+insert into agents (
+  user_id,
+  owner_user_id,
+  owner_workspace_id,
+  mode,
+  created_by_user_id,
+  created_at,
+  updated_at
+) values (
+  $1,
+  $2,
+  $3,
+  $4,
+  $5,
+  $6,
+  $7
+)
+`
+
+type CreateAgentParams struct {
+	UserID           uuid.UUID          `json:"user_id"`
+	OwnerUserID      *uuid.UUID         `json:"owner_user_id"`
+	OwnerWorkspaceID *uuid.UUID         `json:"owner_workspace_id"`
+	Mode             string             `json:"mode"`
+	CreatedByUserID  uuid.UUID          `json:"created_by_user_id"`
+	CreatedAt        pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt        pgtype.Timestamptz `json:"updated_at"`
+}
+
+func (q *Queries) CreateAgent(ctx context.Context, arg CreateAgentParams) error {
+	_, err := q.db.Exec(ctx, createAgent,
+		arg.UserID,
+		arg.OwnerUserID,
+		arg.OwnerWorkspaceID,
+		arg.Mode,
+		arg.CreatedByUserID,
+		arg.CreatedAt,
+		arg.UpdatedAt,
+	)
+	return err
+}
+
 const createAuthSession = `-- name: CreateAuthSession :exec
 insert into auth_sessions (id, user_id, token_hash, expires_at, last_seen_at, created_at)
 values (
@@ -195,25 +238,29 @@ const createUser = `-- name: CreateUser :exec
 insert into users (id, principal_type, email, status, created_at, updated_at)
 values (
   $1,
-  'human',
   $2,
-  'active',
   $3,
-  $4
+  $4,
+  $5,
+  $6
 )
 `
 
 type CreateUserParams struct {
-	ID        uuid.UUID          `json:"id"`
-	Email     *string            `json:"email"`
-	CreatedAt pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
+	ID            uuid.UUID          `json:"id"`
+	PrincipalType string             `json:"principal_type"`
+	Email         *string            `json:"email"`
+	Status        string             `json:"status"`
+	CreatedAt     pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt     pgtype.Timestamptz `json:"updated_at"`
 }
 
 func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) error {
 	_, err := q.db.Exec(ctx, createUser,
 		arg.ID,
+		arg.PrincipalType,
 		arg.Email,
+		arg.Status,
 		arg.CreatedAt,
 		arg.UpdatedAt,
 	)
@@ -288,6 +335,7 @@ insert into workspace_invites (
   id,
   workspace_id,
   email,
+  invited_user_id,
   invited_by_user_id,
   token_hash,
   expires_at,
@@ -299,7 +347,8 @@ insert into workspace_invites (
   $4,
   $5,
   $6,
-  $7
+  $7,
+  $8
 )
 `
 
@@ -307,6 +356,7 @@ type CreateWorkspaceInviteParams struct {
 	ID              uuid.UUID          `json:"id"`
 	WorkspaceID     uuid.UUID          `json:"workspace_id"`
 	Email           *string            `json:"email"`
+	InvitedUserID   *uuid.UUID         `json:"invited_user_id"`
 	InvitedByUserID uuid.UUID          `json:"invited_by_user_id"`
 	TokenHash       string             `json:"token_hash"`
 	ExpiresAt       pgtype.Timestamptz `json:"expires_at"`
@@ -318,6 +368,7 @@ func (q *Queries) CreateWorkspaceInvite(ctx context.Context, arg CreateWorkspace
 		arg.ID,
 		arg.WorkspaceID,
 		arg.Email,
+		arg.InvitedUserID,
 		arg.InvitedByUserID,
 		arg.TokenHash,
 		arg.ExpiresAt,
@@ -375,6 +426,41 @@ func (q *Queries) CreateWorkspaceMembership(ctx context.Context, arg CreateWorks
 		arg.UpdatedAt,
 	)
 	return err
+}
+
+const getAPIKeyByID = `-- name: GetAPIKeyByID :one
+select id, user_id, label, scope_type, scope_workspace_id, expires_at, last_used_at, revoked_at, created_at
+from api_keys
+where id = $1
+`
+
+type GetAPIKeyByIDRow struct {
+	ID               uuid.UUID          `json:"id"`
+	UserID           uuid.UUID          `json:"user_id"`
+	Label            string             `json:"label"`
+	ScopeType        string             `json:"scope_type"`
+	ScopeWorkspaceID *uuid.UUID         `json:"scope_workspace_id"`
+	ExpiresAt        pgtype.Timestamptz `json:"expires_at"`
+	LastUsedAt       pgtype.Timestamptz `json:"last_used_at"`
+	RevokedAt        pgtype.Timestamptz `json:"revoked_at"`
+	CreatedAt        pgtype.Timestamptz `json:"created_at"`
+}
+
+func (q *Queries) GetAPIKeyByID(ctx context.Context, id uuid.UUID) (GetAPIKeyByIDRow, error) {
+	row := q.db.QueryRow(ctx, getAPIKeyByID, id)
+	var i GetAPIKeyByIDRow
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.Label,
+		&i.ScopeType,
+		&i.ScopeWorkspaceID,
+		&i.ExpiresAt,
+		&i.LastUsedAt,
+		&i.RevokedAt,
+		&i.CreatedAt,
+	)
+	return i, err
 }
 
 const getEmailLoginChallengeForVerification = `-- name: GetEmailLoginChallengeForVerification :one
@@ -440,7 +526,7 @@ func (q *Queries) GetUserByEmail(ctx context.Context, email *string) (GetUserByE
 }
 
 const getWorkspaceInviteByTokenHashForUpdate = `-- name: GetWorkspaceInviteByTokenHashForUpdate :one
-select id, workspace_id, email, accepted_at
+select id, workspace_id, email, invited_user_id, accepted_at
 from workspace_invites
 where token_hash = $1
   and expires_at > $2
@@ -453,10 +539,11 @@ type GetWorkspaceInviteByTokenHashForUpdateParams struct {
 }
 
 type GetWorkspaceInviteByTokenHashForUpdateRow struct {
-	ID          uuid.UUID          `json:"id"`
-	WorkspaceID uuid.UUID          `json:"workspace_id"`
-	Email       *string            `json:"email"`
-	AcceptedAt  pgtype.Timestamptz `json:"accepted_at"`
+	ID            uuid.UUID          `json:"id"`
+	WorkspaceID   uuid.UUID          `json:"workspace_id"`
+	Email         *string            `json:"email"`
+	InvitedUserID *uuid.UUID         `json:"invited_user_id"`
+	AcceptedAt    pgtype.Timestamptz `json:"accepted_at"`
 }
 
 func (q *Queries) GetWorkspaceInviteByTokenHashForUpdate(ctx context.Context, arg GetWorkspaceInviteByTokenHashForUpdateParams) (GetWorkspaceInviteByTokenHashForUpdateRow, error) {
@@ -466,6 +553,7 @@ func (q *Queries) GetWorkspaceInviteByTokenHashForUpdate(ctx context.Context, ar
 		&i.ID,
 		&i.WorkspaceID,
 		&i.Email,
+		&i.InvitedUserID,
 		&i.AcceptedAt,
 	)
 	return i, err
@@ -498,7 +586,7 @@ func (q *Queries) GetWorkspaceMembershipForUpdate(ctx context.Context, arg GetWo
 }
 
 const listAPIKeysByUser = `-- name: ListAPIKeysByUser :many
-select id, label, scope_type, scope_workspace_id, expires_at, last_used_at, revoked_at, created_at
+select id, user_id, label, scope_type, scope_workspace_id, expires_at, last_used_at, revoked_at, created_at
 from api_keys
 where user_id = $1
 order by created_at desc
@@ -506,6 +594,7 @@ order by created_at desc
 
 type ListAPIKeysByUserRow struct {
 	ID               uuid.UUID          `json:"id"`
+	UserID           uuid.UUID          `json:"user_id"`
 	Label            string             `json:"label"`
 	ScopeType        string             `json:"scope_type"`
 	ScopeWorkspaceID *uuid.UUID         `json:"scope_workspace_id"`
@@ -526,6 +615,7 @@ func (q *Queries) ListAPIKeysByUser(ctx context.Context, userID uuid.UUID) ([]Li
 		var i ListAPIKeysByUserRow
 		if err := rows.Scan(
 			&i.ID,
+			&i.UserID,
 			&i.Label,
 			&i.ScopeType,
 			&i.ScopeWorkspaceID,
@@ -761,6 +851,24 @@ func (q *Queries) RevokeAuthSession(ctx context.Context, arg RevokeAuthSessionPa
 	return result.RowsAffected(), nil
 }
 
+const updateAgent = `-- name: UpdateAgent :exec
+update agents
+set mode = coalesce($1, mode),
+    updated_at = $2
+where user_id = $3
+`
+
+type UpdateAgentParams struct {
+	Mode      *string            `json:"mode"`
+	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
+	UserID    uuid.UUID          `json:"user_id"`
+}
+
+func (q *Queries) UpdateAgent(ctx context.Context, arg UpdateAgentParams) error {
+	_, err := q.db.Exec(ctx, updateAgent, arg.Mode, arg.UpdatedAt, arg.UserID)
+	return err
+}
+
 const updateUserProfile = `-- name: UpdateUserProfile :exec
 update user_profiles
 set handle = coalesce($1, handle),
@@ -789,6 +897,24 @@ func (q *Queries) UpdateUserProfile(ctx context.Context, arg UpdateUserProfilePa
 		arg.UpdatedAt,
 		arg.UserID,
 	)
+	return err
+}
+
+const updateUserStatus = `-- name: UpdateUserStatus :exec
+update users
+set status = $1,
+    updated_at = $2
+where id = $3
+`
+
+type UpdateUserStatusParams struct {
+	Status    string             `json:"status"`
+	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
+	ID        uuid.UUID          `json:"id"`
+}
+
+func (q *Queries) UpdateUserStatus(ctx context.Context, arg UpdateUserStatusParams) error {
+	_, err := q.db.Exec(ctx, updateUserStatus, arg.Status, arg.UpdatedAt, arg.ID)
 	return err
 }
 

@@ -8,8 +8,13 @@
 
 export interface CreateWorkspaceInviteRequest {
   /**
-     * Optional email address that must match the accepting user.
+     * Optional email address that must match the accepting principal.
      * @nullable
      */
   email?: string | null;
+  /**
+     * Optional user identifier that must match the accepting principal.
+     * @nullable
+     */
+  user_id?: string | null;
 }

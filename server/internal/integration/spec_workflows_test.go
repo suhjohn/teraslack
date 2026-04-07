@@ -31,22 +31,23 @@ func TestSPECWorkflows_BootstrapAuthenticatedStateAndWorkspaceCreation(t *testin
 		t.Fatalf("GET /me returned %d workspaces before creation, want 0", len(me.Workspaces))
 	}
 
-	globalTitle := "Town Square"
 	globalConversation := mustJSON[api.Conversation](
 		t,
 		h,
 		http.MethodPost,
 		"/conversations",
 		alpha.Token,
-		api.CreateConversationRequest{
-			WorkspaceID:  nil,
-			AccessPolicy: "authenticated",
-			Title:        &globalTitle,
-		},
+		nil,
 		http.StatusCreated,
 	)
 	if globalConversation.WorkspaceID != nil {
-		t.Fatalf("global authenticated conversation unexpectedly had workspace_id %v", *globalConversation.WorkspaceID)
+		t.Fatalf("global conversation unexpectedly had workspace_id %v", *globalConversation.WorkspaceID)
+	}
+	if globalConversation.AccessPolicy != "members" {
+		t.Fatalf("default global conversation had access_policy %q, want members", globalConversation.AccessPolicy)
+	}
+	if globalConversation.ShareLink == nil {
+		t.Fatalf("default global conversation did not return a share link")
 	}
 
 	workspace := mustJSON[api.Workspace](
@@ -371,7 +372,6 @@ func TestSPECWorkflows_SearchHybridIndexingAndACL(t *testing.T) {
 		http.StatusCreated,
 	)
 
-	globalTitle := "Global " + globalMessageQuery
 	globalConversation := mustJSON[api.Conversation](
 		t,
 		h,
@@ -379,9 +379,8 @@ func TestSPECWorkflows_SearchHybridIndexingAndACL(t *testing.T) {
 		"/conversations",
 		alpha.Token,
 		api.CreateConversationRequest{
-			WorkspaceID:  nil,
-			AccessPolicy: "authenticated",
-			Title:        &globalTitle,
+			WorkspaceID:        nil,
+			ParticipantUserIDs: []string{gamma.User.ID},
 		},
 		http.StatusCreated,
 	)
@@ -647,22 +646,16 @@ func TestSPECWorkflows_ConversationInviteAndWebhookSubscriptionDelivery(t *testi
 		t.Fatalf("single-owner private conversation participant_count = %d, want 1", privateConversation.ParticipantCount)
 	}
 
-	invite := mustJSON[api.CreateConversationInviteResponse](
-		t,
-		h,
-		http.MethodPost,
-		"/conversations/"+privateConversation.ID+"/invites",
-		alpha.Token,
-		api.CreateConversationInviteRequest{Mode: "link"},
-		http.StatusCreated,
-	)
+	if privateConversation.ShareLink == nil {
+		t.Fatalf("private conversation share_link = nil, want share link")
+	}
 	acceptedConversation := mustJSON[api.Conversation](
 		t,
 		h,
 		http.MethodPost,
-		"/conversation-invites/"+url.PathEscape(invite.InviteToken)+"/accept",
+		"/conversations/join",
 		beta.Token,
-		nil,
+		api.JoinConversationRequest{Token: privateConversation.ShareLink.Token},
 		http.StatusOK,
 	)
 	if acceptedConversation.ID != privateConversation.ID {
@@ -819,6 +812,32 @@ func TestSPECWorkflows_EventSubscriptionValidation(t *testing.T) {
 	)
 	if errResponse.Code != "validation_failed" {
 		t.Fatalf("blank secret error code = %s, want validation_failed", errResponse.Code)
+	}
+
+	subscription := mustJSON[api.EventSubscription](
+		t,
+		h,
+		http.MethodPost,
+		"/event-subscriptions",
+		alpha.Token,
+		api.CreateEventSubscriptionRequest{
+			URL:    "https://hooks.example.com/teraslack",
+			Secret: "shared-secret",
+		},
+		http.StatusCreated,
+	)
+
+	errResponse = mustJSON[api.ErrorResponse](
+		t,
+		h,
+		http.MethodPatch,
+		"/event-subscriptions/"+subscription.ID,
+		alpha.Token,
+		nil,
+		http.StatusUnprocessableEntity,
+	)
+	if errResponse.Code != "validation_failed" {
+		t.Fatalf("missing enabled error code = %s, want validation_failed", errResponse.Code)
 	}
 
 	errResponse = mustJSON[api.ErrorResponse](

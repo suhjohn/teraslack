@@ -4,6 +4,43 @@ from users u
 join user_profiles p on p.user_id = u.id
 where u.id = $1;
 
+-- name: GetAgent :one
+select user_id, owner_user_id, owner_workspace_id, mode, created_by_user_id, created_at, updated_at
+from agents
+where user_id = $1;
+
+-- name: ListAgentsManagedByUser :many
+select
+  a.user_id,
+  a.owner_user_id,
+  a.owner_workspace_id,
+  a.mode,
+  a.created_by_user_id,
+  a.created_at,
+  a.updated_at,
+  u.id,
+  u.principal_type,
+  u.status,
+  u.email,
+  p.handle,
+  p.display_name,
+  p.avatar_url,
+  p.bio
+from agents a
+join users u on u.id = a.user_id
+join user_profiles p on p.user_id = u.id
+where a.owner_user_id = $1
+   or exists (
+    select 1
+    from workspace_memberships wm
+    where a.owner_workspace_id is not null
+      and wm.workspace_id = a.owner_workspace_id
+      and wm.user_id = $1
+      and wm.status = 'active'
+      and wm.role in ('owner', 'admin')
+  )
+order by p.display_name asc;
+
 -- name: GetWorkspace :one
 select id, slug, name, created_by_user_id, created_at, updated_at
 from workspaces

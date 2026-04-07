@@ -41,7 +41,7 @@ func (c *CLI) printSigninHelp(args []string, w io.Writer) {
 		fmt.Fprintln(w, "Usage:\n  teraslack signin email --email <email> [--code <code>]")
 		fmt.Fprintln(w)
 		fmt.Fprintln(w, "Supported sign-in methods:")
-		fmt.Fprintln(w, "  email              Request and verify an email login code")
+		fmt.Fprintln(w, "  email              Send a sign-in code and exchange it for a saved session")
 		fmt.Fprintln(w)
 		fmt.Fprintln(w, "OAuth browser sign-in is not currently available from the CLI for this backend.")
 		return
@@ -51,7 +51,9 @@ func (c *CLI) printSigninHelp(args []string, w io.Writer) {
 	case "email":
 		fmt.Fprintln(w, "Usage:\n  teraslack signin email --email <email> [--code <code>] [--name <ignored>]")
 		fmt.Fprintln(w)
-		fmt.Fprintln(w, "Send a verification code by email, prompt for the code if omitted, then save the session token locally.")
+		fmt.Fprintln(w, "Send a verification code by email, prompt for the code if you do not pass one, then save the resulting session locally.")
+		fmt.Fprintln(w)
+		fmt.Fprintln(w, "The legacy `--name` flag is accepted for compatibility and ignored.")
 	default:
 		fmt.Fprintln(w, "Usage:\n  teraslack signin email --email <email> [--code <code>]")
 	}

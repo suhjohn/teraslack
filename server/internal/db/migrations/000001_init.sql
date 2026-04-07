@@ -182,7 +182,8 @@ create table if not exists conversation_reads (
 );
 
 create table if not exists internal_events (
-  id bigserial primary key,
+  id uuid primary key default gen_random_uuid(),
+  sequence_id bigserial not null unique,
   event_type text not null,
   aggregate_type text not null,
   aggregate_id uuid not null,
@@ -195,7 +196,7 @@ create table if not exists internal_events (
 
 create table if not exists projector_checkpoints (
   name text primary key,
-  last_event_id bigint not null,
+  last_sequence_id bigint not null,
   updated_at timestamptz not null
 );
 
@@ -209,33 +210,34 @@ create table if not exists projector_leases (
 );
 
 create table if not exists external_events (
-  id bigserial primary key,
+  id uuid primary key default gen_random_uuid(),
+  sequence_id bigserial not null unique,
   workspace_id uuid references workspaces(id),
   type text not null,
   resource_type text not null,
   resource_id uuid not null,
   occurred_at timestamptz not null,
   payload jsonb not null,
-  source_internal_event_id bigint references internal_events(id) on delete set null,
+  source_internal_event_id uuid references internal_events(id) on delete set null,
   dedupe_key text not null unique,
   created_at timestamptz not null
 );
 
 create table if not exists workspace_event_feed (
   workspace_id uuid not null references workspaces(id) on delete cascade,
-  external_event_id bigint not null references external_events(id) on delete cascade,
+  external_event_id uuid not null references external_events(id) on delete cascade,
   unique (workspace_id, external_event_id)
 );
 
 create table if not exists conversation_event_feed (
   conversation_id uuid not null references conversations(id) on delete cascade,
-  external_event_id bigint not null references external_events(id) on delete cascade,
+  external_event_id uuid not null references external_events(id) on delete cascade,
   unique (conversation_id, external_event_id)
 );
 
 create table if not exists user_event_feed (
   user_id uuid not null references users(id) on delete cascade,
-  external_event_id bigint not null references external_events(id) on delete cascade,
+  external_event_id uuid not null references external_events(id) on delete cascade,
   unique (user_id, external_event_id)
 );
 
@@ -255,16 +257,16 @@ create table if not exists event_subscriptions (
 );
 
 create table if not exists external_event_projection_failures (
-  id bigserial primary key,
-  internal_event_id bigint not null references internal_events(id) on delete cascade,
+  id uuid primary key default gen_random_uuid(),
+  internal_event_id uuid not null references internal_events(id) on delete cascade,
   error text not null,
   created_at timestamptz not null
 );
 
 create table if not exists webhook_deliveries (
-  id bigserial primary key,
+  id uuid primary key default gen_random_uuid(),
   subscription_id uuid not null references event_subscriptions(id) on delete cascade,
-  external_event_id bigint not null references external_events(id) on delete cascade,
+  external_event_id uuid not null references external_events(id) on delete cascade,
   status text not null check (status in ('pending', 'processing', 'delivered', 'failed')),
   attempt_count integer not null default 0,
   next_attempt_at timestamptz not null,

@@ -7,6 +7,6 @@
  */
 
 /**
- * Opaque pagination cursor returned as next_cursor by a previous page.
+ * Pagination cursor from a previous response.
  */
 export type CursorQueryParameter = string;

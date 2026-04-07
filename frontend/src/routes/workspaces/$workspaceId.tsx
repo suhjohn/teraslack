@@ -209,7 +209,7 @@ function WorkspaceLayout() {
               conversationsError={
                 conversationsQuery.isError ? conversationsQuery.error.message : ''
               }
-              eventsLink={`/workspaces/${workspace.id}/events`}
+              workspaceMemberCount={members.length}
             />
 
             <section className="min-h-[56vh] min-w-0 flex-1 border-b border-[var(--sys-home-border)] bg-[var(--sys-home-bg)] md:border-b-0">

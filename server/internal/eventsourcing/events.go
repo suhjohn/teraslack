@@ -30,10 +30,10 @@ func ShardForAggregate(aggregateID uuid.UUID) int {
 	return int(binary.BigEndian.Uint32(aggregateID[:4]) % DefaultShardCount)
 }
 
-func AppendInternalEvent(ctx context.Context, tx pgx.Tx, event InternalEvent) (int64, error) {
+func AppendInternalEvent(ctx context.Context, tx pgx.Tx, event InternalEvent) (uuid.UUID, error) {
 	payload, err := json.Marshal(event.Payload)
 	if err != nil {
-		return 0, fmt.Errorf("marshal internal event payload: %w", err)
+		return uuid.Nil, fmt.Errorf("marshal internal event payload: %w", err)
 	}
 	if event.CreatedAt.IsZero() {
 		event.CreatedAt = time.Now().UTC()

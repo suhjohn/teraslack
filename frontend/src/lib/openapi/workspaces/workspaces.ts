@@ -54,8 +54,8 @@ export type HTTPStatusCodes = HTTPStatusCode1xx | HTTPStatusCode2xx | HTTPStatus
 
 
 /**
- * Lists workspaces visible to the caller. Workspace-scoped API keys return only their bound workspace.
- * @summary List accessible workspaces
+ * Returns workspaces visible to the caller. Workspace-scoped API keys return only their bound workspace.
+ * @summary List your workspaces
  */
 export type listWorkspacesResponse200 = {
   data: WorkspacesCollection
@@ -153,7 +153,7 @@ export function useListWorkspaces<TData = Awaited<ReturnType<typeof listWorkspac
  , queryClient?: QueryClient
   ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
 /**
- * @summary List accessible workspaces
+ * @summary List your workspaces
  */
 
 export function useListWorkspaces<TData = Awaited<ReturnType<typeof listWorkspaces>>, TError = ErrorType<ApiErrorResponseResponse>>(
@@ -172,8 +172,8 @@ export function useListWorkspaces<TData = Awaited<ReturnType<typeof listWorkspac
 
 
 /**
- * Creates a workspace, adds the caller as owner, and provisions the default general conversation.
- * @summary Create workspace
+ * Creates a workspace, makes the caller its owner, and provisions the default general conversation.
+ * @summary Create a workspace
  */
 export type createWorkspaceResponse201 = {
   data: Workspace
@@ -249,7 +249,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type CreateWorkspaceMutationError = ErrorType<ApiErrorResponseResponse>
 
     /**
- * @summary Create workspace
+ * @summary Create a workspace
  */
 export const useCreateWorkspace = <TError = ErrorType<ApiErrorResponseResponse>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createWorkspace>>, TError,{data: BodyType<CreateWorkspaceRequest>}, TContext>, request?: SecondParameter<typeof orvalFetch>}
@@ -263,7 +263,7 @@ export const useCreateWorkspace = <TError = ErrorType<ApiErrorResponseResponse>,
     }
     /**
  * Returns one workspace visible to the caller.
- * @summary Get workspace
+ * @summary Show a workspace
  */
 export type getWorkspaceResponse200 = {
   data: Workspace
@@ -361,7 +361,7 @@ export function useGetWorkspace<TData = Awaited<ReturnType<typeof getWorkspace>>
  , queryClient?: QueryClient
   ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
 /**
- * @summary Get workspace
+ * @summary Show a workspace
  */
 
 export function useGetWorkspace<TData = Awaited<ReturnType<typeof getWorkspace>>, TError = ErrorType<ApiErrorResponseResponse>>(
@@ -380,8 +380,8 @@ export function useGetWorkspace<TData = Awaited<ReturnType<typeof getWorkspace>>
 
 
 /**
- * Updates a workspace name or slug. Caller must be a workspace owner or admin.
- * @summary Update workspace
+ * Updates a workspace name or slug. The caller must be a workspace owner or admin.
+ * @summary Update a workspace
  */
 export type updateWorkspaceResponse200 = {
   data: Workspace
@@ -458,7 +458,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type UpdateWorkspaceMutationError = ErrorType<ApiErrorResponseResponse>
 
     /**
- * @summary Update workspace
+ * @summary Update a workspace
  */
 export const useUpdateWorkspace = <TError = ErrorType<ApiErrorResponseResponse>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateWorkspace>>, TError,{workspaceId: string;data: BodyType<UpdateWorkspaceRequest>}, TContext>, request?: SecondParameter<typeof orvalFetch>}
@@ -471,7 +471,7 @@ export const useUpdateWorkspace = <TError = ErrorType<ApiErrorResponseResponse>,
       return useMutation(getUpdateWorkspaceMutationOptions(options), queryClient);
     }
     /**
- * Lists members of a workspace visible to the caller.
+ * Returns members of a workspace visible to the caller.
  * @summary List workspace members
  */
 export type listWorkspaceMembersResponse200 = {
@@ -589,8 +589,8 @@ export function useListWorkspaceMembers<TData = Awaited<ReturnType<typeof listWo
 
 
 /**
- * Creates a workspace invite token that can optionally be bound to one email address.
- * @summary Create workspace invite
+ * Creates a workspace invite token that can optionally be restricted to one email address or one existing user.
+ * @summary Create a workspace invite
  */
 export type createWorkspaceInviteResponse201 = {
   data: CreateWorkspaceInviteResponse
@@ -667,7 +667,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type CreateWorkspaceInviteMutationError = ErrorType<ApiErrorResponseResponse>
 
     /**
- * @summary Create workspace invite
+ * @summary Create a workspace invite
  */
 export const useCreateWorkspaceInvite = <TError = ErrorType<ApiErrorResponseResponse>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createWorkspaceInvite>>, TError,{workspaceId: string;data: BodyType<CreateWorkspaceInviteRequest>}, TContext>, request?: SecondParameter<typeof orvalFetch>}
@@ -680,8 +680,8 @@ export const useCreateWorkspaceInvite = <TError = ErrorType<ApiErrorResponseResp
       return useMutation(getCreateWorkspaceInviteMutationOptions(options), queryClient);
     }
     /**
- * Accepts a workspace invite token for the authenticated caller.
- * @summary Accept workspace invite
+ * Accepts a workspace invite token for the signed-in user or agent principal.
+ * @summary Join a workspace from an invite
  */
 export type acceptWorkspaceInviteResponse200 = {
   data: WorkspaceMember
@@ -756,7 +756,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type AcceptWorkspaceInviteMutationError = ErrorType<ApiErrorResponseResponse>
 
     /**
- * @summary Accept workspace invite
+ * @summary Join a workspace from an invite
  */
 export const useAcceptWorkspaceInvite = <TError = ErrorType<ApiErrorResponseResponse>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof acceptWorkspaceInvite>>, TError,{token: string}, TContext>, request?: SecondParameter<typeof orvalFetch>}
@@ -769,8 +769,8 @@ export const useAcceptWorkspaceInvite = <TError = ErrorType<ApiErrorResponseResp
       return useMutation(getAcceptWorkspaceInviteMutationOptions(options), queryClient);
     }
     /**
- * Updates a workspace member's role or status. Caller must be a workspace owner or admin.
- * @summary Update workspace member
+ * Updates a workspace member's role or status. The caller must be a workspace owner or admin.
+ * @summary Update a workspace member
  */
 export type updateWorkspaceMemberResponse200 = {
   data: WorkspaceMember
@@ -849,7 +849,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type UpdateWorkspaceMemberMutationError = ErrorType<ApiErrorResponseResponse>
 
     /**
- * @summary Update workspace member
+ * @summary Update a workspace member
  */
 export const useUpdateWorkspaceMember = <TError = ErrorType<ApiErrorResponseResponse>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateWorkspaceMember>>, TError,{workspaceId: string;userId: string;data: BodyType<UpdateWorkspaceMemberRequest>}, TContext>, request?: SecondParameter<typeof orvalFetch>}

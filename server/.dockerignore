@@ -1,0 +1,12 @@
+.git
+Dockerfile.dev
+Makefile
+sqlc.yaml
+
+api/
+cmd/teraslack-api/
+internal/db/queries/
+internal/integration/
+internal/openapicli/
+
+**/*_test.go

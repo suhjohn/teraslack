@@ -9,34 +9,34 @@ security:
   - bearerAuth: []
 tags:
   - name: Health
-    description: Operational health endpoints.
+    description: Check whether the API is responding.
   - name: Auth
-    description: Authentication and session lifecycle endpoints.
+    description: Start or complete sign-in flows and manage the current session.
   - name: Profile
-    description: Authenticated caller bootstrap and profile endpoints.
+    description: View or update the signed-in user's account details.
+  - name: Agents
+    description: Create and manage agent principals owned by a user or workspace.
   - name: API Keys
-    description: Personal and workspace-scoped API key management.
-  - name: Dashboard
-    description: API-first operational reporting for keys, webhooks, activity, and audit state.
+    description: Create, list, and revoke personal or workspace API keys.
   - name: Search
-    description: Search endpoint placeholder.
+    description: Search messages, conversations, workspaces, users, and events you can access.
   - name: Workspaces
-    description: Workspace lifecycle, membership, and invite endpoints.
+    description: Create workspaces, manage members, and handle invites.
   - name: Conversations
-    description: Conversation lifecycle, participants, invites, and read state.
+    description: Create conversations, manage participants, and handle share links.
   - name: Messages
-    description: Message lifecycle endpoints.
+    description: Send, edit, list, and delete messages.
   - name: Events
-    description: External event feed endpoints.
+    description: Browse the external event feed available to the caller.
   - name: Event Subscriptions
-    description: Webhook subscription management endpoints.
+    description: Manage signed webhook subscriptions for external events.
 paths:
   /healthz:
     get:
       tags:
         - Health
       operationId: getHealth
-      summary: Check API health
+      summary: Check whether the API is up
       description: Returns a simple liveness response for the current server instance.
       security: []
       responses:
@@ -53,8 +53,8 @@ paths:
       tags:
         - Auth
       operationId: startEmailLogin
-      summary: Start email sign-in
-      description: Sends a one-time verification code to the supplied email address.
+      summary: Send an email sign-in code
+      description: Sends a one-time verification code to the email address you provide.
       security: []
       requestBody:
         required: true
@@ -76,8 +76,8 @@ paths:
       tags:
         - Auth
       operationId: verifyEmailLogin
-      summary: Complete email sign-in
-      description: Exchanges an email verification code for a session and authenticated user payload.
+      summary: Sign in with an email code
+      description: Exchanges an email address and verification code for a session and authenticated user payload.
       security: []
       requestBody:
         required: true
@@ -99,7 +99,7 @@ paths:
       tags:
         - Auth
       operationId: startGoogleOAuth
-      summary: Start Google OAuth
+      summary: Start Google sign-in
       description: Creates an OAuth state record and returns the Google authorization URL to open in the browser.
       security: []
       requestBody:
@@ -122,7 +122,7 @@ paths:
       tags:
         - Auth
       operationId: completeGoogleOAuth
-      summary: Complete Google OAuth
+      summary: Finish Google sign-in
       description: Completes the Google OAuth flow using the provider callback code and state.
       security: []
       parameters:
@@ -144,7 +144,7 @@ paths:
       tags:
         - Auth
       operationId: startGitHubOAuth
-      summary: Start GitHub OAuth
+      summary: Start GitHub sign-in
       description: Creates an OAuth state record and returns the GitHub authorization URL to open in the browser.
       security: []
       requestBody:
@@ -167,7 +167,7 @@ paths:
       tags:
         - Auth
       operationId: completeGitHubOAuth
-      summary: Complete GitHub OAuth
+      summary: Finish GitHub sign-in
       description: Completes the GitHub OAuth flow using the provider callback code and state.
       security: []
       parameters:
@@ -189,8 +189,8 @@ paths:
       tags:
         - Auth
       operationId: revokeCurrentSession
-      summary: Revoke current session
-      description: Revokes the authenticated browser or bearer session. This endpoint requires a session credential rather than an API key.
+      summary: Sign out the current session
+      description: Revokes the current browser or bearer session. This endpoint requires a session credential rather than an API key.
       responses:
         '204':
           description: Session revoked.
@@ -201,8 +201,8 @@ paths:
       tags:
         - Profile
       operationId: getProfile
-      summary: Get caller bootstrap state
-      description: Returns the authenticated user and the workspaces they can currently access.
+      summary: Show your account and workspaces
+      description: Returns the signed-in user and the workspaces they can currently access.
       responses:
         '200':
           description: Current caller bootstrap state.
@@ -217,8 +217,8 @@ paths:
       tags:
         - Profile
       operationId: updateProfile
-      summary: Update caller profile
-      description: Updates the authenticated caller's handle, display name, avatar URL, or bio.
+      summary: Update your profile
+      description: Updates the signed-in user's handle, display name, avatar URL, or bio.
       requestBody:
         required: true
         content:
@@ -234,16 +234,96 @@ paths:
                 $ref: '#/components/schemas/User'
         default:
           $ref: '#/components/responses/ApiErrorResponse'
+  /agents:
+    get:
+      tags:
+        - Agents
+      operationId: listAgents
+      summary: List manageable agents
+      description: Returns agents owned directly by the current user or by workspaces where the current user is an owner or admin.
+      responses:
+        '200':
+          description: Manageable agents.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentsCollection'
+        default:
+          $ref: '#/components/responses/ApiErrorResponse'
+    post:
+      tags:
+        - Agents
+      operationId: createAgent
+      summary: Create an agent
+      description: Creates a first-class agent user owned either by the current user or by one workspace the current user administers.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateAgentRequest'
+      responses:
+        '201':
+          description: Agent created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Agent'
+        default:
+          $ref: '#/components/responses/ApiErrorResponse'
+  /agents/{agent_id}:
+    get:
+      tags:
+        - Agents
+      operationId: getAgent
+      summary: Show an agent
+      description: Returns one manageable agent by its user identifier.
+      parameters:
+        - $ref: '#/components/parameters/AgentIDPath'
+      responses:
+        '200':
+          description: Agent details.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Agent'
+        default:
+          $ref: '#/components/responses/ApiErrorResponse'
+    patch:
+      tags:
+        - Agents
+      operationId: updateAgent
+      summary: Update an agent
+      description: Updates a manageable agent's profile, mode, or status.
+      parameters:
+        - $ref: '#/components/parameters/AgentIDPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateAgentRequest'
+      responses:
+        '200':
+          description: Updated agent.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Agent'
+        default:
+          $ref: '#/components/responses/ApiErrorResponse'
   /api-keys:
     get:
       tags:
         - API Keys
       operationId: listApiKeys
-      summary: List API keys
-      description: Lists the caller's API keys. Workspace-scoped API keys cannot access this global user surface.
+      summary: List your API keys
+      description: Returns API keys owned by the current user or by one manageable agent. Workspace-scoped API keys cannot access this global user surface.
+      parameters:
+        - $ref: '#/components/parameters/SubjectUserIDQuery'
       responses:
         '200':
-          description: API keys owned by the authenticated user.
+          description: API keys owned by the selected subject user.
           content:
             application/json:
               schema:
@@ -254,8 +334,8 @@ paths:
       tags:
         - API Keys
       operationId: createApiKey
-      summary: Create API key
-      description: Creates a new personal or workspace-scoped API key and returns the secret once.
+      summary: Create an API key
+      description: Creates a personal or workspace-scoped API key for the current user or one manageable agent and returns the secret once.
       requestBody:
         required: true
         content:
@@ -276,8 +356,8 @@ paths:
       tags:
         - API Keys
       operationId: deleteApiKey
-      summary: Revoke API key
-      description: Revokes one API key owned by the authenticated user.
+      summary: Revoke an API key
+      description: Revokes one API key owned by the current user or one manageable agent.
       parameters:
         - $ref: '#/components/parameters/KeyIDPath'
       responses:
@@ -285,88 +365,13 @@ paths:
           description: API key revoked.
         default:
           $ref: '#/components/responses/ApiErrorResponse'
-  /dashboard/overview:
-    get:
-      tags:
-        - Dashboard
-      operationId: getDashboardOverview
-      summary: Get dashboard overview
-      description: Returns the top-level key, webhook, and data summaries for the caller. Workspace-scoped API keys are restricted to their bound workspace.
-      parameters:
-        - $ref: '#/components/parameters/WorkspaceIDQuery'
-      responses:
-        '200':
-          description: Dashboard overview.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/DashboardOverview'
-        default:
-          $ref: '#/components/responses/ApiErrorResponse'
-  /dashboard/webhooks:
-    get:
-      tags:
-        - Dashboard
-      operationId: getDashboardWebhooks
-      summary: Get dashboard webhook health
-      description: Returns webhook subscription inventory plus recent delivery outcomes for the caller.
-      parameters:
-        - $ref: '#/components/parameters/WorkspaceIDQuery'
-        - $ref: '#/components/parameters/LimitQuery'
-      responses:
-        '200':
-          description: Webhook subscription and delivery state.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/DashboardWebhooksResponse'
-        default:
-          $ref: '#/components/responses/ApiErrorResponse'
-  /dashboard/data-activity:
-    get:
-      tags:
-        - Dashboard
-      operationId: getDashboardDataActivity
-      summary: Get dashboard data activity
-      description: Returns conversation, message, event, and room mix activity summaries for accessible conversations.
-      parameters:
-        - $ref: '#/components/parameters/WorkspaceIDQuery'
-        - $ref: '#/components/parameters/DashboardDaysQuery'
-      responses:
-        '200':
-          description: Data activity analytics.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/DashboardDataActivityResponse'
-        default:
-          $ref: '#/components/responses/ApiErrorResponse'
-  /dashboard/audit:
-    get:
-      tags:
-        - Dashboard
-      operationId: getDashboardAudit
-      summary: Get dashboard audit trail
-      description: Returns recent internal lifecycle events initiated by the caller, optionally filtered to one workspace.
-      parameters:
-        - $ref: '#/components/parameters/WorkspaceIDQuery'
-        - $ref: '#/components/parameters/LimitQuery'
-      responses:
-        '200':
-          description: Audit trail entries.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/DashboardAuditResponse'
-        default:
-          $ref: '#/components/responses/ApiErrorResponse'
   /search:
     post:
       tags:
         - Search
       operationId: runSearch
-      summary: Search across accessible resources
-      description: Runs hybrid search across the resources the caller is allowed to access.
+      summary: Search the resources you can access
+      description: Runs search across the messages, conversations, workspaces, users, and events visible to the caller.
       requestBody:
         required: true
         content:
@@ -387,8 +392,8 @@ paths:
       tags:
         - Workspaces
       operationId: listWorkspaces
-      summary: List accessible workspaces
-      description: Lists workspaces visible to the caller. Workspace-scoped API keys return only their bound workspace.
+      summary: List your workspaces
+      description: Returns workspaces visible to the caller. Workspace-scoped API keys return only their bound workspace.
       responses:
         '200':
           description: Accessible workspaces.
@@ -402,8 +407,8 @@ paths:
       tags:
         - Workspaces
       operationId: createWorkspace
-      summary: Create workspace
-      description: Creates a workspace, adds the caller as owner, and provisions the default general conversation.
+      summary: Create a workspace
+      description: Creates a workspace, makes the caller its owner, and provisions the default general conversation.
       requestBody:
         required: true
         content:
@@ -424,7 +429,7 @@ paths:
       tags:
         - Workspaces
       operationId: getWorkspace
-      summary: Get workspace
+      summary: Show a workspace
       description: Returns one workspace visible to the caller.
       parameters:
         - $ref: '#/components/parameters/WorkspaceIDPath'
@@ -441,8 +446,8 @@ paths:
       tags:
         - Workspaces
       operationId: updateWorkspace
-      summary: Update workspace
-      description: Updates a workspace name or slug. Caller must be a workspace owner or admin.
+      summary: Update a workspace
+      description: Updates a workspace name or slug. The caller must be a workspace owner or admin.
       parameters:
         - $ref: '#/components/parameters/WorkspaceIDPath'
       requestBody:
@@ -466,7 +471,7 @@ paths:
         - Workspaces
       operationId: listWorkspaceMembers
       summary: List workspace members
-      description: Lists members of a workspace visible to the caller.
+      description: Returns members of a workspace visible to the caller.
       parameters:
         - $ref: '#/components/parameters/WorkspaceIDPath'
       responses:
@@ -483,8 +488,8 @@ paths:
       tags:
         - Workspaces
       operationId: createWorkspaceInvite
-      summary: Create workspace invite
-      description: Creates a workspace invite token that can optionally be bound to one email address.
+      summary: Create a workspace invite
+      description: Creates a workspace invite token that can optionally be restricted to one email address or one existing user.
       parameters:
         - $ref: '#/components/parameters/WorkspaceIDPath'
       requestBody:
@@ -507,8 +512,8 @@ paths:
       tags:
         - Workspaces
       operationId: acceptWorkspaceInvite
-      summary: Accept workspace invite
-      description: Accepts a workspace invite token for the authenticated caller.
+      summary: Join a workspace from an invite
+      description: Accepts a workspace invite token for the signed-in user or agent principal.
       parameters:
         - $ref: '#/components/parameters/WorkspaceInviteTokenPath'
       responses:
@@ -525,8 +530,8 @@ paths:
       tags:
         - Workspaces
       operationId: updateWorkspaceMember
-      summary: Update workspace member
-      description: Updates a workspace member's role or status. Caller must be a workspace owner or admin.
+      summary: Update a workspace member
+      description: Updates a workspace member's role or status. The caller must be a workspace owner or admin.
       parameters:
         - $ref: '#/components/parameters/WorkspaceIDPath'
         - $ref: '#/components/parameters/UserIDPath'
@@ -551,7 +556,7 @@ paths:
         - Conversations
       operationId: listConversations
       summary: List conversations
-      description: Lists conversations visible to the caller. Global results include only globally visible conversations; workspace results include conversations inside one workspace.
+      description: Returns conversations visible to the caller. Global results include only globally visible conversations; workspace results include conversations inside one workspace.
       parameters:
         - $ref: '#/components/parameters/WorkspaceIDQuery'
         - $ref: '#/components/parameters/LimitQuery'
@@ -570,8 +575,8 @@ paths:
       tags:
         - Conversations
       operationId: createConversation
-      summary: Create conversation
-      description: Creates a new conversation. For global two-person direct messages, the existing canonical conversation is returned instead of creating a duplicate.
+      summary: Create a conversation
+      description: Creates a conversation. For global two-person direct messages, the existing canonical conversation is returned instead of creating a duplicate.
       requestBody:
         required: true
         content:
@@ -598,7 +603,7 @@ paths:
       tags:
         - Conversations
       operationId: getConversation
-      summary: Get conversation
+      summary: Show a conversation
       description: Returns one conversation visible to the caller.
       parameters:
         - $ref: '#/components/parameters/ConversationIDPath'
@@ -615,8 +620,8 @@ paths:
       tags:
         - Conversations
       operationId: updateConversation
-      summary: Update conversation
-      description: Updates conversation title, description, or archived state. Caller must be allowed to manage the conversation.
+      summary: Update a conversation
+      description: Updates a conversation title, description, or archived state. The caller must be allowed to manage the conversation.
       parameters:
         - $ref: '#/components/parameters/ConversationIDPath'
       requestBody:
@@ -634,13 +639,71 @@ paths:
                 $ref: '#/components/schemas/Conversation'
         default:
           $ref: '#/components/responses/ApiErrorResponse'
+  /conversations/{conversation_id}/share-link:
+    get:
+      tags:
+        - Conversations
+      operationId: getConversationShareLink
+      summary: Show the current conversation share link
+      description: Returns the current share link for one member-only non-DM conversation. If none exists yet, one is created.
+      parameters:
+        - $ref: '#/components/parameters/ConversationIDPath'
+      responses:
+        '200':
+          description: Current conversation share link.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConversationShareLink'
+        default:
+          $ref: '#/components/responses/ApiErrorResponse'
+  /conversations/{conversation_id}/share-link/rotate:
+    post:
+      tags:
+        - Conversations
+      operationId: rotateConversationShareLink
+      summary: Rotate the conversation share link
+      description: Revokes the current share link for one member-only non-DM conversation and returns a replacement.
+      parameters:
+        - $ref: '#/components/parameters/ConversationIDPath'
+      responses:
+        '200':
+          description: Replacement conversation share link.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConversationShareLink'
+        default:
+          $ref: '#/components/responses/ApiErrorResponse'
+  /conversations/join:
+    post:
+      tags:
+        - Conversations
+      operationId: joinConversation
+      summary: Join a conversation from a share link
+      description: Accepts a conversation share link token for the signed-in user.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/JoinConversationRequest'
+      responses:
+        '200':
+          description: Updated conversation after joining by share link.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Conversation'
+        default:
+          $ref: '#/components/responses/ApiErrorResponse'
   /conversations/{conversation_id}/participants:
     get:
       tags:
         - Conversations
       operationId: listConversationParticipants
       summary: List conversation participants
-      description: Lists participants for a member-only conversation. Non-member conversations return an empty list.
+      description: Returns participants for a member-only conversation. Non-member conversations return an empty list.
       parameters:
         - $ref: '#/components/parameters/ConversationIDPath'
       responses:
@@ -657,7 +720,7 @@ paths:
         - Conversations
       operationId: addConversationParticipants
       summary: Add conversation participants
-      description: Adds participants to a member-only conversation. Canonical direct messages cannot be mutated.
+      description: Adds users to a member-only conversation. Canonical direct messages cannot be changed.
       parameters:
         - $ref: '#/components/parameters/ConversationIDPath'
       requestBody:
@@ -680,8 +743,8 @@ paths:
       tags:
         - Conversations
       operationId: removeConversationParticipant
-      summary: Remove conversation participant
-      description: Removes one participant from a member-only conversation. Canonical direct messages cannot be mutated.
+      summary: Remove a conversation participant
+      description: Removes one participant from a member-only conversation. Canonical direct messages cannot be changed.
       parameters:
         - $ref: '#/components/parameters/ConversationIDPath'
         - $ref: '#/components/parameters/UserIDPath'
@@ -690,55 +753,13 @@ paths:
           description: Participant removed.
         default:
           $ref: '#/components/responses/ApiErrorResponse'
-  /conversations/{conversation_id}/invites:
-    post:
-      tags:
-        - Conversations
-      operationId: createConversationInvite
-      summary: Create conversation invite
-      description: Creates an invite for a member-only conversation. Restricted invites can target specific users or email addresses.
-      parameters:
-        - $ref: '#/components/parameters/ConversationIDPath'
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/CreateConversationInviteRequest'
-      responses:
-        '201':
-          description: Conversation invite created.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/CreateConversationInviteResponse'
-        default:
-          $ref: '#/components/responses/ApiErrorResponse'
-  /conversation-invites/{token}/accept:
-    post:
-      tags:
-        - Conversations
-      operationId: acceptConversationInvite
-      summary: Accept conversation invite
-      description: Accepts a conversation invite token for the authenticated caller.
-      parameters:
-        - $ref: '#/components/parameters/ConversationInviteTokenPath'
-      responses:
-        '200':
-          description: Updated conversation after invite acceptance.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Conversation'
-        default:
-          $ref: '#/components/responses/ApiErrorResponse'
   /conversations/{conversation_id}/messages:
     get:
       tags:
         - Messages
       operationId: listMessages
       summary: List messages
-      description: Lists messages in one conversation in reverse chronological order.
+      description: Returns messages in one conversation in reverse chronological order.
       parameters:
         - $ref: '#/components/parameters/ConversationIDPath'
         - $ref: '#/components/parameters/LimitQuery'
@@ -757,8 +778,8 @@ paths:
       tags:
         - Messages
       operationId: createMessage
-      summary: Create message
-      description: Posts one message to a conversation visible to the caller.
+      summary: Send a message
+      description: Posts a message to a conversation visible to the caller.
       parameters:
         - $ref: '#/components/parameters/ConversationIDPath'
       requestBody:
@@ -781,8 +802,8 @@ paths:
       tags:
         - Messages
       operationId: updateMessage
-      summary: Update message
-      description: Updates one message authored by the authenticated caller.
+      summary: Update a message
+      description: Updates a message authored by the signed-in user.
       parameters:
         - $ref: '#/components/parameters/MessageIDPath'
       requestBody:
@@ -804,8 +825,8 @@ paths:
       tags:
         - Messages
       operationId: deleteMessage
-      summary: Delete message
-      description: Soft-deletes one message authored by the authenticated caller.
+      summary: Delete a message
+      description: Soft-deletes a message authored by the signed-in user.
       parameters:
         - $ref: '#/components/parameters/MessageIDPath'
       responses:
@@ -818,7 +839,7 @@ paths:
       tags:
         - Conversations
       operationId: markConversationRead
-      summary: Update conversation read state
+      summary: Mark a conversation as read
       description: Marks a conversation read through one message in that conversation.
       parameters:
         - $ref: '#/components/parameters/ConversationIDPath'
@@ -839,7 +860,7 @@ paths:
         - Events
       operationId: listEvents
       summary: List external events
-      description: Lists externally visible events visible to the caller, ordered by ascending event id.
+      description: Returns external events visible to the caller. Results are paginated by cursor and can be filtered by workspace, event type, or resource.
       parameters:
         - $ref: '#/components/parameters/LimitQuery'
         - $ref: '#/components/parameters/CursorQuery'
@@ -861,8 +882,8 @@ paths:
       tags:
         - Event Subscriptions
       operationId: listEventSubscriptions
-      summary: List event subscriptions
-      description: Lists webhook subscriptions owned by the caller. Workspace-scoped API keys are limited to their bound workspace.
+      summary: List webhook subscriptions
+      description: Returns webhook subscriptions owned by the caller. Workspace-scoped API keys are limited to their bound workspace.
       responses:
         '200':
           description: Event subscriptions.
@@ -876,7 +897,7 @@ paths:
       tags:
         - Event Subscriptions
       operationId: createEventSubscription
-      summary: Create event subscription
+      summary: Create a webhook subscription
       description: Creates a signed webhook subscription for events visible to the caller.
       requestBody:
         required: true
@@ -898,8 +919,8 @@ paths:
       tags:
         - Event Subscriptions
       operationId: updateEventSubscription
-      summary: Update event subscription
-      description: Enables or disables one webhook subscription owned by the caller.
+      summary: Update a webhook subscription
+      description: Enables or disables a webhook subscription owned by the caller.
       parameters:
         - $ref: '#/components/parameters/SubscriptionIDPath'
       requestBody:
@@ -921,8 +942,8 @@ paths:
       tags:
         - Event Subscriptions
       operationId: deleteEventSubscription
-      summary: Delete event subscription
-      description: Deletes one webhook subscription owned by the caller.
+      summary: Delete a webhook subscription
+      description: Deletes a webhook subscription owned by the caller.
       parameters:
         - $ref: '#/components/parameters/SubscriptionIDPath'
       responses:
@@ -948,6 +969,14 @@ components:
       name: key_id
       required: true
       description: API key identifier.
+      schema:
+        type: string
+        format: uuid
+    AgentIDPath:
+      in: path
+      name: agent_id
+      required: true
+      description: Agent user identifier.
       schema:
         type: string
         format: uuid
@@ -998,13 +1027,6 @@ components:
       description: Workspace invite token.
       schema:
         type: string
-    ConversationInviteTokenPath:
-      in: path
-      name: token
-      required: true
-      description: Conversation invite token.
-      schema:
-        type: string
     OAuthCodeQuery:
       in: query
       name: code
@@ -1023,7 +1045,15 @@ components:
       in: query
       name: workspace_id
       required: false
-      description: Restrict the request to one workspace.
+      description: Only include results from one workspace.
+      schema:
+        type: string
+        format: uuid
+    SubjectUserIDQuery:
+      in: query
+      name: subject_user_id
+      required: false
+      description: User identifier whose API keys should be listed. Defaults to the current user.
       schema:
         type: string
         format: uuid
@@ -1031,7 +1061,7 @@ components:
       in: query
       name: limit
       required: false
-      description: Maximum number of items to return. Use the next_cursor from the response to continue paging.
+      description: Maximum number of items to return per page.
       schema:
         type: integer
         minimum: 1
@@ -1040,34 +1070,24 @@ components:
       in: query
       name: cursor
       required: false
-      description: Opaque pagination cursor returned as next_cursor by a previous page.
+      description: Pagination cursor from a previous response.
       schema:
         type: string
-    DashboardDaysQuery:
-      in: query
-      name: days
-      required: false
-      description: Number of trailing UTC days to include in the report.
-      schema:
-        type: integer
-        minimum: 1
-        maximum: 90
     AccessPolicyQuery:
       in: query
       name: access_policy
       required: false
-      description: Filter conversations by access policy.
+      description: Only include conversations with one access policy.
       schema:
         type: string
         enum:
           - members
           - workspace
-          - authenticated
     BeforeMessageIDQuery:
       in: query
       name: before_message_id
       required: false
-      description: Return messages created before the referenced message.
+      description: Only return messages created before the referenced message.
       schema:
         type: string
         format: uuid
@@ -1075,21 +1095,21 @@ components:
       in: query
       name: type
       required: false
-      description: Restrict the event feed to one event type.
+      description: Only include one event type.
       schema:
         type: string
     EventResourceTypeQuery:
       in: query
       name: resource_type
       required: false
-      description: Restrict the event feed to one resource type.
+      description: Only include events for one resource type.
       schema:
         $ref: '#/components/schemas/EventResourceType'
     EventResourceIDQuery:
       in: query
       name: resource_id
       required: false
-      description: Restrict the event feed to one resource id. Requires resource_type.
+      description: Only include one resource id. Requires resource_type.
       schema:
         type: string
         format: uuid
@@ -1200,6 +1220,134 @@ components:
           description: Primary email address when available.
         profile:
           $ref: '#/components/schemas/UserProfile'
+    Agent:
+      type: object
+      required:
+        - user
+        - owner_type
+        - mode
+        - created_by_user_id
+        - created_at
+        - updated_at
+      properties:
+        user:
+          $ref: '#/components/schemas/User'
+        owner_type:
+          type: string
+          enum:
+            - user
+            - workspace
+          description: Whether the agent is directly owned by a user or by one workspace.
+        owner_user_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Direct owner when owner_type is user.
+        owner_workspace_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Owning workspace when owner_type is workspace.
+        mode:
+          type: string
+          enum:
+            - read_only
+            - safe_write
+          description: Effective write mode for API-key-authenticated agent actions.
+        created_by_user_id:
+          type: string
+          format: uuid
+          description: User who created the agent.
+        created_at:
+          type: string
+          format: date-time
+          description: Creation time.
+        updated_at:
+          type: string
+          format: date-time
+          description: Last metadata update time.
+    AgentsCollection:
+      type: object
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Agent'
+        next_cursor:
+          type: string
+          description: Pagination cursor when additional results are available.
+    CreateAgentRequest:
+      type: object
+      required:
+        - display_name
+        - owner_type
+      properties:
+        display_name:
+          type: string
+          description: Agent display name.
+        handle:
+          type: string
+          nullable: true
+          description: Optional public handle. When omitted, the server derives one from display_name.
+        avatar_url:
+          type: string
+          format: uri
+          nullable: true
+          description: Optional avatar image URL.
+        bio:
+          type: string
+          nullable: true
+          description: Optional profile bio.
+        owner_type:
+          type: string
+          enum:
+            - user
+            - workspace
+          description: Ownership model for the new agent.
+        owner_workspace_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Required when owner_type is workspace. Must be omitted for user-owned agents.
+        mode:
+          type: string
+          enum:
+            - read_only
+            - safe_write
+          default: safe_write
+          description: Initial write mode for the agent. Defaults to safe_write when omitted.
+    UpdateAgentRequest:
+      type: object
+      properties:
+        display_name:
+          type: string
+          description: Updated display name.
+        handle:
+          type: string
+          description: Updated public handle.
+        avatar_url:
+          type: string
+          format: uri
+          nullable: true
+          description: Updated avatar URL or null to clear it.
+        bio:
+          type: string
+          nullable: true
+          description: Updated bio or null to clear it.
+        mode:
+          type: string
+          enum:
+            - read_only
+            - safe_write
+          description: Updated write mode.
+        status:
+          type: string
+          enum:
+            - active
+            - suspended
+          description: Updated user status for the agent.
     WorkspaceMembershipSummary:
       type: object
       required:
@@ -1328,6 +1476,7 @@ components:
       type: object
       required:
         - id
+        - subject_user_id
         - label
         - scope_type
         - created_at
@@ -1336,6 +1485,10 @@ components:
           type: string
           format: uuid
           description: API key identifier.
+        subject_user_id:
+          type: string
+          format: uuid
+          description: User principal authenticated by this API key.
         label:
           type: string
           description: Human-readable API key label.
@@ -1390,6 +1543,11 @@ components:
         label:
           type: string
           description: Human-readable API key label.
+        subject_user_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Optional subject user to authenticate as. Defaults to the current user and may also reference one manageable agent.
         scope_type:
           type: string
           enum:
@@ -1417,353 +1575,6 @@ components:
         secret:
           type: string
           description: Plaintext API key secret. It is returned only once.
-    DashboardScope:
-      type: object
-      properties:
-        workspace_id:
-          type: string
-          format: uuid
-          nullable: true
-          description: Active workspace scope for the report when one workspace is selected.
-        workspace_name:
-          type: string
-          nullable: true
-          description: Workspace display name for the active report scope.
-    DashboardOverview:
-      type: object
-      required:
-        - scope
-        - api_keys
-        - webhooks
-        - data
-      properties:
-        scope:
-          $ref: '#/components/schemas/DashboardScope'
-        api_keys:
-          $ref: '#/components/schemas/DashboardAPIKeySummary'
-        webhooks:
-          $ref: '#/components/schemas/DashboardWebhookSummary'
-        data:
-          $ref: '#/components/schemas/DashboardDataSummary'
-    DashboardAPIKeySummary:
-      type: object
-      required:
-        - total
-        - active
-        - revoked
-        - expiring_soon
-        - stale
-      properties:
-        total:
-          type: integer
-        active:
-          type: integer
-        revoked:
-          type: integer
-        expiring_soon:
-          type: integer
-        stale:
-          type: integer
-        last_used_at:
-          type: string
-          format: date-time
-          nullable: true
-    DashboardWebhookSummary:
-      type: object
-      required:
-        - subscriptions
-        - enabled_subscriptions
-        - pending_deliveries
-        - failed_deliveries
-        - delivered_24h
-        - failed_24h
-      properties:
-        subscriptions:
-          type: integer
-        enabled_subscriptions:
-          type: integer
-        pending_deliveries:
-          type: integer
-        failed_deliveries:
-          type: integer
-        delivered_24h:
-          type: integer
-        failed_24h:
-          type: integer
-    DashboardDataSummary:
-      type: object
-      required:
-        - conversations
-        - messages_7d
-        - recent_events_24h
-        - member_conversations
-        - broadcast_conversations
-      properties:
-        conversations:
-          type: integer
-        messages_7d:
-          type: integer
-        recent_events_24h:
-          type: integer
-        member_conversations:
-          type: integer
-        broadcast_conversations:
-          type: integer
-    DashboardWebhooksResponse:
-      type: object
-      required:
-        - scope
-        - summary
-        - subscriptions
-        - recent_deliveries
-      properties:
-        scope:
-          $ref: '#/components/schemas/DashboardScope'
-        summary:
-          $ref: '#/components/schemas/DashboardWebhookSummary'
-        subscriptions:
-          type: array
-          items:
-            $ref: '#/components/schemas/DashboardWebhookSubscription'
-        recent_deliveries:
-          type: array
-          items:
-            $ref: '#/components/schemas/DashboardWebhookDelivery'
-    DashboardWebhookSubscription:
-      type: object
-      required:
-        - subscription_id
-        - url
-        - enabled
-        - created_at
-        - updated_at
-        - total_deliveries
-        - delivered_count
-        - failed_count
-        - pending_count
-      properties:
-        subscription_id:
-          type: string
-          format: uuid
-        url:
-          type: string
-          format: uri
-        enabled:
-          type: boolean
-        event_type:
-          type: string
-          nullable: true
-        resource_type:
-          type: string
-          nullable: true
-        resource_id:
-          type: string
-          format: uuid
-          nullable: true
-        created_at:
-          type: string
-          format: date-time
-        updated_at:
-          type: string
-          format: date-time
-        total_deliveries:
-          type: integer
-        delivered_count:
-          type: integer
-        failed_count:
-          type: integer
-        pending_count:
-          type: integer
-        last_delivery_at:
-          type: string
-          format: date-time
-          nullable: true
-        last_status:
-          type: string
-          nullable: true
-        last_error:
-          type: string
-          nullable: true
-    DashboardWebhookDelivery:
-      type: object
-      required:
-        - delivery_id
-        - subscription_id
-        - url
-        - event_id
-        - event_type
-        - resource_type
-        - resource_id
-        - status
-        - attempt_count
-        - created_at
-      properties:
-        delivery_id:
-          type: integer
-          format: int64
-        subscription_id:
-          type: string
-          format: uuid
-        url:
-          type: string
-          format: uri
-        event_id:
-          type: integer
-          format: int64
-        event_type:
-          type: string
-        resource_type:
-          type: string
-        resource_id:
-          type: string
-          format: uuid
-        status:
-          type: string
-        attempt_count:
-          type: integer
-        last_error:
-          type: string
-          nullable: true
-        delivered_at:
-          type: string
-          format: date-time
-          nullable: true
-        created_at:
-          type: string
-          format: date-time
-    DashboardDataActivityResponse:
-      type: object
-      required:
-        - scope
-        - days
-        - summary
-        - series
-        - room_mix
-        - top_conversations
-      properties:
-        scope:
-          $ref: '#/components/schemas/DashboardScope'
-        days:
-          type: integer
-        summary:
-          $ref: '#/components/schemas/DashboardDataSummary'
-        series:
-          type: array
-          items:
-            $ref: '#/components/schemas/DashboardDataPoint'
-        room_mix:
-          type: array
-          items:
-            $ref: '#/components/schemas/DashboardCountBucket'
-        top_conversations:
-          type: array
-          items:
-            $ref: '#/components/schemas/DashboardConversationActivity'
-    DashboardDataPoint:
-      type: object
-      required:
-        - date
-        - conversations_created
-        - messages_created
-        - events_published
-      properties:
-        date:
-          type: string
-          description: UTC calendar day in YYYY-MM-DD format.
-        conversations_created:
-          type: integer
-        messages_created:
-          type: integer
-        events_published:
-          type: integer
-    DashboardCountBucket:
-      type: object
-      required:
-        - label
-        - count
-      properties:
-        label:
-          type: string
-        count:
-          type: integer
-    DashboardConversationActivity:
-      type: object
-      required:
-        - conversation_id
-        - access_policy
-        - participant_count
-        - message_count
-      properties:
-        conversation_id:
-          type: string
-          format: uuid
-        title:
-          type: string
-          nullable: true
-        access_policy:
-          type: string
-          enum:
-            - members
-            - workspace
-            - authenticated
-        participant_count:
-          type: integer
-        last_message_at:
-          type: string
-          format: date-time
-          nullable: true
-        message_count:
-          type: integer
-    DashboardAuditResponse:
-      type: object
-      required:
-        - scope
-        - items
-        - top_types
-      properties:
-        scope:
-          $ref: '#/components/schemas/DashboardScope'
-        items:
-          type: array
-          items:
-            $ref: '#/components/schemas/DashboardAuditItem'
-        top_types:
-          type: array
-          items:
-            $ref: '#/components/schemas/DashboardCountBucket'
-    DashboardAuditItem:
-      type: object
-      required:
-        - id
-        - event_type
-        - aggregate_type
-        - aggregate_id
-        - created_at
-        - payload
-      properties:
-        id:
-          type: integer
-          format: int64
-        event_type:
-          type: string
-        aggregate_type:
-          type: string
-        aggregate_id:
-          type: string
-          format: uuid
-        workspace_id:
-          type: string
-          format: uuid
-          nullable: true
-        actor_user_id:
-          type: string
-          format: uuid
-          nullable: true
-        created_at:
-          type: string
-          format: date-time
-        payload:
-          $ref: '#/components/schemas/FreeFormObject'
     SearchRequest:
       type: object
       required:
@@ -1979,7 +1790,12 @@ components:
           type: string
           format: email
           nullable: true
-          description: Optional email address that must match the accepting user.
+          description: Optional email address that must match the accepting principal.
+        user_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Optional user identifier that must match the accepting principal.
     CreateWorkspaceInviteResponse:
       type: object
       required:
@@ -2037,7 +1853,6 @@ components:
           enum:
             - members
             - workspace
-            - authenticated
           description: Conversation visibility policy.
         participant_count:
           type: integer
@@ -2070,6 +1885,11 @@ components:
           type: string
           format: date-time
           description: Last update time.
+        share_link:
+          allOf:
+            - $ref: '#/components/schemas/ConversationShareLink'
+          nullable: true
+          description: Current share link returned only from conversation creation for eligible private conversations.
     ConversationsCollection:
       type: object
       required:
@@ -2084,8 +1904,6 @@ components:
           description: Pagination cursor when additional results are available.
     CreateConversationRequest:
       type: object
-      required:
-        - access_policy
       properties:
         workspace_id:
           type: string
@@ -2094,21 +1912,21 @@ components:
           description: Workspace to create the conversation in. Omit for global conversations.
         access_policy:
           type: string
+          default: members
           enum:
             - members
             - workspace
-            - authenticated
-          description: Visibility policy for the conversation.
+          description: Visibility policy for the conversation. Defaults to members when omitted.
         participant_user_ids:
           type: array
-          description: Participant user ids for member-only conversations. Omit for workspace or authenticated conversations.
+          description: Participant user ids for member-only conversations. Omit for workspace conversations.
           items:
             type: string
             format: uuid
         title:
           type: string
           nullable: true
-          description: Conversation title. Required for non-member conversations.
+          description: Conversation title. Required for workspace conversations.
         description:
           type: string
           nullable: true
@@ -2151,47 +1969,27 @@ components:
           items:
             type: string
             format: uuid
-    CreateConversationInviteRequest:
+    JoinConversationRequest:
       type: object
       required:
-        - mode
+        - token
       properties:
-        expires_at:
+        token:
           type: string
-          format: date-time
-          nullable: true
-          description: Optional invite expiration time.
-        mode:
-          type: string
-          enum:
-            - link
-            - restricted
-          description: Link invites can be accepted by any eligible caller; restricted invites require allowed users or emails.
-        allowed_user_ids:
-          type: array
-          description: Allowed user ids for restricted invites.
-          items:
-            type: string
-            format: uuid
-        allowed_emails:
-          type: array
-          description: Allowed email addresses for restricted invites.
-          items:
-            type: string
-            format: email
-    CreateConversationInviteResponse:
+          description: Raw share link token.
+    ConversationShareLink:
       type: object
       required:
-        - invite_token
-        - invite_url
+        - token
+        - url
       properties:
-        invite_token:
+        token:
           type: string
-          description: Raw conversation invite token.
-        invite_url:
+          description: Raw share link token.
+        url:
           type: string
           format: uri
-          description: Accept URL for the invite token.
+          description: Browser join URL for the share link token.
     Message:
       type: object
       required:
@@ -2306,9 +2104,9 @@ components:
         - payload
       properties:
         id:
-          type: integer
-          format: int64
-          description: Monotonic event identifier.
+          type: string
+          format: uuid
+          description: Event identifier.
         workspace_id:
           type: string
           format: uuid

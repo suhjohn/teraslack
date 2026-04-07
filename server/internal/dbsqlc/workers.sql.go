@@ -57,7 +57,7 @@ with claimed as (
     wd.status = 'processing'
     and wd.updated_at <= now() - interval '5 minutes'
   )
-  order by wd.id asc
+  order by wd.created_at asc, wd.id asc
   for update skip locked
   limit $1
 )
@@ -72,10 +72,10 @@ returning wd.id, es.url, es.encrypted_secret, ee.id as event_id, ee.workspace_id
 `
 
 type ClaimPendingWebhookDeliveriesRow struct {
-	ID              int64              `json:"id"`
+	ID              uuid.UUID          `json:"id"`
 	Url             string             `json:"url"`
 	EncryptedSecret string             `json:"encrypted_secret"`
-	EventID         int64              `json:"event_id"`
+	EventID         uuid.UUID          `json:"event_id"`
 	WorkspaceID     *uuid.UUID         `json:"workspace_id"`
 	Type            string             `json:"type"`
 	ResourceType    string             `json:"resource_type"`
@@ -143,8 +143,7 @@ where es.enabled = true
       join conversations c on c.id = cef.conversation_id
       where cef.external_event_id = ee.id
         and (
-          (c.workspace_id is null and c.access_policy = 'authenticated')
-          or (
+          (
             c.workspace_id is null
             and c.access_policy = 'members'
             and exists (
@@ -189,7 +188,7 @@ func (q *Queries) EnqueueWebhookDeliveries(ctx context.Context) error {
 }
 
 const getCheckpointForUpdate = `-- name: GetCheckpointForUpdate :one
-select last_event_id
+select last_sequence_id
 from projector_checkpoints
 where name = $1
 for update
@@ -197,9 +196,9 @@ for update
 
 func (q *Queries) GetCheckpointForUpdate(ctx context.Context, name string) (int64, error) {
 	row := q.db.QueryRow(ctx, getCheckpointForUpdate, name)
-	var last_event_id int64
-	err := row.Scan(&last_event_id)
-	return last_event_id, err
+	var last_sequence_id int64
+	err := row.Scan(&last_sequence_id)
+	return last_sequence_id, err
 }
 
 const getInternalEventForProjection = `-- name: GetInternalEventForProjection :one
@@ -209,14 +208,14 @@ where id = $1
 `
 
 type GetInternalEventForProjectionRow struct {
-	ID          int64              `json:"id"`
+	ID          uuid.UUID          `json:"id"`
 	EventType   string             `json:"event_type"`
 	WorkspaceID *uuid.UUID         `json:"workspace_id"`
 	Payload     json.RawMessage    `json:"payload"`
 	CreatedAt   pgtype.Timestamptz `json:"created_at"`
 }
 
-func (q *Queries) GetInternalEventForProjection(ctx context.Context, id int64) (GetInternalEventForProjectionRow, error) {
+func (q *Queries) GetInternalEventForProjection(ctx context.Context, id uuid.UUID) (GetInternalEventForProjectionRow, error) {
 	row := q.db.QueryRow(ctx, getInternalEventForProjection, id)
 	var i GetInternalEventForProjectionRow
 	err := row.Scan(
@@ -238,14 +237,14 @@ where es.id = $2
 `
 
 type GetWebhookDeliverySourceParams struct {
-	ExternalEventID int64     `json:"external_event_id"`
+	ExternalEventID uuid.UUID `json:"external_event_id"`
 	SubscriptionID  uuid.UUID `json:"subscription_id"`
 }
 
 type GetWebhookDeliverySourceRow struct {
 	Url             string             `json:"url"`
 	EncryptedSecret string             `json:"encrypted_secret"`
-	EventID         int64              `json:"event_id"`
+	EventID         uuid.UUID          `json:"event_id"`
 	WorkspaceID     *uuid.UUID         `json:"workspace_id"`
 	Type            string             `json:"type"`
 	ResourceType    string             `json:"resource_type"`
@@ -272,19 +271,19 @@ func (q *Queries) GetWebhookDeliverySource(ctx context.Context, arg GetWebhookDe
 }
 
 const insertCheckpointIfMissing = `-- name: InsertCheckpointIfMissing :exec
-insert into projector_checkpoints (name, last_event_id, updated_at)
+insert into projector_checkpoints (name, last_sequence_id, updated_at)
 values ($1, $2, $3)
 on conflict do nothing
 `
 
 type InsertCheckpointIfMissingParams struct {
-	Name        string             `json:"name"`
-	LastEventID int64              `json:"last_event_id"`
-	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
+	Name           string             `json:"name"`
+	LastSequenceID int64              `json:"last_sequence_id"`
+	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
 }
 
 func (q *Queries) InsertCheckpointIfMissing(ctx context.Context, arg InsertCheckpointIfMissingParams) error {
-	_, err := q.db.Exec(ctx, insertCheckpointIfMissing, arg.Name, arg.LastEventID, arg.UpdatedAt)
+	_, err := q.db.Exec(ctx, insertCheckpointIfMissing, arg.Name, arg.LastSequenceID, arg.UpdatedAt)
 	return err
 }
 
@@ -296,7 +295,7 @@ on conflict do nothing
 
 type InsertConversationEventFeedParams struct {
 	ConversationID  uuid.UUID `json:"conversation_id"`
-	ExternalEventID int64     `json:"external_event_id"`
+	ExternalEventID uuid.UUID `json:"external_event_id"`
 }
 
 func (q *Queries) InsertConversationEventFeed(ctx context.Context, arg InsertConversationEventFeedParams) error {
@@ -328,12 +327,12 @@ type InsertExternalEventParams struct {
 	ResourceID            uuid.UUID          `json:"resource_id"`
 	OccurredAt            pgtype.Timestamptz `json:"occurred_at"`
 	Payload               json.RawMessage    `json:"payload"`
-	SourceInternalEventID *int64             `json:"source_internal_event_id"`
+	SourceInternalEventID *uuid.UUID         `json:"source_internal_event_id"`
 	DedupeKey             string             `json:"dedupe_key"`
 	CreatedAt             pgtype.Timestamptz `json:"created_at"`
 }
 
-func (q *Queries) InsertExternalEvent(ctx context.Context, arg InsertExternalEventParams) (int64, error) {
+func (q *Queries) InsertExternalEvent(ctx context.Context, arg InsertExternalEventParams) (uuid.UUID, error) {
 	row := q.db.QueryRow(ctx, insertExternalEvent,
 		arg.WorkspaceID,
 		arg.Type,
@@ -345,7 +344,7 @@ func (q *Queries) InsertExternalEvent(ctx context.Context, arg InsertExternalEve
 		arg.DedupeKey,
 		arg.CreatedAt,
 	)
-	var id int64
+	var id uuid.UUID
 	err := row.Scan(&id)
 	return id, err
 }
@@ -356,7 +355,7 @@ values ($1, $2, $3)
 `
 
 type InsertExternalProjectionFailureParams struct {
-	InternalEventID int64              `json:"internal_event_id"`
+	InternalEventID uuid.UUID          `json:"internal_event_id"`
 	Error           string             `json:"error"`
 	CreatedAt       pgtype.Timestamptz `json:"created_at"`
 }
@@ -374,7 +373,7 @@ on conflict do nothing
 
 type InsertUserEventFeedParams struct {
 	UserID          uuid.UUID `json:"user_id"`
-	ExternalEventID int64     `json:"external_event_id"`
+	ExternalEventID uuid.UUID `json:"external_event_id"`
 }
 
 func (q *Queries) InsertUserEventFeed(ctx context.Context, arg InsertUserEventFeedParams) error {
@@ -390,7 +389,7 @@ on conflict do nothing
 
 type InsertWorkspaceEventFeedParams struct {
 	WorkspaceID     uuid.UUID `json:"workspace_id"`
-	ExternalEventID int64     `json:"external_event_id"`
+	ExternalEventID uuid.UUID `json:"external_event_id"`
 }
 
 func (q *Queries) InsertWorkspaceEventFeed(ctx context.Context, arg InsertWorkspaceEventFeedParams) error {
@@ -398,38 +397,40 @@ func (q *Queries) InsertWorkspaceEventFeed(ctx context.Context, arg InsertWorksp
 	return err
 }
 
-const listExternalEventsForWebhookQueueAfterID = `-- name: ListExternalEventsForWebhookQueueAfterID :many
-select id, workspace_id, type, resource_type, resource_id
+const listExternalEventsForWebhookQueueAfterSequenceID = `-- name: ListExternalEventsForWebhookQueueAfterSequenceID :many
+select id, sequence_id, workspace_id, type, resource_type, resource_id
 from external_events
-where id > $1
-order by id asc
+where sequence_id > $1
+order by sequence_id asc
 limit $2
 `
 
-type ListExternalEventsForWebhookQueueAfterIDParams struct {
-	ID         int64 `json:"id"`
+type ListExternalEventsForWebhookQueueAfterSequenceIDParams struct {
+	SequenceID int64 `json:"sequence_id"`
 	BatchLimit int32 `json:"batch_limit"`
 }
 
-type ListExternalEventsForWebhookQueueAfterIDRow struct {
-	ID           int64      `json:"id"`
+type ListExternalEventsForWebhookQueueAfterSequenceIDRow struct {
+	ID           uuid.UUID  `json:"id"`
+	SequenceID   int64      `json:"sequence_id"`
 	WorkspaceID  *uuid.UUID `json:"workspace_id"`
 	Type         string     `json:"type"`
 	ResourceType string     `json:"resource_type"`
 	ResourceID   uuid.UUID  `json:"resource_id"`
 }
 
-func (q *Queries) ListExternalEventsForWebhookQueueAfterID(ctx context.Context, arg ListExternalEventsForWebhookQueueAfterIDParams) ([]ListExternalEventsForWebhookQueueAfterIDRow, error) {
-	rows, err := q.db.Query(ctx, listExternalEventsForWebhookQueueAfterID, arg.ID, arg.BatchLimit)
+func (q *Queries) ListExternalEventsForWebhookQueueAfterSequenceID(ctx context.Context, arg ListExternalEventsForWebhookQueueAfterSequenceIDParams) ([]ListExternalEventsForWebhookQueueAfterSequenceIDRow, error) {
+	rows, err := q.db.Query(ctx, listExternalEventsForWebhookQueueAfterSequenceID, arg.SequenceID, arg.BatchLimit)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []ListExternalEventsForWebhookQueueAfterIDRow{}
+	items := []ListExternalEventsForWebhookQueueAfterSequenceIDRow{}
 	for rows.Next() {
-		var i ListExternalEventsForWebhookQueueAfterIDRow
+		var i ListExternalEventsForWebhookQueueAfterSequenceIDRow
 		if err := rows.Scan(
 			&i.ID,
+			&i.SequenceID,
 			&i.WorkspaceID,
 			&i.Type,
 			&i.ResourceType,
@@ -445,40 +446,42 @@ func (q *Queries) ListExternalEventsForWebhookQueueAfterID(ctx context.Context, 
 	return items, nil
 }
 
-const listInternalEventsByShardAfterID = `-- name: ListInternalEventsByShardAfterID :many
-select id, event_type, workspace_id, payload, created_at
+const listInternalEventsByShardAfterSequenceID = `-- name: ListInternalEventsByShardAfterSequenceID :many
+select id, sequence_id, event_type, workspace_id, payload, created_at
 from internal_events
 where shard_id = $1
-  and id > $2
-order by id asc
+  and sequence_id > $2
+order by sequence_id asc
 limit $3
 `
 
-type ListInternalEventsByShardAfterIDParams struct {
-	ShardID int32 `json:"shard_id"`
-	ID      int64 `json:"id"`
-	Limit   int32 `json:"limit"`
+type ListInternalEventsByShardAfterSequenceIDParams struct {
+	ShardID    int32 `json:"shard_id"`
+	SequenceID int64 `json:"sequence_id"`
+	Limit      int32 `json:"limit"`
 }
 
-type ListInternalEventsByShardAfterIDRow struct {
-	ID          int64              `json:"id"`
+type ListInternalEventsByShardAfterSequenceIDRow struct {
+	ID          uuid.UUID          `json:"id"`
+	SequenceID  int64              `json:"sequence_id"`
 	EventType   string             `json:"event_type"`
 	WorkspaceID *uuid.UUID         `json:"workspace_id"`
 	Payload     json.RawMessage    `json:"payload"`
 	CreatedAt   pgtype.Timestamptz `json:"created_at"`
 }
 
-func (q *Queries) ListInternalEventsByShardAfterID(ctx context.Context, arg ListInternalEventsByShardAfterIDParams) ([]ListInternalEventsByShardAfterIDRow, error) {
-	rows, err := q.db.Query(ctx, listInternalEventsByShardAfterID, arg.ShardID, arg.ID, arg.Limit)
+func (q *Queries) ListInternalEventsByShardAfterSequenceID(ctx context.Context, arg ListInternalEventsByShardAfterSequenceIDParams) ([]ListInternalEventsByShardAfterSequenceIDRow, error) {
+	rows, err := q.db.Query(ctx, listInternalEventsByShardAfterSequenceID, arg.ShardID, arg.SequenceID, arg.Limit)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []ListInternalEventsByShardAfterIDRow{}
+	items := []ListInternalEventsByShardAfterSequenceIDRow{}
 	for rows.Next() {
-		var i ListInternalEventsByShardAfterIDRow
+		var i ListInternalEventsByShardAfterSequenceIDRow
 		if err := rows.Scan(
 			&i.ID,
+			&i.SequenceID,
 			&i.EventType,
 			&i.WorkspaceID,
 			&i.Payload,
@@ -520,8 +523,7 @@ where es.enabled = true
       join conversations c on c.id = cef.conversation_id
       where cef.external_event_id = $1
         and (
-          (c.workspace_id is null and c.access_policy = 'authenticated')
-          or (
+          (
             c.workspace_id is null
             and c.access_policy = 'members'
             and exists (
@@ -561,7 +563,7 @@ order by es.id asc
 `
 
 type ListWebhookSubscriptionsForExternalEventParams struct {
-	ExternalEventID int64      `json:"external_event_id"`
+	ExternalEventID uuid.UUID  `json:"external_event_id"`
 	WorkspaceID     *uuid.UUID `json:"workspace_id"`
 	Type            string     `json:"type"`
 	ResourceType    string     `json:"resource_type"`
@@ -604,7 +606,7 @@ set status = 'delivered',
 where id = $1
 `
 
-func (q *Queries) MarkWebhookDeliveryDelivered(ctx context.Context, id int64) error {
+func (q *Queries) MarkWebhookDeliveryDelivered(ctx context.Context, id uuid.UUID) error {
 	_, err := q.db.Exec(ctx, markWebhookDeliveryDelivered, id)
 	return err
 }
@@ -620,7 +622,7 @@ where id = $1
 `
 
 type MarkWebhookDeliveryFailedParams struct {
-	ID            int64              `json:"id"`
+	ID            uuid.UUID          `json:"id"`
 	NextAttemptAt pgtype.Timestamptz `json:"next_attempt_at"`
 	LastError     *string            `json:"last_error"`
 }
@@ -632,17 +634,17 @@ func (q *Queries) MarkWebhookDeliveryFailed(ctx context.Context, arg MarkWebhook
 
 const updateCheckpoint = `-- name: UpdateCheckpoint :exec
 update projector_checkpoints
-set last_event_id = $2, updated_at = $3
+set last_sequence_id = $2, updated_at = $3
 where name = $1
 `
 
 type UpdateCheckpointParams struct {
-	Name        string             `json:"name"`
-	LastEventID int64              `json:"last_event_id"`
-	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
+	Name           string             `json:"name"`
+	LastSequenceID int64              `json:"last_sequence_id"`
+	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
 }
 
 func (q *Queries) UpdateCheckpoint(ctx context.Context, arg UpdateCheckpointParams) error {
-	_, err := q.db.Exec(ctx, updateCheckpoint, arg.Name, arg.LastEventID, arg.UpdatedAt)
+	_, err := q.db.Exec(ctx, updateCheckpoint, arg.Name, arg.LastSequenceID, arg.UpdatedAt)
 	return err
 }

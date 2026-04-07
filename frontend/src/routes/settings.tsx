@@ -7,8 +7,6 @@ import {
   KeyRound,
   LoaderCircle,
   LogOut,
-  RadioTower,
-  ScrollText,
 } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Button } from '../components/ui/button'
@@ -41,8 +39,6 @@ export const Route = createFileRoute('/settings')({
 
 const navItems = [
   { to: '/settings/api-keys', label: 'API Keys', icon: KeyRound, exact: false },
-  { to: '/settings/events', label: 'Webhooks', icon: RadioTower, exact: false },
-  { to: '/settings/audit', label: 'Events', icon: ScrollText, exact: false },
 ]
 
 function AdminLayout() {

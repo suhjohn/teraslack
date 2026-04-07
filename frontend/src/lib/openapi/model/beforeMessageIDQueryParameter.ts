@@ -7,6 +7,6 @@
  */
 
 /**
- * Return messages created before the referenced message.
+ * Only return messages created before the referenced message.
  */
 export type BeforeMessageIDQueryParameter = string;

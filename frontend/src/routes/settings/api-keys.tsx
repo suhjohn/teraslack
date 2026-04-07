@@ -1,8 +1,7 @@
 import { useQueryClient } from '@tanstack/react-query'
 import { createFileRoute } from '@tanstack/react-router'
-import { Plus, Trash2, X } from 'lucide-react'
+import { LoaderCircle, Plus, Trash2, X } from 'lucide-react'
 import { useMemo, useState } from 'react'
-import { DashboardLoadingState } from '../../components/admin/dashboard-kit'
 import { Alert } from '../../components/ui/alert'
 import { Badge } from '../../components/ui/badge'
 import { Button } from '../../components/ui/button'
@@ -69,7 +68,14 @@ function ApiKeysPage() {
   }
 
   if (keysQuery.isPending) {
-    return <DashboardLoadingState label="Loading API keys…" />
+    return (
+      <div className="flex min-h-[32vh] items-center justify-center border border-[var(--sys-home-border)] bg-[var(--sys-home-bg)]">
+        <span className="inline-flex items-center gap-3 text-[12px] uppercase tracking-[0.06em] text-[var(--sys-home-muted)]">
+          <LoaderCircle className="h-4 w-4 animate-spin" />
+          Loading API keys…
+        </span>
+      </div>
+    )
   }
 
   if (keysQuery.isError) {

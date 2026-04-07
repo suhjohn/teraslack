@@ -21,6 +21,7 @@ type Querier interface {
 	CountActiveWorkspaceOwners(ctx context.Context, workspaceID uuid.UUID) (int32, error)
 	CountConversationParticipants(ctx context.Context, conversationID uuid.UUID) (int32, error)
 	CreateAPIKey(ctx context.Context, arg CreateAPIKeyParams) error
+	CreateAgent(ctx context.Context, arg CreateAgentParams) error
 	CreateAuthSession(ctx context.Context, arg CreateAuthSessionParams) error
 	CreateConversation(ctx context.Context, arg CreateConversationParams) error
 	CreateConversationInvite(ctx context.Context, arg CreateConversationInviteParams) error
@@ -41,6 +42,10 @@ type Querier interface {
 	DeleteOAuthState(ctx context.Context, id uuid.UUID) error
 	EnqueueWebhookDeliveries(ctx context.Context) error
 	GetAPIKeyAuthBySecretHash(ctx context.Context, arg GetAPIKeyAuthBySecretHashParams) (GetAPIKeyAuthBySecretHashRow, error)
+	GetAPIKeyByID(ctx context.Context, id uuid.UUID) (GetAPIKeyByIDRow, error)
+	GetActiveConversationInvite(ctx context.Context, conversationID uuid.UUID) (GetActiveConversationInviteRow, error)
+	GetActiveConversationInviteForUpdate(ctx context.Context, conversationID uuid.UUID) (GetActiveConversationInviteForUpdateRow, error)
+	GetAgent(ctx context.Context, userID uuid.UUID) (Agent, error)
 	GetCheckpointForUpdate(ctx context.Context, name string) (int64, error)
 	GetConversation(ctx context.Context, id uuid.UUID) (GetConversationRow, error)
 	GetConversationInviteByTokenHashForUpdate(ctx context.Context, tokenHash string) (GetConversationInviteByTokenHashForUpdateRow, error)
@@ -48,7 +53,7 @@ type Querier interface {
 	GetEmailLoginChallengeForVerification(ctx context.Context, arg GetEmailLoginChallengeForVerificationParams) (GetEmailLoginChallengeForVerificationRow, error)
 	GetEventSubscriptionByIDAndOwner(ctx context.Context, arg GetEventSubscriptionByIDAndOwnerParams) (GetEventSubscriptionByIDAndOwnerRow, error)
 	GetEventSubscriptionWorkspaceForOwnerForUpdate(ctx context.Context, arg GetEventSubscriptionWorkspaceForOwnerForUpdateParams) (*uuid.UUID, error)
-	GetInternalEventForProjection(ctx context.Context, id int64) (GetInternalEventForProjectionRow, error)
+	GetInternalEventForProjection(ctx context.Context, id uuid.UUID) (GetInternalEventForProjectionRow, error)
 	GetMessage(ctx context.Context, id uuid.UUID) (Message, error)
 	GetOAuthStateByHash(ctx context.Context, arg GetOAuthStateByHashParams) (GetOAuthStateByHashRow, error)
 	GetSessionAuthByTokenHash(ctx context.Context, arg GetSessionAuthByTokenHashParams) (GetSessionAuthByTokenHashRow, error)
@@ -62,37 +67,41 @@ type Querier interface {
 	GetWorkspaceMembershipForUpdate(ctx context.Context, arg GetWorkspaceMembershipForUpdateParams) (GetWorkspaceMembershipForUpdateRow, error)
 	InsertCheckpointIfMissing(ctx context.Context, arg InsertCheckpointIfMissingParams) error
 	InsertConversationEventFeed(ctx context.Context, arg InsertConversationEventFeedParams) error
-	InsertExternalEvent(ctx context.Context, arg InsertExternalEventParams) (int64, error)
+	InsertExternalEvent(ctx context.Context, arg InsertExternalEventParams) (uuid.UUID, error)
 	InsertExternalProjectionFailure(ctx context.Context, arg InsertExternalProjectionFailureParams) error
-	InsertInternalEvent(ctx context.Context, arg InsertInternalEventParams) (int64, error)
+	InsertInternalEvent(ctx context.Context, arg InsertInternalEventParams) (uuid.UUID, error)
 	InsertUserEventFeed(ctx context.Context, arg InsertUserEventFeedParams) error
 	InsertWorkspaceEventFeed(ctx context.Context, arg InsertWorkspaceEventFeedParams) error
 	IsConversationParticipant(ctx context.Context, arg IsConversationParticipantParams) (bool, error)
 	IsDirectMessage(ctx context.Context, conversationID uuid.UUID) (bool, error)
 	ListAPIKeysByUser(ctx context.Context, userID uuid.UUID) ([]ListAPIKeysByUserRow, error)
 	ListActiveWorkspacesByUser(ctx context.Context, userID uuid.UUID) ([]Workspace, error)
+	ListAgentsManagedByUser(ctx context.Context, ownerUserID *uuid.UUID) ([]ListAgentsManagedByUserRow, error)
 	ListConversationParticipants(ctx context.Context, conversationID uuid.UUID) ([]ListConversationParticipantsRow, error)
 	ListEventSubscriptionsByOwner(ctx context.Context, arg ListEventSubscriptionsByOwnerParams) ([]ListEventSubscriptionsByOwnerRow, error)
-	ListExternalEventsForWebhookQueueAfterID(ctx context.Context, arg ListExternalEventsForWebhookQueueAfterIDParams) ([]ListExternalEventsForWebhookQueueAfterIDRow, error)
-	ListInternalEventsByShardAfterID(ctx context.Context, arg ListInternalEventsByShardAfterIDParams) ([]ListInternalEventsByShardAfterIDRow, error)
+	ListExternalEventsForWebhookQueueAfterSequenceID(ctx context.Context, arg ListExternalEventsForWebhookQueueAfterSequenceIDParams) ([]ListExternalEventsForWebhookQueueAfterSequenceIDRow, error)
+	ListInternalEventsByShardAfterSequenceID(ctx context.Context, arg ListInternalEventsByShardAfterSequenceIDParams) ([]ListInternalEventsByShardAfterSequenceIDRow, error)
 	ListWebhookSubscriptionsForExternalEvent(ctx context.Context, arg ListWebhookSubscriptionsForExternalEventParams) ([]uuid.UUID, error)
 	ListWorkspaceMembers(ctx context.Context, workspaceID uuid.UUID) ([]ListWorkspaceMembersRow, error)
 	ListWorkspaceMembershipSummariesByUser(ctx context.Context, userID uuid.UUID) ([]ListWorkspaceMembershipSummariesByUserRow, error)
 	ListWorkspacePrivateConversationParticipantCountsForUser(ctx context.Context, arg ListWorkspacePrivateConversationParticipantCountsForUserParams) ([]ListWorkspacePrivateConversationParticipantCountsForUserRow, error)
-	MarkWebhookDeliveryDelivered(ctx context.Context, id int64) error
+	MarkWebhookDeliveryDelivered(ctx context.Context, id uuid.UUID) error
 	MarkWebhookDeliveryFailed(ctx context.Context, arg MarkWebhookDeliveryFailedParams) error
 	MessageExistsInConversation(ctx context.Context, arg MessageExistsInConversationParams) (bool, error)
 	RevokeAPIKeyByOwner(ctx context.Context, arg RevokeAPIKeyByOwnerParams) (int64, error)
+	RevokeActiveConversationInvite(ctx context.Context, arg RevokeActiveConversationInviteParams) (int64, error)
 	RevokeAuthSession(ctx context.Context, arg RevokeAuthSessionParams) (int64, error)
 	SoftDeleteMessage(ctx context.Context, arg SoftDeleteMessageParams) error
 	TouchAPIKeyLastUsed(ctx context.Context, arg TouchAPIKeyLastUsedParams) error
 	TouchAuthSessionLastSeen(ctx context.Context, arg TouchAuthSessionLastSeenParams) error
 	TouchConversationLastMessage(ctx context.Context, arg TouchConversationLastMessageParams) error
+	UpdateAgent(ctx context.Context, arg UpdateAgentParams) error
 	UpdateCheckpoint(ctx context.Context, arg UpdateCheckpointParams) error
 	UpdateConversationDetails(ctx context.Context, arg UpdateConversationDetailsParams) error
 	UpdateEventSubscriptionEnabledByOwner(ctx context.Context, arg UpdateEventSubscriptionEnabledByOwnerParams) (int64, error)
 	UpdateMessageContent(ctx context.Context, arg UpdateMessageContentParams) error
 	UpdateUserProfile(ctx context.Context, arg UpdateUserProfileParams) error
+	UpdateUserStatus(ctx context.Context, arg UpdateUserStatusParams) error
 	UpdateWorkspace(ctx context.Context, arg UpdateWorkspaceParams) error
 	UpdateWorkspaceMembership(ctx context.Context, arg UpdateWorkspaceMembershipParams) error
 	UpsertConversationRead(ctx context.Context, arg UpsertConversationReadParams) error

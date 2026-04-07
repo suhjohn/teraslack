@@ -12,21 +12,21 @@ import type { WorkspaceIDQueryParameter } from './workspaceIDQueryParameter';
 
 export type ListConversationsParams = {
 /**
- * Restrict the request to one workspace.
+ * Only include results from one workspace.
  */
 workspace_id?: WorkspaceIDQueryParameter;
 /**
- * Maximum number of items to return. Use the next_cursor from the response to continue paging.
+ * Maximum number of items to return per page.
  * @minimum 1
  * @maximum 200
  */
 limit?: LimitQueryParameter;
 /**
- * Opaque pagination cursor returned as next_cursor by a previous page.
+ * Pagination cursor from a previous response.
  */
 cursor?: CursorQueryParameter;
 /**
- * Filter conversations by access policy.
+ * Only include conversations with one access policy.
  */
 access_policy?: AccessPolicyQueryParameter;
 };

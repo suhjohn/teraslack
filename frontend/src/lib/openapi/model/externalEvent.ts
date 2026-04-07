@@ -9,8 +9,8 @@ import type { EventResourceType } from './eventResourceType';
 import type { FreeFormObject } from './freeFormObject';
 
 export interface ExternalEvent {
-  /** Monotonic event identifier. */
-  id: number;
+  /** Event identifier. */
+  id: string;
   /**
      * Workspace that scoped the event when applicable.
      * @nullable

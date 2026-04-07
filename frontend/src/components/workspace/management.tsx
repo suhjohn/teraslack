@@ -21,19 +21,19 @@ import { useWorkspaceApp } from '../../lib/workspace-context'
 import {
   ConversationAccessPolicy,
   CreateConversationRequestAccessPolicy,
-  CreateConversationInviteRequestMode,
   getGetConversationQueryKey,
+  getConversationShareLink,
   getListConversationsQueryKey,
   getListWorkspacesQueryKey,
+  rotateConversationShareLink,
   useCreateConversation,
-  useCreateConversationInvite,
   useCreateWorkspace,
   useUpdateConversation,
   useUpdateWorkspace,
 } from '../../lib/openapi'
 import type {
   Conversation,
-  CreateConversationInviteResponse,
+  ConversationShareLink,
   ConversationsCollection,
   Workspace,
   WorkspaceMember,
@@ -51,8 +51,6 @@ type TriggerProps = {
   variant?: TriggerVariant
   size?: TriggerSize
 }
-
-type InviteExpirationPreset = 'never' | '1d' | '7d' | '30d'
 
 export function CreateWorkspaceDialogButton({
   children,
@@ -582,7 +580,7 @@ export function CreateChannelDialogButton({
   )
 }
 
-export function CreateMeConversationWithInviteDialogButton({
+export function CreateMeConversationWithShareLinkDialogButton({
   children,
   className,
   title,
@@ -592,28 +590,24 @@ export function CreateMeConversationWithInviteDialogButton({
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const createConversationMutation = useCreateConversation()
-  const createInviteMutation = useCreateConversationInvite()
 
   const [open, setOpen] = useState(false)
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
-  const [expirationPreset, setExpirationPreset] =
-    useState<InviteExpirationPreset>('7d')
   const [error, setError] = useState('')
   const [copied, setCopied] = useState(false)
   const [createdConversation, setCreatedConversation] = useState<Conversation | null>(
     null,
   )
-  const [inviteLink, setInviteLink] = useState('')
+  const [shareLinkURL, setShareLinkURL] = useState('')
 
   function handleOpen() {
     setName('')
     setDescription('')
-    setExpirationPreset('7d')
     setError('')
     setCopied(false)
     setCreatedConversation(null)
-    setInviteLink('')
+    setShareLinkURL('')
     setOpen(true)
   }
 
@@ -649,33 +643,27 @@ export function CreateMeConversationWithInviteDialogButton({
       )
       queryClient.setQueryData(getGetConversationQueryKey(created.id), created)
 
-      const invite = unwrapData<CreateConversationInviteResponse>(
-        await createInviteMutation.mutateAsync({
-          conversationId: created.id,
-          data: {
-            mode: CreateConversationInviteRequestMode.link,
-            expires_at: getInviteExpirationISO(expirationPreset),
-          },
-        }),
-      )
+      if (!created.share_link) {
+        throw new Error('The server did not return a share link for this chat.')
+      }
 
       setCreatedConversation(created)
-      setInviteLink(getConversationInviteShareURL(invite))
+      setShareLinkURL(getConversationShareURL(created.share_link))
     } catch (createError) {
-      setError(getErrorMessage(createError, 'Failed to create chat invite.'))
+      setError(getErrorMessage(createError, 'Failed to create chat.'))
     }
   }
 
   async function handleCopy() {
-    if (!inviteLink) {
+    if (!shareLinkURL) {
       return
     }
 
     try {
-      await navigator.clipboard.writeText(inviteLink)
+      await navigator.clipboard.writeText(shareLinkURL)
       setCopied(true)
     } catch {
-      setError('Could not copy the invite link from this browser session.')
+      setError('Could not copy the share link from this browser session.')
     }
   }
 
@@ -712,18 +700,16 @@ export function CreateMeConversationWithInviteDialogButton({
             </DialogDescription>
           </DialogHeader>
 
-          {createdConversation && inviteLink ? (
+          {createdConversation && shareLinkURL ? (
             <>
               <FormField
-                label="Invite link"
+                label="Share link"
                 description="Anyone with access to this link can join the chat after signing in."
               >
-                <Input value={inviteLink} readOnly />
+                <Input value={shareLinkURL} readOnly />
               </FormField>
 
-              {copied ? (
-                <Alert>Invite link copied.</Alert>
-              ) : null}
+              {copied ? <Alert>Share link copied.</Alert> : null}
 
               {error ? <Alert variant="destructive">{error}</Alert> : null}
 
@@ -763,42 +749,21 @@ export function CreateMeConversationWithInviteDialogButton({
                 />
               </FormField>
 
-              <FormField label="Invite expiration" htmlFor="create-me-chat-expiry">
-                <Select
-                  id="create-me-chat-expiry"
-                  value={expirationPreset}
-                  onChange={(event) =>
-                    setExpirationPreset(event.target.value as InviteExpirationPreset)
-                  }
-                >
-                  <option value="never">Never</option>
-                  <option value="1d">1 day</option>
-                  <option value="7d">7 days</option>
-                  <option value="30d">30 days</option>
-                </Select>
-              </FormField>
-
               {error ? <Alert variant="destructive">{error}</Alert> : null}
 
               <DialogFooter>
                 <Button
                   variant="outline"
                   onClick={() => setOpen(false)}
-                  disabled={
-                    createConversationMutation.isPending || createInviteMutation.isPending
-                  }
+                  disabled={createConversationMutation.isPending}
                 >
                   Cancel
                 </Button>
                 <Button
                   onClick={() => void handleCreate()}
-                  disabled={
-                    createConversationMutation.isPending || createInviteMutation.isPending
-                  }
+                  disabled={createConversationMutation.isPending}
                 >
-                  {createConversationMutation.isPending || createInviteMutation.isPending
-                    ? 'Creating…'
-                    : 'Create chat'}
+                  {createConversationMutation.isPending ? 'Creating…' : 'Create chat'}
                 </Button>
               </DialogFooter>
             </>
@@ -809,7 +774,7 @@ export function CreateMeConversationWithInviteDialogButton({
   )
 }
 
-export function CreateConversationInviteDialogButton({
+export function CreateConversationShareLinkDialogButton({
   conversation,
   children,
   className,
@@ -819,53 +784,64 @@ export function CreateConversationInviteDialogButton({
 }: TriggerProps & {
   conversation: Conversation
 }) {
-  const createInviteMutation = useCreateConversationInvite()
-
   const [open, setOpen] = useState(false)
-  const [expirationPreset, setExpirationPreset] =
-    useState<InviteExpirationPreset>('7d')
-  const [inviteLink, setInviteLink] = useState('')
+  const [shareLinkURL, setShareLinkURL] = useState('')
   const [copied, setCopied] = useState(false)
   const [error, setError] = useState('')
+  const [isLoadingLink, setIsLoadingLink] = useState(false)
+  const [isRotatingLink, setIsRotatingLink] = useState(false)
 
   function handleOpen() {
-    setExpirationPreset('7d')
-    setInviteLink('')
+    setShareLinkURL('')
     setCopied(false)
     setError('')
     setOpen(true)
+    void loadCurrentLink()
   }
 
-  async function handleCreate() {
+  async function loadCurrentLink() {
     setError('')
+    setIsLoadingLink(true)
 
     try {
-      const invite = unwrapData<CreateConversationInviteResponse>(
-        await createInviteMutation.mutateAsync({
-          conversationId: conversation.id,
-          data: {
-            mode: CreateConversationInviteRequestMode.link,
-            expires_at: getInviteExpirationISO(expirationPreset),
-          },
-        }),
+      const shareLink = unwrapData<ConversationShareLink>(
+        await getConversationShareLink(conversation.id),
       )
-
-      setInviteLink(getConversationInviteShareURL(invite))
+      setShareLinkURL(getConversationShareURL(shareLink))
     } catch (createError) {
-      setError(getErrorMessage(createError, 'Failed to create invite link.'))
+      setError(getErrorMessage(createError, 'Failed to load the share link.'))
+    } finally {
+      setIsLoadingLink(false)
+    }
+  }
+
+  async function handleRotate() {
+    setCopied(false)
+    setError('')
+    setIsRotatingLink(true)
+
+    try {
+      const shareLink = unwrapData<ConversationShareLink>(
+        await rotateConversationShareLink(conversation.id),
+      )
+      setShareLinkURL(getConversationShareURL(shareLink))
+    } catch (rotateError) {
+      setError(getErrorMessage(rotateError, 'Failed to rotate the share link.'))
+    } finally {
+      setIsRotatingLink(false)
     }
   }
 
   async function handleCopy() {
-    if (!inviteLink) {
+    if (!shareLinkURL) {
       return
     }
 
     try {
-      await navigator.clipboard.writeText(inviteLink)
+      await navigator.clipboard.writeText(shareLinkURL)
       setCopied(true)
     } catch {
-      setError('Could not copy the invite link from this browser session.')
+      setError('Could not copy the share link from this browser session.')
     }
   }
 
@@ -884,67 +860,45 @@ export function CreateConversationInviteDialogButton({
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Invite link</DialogTitle>
+            <DialogTitle>Share link</DialogTitle>
             <DialogDescription>
-              Generate a join link for this member-only chat.
+              View or rotate the current join link for this member-only chat.
             </DialogDescription>
           </DialogHeader>
 
-          {inviteLink ? (
-            <>
-              <FormField
-                label="Invite link"
-                description="Share this URL with people who should be able to join."
-              >
-                <Input value={inviteLink} readOnly />
-              </FormField>
+          <FormField
+            label="Share link"
+            description="Share this URL with people who should be able to join."
+          >
+            <Input
+              value={shareLinkURL}
+              readOnly
+              placeholder={isLoadingLink ? 'Loading current share link…' : ''}
+            />
+          </FormField>
 
-              {copied ? <Alert>Invite link copied.</Alert> : null}
-              {error ? <Alert variant="destructive">{error}</Alert> : null}
+          {copied ? <Alert>Share link copied.</Alert> : null}
+          {error ? <Alert variant="destructive">{error}</Alert> : null}
 
-              <DialogFooter>
-                <Button variant="outline" onClick={() => void handleCopy()}>
-                  Copy link
-                </Button>
-                <Button onClick={() => setOpen(false)}>Done</Button>
-              </DialogFooter>
-            </>
-          ) : (
-            <>
-              <FormField label="Invite expiration" htmlFor="create-chat-invite-expiry">
-                <Select
-                  id="create-chat-invite-expiry"
-                  value={expirationPreset}
-                  onChange={(event) =>
-                    setExpirationPreset(event.target.value as InviteExpirationPreset)
-                  }
-                >
-                  <option value="never">Never</option>
-                  <option value="1d">1 day</option>
-                  <option value="7d">7 days</option>
-                  <option value="30d">30 days</option>
-                </Select>
-              </FormField>
-
-              {error ? <Alert variant="destructive">{error}</Alert> : null}
-
-              <DialogFooter>
-                <Button
-                  variant="outline"
-                  onClick={() => setOpen(false)}
-                  disabled={createInviteMutation.isPending}
-                >
-                  Cancel
-                </Button>
-                <Button
-                  onClick={() => void handleCreate()}
-                  disabled={createInviteMutation.isPending}
-                >
-                  {createInviteMutation.isPending ? 'Creating…' : 'Create link'}
-                </Button>
-              </DialogFooter>
-            </>
-          )}
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => void handleCopy()}
+              disabled={!shareLinkURL || isLoadingLink || isRotatingLink}
+            >
+              Copy link
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => void handleRotate()}
+              disabled={isLoadingLink || isRotatingLink}
+            >
+              {isRotatingLink ? 'Rotating…' : 'Rotate link'}
+            </Button>
+            <Button onClick={() => setOpen(false)} disabled={isLoadingLink || isRotatingLink}>
+              Done
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </>
@@ -1168,33 +1122,9 @@ function getConversationVisibilityLabel(conversation: Conversation) {
     return 'Workspace room'
   }
 
-  return 'Authenticated room'
+  return 'Room'
 }
 
-function getInviteExpirationISO(preset: InviteExpirationPreset) {
-  if (preset === 'never') {
-    return null
-  }
-
-  const expiresAt = new Date()
-  if (preset === '1d') {
-    expiresAt.setDate(expiresAt.getDate() + 1)
-  } else if (preset === '7d') {
-    expiresAt.setDate(expiresAt.getDate() + 7)
-  } else {
-    expiresAt.setDate(expiresAt.getDate() + 30)
-  }
-
-  return expiresAt.toISOString()
-}
-
-function getConversationInviteShareURL(invite: CreateConversationInviteResponse) {
-  if (typeof window !== 'undefined') {
-    return new URL(
-      `/conversation-invites/${invite.invite_token}`,
-      window.location.origin,
-    ).toString()
-  }
-
-  return invite.invite_url
+function getConversationShareURL(shareLink: ConversationShareLink) {
+  return shareLink.url
 }

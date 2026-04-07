@@ -5,11 +5,10 @@
  * Canonical HTTP API contract for the Teraslack server.
  * OpenAPI spec version: 0.1.0
  */
+import type { Agent } from './agent';
 
-export interface DashboardDataSummary {
-  conversations: number;
-  messages_7d: number;
-  recent_events_24h: number;
-  member_conversations: number;
-  broadcast_conversations: number;
+export interface AgentsCollection {
+  items: Agent[];
+  /** Pagination cursor when additional results are available. */
+  next_cursor?: string;
 }

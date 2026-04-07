@@ -627,10 +627,10 @@ func (h *workflowHarness) waitForSearchHit(t *testing.T, token string, request a
 	return matched
 }
 
-func (h *workflowHarness) waitForProjectionFailureCount(t *testing.T, internalEventID int64, want int) {
+func (h *workflowHarness) waitForProjectionFailureCount(t *testing.T, internalEventID uuid.UUID, want int) {
 	t.Helper()
 
-	waitForCondition(t, fmt.Sprintf("projection failure count for internal event %d", internalEventID), eventualTimeout, func() (bool, error) {
+	waitForCondition(t, fmt.Sprintf("projection failure count for internal event %s", internalEventID), eventualTimeout, func() (bool, error) {
 		var count int
 		err := h.pool.QueryRow(
 			context.Background(),
@@ -643,10 +643,10 @@ func (h *workflowHarness) waitForProjectionFailureCount(t *testing.T, internalEv
 	})
 }
 
-func (h *workflowHarness) waitForProjectedExternalEventCount(t *testing.T, internalEventID int64, want int) {
+func (h *workflowHarness) waitForProjectedExternalEventCount(t *testing.T, internalEventID uuid.UUID, want int) {
 	t.Helper()
 
-	waitForCondition(t, fmt.Sprintf("external event projection count for internal event %d", internalEventID), eventualTimeout, func() (bool, error) {
+	waitForCondition(t, fmt.Sprintf("external event projection count for internal event %s", internalEventID), eventualTimeout, func() (bool, error) {
 		var count int
 		err := h.pool.QueryRow(
 			context.Background(),

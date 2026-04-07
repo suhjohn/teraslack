@@ -6,7 +6,9 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export interface DashboardCountBucket {
-  label: string;
-  count: number;
+export interface ConversationShareLink {
+  /** Raw share link token. */
+  token: string;
+  /** Browser join URL for the share link token. */
+  url: string;
 }

@@ -84,6 +84,7 @@ insert into conversation_invites (
   conversation_id,
   created_by_user_id,
   token_hash,
+  encrypted_token,
   expires_at,
   mode,
   allowed_user_ids,
@@ -94,12 +95,32 @@ insert into conversation_invites (
   sqlc.arg(conversation_id),
   sqlc.arg(created_by_user_id),
   sqlc.arg(token_hash),
+  sqlc.narg(encrypted_token),
   sqlc.narg(expires_at),
   sqlc.arg(mode),
   sqlc.arg(allowed_user_ids),
   sqlc.arg(allowed_emails),
   sqlc.arg(created_at)
 );
+
+-- name: GetActiveConversationInvite :one
+select id, conversation_id, encrypted_token, created_at
+from conversation_invites
+where conversation_id = sqlc.arg(conversation_id)
+  and revoked_at is null;
+
+-- name: GetActiveConversationInviteForUpdate :one
+select id, conversation_id, encrypted_token, created_at
+from conversation_invites
+where conversation_id = sqlc.arg(conversation_id)
+  and revoked_at is null
+for update;
+
+-- name: RevokeActiveConversationInvite :execrows
+update conversation_invites
+set revoked_at = sqlc.arg(revoked_at)
+where conversation_id = sqlc.arg(conversation_id)
+  and revoked_at is null;
 
 -- name: GetConversationInviteByTokenHashForUpdate :one
 select id, conversation_id, mode, allowed_user_ids, allowed_emails, expires_at, revoked_at

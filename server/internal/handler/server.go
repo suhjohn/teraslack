@@ -67,6 +67,16 @@ type userRow struct {
 	Bio           *string
 }
 
+type agentRow struct {
+	UserID           uuid.UUID
+	OwnerUserID      *uuid.UUID
+	OwnerWorkspaceID *uuid.UUID
+	Mode             string
+	CreatedByUserID  uuid.UUID
+	CreatedAt        time.Time
+	UpdatedAt        time.Time
+}
+
 type workspaceRow struct {
 	ID              uuid.UUID
 	Slug            string
@@ -215,6 +225,10 @@ func (s *Server) authenticateRequest(ctx context.Context, r *http.Request) (doma
 	if err == nil {
 		sessionID = sessionAuth.ID
 		auth.UserID = sessionAuth.UserID
+		auth.PrincipalType = sessionAuth.PrincipalType
+		if sessionAuth.AgentMode != nil {
+			auth.AgentMode = *sessionAuth.AgentMode
+		}
 		auth.SessionID = &sessionID
 		_ = s.queries.TouchAuthSessionLastSeen(ctx, dbsqlc.TouchAuthSessionLastSeenParams{
 			ID:         sessionID,
@@ -234,6 +248,10 @@ func (s *Server) authenticateRequest(ctx context.Context, r *http.Request) (doma
 		keyID := keyAuth.ID
 		auth.APIKeyID = &keyID
 		auth.UserID = keyAuth.UserID
+		auth.PrincipalType = keyAuth.PrincipalType
+		if keyAuth.AgentMode != nil {
+			auth.AgentMode = *keyAuth.AgentMode
+		}
 		auth.APIKeyScopeType = keyAuth.ScopeType
 		auth.APIKeyWorkspaceID = keyAuth.ScopeWorkspaceID
 		_ = s.queries.TouchAPIKeyLastUsed(ctx, dbsqlc.TouchAPIKeyLastUsedParams{
@@ -262,6 +280,22 @@ func (s *Server) loadUser(ctx context.Context, userID uuid.UUID) (userRow, error
 		DisplayName:   row.DisplayName,
 		AvatarURL:     row.AvatarUrl,
 		Bio:           row.Bio,
+	}, nil
+}
+
+func (s *Server) loadAgent(ctx context.Context, userID uuid.UUID) (agentRow, error) {
+	row, err := s.queries.GetAgent(ctx, userID)
+	if err != nil {
+		return agentRow{}, err
+	}
+	return agentRow{
+		UserID:           row.UserID,
+		OwnerUserID:      row.OwnerUserID,
+		OwnerWorkspaceID: row.OwnerWorkspaceID,
+		Mode:             row.Mode,
+		CreatedByUserID:  row.CreatedByUserID,
+		CreatedAt:        dbsqlc.TimeValue(row.CreatedAt),
+		UpdatedAt:        dbsqlc.TimeValue(row.UpdatedAt),
 	}, nil
 }
 
@@ -338,6 +372,60 @@ func (s *Server) ensureGlobalUserSurfaceAccess(auth domain.AuthContext) *appErro
 	return nil
 }
 
+func (s *Server) ensureHumanActor(auth domain.AuthContext) *appError {
+	if auth.PrincipalType == "agent" {
+		return forbidden("Agents cannot access that resource.")
+	}
+	return nil
+}
+
+func (s *Server) ensureHumanGlobalUserSurfaceAccess(auth domain.AuthContext) *appError {
+	if appErr := s.ensureGlobalUserSurfaceAccess(auth); appErr != nil {
+		return appErr
+	}
+	return s.ensureHumanActor(auth)
+}
+
+func (s *Server) ensureAgentSafeWrite(auth domain.AuthContext) *appError {
+	if auth.PrincipalType != "agent" {
+		return nil
+	}
+	if auth.AgentMode != "safe_write" {
+		return forbidden("This agent is read-only.")
+	}
+	return nil
+}
+
+func (s *Server) ensureUserActiveWorkspaceMember(ctx context.Context, userID uuid.UUID, workspaceID uuid.UUID) *appError {
+	membership, err := s.queries.GetWorkspaceMembership(ctx, dbsqlc.GetWorkspaceMembershipParams{
+		WorkspaceID: workspaceID,
+		UserID:      userID,
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return forbidden("That user does not have access to this workspace.")
+	}
+	if err != nil {
+		return internalError(err)
+	}
+	if membership.Status != "active" {
+		return forbidden("That user does not have access to this workspace.")
+	}
+	return nil
+}
+
+func (s *Server) ensureAgentManager(ctx context.Context, auth domain.AuthContext, agent agentRow) *appError {
+	if appErr := s.ensureHumanGlobalUserSurfaceAccess(auth); appErr != nil {
+		return appErr
+	}
+	if agent.OwnerUserID != nil && *agent.OwnerUserID == auth.UserID {
+		return nil
+	}
+	if agent.OwnerWorkspaceID != nil {
+		return s.ensureWorkspaceAdmin(ctx, auth, *agent.OwnerWorkspaceID)
+	}
+	return forbidden("You do not have access to this agent.")
+}
+
 func (s *Server) ensureConversationAccess(ctx context.Context, auth domain.AuthContext, conversation conversationRow) *appError {
 	if auth.APIKeyWorkspaceID != nil {
 		if conversation.WorkspaceID == nil || *conversation.WorkspaceID != *auth.APIKeyWorkspaceID {
@@ -345,21 +433,17 @@ func (s *Server) ensureConversationAccess(ctx context.Context, auth domain.AuthC
 		}
 	}
 	if conversation.WorkspaceID == nil {
-		switch conversation.AccessPolicy {
-		case "authenticated":
-			return nil
-		case "members":
-			ok, err := s.isConversationParticipant(ctx, conversation.ID, auth.UserID)
-			if err != nil {
-				return internalError(err)
-			}
-			if !ok {
-				return forbidden("You do not have access to this resource.")
-			}
-			return nil
-		default:
+		if conversation.AccessPolicy != "members" {
 			return forbidden("You do not have access to this resource.")
 		}
+		ok, err := s.isConversationParticipant(ctx, conversation.ID, auth.UserID)
+		if err != nil {
+			return internalError(err)
+		}
+		if !ok {
+			return forbidden("You do not have access to this resource.")
+		}
+		return nil
 	}
 
 	if _, err := s.ensureWorkspaceActiveMember(ctx, auth, *conversation.WorkspaceID); err != nil {
@@ -401,10 +485,12 @@ func (s *Server) insertUserWithProfile(ctx context.Context, tx pgx.Tx, email str
 			handle = fmt.Sprintf("%s-%d", handle, attempt+1)
 		}
 		if err := queries.CreateUser(ctx, dbsqlc.CreateUserParams{
-			ID:        userID,
-			Email:     stringPtr(normalized),
-			CreatedAt: dbsqlc.Timestamptz(now),
-			UpdatedAt: dbsqlc.Timestamptz(now),
+			ID:            userID,
+			PrincipalType: "human",
+			Email:         stringPtr(normalized),
+			Status:        "active",
+			CreatedAt:     dbsqlc.Timestamptz(now),
+			UpdatedAt:     dbsqlc.Timestamptz(now),
 		}); err != nil {
 			return userRow{}, err
 		}
@@ -431,6 +517,63 @@ func (s *Server) insertUserWithProfile(ctx context.Context, tx pgx.Tx, email str
 		return userRow{}, err
 	}
 	return userRow{}, fmt.Errorf("could not allocate unique user handle")
+}
+
+func (s *Server) insertAgentWithProfile(ctx context.Context, tx pgx.Tx, displayName string, handle *string, avatarURL *string, bio *string) (userRow, error) {
+	queries := s.queries.WithTx(tx)
+	now := time.Now().UTC()
+	userID := uuid.New()
+	trimmedDisplayName := strings.TrimSpace(displayName)
+	if trimmedDisplayName == "" {
+		trimmedDisplayName = "Agent"
+	}
+	resolvedHandle := trimOptionalString(handle)
+	if resolvedHandle == nil {
+		resolvedHandle = stringPtr(deriveHandle(trimmedDisplayName))
+	}
+	if err := queries.CreateUser(ctx, dbsqlc.CreateUserParams{
+		ID:            userID,
+		PrincipalType: "agent",
+		Email:         nil,
+		Status:        "active",
+		CreatedAt:     dbsqlc.Timestamptz(now),
+		UpdatedAt:     dbsqlc.Timestamptz(now),
+	}); err != nil {
+		return userRow{}, err
+	}
+	if err := queries.CreateUserProfile(ctx, dbsqlc.CreateUserProfileParams{
+		UserID:      userID,
+		Handle:      strings.TrimSpace(*resolvedHandle),
+		DisplayName: trimmedDisplayName,
+		CreatedAt:   dbsqlc.Timestamptz(now),
+		UpdatedAt:   dbsqlc.Timestamptz(now),
+	}); err != nil {
+		if pgErr, ok := err.(*pgconn.PgError); ok && pgErr.Code == "23505" {
+			return userRow{}, conflict("Handle already exists.")
+		}
+		return userRow{}, err
+	}
+	if avatarURL != nil || bio != nil {
+		if err := queries.UpdateUserProfile(ctx, dbsqlc.UpdateUserProfileParams{
+			UserID:      userID,
+			Handle:      resolvedHandle,
+			DisplayName: &trimmedDisplayName,
+			AvatarUrl:   avatarURL,
+			Bio:         bio,
+			UpdatedAt:   dbsqlc.Timestamptz(now),
+		}); err != nil {
+			return userRow{}, err
+		}
+	}
+	return userRow{
+		ID:            userID,
+		PrincipalType: "agent",
+		Status:        "active",
+		Handle:        strings.TrimSpace(*resolvedHandle),
+		DisplayName:   trimmedDisplayName,
+		AvatarURL:     avatarURL,
+		Bio:           bio,
+	}, nil
 }
 
 func (s *Server) appendEvent(ctx context.Context, tx pgx.Tx, eventType string, aggregateType string, aggregateID uuid.UUID, workspaceID *uuid.UUID, actorUserID *uuid.UUID, payload any) error {
@@ -479,7 +622,7 @@ func decodeJSON(r *http.Request, target any) *appError {
 		return malformed("Could not read request body.")
 	}
 	if len(strings.TrimSpace(string(raw))) == 0 {
-		return malformed("Request body is required.")
+		return nil
 	}
 	if err := json.Unmarshal(raw, target); err != nil {
 		return malformed("Malformed JSON request body.")
@@ -667,6 +810,26 @@ func userToAPI(row userRow) api.User {
 	}
 }
 
+func agentOwnerType(row agentRow) string {
+	if row.OwnerWorkspaceID != nil {
+		return "workspace"
+	}
+	return "user"
+}
+
+func agentToAPI(user userRow, agent agentRow) api.Agent {
+	return api.Agent{
+		User:             userToAPI(user),
+		OwnerType:        agentOwnerType(agent),
+		OwnerUserID:      uuidPtrToStringPtr(agent.OwnerUserID),
+		OwnerWorkspaceID: uuidPtrToStringPtr(agent.OwnerWorkspaceID),
+		Mode:             agent.Mode,
+		CreatedByUserID:  agent.CreatedByUserID.String(),
+		CreatedAt:        agent.CreatedAt.Format(time.RFC3339),
+		UpdatedAt:        agent.UpdatedAt.Format(time.RFC3339),
+	}
+}
+
 func workspaceToAPI(row workspaceRow) api.Workspace {
 	return api.Workspace{
 		ID:              row.ID.String(),
@@ -679,6 +842,10 @@ func workspaceToAPI(row workspaceRow) api.Workspace {
 }
 
 func conversationToAPI(row conversationRow) api.Conversation {
+	return conversationToAPIWithShareLink(row, nil)
+}
+
+func conversationToAPIWithShareLink(row conversationRow, shareLink *api.ConversationShareLink) api.Conversation {
 	return api.Conversation{
 		ID:               row.ID.String(),
 		WorkspaceID:      uuidPtrToStringPtr(row.WorkspaceID),
@@ -691,6 +858,7 @@ func conversationToAPI(row conversationRow) api.Conversation {
 		LastMessageAt:    timePtrToStringPtr(row.LastMessageAt),
 		CreatedAt:        row.CreatedAt.Format(time.RFC3339),
 		UpdatedAt:        row.UpdatedAt.Format(time.RFC3339),
+		ShareLink:        shareLink,
 	}
 }
 

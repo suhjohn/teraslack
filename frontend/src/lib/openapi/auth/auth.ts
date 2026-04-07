@@ -53,8 +53,8 @@ export type HTTPStatusCodes = HTTPStatusCode1xx | HTTPStatusCode2xx | HTTPStatus
 
 
 /**
- * Sends a one-time verification code to the supplied email address.
- * @summary Start email sign-in
+ * Sends a one-time verification code to the email address you provide.
+ * @summary Send an email sign-in code
  */
 export type startEmailLoginResponse202 = {
   data: GenericStatusResponse
@@ -130,7 +130,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type StartEmailLoginMutationError = ErrorType<ApiErrorResponseResponse>
 
     /**
- * @summary Start email sign-in
+ * @summary Send an email sign-in code
  */
 export const useStartEmailLogin = <TError = ErrorType<ApiErrorResponseResponse>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof startEmailLogin>>, TError,{data: BodyType<StartEmailLoginRequest>}, TContext>, request?: SecondParameter<typeof orvalFetch>}
@@ -143,8 +143,8 @@ export const useStartEmailLogin = <TError = ErrorType<ApiErrorResponseResponse>,
       return useMutation(getStartEmailLoginMutationOptions(options), queryClient);
     }
     /**
- * Exchanges an email verification code for a session and authenticated user payload.
- * @summary Complete email sign-in
+ * Exchanges an email address and verification code for a session and authenticated user payload.
+ * @summary Sign in with an email code
  */
 export type verifyEmailLoginResponse200 = {
   data: AuthResponse
@@ -220,7 +220,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type VerifyEmailLoginMutationError = ErrorType<ApiErrorResponseResponse>
 
     /**
- * @summary Complete email sign-in
+ * @summary Sign in with an email code
  */
 export const useVerifyEmailLogin = <TError = ErrorType<ApiErrorResponseResponse>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof verifyEmailLogin>>, TError,{data: BodyType<VerifyEmailLoginRequest>}, TContext>, request?: SecondParameter<typeof orvalFetch>}
@@ -234,7 +234,7 @@ export const useVerifyEmailLogin = <TError = ErrorType<ApiErrorResponseResponse>
     }
     /**
  * Creates an OAuth state record and returns the Google authorization URL to open in the browser.
- * @summary Start Google OAuth
+ * @summary Start Google sign-in
  */
 export type startGoogleOAuthResponse200 = {
   data: OAuthStartResponse
@@ -310,7 +310,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type StartGoogleOAuthMutationError = ErrorType<ApiErrorResponseResponse>
 
     /**
- * @summary Start Google OAuth
+ * @summary Start Google sign-in
  */
 export const useStartGoogleOAuth = <TError = ErrorType<ApiErrorResponseResponse>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof startGoogleOAuth>>, TError,{data: BodyType<OAuthStartRequest>}, TContext>, request?: SecondParameter<typeof orvalFetch>}
@@ -324,7 +324,7 @@ export const useStartGoogleOAuth = <TError = ErrorType<ApiErrorResponseResponse>
     }
     /**
  * Completes the Google OAuth flow using the provider callback code and state.
- * @summary Complete Google OAuth
+ * @summary Finish Google sign-in
  */
 export type completeGoogleOAuthResponse200 = {
   data: AuthResponse
@@ -434,7 +434,7 @@ export function useCompleteGoogleOAuth<TData = Awaited<ReturnType<typeof complet
  , queryClient?: QueryClient
   ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
 /**
- * @summary Complete Google OAuth
+ * @summary Finish Google sign-in
  */
 
 export function useCompleteGoogleOAuth<TData = Awaited<ReturnType<typeof completeGoogleOAuth>>, TError = ErrorType<void | ApiErrorResponseResponse>>(
@@ -454,7 +454,7 @@ export function useCompleteGoogleOAuth<TData = Awaited<ReturnType<typeof complet
 
 /**
  * Creates an OAuth state record and returns the GitHub authorization URL to open in the browser.
- * @summary Start GitHub OAuth
+ * @summary Start GitHub sign-in
  */
 export type startGitHubOAuthResponse200 = {
   data: OAuthStartResponse
@@ -530,7 +530,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type StartGitHubOAuthMutationError = ErrorType<ApiErrorResponseResponse>
 
     /**
- * @summary Start GitHub OAuth
+ * @summary Start GitHub sign-in
  */
 export const useStartGitHubOAuth = <TError = ErrorType<ApiErrorResponseResponse>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof startGitHubOAuth>>, TError,{data: BodyType<OAuthStartRequest>}, TContext>, request?: SecondParameter<typeof orvalFetch>}
@@ -544,7 +544,7 @@ export const useStartGitHubOAuth = <TError = ErrorType<ApiErrorResponseResponse>
     }
     /**
  * Completes the GitHub OAuth flow using the provider callback code and state.
- * @summary Complete GitHub OAuth
+ * @summary Finish GitHub sign-in
  */
 export type completeGitHubOAuthResponse200 = {
   data: AuthResponse
@@ -654,7 +654,7 @@ export function useCompleteGitHubOAuth<TData = Awaited<ReturnType<typeof complet
  , queryClient?: QueryClient
   ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
 /**
- * @summary Complete GitHub OAuth
+ * @summary Finish GitHub sign-in
  */
 
 export function useCompleteGitHubOAuth<TData = Awaited<ReturnType<typeof completeGitHubOAuth>>, TError = ErrorType<void | ApiErrorResponseResponse>>(
@@ -673,8 +673,8 @@ export function useCompleteGitHubOAuth<TData = Awaited<ReturnType<typeof complet
 
 
 /**
- * Revokes the authenticated browser or bearer session. This endpoint requires a session credential rather than an API key.
- * @summary Revoke current session
+ * Revokes the current browser or bearer session. This endpoint requires a session credential rather than an API key.
+ * @summary Sign out the current session
  */
 export type revokeCurrentSessionResponse204 = {
   data: void
@@ -749,7 +749,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type RevokeCurrentSessionMutationError = ErrorType<ApiErrorResponseResponse>
 
     /**
- * @summary Revoke current session
+ * @summary Sign out the current session
  */
 export const useRevokeCurrentSession = <TError = ErrorType<ApiErrorResponseResponse>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof revokeCurrentSession>>, TError,void, TContext>, request?: SecondParameter<typeof orvalFetch>}

@@ -100,7 +100,7 @@ func (r *Runtime) loadMessage(ctx context.Context, messageID uuid.UUID) (message
 	}, nil
 }
 
-func (r *Runtime) loadExternalEventByID(ctx context.Context, eventID int64) (externalEventRow, error) {
+func (r *Runtime) loadExternalEventByID(ctx context.Context, eventID uuid.UUID) (externalEventRow, error) {
 	row := r.db.QueryRow(ctx, `
 		select id, workspace_id, type, resource_type, resource_id, occurred_at, payload, source_internal_event_id
 		from external_events
@@ -108,7 +108,7 @@ func (r *Runtime) loadExternalEventByID(ctx context.Context, eventID int64) (ext
 	return scanExternalEvent(row)
 }
 
-func (r *Runtime) loadExternalEventBySourceInternalEventID(ctx context.Context, sourceInternalEventID int64) (externalEventRow, error) {
+func (r *Runtime) loadExternalEventBySourceInternalEventID(ctx context.Context, sourceInternalEventID uuid.UUID) (externalEventRow, error) {
 	row := r.db.QueryRow(ctx, `
 		select id, workspace_id, type, resource_type, resource_id, occurred_at, payload, source_internal_event_id
 		from external_events
@@ -159,14 +159,10 @@ func (r *Runtime) isConversationParticipant(ctx context.Context, conversationID 
 
 func (r *Runtime) conversationVisible(ctx context.Context, viewerID uuid.UUID, allowGlobal bool, conversation conversationRow) (bool, error) {
 	if conversation.WorkspaceID == nil {
-		switch conversation.AccessPolicy {
-		case "authenticated":
-			return allowGlobal, nil
-		case "members":
-			return r.isConversationParticipant(ctx, conversation.ID, viewerID)
-		default:
+		if !allowGlobal || conversation.AccessPolicy != "members" {
 			return false, nil
 		}
+		return r.isConversationParticipant(ctx, conversation.ID, viewerID)
 	}
 	visible, err := r.workspaceVisible(ctx, viewerID, *conversation.WorkspaceID)
 	if err != nil || !visible {
@@ -221,7 +217,6 @@ func (r *Runtime) resolveQueryPrincipals(ctx context.Context, userID uuid.UUID, 
 	}
 
 	if allowGlobal && workspaceID == nil {
-		add(authenticatedPrincipalID())
 		add(userPrincipalID(userID))
 	}
 
@@ -348,7 +343,7 @@ func (r *Runtime) userVisible(ctx context.Context, viewerID uuid.UUID, targetID 
 	}
 }
 
-func (r *Runtime) loadVisibleExternalEvent(ctx context.Context, viewerID uuid.UUID, eventID int64) (externalEventRow, error) {
+func (r *Runtime) loadVisibleExternalEvent(ctx context.Context, viewerID uuid.UUID, eventID uuid.UUID) (externalEventRow, error) {
 	visibility := repository.ExternalEventVisibilityPredicate("ee", "$1")
 	row := r.db.QueryRow(ctx, fmt.Sprintf(`
 		select ee.id, ee.workspace_id, ee.type, ee.resource_type, ee.resource_id, ee.occurred_at, ee.payload, ee.source_internal_event_id
@@ -419,11 +414,6 @@ func (r *Runtime) listEventAnchors(ctx context.Context, event externalEventRow) 
 				return nil, err
 			}
 			switch {
-			case row.workspaceID == nil && row.accessPolicy != nil && *row.accessPolicy == "authenticated":
-				anchor = documentAnchor{
-					PrincipalID: authenticatedPrincipalID(),
-					AnchorKey:   "authenticated",
-				}
 			case row.workspaceID != nil && row.accessPolicy != nil && *row.accessPolicy == "workspace":
 				anchor = documentAnchor{
 					PrincipalID: workspacePrincipalID(*row.workspaceID),

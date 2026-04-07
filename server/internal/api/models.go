@@ -86,6 +86,7 @@ type OAuthStartResponse struct {
 
 type APIKey struct {
 	ID               string  `json:"id"`
+	SubjectUserID    string  `json:"subject_user_id"`
 	Label            string  `json:"label"`
 	ScopeType        string  `json:"scope_type"`
 	ScopeWorkspaceID *string `json:"scope_workspace_id,omitempty"`
@@ -97,6 +98,7 @@ type APIKey struct {
 
 type CreateAPIKeyRequest struct {
 	Label            string  `json:"label"`
+	SubjectUserID    *string `json:"subject_user_id,omitempty"`
 	ScopeType        string  `json:"scope_type"`
 	ScopeWorkspaceID *string `json:"scope_workspace_id"`
 	ExpiresAt        *string `json:"expires_at,omitempty"`
@@ -164,7 +166,8 @@ type WorkspaceMember struct {
 }
 
 type CreateWorkspaceInviteRequest struct {
-	Email *string `json:"email,omitempty"`
+	Email  *string `json:"email,omitempty"`
+	UserID *string `json:"user_id,omitempty"`
 }
 
 type CreateWorkspaceInviteResponse struct {
@@ -177,18 +180,54 @@ type UpdateWorkspaceMemberRequest struct {
 	Status *string `json:"status,omitempty"`
 }
 
-type Conversation struct {
-	ID               string  `json:"id"`
-	WorkspaceID      *string `json:"workspace_id,omitempty"`
-	AccessPolicy     string  `json:"access_policy"`
-	ParticipantCount int     `json:"participant_count"`
-	Title            *string `json:"title,omitempty"`
-	Description      *string `json:"description,omitempty"`
+type Agent struct {
+	User             User    `json:"user"`
+	OwnerType        string  `json:"owner_type"`
+	OwnerUserID      *string `json:"owner_user_id,omitempty"`
+	OwnerWorkspaceID *string `json:"owner_workspace_id,omitempty"`
+	Mode             string  `json:"mode"`
 	CreatedByUserID  string  `json:"created_by_user_id"`
-	Archived         bool    `json:"archived"`
-	LastMessageAt    *string `json:"last_message_at,omitempty"`
 	CreatedAt        string  `json:"created_at"`
 	UpdatedAt        string  `json:"updated_at"`
+}
+
+type CreateAgentRequest struct {
+	DisplayName      string  `json:"display_name"`
+	Handle           *string `json:"handle,omitempty"`
+	AvatarURL        *string `json:"avatar_url,omitempty"`
+	Bio              *string `json:"bio,omitempty"`
+	OwnerType        string  `json:"owner_type"`
+	OwnerWorkspaceID *string `json:"owner_workspace_id,omitempty"`
+	Mode             string  `json:"mode"`
+}
+
+type UpdateAgentRequest struct {
+	DisplayName *string `json:"display_name,omitempty"`
+	Handle      *string `json:"handle,omitempty"`
+	AvatarURL   *string `json:"avatar_url,omitempty"`
+	Bio         *string `json:"bio,omitempty"`
+	Mode        *string `json:"mode,omitempty"`
+	Status      *string `json:"status,omitempty"`
+}
+
+type Conversation struct {
+	ID               string                 `json:"id"`
+	WorkspaceID      *string                `json:"workspace_id,omitempty"`
+	AccessPolicy     string                 `json:"access_policy"`
+	ParticipantCount int                    `json:"participant_count"`
+	Title            *string                `json:"title,omitempty"`
+	Description      *string                `json:"description,omitempty"`
+	CreatedByUserID  string                 `json:"created_by_user_id"`
+	Archived         bool                   `json:"archived"`
+	LastMessageAt    *string                `json:"last_message_at,omitempty"`
+	CreatedAt        string                 `json:"created_at"`
+	UpdatedAt        string                 `json:"updated_at"`
+	ShareLink        *ConversationShareLink `json:"share_link,omitempty"`
+}
+
+type ConversationShareLink struct {
+	Token string `json:"token"`
+	URL   string `json:"url"`
 }
 
 type CreateConversationRequest struct {
@@ -209,16 +248,8 @@ type AddParticipantsRequest struct {
 	UserIDs []string `json:"user_ids"`
 }
 
-type CreateConversationInviteRequest struct {
-	ExpiresAt      *string  `json:"expires_at"`
-	Mode           string   `json:"mode"`
-	AllowedUserIDs []string `json:"allowed_user_ids,omitempty"`
-	AllowedEmails  []string `json:"allowed_emails,omitempty"`
-}
-
-type CreateConversationInviteResponse struct {
-	InviteToken string `json:"invite_token"`
-	InviteURL   string `json:"invite_url"`
+type JoinConversationRequest struct {
+	Token string `json:"token"`
 }
 
 type Message struct {
@@ -250,7 +281,7 @@ type UpdateReadStateRequest struct {
 }
 
 type ExternalEvent struct {
-	ID           int64          `json:"id"`
+	ID           string         `json:"id"`
 	WorkspaceID  *string        `json:"workspace_id,omitempty"`
 	Type         string         `json:"type"`
 	ResourceType string         `json:"resource_type"`
@@ -281,130 +312,5 @@ type CreateEventSubscriptionRequest struct {
 }
 
 type UpdateEventSubscriptionRequest struct {
-	Enabled bool `json:"enabled"`
-}
-
-type DashboardScope struct {
-	WorkspaceID   *string `json:"workspace_id,omitempty"`
-	WorkspaceName *string `json:"workspace_name,omitempty"`
-}
-
-type DashboardOverview struct {
-	Scope    DashboardScope          `json:"scope"`
-	APIKeys  DashboardAPIKeySummary  `json:"api_keys"`
-	Webhooks DashboardWebhookSummary `json:"webhooks"`
-	Data     DashboardDataSummary    `json:"data"`
-}
-
-type DashboardAPIKeySummary struct {
-	Total        int     `json:"total"`
-	Active       int     `json:"active"`
-	Revoked      int     `json:"revoked"`
-	ExpiringSoon int     `json:"expiring_soon"`
-	Stale        int     `json:"stale"`
-	LastUsedAt   *string `json:"last_used_at,omitempty"`
-}
-
-type DashboardWebhookSummary struct {
-	Subscriptions        int `json:"subscriptions"`
-	EnabledSubscriptions int `json:"enabled_subscriptions"`
-	PendingDeliveries    int `json:"pending_deliveries"`
-	FailedDeliveries     int `json:"failed_deliveries"`
-	Delivered24h         int `json:"delivered_24h"`
-	Failed24h            int `json:"failed_24h"`
-}
-
-type DashboardDataSummary struct {
-	Conversations          int `json:"conversations"`
-	Messages7d             int `json:"messages_7d"`
-	RecentEvents24h        int `json:"recent_events_24h"`
-	MemberConversations    int `json:"member_conversations"`
-	BroadcastConversations int `json:"broadcast_conversations"`
-}
-
-type DashboardWebhooksResponse struct {
-	Scope            DashboardScope                 `json:"scope"`
-	Summary          DashboardWebhookSummary        `json:"summary"`
-	Subscriptions    []DashboardWebhookSubscription `json:"subscriptions"`
-	RecentDeliveries []DashboardWebhookDelivery     `json:"recent_deliveries"`
-}
-
-type DashboardWebhookSubscription struct {
-	SubscriptionID  string  `json:"subscription_id"`
-	URL             string  `json:"url"`
-	Enabled         bool    `json:"enabled"`
-	EventType       *string `json:"event_type,omitempty"`
-	ResourceType    *string `json:"resource_type,omitempty"`
-	ResourceID      *string `json:"resource_id,omitempty"`
-	CreatedAt       string  `json:"created_at"`
-	UpdatedAt       string  `json:"updated_at"`
-	TotalDeliveries int     `json:"total_deliveries"`
-	DeliveredCount  int     `json:"delivered_count"`
-	FailedCount     int     `json:"failed_count"`
-	PendingCount    int     `json:"pending_count"`
-	LastDeliveryAt  *string `json:"last_delivery_at,omitempty"`
-	LastStatus      *string `json:"last_status,omitempty"`
-	LastError       *string `json:"last_error,omitempty"`
-}
-
-type DashboardWebhookDelivery struct {
-	DeliveryID     int64   `json:"delivery_id"`
-	SubscriptionID string  `json:"subscription_id"`
-	URL            string  `json:"url"`
-	EventID        int64   `json:"event_id"`
-	EventType      string  `json:"event_type"`
-	ResourceType   string  `json:"resource_type"`
-	ResourceID     string  `json:"resource_id"`
-	Status         string  `json:"status"`
-	AttemptCount   int     `json:"attempt_count"`
-	LastError      *string `json:"last_error,omitempty"`
-	DeliveredAt    *string `json:"delivered_at,omitempty"`
-	CreatedAt      string  `json:"created_at"`
-}
-
-type DashboardDataActivityResponse struct {
-	Scope            DashboardScope                  `json:"scope"`
-	Days             int                             `json:"days"`
-	Summary          DashboardDataSummary            `json:"summary"`
-	Series           []DashboardDataPoint            `json:"series"`
-	RoomMix          []DashboardCountBucket          `json:"room_mix"`
-	TopConversations []DashboardConversationActivity `json:"top_conversations"`
-}
-
-type DashboardDataPoint struct {
-	Date                 string `json:"date"`
-	ConversationsCreated int    `json:"conversations_created"`
-	MessagesCreated      int    `json:"messages_created"`
-	EventsPublished      int    `json:"events_published"`
-}
-
-type DashboardCountBucket struct {
-	Label string `json:"label"`
-	Count int    `json:"count"`
-}
-
-type DashboardConversationActivity struct {
-	ConversationID   string  `json:"conversation_id"`
-	Title            *string `json:"title,omitempty"`
-	AccessPolicy     string  `json:"access_policy"`
-	ParticipantCount int     `json:"participant_count"`
-	LastMessageAt    *string `json:"last_message_at,omitempty"`
-	MessageCount     int     `json:"message_count"`
-}
-
-type DashboardAuditResponse struct {
-	Scope    DashboardScope         `json:"scope"`
-	Items    []DashboardAuditItem   `json:"items"`
-	TopTypes []DashboardCountBucket `json:"top_types"`
-}
-
-type DashboardAuditItem struct {
-	ID            int64          `json:"id"`
-	EventType     string         `json:"event_type"`
-	AggregateType string         `json:"aggregate_type"`
-	AggregateID   string         `json:"aggregate_id"`
-	WorkspaceID   *string        `json:"workspace_id,omitempty"`
-	ActorUserID   *string        `json:"actor_user_id,omitempty"`
-	CreatedAt     string         `json:"created_at"`
-	Payload       map[string]any `json:"payload"`
+	Enabled *bool `json:"enabled,omitempty"`
 }

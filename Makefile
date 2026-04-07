@@ -9,6 +9,7 @@ COMPOSE := docker compose --env-file $(ENV_FILE)
 COMPOSE_DEV := $(COMPOSE) -f docker-compose.yml -f docker-compose.dev.yml
 SEARCH_ENV_FILE ?= .env.railway
 INTEGRATION_SEARCH_RUN ?= Search
+CLI_RELEASE_BUMP_TARGETS := bump-patch bump-minor bump-major
 
 define railway_prepare_context
 tmpdir=""; \
@@ -31,7 +32,7 @@ endef
 
 .PHONY: run build test lint migrate-up migrate-down docker-up docker-down integration_test openapi-generate openapi-check permissions-generate permissions-check \
 		integration-search dev dev-down dev-reset dev-logs railway-status railway-deploy railway-ensure-service deploy deploy-frontend deploy-server deploy-queue-broker deploy-indexer deploy-external-event-projector \
-		deploy-webhook-producer deploy-webhook-worker deploy-core build-cli-release upload-cli-release release-cli
+		deploy-webhook-producer deploy-webhook-worker deploy-core build-cli-release upload-cli-release release-cli $(CLI_RELEASE_BUMP_TARGETS)
 
 run build test lint migrate-up migrate-down openapi-generate openapi-check permissions-generate permissions-check:
 	$(MAKE) -C $(SERVER_DIR) $@
@@ -78,27 +79,27 @@ integration-search:
 	set +a; \
 	cd $(SERVER_DIR) && INTEGRATION_LIVE_SEARCH=1 go test -count=1 -tags=integration ./internal/integration -run '$(INTEGRATION_SEARCH_RUN)'
 
+$(CLI_RELEASE_BUMP_TARGETS):
+	@:
+
 build-cli-release:
-	@if [ -z "$(VERSION)" ]; then \
-		echo "VERSION is required. Example: make build-cli-release VERSION=v0.1.0"; \
-		exit 1; \
-	fi
-	./scripts/build-cli-release.sh "$(VERSION)"
+	@set -eu; \
+	version="$$(./scripts/resolve-cli-release-version.sh --version "$(VERSION)" --bump "$(BUMP)" --goals "$(MAKECMDGOALS)")"; \
+	echo "building CLI release $$version"; \
+	./scripts/build-cli-release.sh "$$version"
 
 upload-cli-release:
-	@if [ -z "$(VERSION)" ]; then \
-		echo "VERSION is required. Example: make upload-cli-release VERSION=v0.1.0"; \
-		exit 1; \
-	fi
-	./scripts/upload-cli-release.sh "$(VERSION)"
+	@set -eu; \
+	version="$$(./scripts/resolve-cli-release-version.sh --version "$(VERSION)" --bump "$(BUMP)" --goals "$(MAKECMDGOALS)")"; \
+	echo "uploading CLI release $$version"; \
+	./scripts/upload-cli-release.sh "$$version"
 
 release-cli:
-	@if [ -z "$(VERSION)" ]; then \
-		echo "VERSION is required. Example: make release-cli VERSION=v0.1.0"; \
-		exit 1; \
-	fi
-	$(MAKE) build-cli-release VERSION="$(VERSION)"
-	$(MAKE) upload-cli-release VERSION="$(VERSION)"
+	@set -eu; \
+	version="$$(./scripts/resolve-cli-release-version.sh --version "$(VERSION)" --bump "$(BUMP)" --goals "$(MAKECMDGOALS)")"; \
+	echo "releasing CLI $$version"; \
+	$(MAKE) build-cli-release VERSION="$$version"; \
+	$(MAKE) upload-cli-release VERSION="$$version"
 
 railway-status:
 	@set -eu; \

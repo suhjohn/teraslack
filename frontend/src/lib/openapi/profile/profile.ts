@@ -48,8 +48,8 @@ export type HTTPStatusCodes = HTTPStatusCode1xx | HTTPStatusCode2xx | HTTPStatus
 
 
 /**
- * Returns the authenticated user and the workspaces they can currently access.
- * @summary Get caller bootstrap state
+ * Returns the signed-in user and the workspaces they can currently access.
+ * @summary Show your account and workspaces
  */
 export type getProfileResponse200 = {
   data: MeResponse
@@ -147,7 +147,7 @@ export function useGetProfile<TData = Awaited<ReturnType<typeof getProfile>>, TE
  , queryClient?: QueryClient
   ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
 /**
- * @summary Get caller bootstrap state
+ * @summary Show your account and workspaces
  */
 
 export function useGetProfile<TData = Awaited<ReturnType<typeof getProfile>>, TError = ErrorType<ApiErrorResponseResponse>>(
@@ -166,8 +166,8 @@ export function useGetProfile<TData = Awaited<ReturnType<typeof getProfile>>, TE
 
 
 /**
- * Updates the authenticated caller's handle, display name, avatar URL, or bio.
- * @summary Update caller profile
+ * Updates the signed-in user's handle, display name, avatar URL, or bio.
+ * @summary Update your profile
  */
 export type updateProfileResponse200 = {
   data: User
@@ -243,7 +243,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type UpdateProfileMutationError = ErrorType<ApiErrorResponseResponse>
 
     /**
- * @summary Update caller profile
+ * @summary Update your profile
  */
 export const useUpdateProfile = <TError = ErrorType<ApiErrorResponseResponse>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateProfile>>, TError,{data: BodyType<UpdateProfileRequest>}, TContext>, request?: SecondParameter<typeof orvalFetch>}

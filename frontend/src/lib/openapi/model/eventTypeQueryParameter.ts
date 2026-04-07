@@ -7,6 +7,6 @@
  */
 
 /**
- * Restrict the event feed to one event type.
+ * Only include one event type.
  */
 export type EventTypeQueryParameter = string;

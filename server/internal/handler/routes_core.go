@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -230,7 +231,7 @@ func (s *Server) handleGetMe(w http.ResponseWriter, r *http.Request, auth domain
 }
 
 func (s *Server) handlePatchMeProfile(w http.ResponseWriter, r *http.Request, auth domain.AuthContext) {
-	if appErr := s.ensureGlobalUserSurfaceAccess(auth); appErr != nil {
+	if appErr := s.ensureHumanGlobalUserSurfaceAccess(auth); appErr != nil {
 		s.writeAppError(w, r, appErr)
 		return
 	}
@@ -288,11 +289,16 @@ func (s *Server) handlePatchMeProfile(w http.ResponseWriter, r *http.Request, au
 }
 
 func (s *Server) handleListAPIKeys(w http.ResponseWriter, r *http.Request, auth domain.AuthContext) {
-	if appErr := s.ensureGlobalUserSurfaceAccess(auth); appErr != nil {
+	if appErr := s.ensureHumanGlobalUserSurfaceAccess(auth); appErr != nil {
 		s.writeAppError(w, r, appErr)
 		return
 	}
-	rows, err := s.queries.ListAPIKeysByUser(r.Context(), auth.UserID)
+	subjectUserID, appErr := s.resolveManagedAPIKeySubject(r.Context(), auth, strings.TrimSpace(r.URL.Query().Get("subject_user_id")))
+	if appErr != nil {
+		s.writeAppError(w, r, appErr)
+		return
+	}
+	rows, err := s.queries.ListAPIKeysByUser(r.Context(), subjectUserID)
 	if err != nil {
 		s.writeAppError(w, r, internalError(err))
 		return
@@ -302,6 +308,7 @@ func (s *Server) handleListAPIKeys(w http.ResponseWriter, r *http.Request, auth 
 	for _, row := range rows {
 		item := api.APIKey{
 			ID:               row.ID.String(),
+			SubjectUserID:    row.UserID.String(),
 			Label:            row.Label,
 			ScopeType:        row.ScopeType,
 			ScopeWorkspaceID: uuidPtrToStringPtr(row.ScopeWorkspaceID),
@@ -316,7 +323,7 @@ func (s *Server) handleListAPIKeys(w http.ResponseWriter, r *http.Request, auth 
 }
 
 func (s *Server) handleCreateAPIKey(w http.ResponseWriter, r *http.Request, auth domain.AuthContext) {
-	if appErr := s.ensureGlobalUserSurfaceAccess(auth); appErr != nil {
+	if appErr := s.ensureHumanGlobalUserSurfaceAccess(auth); appErr != nil {
 		s.writeAppError(w, r, appErr)
 		return
 	}
@@ -328,6 +335,11 @@ func (s *Server) handleCreateAPIKey(w http.ResponseWriter, r *http.Request, auth
 	request.Label = strings.TrimSpace(request.Label)
 	if request.Label == "" {
 		s.writeAppError(w, r, validationFailed("label", "required", "Label is required."))
+		return
+	}
+	subjectUserID, appErr := s.resolveManagedAPIKeySubjectPtr(r.Context(), auth, request.SubjectUserID)
+	if appErr != nil {
+		s.writeAppError(w, r, appErr)
 		return
 	}
 	if request.ScopeType != "user" && request.ScopeType != "workspace" {
@@ -357,6 +369,10 @@ func (s *Server) handleCreateAPIKey(w http.ResponseWriter, r *http.Request, auth
 			s.writeAppError(w, r, appErr)
 			return
 		}
+		if appErr := s.ensureUserActiveWorkspaceMember(r.Context(), subjectUserID, *scopeWorkspaceID); appErr != nil {
+			s.writeAppError(w, r, appErr)
+			return
+		}
 	}
 
 	secret, err := teracrypto.RandomToken(32)
@@ -369,7 +385,7 @@ func (s *Server) handleCreateAPIKey(w http.ResponseWriter, r *http.Request, auth
 	if err := withTransaction(r.Context(), s.db, func(tx pgx.Tx) error {
 		if err := s.queries.WithTx(tx).CreateAPIKey(r.Context(), dbsqlc.CreateAPIKeyParams{
 			ID:               keyID,
-			UserID:           auth.UserID,
+			UserID:           subjectUserID,
 			Label:            request.Label,
 			SecretHash:       teracrypto.SHA256Hex(secret),
 			ScopeType:        request.ScopeType,
@@ -379,10 +395,10 @@ func (s *Server) handleCreateAPIKey(w http.ResponseWriter, r *http.Request, auth
 		}); err != nil {
 			return err
 		}
-		userID := auth.UserID
-		return s.appendEvent(r.Context(), tx, "api_key.created", "api_key", keyID, scopeWorkspaceID, &userID, map[string]any{
+		actorUserID := auth.UserID
+		return s.appendEvent(r.Context(), tx, "api_key.created", "api_key", keyID, scopeWorkspaceID, &actorUserID, map[string]any{
 			"api_key_id":         keyID.String(),
-			"user_id":            auth.UserID.String(),
+			"subject_user_id":    subjectUserID.String(),
 			"scope_type":         request.ScopeType,
 			"scope_workspace_id": uuidPtrToStringPtr(scopeWorkspaceID),
 			"expires_at":         timePtrToStringPtr(expiresAt),
@@ -395,6 +411,7 @@ func (s *Server) handleCreateAPIKey(w http.ResponseWriter, r *http.Request, auth
 	writeJSON(w, http.StatusCreated, api.CreateAPIKeyResponse{
 		APIKey: api.APIKey{
 			ID:               keyID.String(),
+			SubjectUserID:    subjectUserID.String(),
 			Label:            request.Label,
 			ScopeType:        request.ScopeType,
 			ScopeWorkspaceID: uuidPtrToStringPtr(scopeWorkspaceID),
@@ -406,7 +423,7 @@ func (s *Server) handleCreateAPIKey(w http.ResponseWriter, r *http.Request, auth
 }
 
 func (s *Server) handleDeleteAPIKey(w http.ResponseWriter, r *http.Request, auth domain.AuthContext) {
-	if appErr := s.ensureGlobalUserSurfaceAccess(auth); appErr != nil {
+	if appErr := s.ensureHumanGlobalUserSurfaceAccess(auth); appErr != nil {
 		s.writeAppError(w, r, appErr)
 		return
 	}
@@ -415,11 +432,24 @@ func (s *Server) handleDeleteAPIKey(w http.ResponseWriter, r *http.Request, auth
 		s.writeAppError(w, r, err)
 		return
 	}
+	keyRow, err := s.queries.GetAPIKeyByID(r.Context(), keyID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			s.writeAppError(w, r, notFound("API key not found."))
+			return
+		}
+		s.writeAppError(w, r, internalError(err))
+		return
+	}
+	if _, appErr := s.resolveManagedAPIKeySubject(r.Context(), auth, keyRow.UserID.String()); appErr != nil {
+		s.writeAppError(w, r, appErr)
+		return
+	}
 	err = withTransaction(r.Context(), s.db, func(tx pgx.Tx) error {
 		rowsAffected, err := s.queries.WithTx(tx).RevokeAPIKeyByOwner(r.Context(), dbsqlc.RevokeAPIKeyByOwnerParams{
 			RevokedAt: dbsqlc.Timestamptz(time.Now().UTC()),
 			ID:        keyID,
-			UserID:    auth.UserID,
+			UserID:    keyRow.UserID,
 		})
 		if err != nil {
 			return err
@@ -427,10 +457,10 @@ func (s *Server) handleDeleteAPIKey(w http.ResponseWriter, r *http.Request, auth
 		if rowsAffected == 0 {
 			return notFound("API key not found.")
 		}
-		userID := auth.UserID
-		return s.appendEvent(r.Context(), tx, "api_key.revoked", "api_key", keyID, nil, &userID, map[string]any{
-			"api_key_id": keyID.String(),
-			"user_id":    auth.UserID.String(),
+		actorUserID := auth.UserID
+		return s.appendEvent(r.Context(), tx, "api_key.revoked", "api_key", keyID, nil, &actorUserID, map[string]any{
+			"api_key_id":      keyID.String(),
+			"subject_user_id": keyRow.UserID.String(),
 		})
 	})
 	if err != nil {
@@ -489,6 +519,10 @@ func (s *Server) handleListWorkspaces(w http.ResponseWriter, r *http.Request, au
 }
 
 func (s *Server) handleCreateWorkspace(w http.ResponseWriter, r *http.Request, auth domain.AuthContext) {
+	if appErr := s.ensureHumanActor(auth); appErr != nil {
+		s.writeAppError(w, r, appErr)
+		return
+	}
 	if auth.APIKeyWorkspaceID != nil {
 		s.writeAppError(w, r, forbidden("Workspace-scoped API keys cannot create workspaces."))
 		return
@@ -612,6 +646,10 @@ func (s *Server) handlePatchWorkspace(w http.ResponseWriter, r *http.Request, au
 		s.writeAppError(w, r, err)
 		return
 	}
+	if appErr := s.ensureHumanActor(auth); appErr != nil {
+		s.writeAppError(w, r, appErr)
+		return
+	}
 	if appErr := s.ensureWorkspaceAdmin(r.Context(), auth, workspaceID); appErr != nil {
 		s.writeAppError(w, r, appErr)
 		return
@@ -694,6 +732,10 @@ func (s *Server) handleCreateWorkspaceInvite(w http.ResponseWriter, r *http.Requ
 		s.writeAppError(w, r, err)
 		return
 	}
+	if appErr := s.ensureHumanActor(auth); appErr != nil {
+		s.writeAppError(w, r, appErr)
+		return
+	}
 	if appErr := s.ensureWorkspaceAdmin(r.Context(), auth, workspaceID); appErr != nil {
 		s.writeAppError(w, r, appErr)
 		return
@@ -703,9 +745,35 @@ func (s *Server) handleCreateWorkspaceInvite(w http.ResponseWriter, r *http.Requ
 		s.writeAppError(w, r, err)
 		return
 	}
+	if request.Email != nil && request.UserID != nil {
+		s.writeAppError(w, r, validationFailed("body", "invalid_value", "Only one of email or user_id may be provided."))
+		return
+	}
 	if request.Email != nil {
 		normalized := normalizeEmail(*request.Email)
 		request.Email = &normalized
+	}
+	var invitedUserID *uuid.UUID
+	if request.UserID != nil {
+		parsed, err := uuid.Parse(strings.TrimSpace(*request.UserID))
+		if err != nil {
+			s.writeAppError(w, r, validationFailed("user_id", "invalid_uuid", "Must be a valid UUID."))
+			return
+		}
+		user, err := s.loadUser(r.Context(), parsed)
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				s.writeAppError(w, r, validationFailed("user_id", "invalid_value", "User does not exist."))
+				return
+			}
+			s.writeAppError(w, r, internalError(err))
+			return
+		}
+		if user.Status != "active" {
+			s.writeAppError(w, r, validationFailed("user_id", "invalid_value", "User must be active."))
+			return
+		}
+		invitedUserID = &parsed
 	}
 	token, err := teracrypto.RandomToken(24)
 	if err != nil {
@@ -720,6 +788,7 @@ func (s *Server) handleCreateWorkspaceInvite(w http.ResponseWriter, r *http.Requ
 			ID:              inviteID,
 			WorkspaceID:     workspaceID,
 			Email:           request.Email,
+			InvitedUserID:   invitedUserID,
 			InvitedByUserID: auth.UserID,
 			TokenHash:       teracrypto.SHA256Hex(token),
 			ExpiresAt:       dbsqlc.Timestamptz(expiresAt),
@@ -732,6 +801,7 @@ func (s *Server) handleCreateWorkspaceInvite(w http.ResponseWriter, r *http.Requ
 			"workspace_invite_id": inviteID.String(),
 			"workspace_id":        workspaceID.String(),
 			"email":               request.Email,
+			"user_id":             uuidPtrToStringPtr(invitedUserID),
 			"expires_at":          expiresAt.Format(time.RFC3339),
 		})
 	}); err != nil {
@@ -746,6 +816,14 @@ func (s *Server) handleCreateWorkspaceInvite(w http.ResponseWriter, r *http.Requ
 }
 
 func (s *Server) handleAcceptWorkspaceInvite(w http.ResponseWriter, r *http.Request, auth domain.AuthContext) {
+	if appErr := s.ensureGlobalUserSurfaceAccess(auth); appErr != nil {
+		s.writeAppError(w, r, appErr)
+		return
+	}
+	if appErr := s.ensureAgentSafeWrite(auth); appErr != nil {
+		s.writeAppError(w, r, appErr)
+		return
+	}
 	token := strings.TrimSpace(r.PathValue("token"))
 	if token == "" {
 		s.writeAppError(w, r, notFound("Workspace invite not found."))
@@ -773,6 +851,9 @@ func (s *Server) handleAcceptWorkspaceInvite(w http.ResponseWriter, r *http.Requ
 			if user.Email == nil || normalizeEmail(*user.Email) != normalizeEmail(*invite.Email) {
 				return forbidden("This invite is not valid for the authenticated user.")
 			}
+		}
+		if invite.InvitedUserID != nil && *invite.InvitedUserID != auth.UserID {
+			return forbidden("This invite is not valid for the authenticated user.")
 		}
 
 		workspaceID := invite.WorkspaceID
@@ -869,6 +950,10 @@ func (s *Server) handlePatchWorkspaceMember(w http.ResponseWriter, r *http.Reque
 	workspaceID, err := parseUUIDPath(r, "workspace_id")
 	if err != nil {
 		s.writeAppError(w, r, err)
+		return
+	}
+	if appErr := s.ensureHumanActor(auth); appErr != nil {
+		s.writeAppError(w, r, appErr)
 		return
 	}
 	if appErr := s.ensureWorkspaceAdmin(r.Context(), auth, workspaceID); appErr != nil {
@@ -1049,6 +1134,37 @@ func (s *Server) resolveOrCreateUserByEmailTx(ctx context.Context, tx pgx.Tx, em
 	var user userRow
 	user, err = s.insertUserWithProfile(ctx, tx, email)
 	return user, true, err
+}
+
+func (s *Server) resolveManagedAPIKeySubject(ctx context.Context, auth domain.AuthContext, raw string) (uuid.UUID, *appError) {
+	if raw == "" {
+		return auth.UserID, nil
+	}
+	parsed, err := uuid.Parse(raw)
+	if err != nil {
+		return uuid.UUID{}, validationFailed("subject_user_id", "invalid_uuid", "Must be a valid UUID.")
+	}
+	if parsed == auth.UserID {
+		return parsed, nil
+	}
+	agent, err := s.loadAgent(ctx, parsed)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return uuid.UUID{}, forbidden("You do not have access to that API key subject.")
+		}
+		return uuid.UUID{}, internalError(err)
+	}
+	if appErr := s.ensureAgentManager(ctx, auth, agent); appErr != nil {
+		return uuid.UUID{}, appErr
+	}
+	return parsed, nil
+}
+
+func (s *Server) resolveManagedAPIKeySubjectPtr(ctx context.Context, auth domain.AuthContext, raw *string) (uuid.UUID, *appError) {
+	if raw == nil {
+		return auth.UserID, nil
+	}
+	return s.resolveManagedAPIKeySubject(ctx, auth, strings.TrimSpace(*raw))
 }
 
 func (s *Server) sendEmailLoginCode(ctx context.Context, email string, code string) error {

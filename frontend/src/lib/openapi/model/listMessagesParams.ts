@@ -11,17 +11,17 @@ import type { LimitQueryParameter } from './limitQueryParameter';
 
 export type ListMessagesParams = {
 /**
- * Maximum number of items to return. Use the next_cursor from the response to continue paging.
+ * Maximum number of items to return per page.
  * @minimum 1
  * @maximum 200
  */
 limit?: LimitQueryParameter;
 /**
- * Opaque pagination cursor returned as next_cursor by a previous page.
+ * Pagination cursor from a previous response.
  */
 cursor?: CursorQueryParameter;
 /**
- * Return messages created before the referenced message.
+ * Only return messages created before the referenced message.
  */
 before_message_id?: BeforeMessageIDQueryParameter;
 };

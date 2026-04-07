@@ -12,5 +12,4 @@ export type AccessPolicyQueryParameter = typeof AccessPolicyQueryParameter[keyof
 export const AccessPolicyQueryParameter = {
   members: 'members',
   workspace: 'workspace',
-  authenticated: 'authenticated',
 } as const;

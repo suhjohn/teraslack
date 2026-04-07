@@ -13,9 +13,10 @@ import (
 )
 
 const getAPIKeyAuthBySecretHash = `-- name: GetAPIKeyAuthBySecretHash :one
-select k.id, k.user_id, k.scope_type, k.scope_workspace_id
+select k.id, k.user_id, k.scope_type, k.scope_workspace_id, u.principal_type, a.mode as agent_mode
 from api_keys k
 join users u on u.id = k.user_id
+left join agents a on a.user_id = u.id
 where k.secret_hash = $1
   and k.revoked_at is null
   and (k.expires_at is null or k.expires_at > $2)
@@ -32,6 +33,8 @@ type GetAPIKeyAuthBySecretHashRow struct {
 	UserID           uuid.UUID  `json:"user_id"`
 	ScopeType        string     `json:"scope_type"`
 	ScopeWorkspaceID *uuid.UUID `json:"scope_workspace_id"`
+	PrincipalType    string     `json:"principal_type"`
+	AgentMode        *string    `json:"agent_mode"`
 }
 
 func (q *Queries) GetAPIKeyAuthBySecretHash(ctx context.Context, arg GetAPIKeyAuthBySecretHashParams) (GetAPIKeyAuthBySecretHashRow, error) {
@@ -42,14 +45,17 @@ func (q *Queries) GetAPIKeyAuthBySecretHash(ctx context.Context, arg GetAPIKeyAu
 		&i.UserID,
 		&i.ScopeType,
 		&i.ScopeWorkspaceID,
+		&i.PrincipalType,
+		&i.AgentMode,
 	)
 	return i, err
 }
 
 const getSessionAuthByTokenHash = `-- name: GetSessionAuthByTokenHash :one
-select s.id, s.user_id
+select s.id, s.user_id, u.principal_type, a.mode as agent_mode
 from auth_sessions s
 join users u on u.id = s.user_id
+left join agents a on a.user_id = u.id
 where s.token_hash = $1
   and s.revoked_at is null
   and s.expires_at > $2
@@ -62,14 +68,21 @@ type GetSessionAuthByTokenHashParams struct {
 }
 
 type GetSessionAuthByTokenHashRow struct {
-	ID     uuid.UUID `json:"id"`
-	UserID uuid.UUID `json:"user_id"`
+	ID            uuid.UUID `json:"id"`
+	UserID        uuid.UUID `json:"user_id"`
+	PrincipalType string    `json:"principal_type"`
+	AgentMode     *string   `json:"agent_mode"`
 }
 
 func (q *Queries) GetSessionAuthByTokenHash(ctx context.Context, arg GetSessionAuthByTokenHashParams) (GetSessionAuthByTokenHashRow, error) {
 	row := q.db.QueryRow(ctx, getSessionAuthByTokenHash, arg.TokenHash, arg.ExpiresAt)
 	var i GetSessionAuthByTokenHashRow
-	err := row.Scan(&i.ID, &i.UserID)
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.PrincipalType,
+		&i.AgentMode,
+	)
 	return i, err
 }
 

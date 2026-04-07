@@ -13,12 +13,12 @@ export interface CreateConversationRequest {
      * @nullable
      */
   workspace_id?: string | null;
-  /** Visibility policy for the conversation. */
-  access_policy: CreateConversationRequestAccessPolicy;
-  /** Participant user ids for member-only conversations. Omit for workspace or authenticated conversations. */
+  /** Visibility policy for the conversation. Defaults to members when omitted. */
+  access_policy?: CreateConversationRequestAccessPolicy;
+  /** Participant user ids for member-only conversations. Omit for workspace conversations. */
   participant_user_ids?: string[];
   /**
-     * Conversation title. Required for non-member conversations.
+     * Conversation title. Required for workspace conversations.
      * @nullable
      */
   title?: string | null;

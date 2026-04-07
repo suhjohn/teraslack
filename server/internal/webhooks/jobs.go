@@ -29,11 +29,11 @@ const (
 
 type deliveryJob struct {
 	SubscriptionID  string `json:"subscription_id"`
-	ExternalEventID int64  `json:"external_event_id"`
+	ExternalEventID string `json:"external_event_id"`
 }
 
 type externalEventEnvelope struct {
-	ID           int64           `json:"id"`
+	ID           string          `json:"id"`
 	WorkspaceID  *string         `json:"workspace_id,omitempty"`
 	Type         string          `json:"type"`
 	ResourceType string          `json:"resource_type"`
@@ -54,8 +54,8 @@ func EnqueueDeliveriesOnce(ctx context.Context, pool *pgxpool.Pool, producer *qu
 		return err
 	}
 
-	events, err := queries.ListExternalEventsForWebhookQueueAfterID(ctx, dbsqlc.ListExternalEventsForWebhookQueueAfterIDParams{
-		ID:         checkpoint,
+	events, err := queries.ListExternalEventsForWebhookQueueAfterSequenceID(ctx, dbsqlc.ListExternalEventsForWebhookQueueAfterSequenceIDParams{
+		SequenceID: checkpoint,
 		BatchLimit: producerBatchSize,
 	})
 	if err != nil {
@@ -66,7 +66,7 @@ func EnqueueDeliveriesOnce(ctx context.Context, pool *pgxpool.Pool, producer *qu
 	}
 
 	items := make([]queue.EnqueueItem, 0)
-	lastEventID := checkpoint
+	lastSequenceID := checkpoint
 	for _, event := range events {
 		resourceID := event.ResourceID
 		subscriptions, err := queries.ListWebhookSubscriptionsForExternalEvent(ctx, dbsqlc.ListWebhookSubscriptionsForExternalEventParams{
@@ -82,7 +82,7 @@ func EnqueueDeliveriesOnce(ctx context.Context, pool *pgxpool.Pool, producer *qu
 		for _, subscriptionID := range subscriptions {
 			payload, err := json.Marshal(deliveryJob{
 				SubscriptionID:  subscriptionID.String(),
-				ExternalEventID: event.ID,
+				ExternalEventID: event.ID.String(),
 			})
 			if err != nil {
 				return err
@@ -92,7 +92,7 @@ func EnqueueDeliveriesOnce(ctx context.Context, pool *pgxpool.Pool, producer *qu
 				Payload: payload,
 			})
 		}
-		lastEventID = event.ID
+		lastSequenceID = event.SequenceID
 	}
 
 	if len(items) > 0 {
@@ -102,9 +102,9 @@ func EnqueueDeliveriesOnce(ctx context.Context, pool *pgxpool.Pool, producer *qu
 	}
 
 	return queries.UpdateCheckpoint(ctx, dbsqlc.UpdateCheckpointParams{
-		Name:        producerCheckpointName,
-		LastEventID: lastEventID,
-		UpdatedAt:   dbsqlc.Timestamptz(time.Now().UTC()),
+		Name:           producerCheckpointName,
+		LastSequenceID: lastSequenceID,
+		UpdatedAt:      dbsqlc.Timestamptz(time.Now().UTC()),
 	})
 }
 
@@ -134,9 +134,13 @@ func processDelivery(ctx context.Context, client *http.Client, queries *dbsqlc.Q
 	if err != nil {
 		return err
 	}
+	externalEventID, err := uuid.Parse(payload.ExternalEventID)
+	if err != nil {
+		return err
+	}
 
 	row, err := queries.GetWebhookDeliverySource(ctx, dbsqlc.GetWebhookDeliverySourceParams{
-		ExternalEventID: payload.ExternalEventID,
+		ExternalEventID: externalEventID,
 		SubscriptionID:  subscriptionID,
 	})
 	if err != nil {
@@ -156,7 +160,7 @@ func processDelivery(ctx context.Context, client *http.Client, queries *dbsqlc.Q
 	}
 
 	event := externalEventEnvelope{
-		ID:           row.EventID,
+		ID:           row.EventID.String(),
 		Type:         row.Type,
 		ResourceType: row.ResourceType,
 		ResourceID:   row.ResourceID.String(),
@@ -216,9 +220,9 @@ func loadCheckpoint(ctx context.Context, queries *dbsqlc.Queries, name string) (
 		return 0, err
 	}
 	if err := queries.InsertCheckpointIfMissing(ctx, dbsqlc.InsertCheckpointIfMissingParams{
-		Name:        name,
-		LastEventID: 0,
-		UpdatedAt:   dbsqlc.Timestamptz(time.Now().UTC()),
+		Name:           name,
+		LastSequenceID: 0,
+		UpdatedAt:      dbsqlc.Timestamptz(time.Now().UTC()),
 	}); err != nil {
 		return 0, err
 	}

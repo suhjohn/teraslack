@@ -6,6 +6,7 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { ConversationAccessPolicy } from './conversationAccessPolicy';
+import type { ConversationShareLink } from './conversationShareLink';
 
 export interface Conversation {
   /** Conversation identifier. */
@@ -42,4 +43,6 @@ export interface Conversation {
   created_at: string;
   /** Last update time. */
   updated_at: string;
+  /** Current share link returned only from conversation creation for eligible private conversations. */
+  share_link?: ConversationShareLink | null;
 }

@@ -45,6 +45,27 @@ func (q *Queries) CountActiveWorkspaceMembersByIDs(ctx context.Context, arg Coun
 	return count, err
 }
 
+const getAgent = `-- name: GetAgent :one
+select user_id, owner_user_id, owner_workspace_id, mode, created_by_user_id, created_at, updated_at
+from agents
+where user_id = $1
+`
+
+func (q *Queries) GetAgent(ctx context.Context, userID uuid.UUID) (Agent, error) {
+	row := q.db.QueryRow(ctx, getAgent, userID)
+	var i Agent
+	err := row.Scan(
+		&i.UserID,
+		&i.OwnerUserID,
+		&i.OwnerWorkspaceID,
+		&i.Mode,
+		&i.CreatedByUserID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const getConversation = `-- name: GetConversation :one
 select
   c.id,
@@ -233,4 +254,91 @@ func (q *Queries) IsDirectMessage(ctx context.Context, conversationID uuid.UUID)
 	var exists bool
 	err := row.Scan(&exists)
 	return exists, err
+}
+
+const listAgentsManagedByUser = `-- name: ListAgentsManagedByUser :many
+select
+  a.user_id,
+  a.owner_user_id,
+  a.owner_workspace_id,
+  a.mode,
+  a.created_by_user_id,
+  a.created_at,
+  a.updated_at,
+  u.id,
+  u.principal_type,
+  u.status,
+  u.email,
+  p.handle,
+  p.display_name,
+  p.avatar_url,
+  p.bio
+from agents a
+join users u on u.id = a.user_id
+join user_profiles p on p.user_id = u.id
+where a.owner_user_id = $1
+   or exists (
+    select 1
+    from workspace_memberships wm
+    where a.owner_workspace_id is not null
+      and wm.workspace_id = a.owner_workspace_id
+      and wm.user_id = $1
+      and wm.status = 'active'
+      and wm.role in ('owner', 'admin')
+  )
+order by p.display_name asc
+`
+
+type ListAgentsManagedByUserRow struct {
+	UserID           uuid.UUID          `json:"user_id"`
+	OwnerUserID      *uuid.UUID         `json:"owner_user_id"`
+	OwnerWorkspaceID *uuid.UUID         `json:"owner_workspace_id"`
+	Mode             string             `json:"mode"`
+	CreatedByUserID  uuid.UUID          `json:"created_by_user_id"`
+	CreatedAt        pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt        pgtype.Timestamptz `json:"updated_at"`
+	ID               uuid.UUID          `json:"id"`
+	PrincipalType    string             `json:"principal_type"`
+	Status           string             `json:"status"`
+	Email            *string            `json:"email"`
+	Handle           string             `json:"handle"`
+	DisplayName      string             `json:"display_name"`
+	AvatarUrl        *string            `json:"avatar_url"`
+	Bio              *string            `json:"bio"`
+}
+
+func (q *Queries) ListAgentsManagedByUser(ctx context.Context, ownerUserID *uuid.UUID) ([]ListAgentsManagedByUserRow, error) {
+	rows, err := q.db.Query(ctx, listAgentsManagedByUser, ownerUserID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListAgentsManagedByUserRow{}
+	for rows.Next() {
+		var i ListAgentsManagedByUserRow
+		if err := rows.Scan(
+			&i.UserID,
+			&i.OwnerUserID,
+			&i.OwnerWorkspaceID,
+			&i.Mode,
+			&i.CreatedByUserID,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.ID,
+			&i.PrincipalType,
+			&i.Status,
+			&i.Email,
+			&i.Handle,
+			&i.DisplayName,
+			&i.AvatarUrl,
+			&i.Bio,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }

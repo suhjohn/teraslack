@@ -66,11 +66,11 @@ func (c *CLI) printLifecycleHelp(name string, w io.Writer) {
 	case "version":
 		fmt.Fprintln(w, "Usage:\n  teraslack version")
 		fmt.Fprintln(w)
-		fmt.Fprintln(w, "Print the installed Teraslack CLI version.")
+		fmt.Fprintln(w, "Show the installed Teraslack CLI version.")
 	case "update":
 		fmt.Fprintln(w, "Usage:\n  teraslack update")
 		fmt.Fprintln(w)
-		fmt.Fprintln(w, "Download the latest CLI release from the configured manifest and replace the current binary.")
+		fmt.Fprintln(w, "Download the latest published CLI release for this platform and replace the current binary.")
 	case "uninstall":
 		fmt.Fprintln(w, "Usage:\n  teraslack uninstall [--keep-config]")
 		fmt.Fprintln(w)
@@ -78,7 +78,7 @@ func (c *CLI) printLifecycleHelp(name string, w io.Writer) {
 	case "signout":
 		fmt.Fprintln(w, "Usage:\n  teraslack signout")
 		fmt.Fprintln(w)
-		fmt.Fprintln(w, "Remove the stored session token while keeping base URL and API key config.")
+		fmt.Fprintln(w, "Remove the saved session token while keeping the base URL and API key config.")
 	}
 }
 

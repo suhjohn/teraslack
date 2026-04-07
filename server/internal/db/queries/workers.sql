@@ -9,27 +9,27 @@ where projector_leases.owner = excluded.owner
    or projector_leases.lease_until < excluded.updated_at;
 
 -- name: GetCheckpointForUpdate :one
-select last_event_id
+select last_sequence_id
 from projector_checkpoints
 where name = $1
 for update;
 
 -- name: InsertCheckpointIfMissing :exec
-insert into projector_checkpoints (name, last_event_id, updated_at)
+insert into projector_checkpoints (name, last_sequence_id, updated_at)
 values ($1, $2, $3)
 on conflict do nothing;
 
 -- name: UpdateCheckpoint :exec
 update projector_checkpoints
-set last_event_id = $2, updated_at = $3
+set last_sequence_id = $2, updated_at = $3
 where name = $1;
 
--- name: ListInternalEventsByShardAfterID :many
-select id, event_type, workspace_id, payload, created_at
+-- name: ListInternalEventsByShardAfterSequenceID :many
+select id, sequence_id, event_type, workspace_id, payload, created_at
 from internal_events
 where shard_id = $1
-  and id > $2
-order by id asc
+  and sequence_id > $2
+order by sequence_id asc
 limit $3;
 
 -- name: GetInternalEventForProjection :one
@@ -72,11 +72,11 @@ insert into user_event_feed (user_id, external_event_id)
 values ($1, $2)
 on conflict do nothing;
 
--- name: ListExternalEventsForWebhookQueueAfterID :many
-select id, workspace_id, type, resource_type, resource_id
+-- name: ListExternalEventsForWebhookQueueAfterSequenceID :many
+select id, sequence_id, workspace_id, type, resource_type, resource_id
 from external_events
-where id > sqlc.arg(id)
-order by id asc
+where sequence_id > sqlc.arg(sequence_id)
+order by sequence_id asc
 limit sqlc.arg(batch_limit);
 
 -- name: ListWebhookSubscriptionsForExternalEvent :many
@@ -105,8 +105,7 @@ where es.enabled = true
       join conversations c on c.id = cef.conversation_id
       where cef.external_event_id = sqlc.arg(external_event_id)
         and (
-          (c.workspace_id is null and c.access_policy = 'authenticated')
-          or (
+          (
             c.workspace_id is null
             and c.access_policy = 'members'
             and exists (
@@ -179,8 +178,7 @@ where es.enabled = true
       join conversations c on c.id = cef.conversation_id
       where cef.external_event_id = ee.id
         and (
-          (c.workspace_id is null and c.access_policy = 'authenticated')
-          or (
+          (
             c.workspace_id is null
             and c.access_policy = 'members'
             and exists (
@@ -229,7 +227,7 @@ with claimed as (
     wd.status = 'processing'
     and wd.updated_at <= now() - interval '5 minutes'
   )
-  order by wd.id asc
+  order by wd.created_at asc, wd.id asc
   for update skip locked
   limit $1
 )

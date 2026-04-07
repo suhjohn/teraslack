@@ -101,7 +101,7 @@ For the one-command installer:
 
 Release bundle workflow:
 
-1. Run `make build-cli-release VERSION=v0.1.0`.
+1. Run `make build-cli-release VERSION=v0.1.0` or `make build-cli-release bump-patch`.
 2. Upload `dist/cli-release/latest.json`.
 3. Upload `dist/cli-release/v0.1.0/SHA256SUMS`.
 4. Upload each platform tarball under:
@@ -120,8 +120,11 @@ Automated downloads upload:
    - `S3_DOWNLOADS_ACCESS_KEY_ID=<downloads_access_key_id>`
    - `S3_DOWNLOADS_SECRET_ACCESS_KEY=<downloads_secret_access_key>`
    - optional: `S3_DOWNLOADS_PREFIX=teraslack/cli`
-2. Run `make release-cli VERSION=v0.1.0`.
-3. If the bundle is already built, run `make upload-cli-release VERSION=v0.1.0`.
+2. Run `make release-cli VERSION=v0.1.0`, or bump from the current local manifest with:
+   - `make release-cli bump-patch`
+   - `make release-cli bump-minor`
+   - `make release-cli bump-major`
+3. If the bundle is already built, run `make upload-cli-release VERSION=v0.1.0` or `make upload-cli-release bump-patch`.
 
 ## GitHub Actions
 

@@ -11,6 +11,16 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+type Agent struct {
+	UserID           uuid.UUID          `json:"user_id"`
+	OwnerUserID      *uuid.UUID         `json:"owner_user_id"`
+	OwnerWorkspaceID *uuid.UUID         `json:"owner_workspace_id"`
+	Mode             string             `json:"mode"`
+	CreatedByUserID  uuid.UUID          `json:"created_by_user_id"`
+	CreatedAt        pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt        pgtype.Timestamptz `json:"updated_at"`
+}
+
 type ApiKey struct {
 	ID               uuid.UUID          `json:"id"`
 	UserID           uuid.UUID          `json:"user_id"`
@@ -49,7 +59,7 @@ type Conversation struct {
 
 type ConversationEventFeed struct {
 	ConversationID  uuid.UUID `json:"conversation_id"`
-	ExternalEventID int64     `json:"external_event_id"`
+	ExternalEventID uuid.UUID `json:"external_event_id"`
 }
 
 type ConversationInvite struct {
@@ -63,6 +73,7 @@ type ConversationInvite struct {
 	AllowedEmails   *json.RawMessage   `json:"allowed_emails"`
 	RevokedAt       pgtype.Timestamptz `json:"revoked_at"`
 	CreatedAt       pgtype.Timestamptz `json:"created_at"`
+	EncryptedToken  *string            `json:"encrypted_token"`
 }
 
 type ConversationPair struct {
@@ -110,27 +121,29 @@ type EventSubscription struct {
 }
 
 type ExternalEvent struct {
-	ID                    int64              `json:"id"`
+	ID                    uuid.UUID          `json:"id"`
+	SequenceID            int64              `json:"sequence_id"`
 	WorkspaceID           *uuid.UUID         `json:"workspace_id"`
 	Type                  string             `json:"type"`
 	ResourceType          string             `json:"resource_type"`
 	ResourceID            uuid.UUID          `json:"resource_id"`
 	OccurredAt            pgtype.Timestamptz `json:"occurred_at"`
 	Payload               json.RawMessage    `json:"payload"`
-	SourceInternalEventID *int64             `json:"source_internal_event_id"`
+	SourceInternalEventID *uuid.UUID         `json:"source_internal_event_id"`
 	DedupeKey             string             `json:"dedupe_key"`
 	CreatedAt             pgtype.Timestamptz `json:"created_at"`
 }
 
 type ExternalEventProjectionFailure struct {
-	ID              int64              `json:"id"`
-	InternalEventID int64              `json:"internal_event_id"`
+	ID              uuid.UUID          `json:"id"`
+	InternalEventID uuid.UUID          `json:"internal_event_id"`
 	Error           string             `json:"error"`
 	CreatedAt       pgtype.Timestamptz `json:"created_at"`
 }
 
 type InternalEvent struct {
-	ID            int64              `json:"id"`
+	ID            uuid.UUID          `json:"id"`
+	SequenceID    int64              `json:"sequence_id"`
 	EventType     string             `json:"event_type"`
 	AggregateType string             `json:"aggregate_type"`
 	AggregateID   uuid.UUID          `json:"aggregate_id"`
@@ -173,9 +186,9 @@ type OauthState struct {
 }
 
 type ProjectorCheckpoint struct {
-	Name        string             `json:"name"`
-	LastEventID int64              `json:"last_event_id"`
-	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
+	Name           string             `json:"name"`
+	LastSequenceID int64              `json:"last_sequence_id"`
+	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
 }
 
 type ProjectorLease struct {
@@ -197,7 +210,7 @@ type User struct {
 
 type UserEventFeed struct {
 	UserID          uuid.UUID `json:"user_id"`
-	ExternalEventID int64     `json:"external_event_id"`
+	ExternalEventID uuid.UUID `json:"external_event_id"`
 }
 
 type UserProfile struct {
@@ -211,9 +224,9 @@ type UserProfile struct {
 }
 
 type WebhookDelivery struct {
-	ID              int64              `json:"id"`
+	ID              uuid.UUID          `json:"id"`
 	SubscriptionID  uuid.UUID          `json:"subscription_id"`
-	ExternalEventID int64              `json:"external_event_id"`
+	ExternalEventID uuid.UUID          `json:"external_event_id"`
 	Status          string             `json:"status"`
 	AttemptCount    int32              `json:"attempt_count"`
 	NextAttemptAt   pgtype.Timestamptz `json:"next_attempt_at"`
@@ -234,7 +247,7 @@ type Workspace struct {
 
 type WorkspaceEventFeed struct {
 	WorkspaceID     uuid.UUID `json:"workspace_id"`
-	ExternalEventID int64     `json:"external_event_id"`
+	ExternalEventID uuid.UUID `json:"external_event_id"`
 }
 
 type WorkspaceInvite struct {
@@ -247,6 +260,7 @@ type WorkspaceInvite struct {
 	AcceptedAt       pgtype.Timestamptz `json:"accepted_at"`
 	AcceptedByUserID *uuid.UUID         `json:"accepted_by_user_id"`
 	CreatedAt        pgtype.Timestamptz `json:"created_at"`
+	InvitedUserID    *uuid.UUID         `json:"invited_user_id"`
 }
 
 type WorkspaceMembership struct {

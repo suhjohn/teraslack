@@ -3,8 +3,8 @@ import { createFileRoute, Outlet, useRouterState } from '@tanstack/react-router'
 import { useMemo } from 'react'
 import { Users } from 'lucide-react'
 import {
-  CreateConversationInviteDialogButton,
-  CreateMeConversationWithInviteDialogButton,
+  CreateConversationShareLinkDialogButton,
+  CreateMeConversationWithShareLinkDialogButton,
   CreateWorkspaceDialogButton,
 } from '../../components/workspace/management'
 import {
@@ -138,7 +138,7 @@ function WorkspacesMeRoute() {
     selectedConversation?.workspace_id != null
       ? workspaceMembershipsById.get(selectedConversation.workspace_id) ?? null
       : null
-  const inviteableSelectedConversation =
+  const shareableSelectedConversation =
     selectedConversation?.access_policy === ConversationAccessPolicy.members &&
     (selectedConversation.created_by_user_id === auth.user.id ||
       selectedWorkspaceMembership?.role === 'owner' ||
@@ -185,20 +185,20 @@ function WorkspacesMeRoute() {
               subtitle="Direct messages and group chats"
               badgeLabel={`${conversations.length} chats`}
               headerAction={
-                inviteableSelectedConversation ? (
-                  <CreateConversationInviteDialogButton
-                    conversation={inviteableSelectedConversation}
+                shareableSelectedConversation ? (
+                  <CreateConversationShareLinkDialogButton
+                    conversation={shareableSelectedConversation}
                     className="xl:hidden"
                   >
-                    Invite link
-                  </CreateConversationInviteDialogButton>
+                    Share link
+                  </CreateConversationShareLinkDialogButton>
                 ) : null
               }
               sectionLabel="Private chats"
               sectionAction={
-                <CreateMeConversationWithInviteDialogButton>
+                <CreateMeConversationWithShareLinkDialogButton>
                   New chat
-                </CreateMeConversationWithInviteDialogButton>
+                </CreateMeConversationWithShareLinkDialogButton>
               }
               emptyStateIcon={<Users className="h-5 w-5" />}
               emptyStateHeading="No chats yet"
@@ -207,7 +207,6 @@ function WorkspacesMeRoute() {
               selectedConversationID={selectedConversationId}
               conversationsPending={conversationsPending}
               conversationsError={conversationsError}
-              eventsLink="/workspaces/me/events"
               getConversationFallbackDescription={(conversation) => {
                 if (!conversation.workspace_id) {
                   return 'Global direct message'
@@ -228,13 +227,13 @@ function WorkspacesMeRoute() {
               conversations={conversations}
               selectedConversation={selectedConversation}
               managementActions={
-                inviteableSelectedConversation ? (
-                  <CreateConversationInviteDialogButton
-                    conversation={inviteableSelectedConversation}
+                shareableSelectedConversation ? (
+                  <CreateConversationShareLinkDialogButton
+                    conversation={shareableSelectedConversation}
                     className="w-full justify-center"
                   >
-                    Invite link
-                  </CreateConversationInviteDialogButton>
+                    Share link
+                  </CreateConversationShareLinkDialogButton>
                 ) : null
               }
               workspacesById={workspacesById}

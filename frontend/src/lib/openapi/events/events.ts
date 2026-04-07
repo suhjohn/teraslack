@@ -43,7 +43,7 @@ export type HTTPStatusCodes = HTTPStatusCode1xx | HTTPStatusCode2xx | HTTPStatus
 
 
 /**
- * Lists externally visible events visible to the caller, ordered by ascending event id.
+ * Returns external events visible to the caller. Results are paginated by cursor and can be filtered by workspace, event type, or resource.
  * @summary List external events
  */
 export type listEventsResponse200 = {

@@ -2,21 +2,21 @@ import { useQueryClient } from '@tanstack/react-query'
 import { Link, createFileRoute, useNavigate } from '@tanstack/react-router'
 import { LoaderCircle } from 'lucide-react'
 import { useEffect, useState } from 'react'
-import { Card, CardDescription, CardHeader, CardTitle } from '../../components/ui/card'
-import { APIClientError } from '../../lib/api'
-import { getErrorMessage } from '../../lib/admin'
-import { useAcceptConversationInvite } from '../../lib/openapi'
-import type { Conversation } from '../../lib/openapi'
+import { Card, CardDescription, CardHeader, CardTitle } from '../../../components/ui/card'
+import { APIClientError } from '../../../lib/api'
+import { getErrorMessage } from '../../../lib/admin'
+import { useJoinConversation } from '../../../lib/openapi'
+import type { Conversation } from '../../../lib/openapi'
 
-export const Route = createFileRoute('/conversation-invites/$token')({
-  component: ConversationInviteRoute,
+export const Route = createFileRoute('/join/conversations/$token')({
+  component: JoinConversationRoute,
 })
 
-function ConversationInviteRoute() {
+function JoinConversationRoute() {
   const { token } = Route.useParams()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
-  const acceptInviteMutation = useAcceptConversationInvite()
+  const joinConversationMutation = useJoinConversation()
 
   const [error, setError] = useState('')
   const [isUnauthorized, setIsUnauthorized] = useState(false)
@@ -24,10 +24,10 @@ function ConversationInviteRoute() {
   useEffect(() => {
     let cancelled = false
 
-    async function acceptInvite() {
+    async function joinConversation() {
       try {
         const conversation = unwrapData<Conversation>(
-          await acceptInviteMutation.mutateAsync({ token }),
+          await joinConversationMutation.mutateAsync({ data: { token } }),
         )
 
         await queryClient.invalidateQueries({ queryKey: ['/conversations'] })
@@ -41,27 +41,27 @@ function ConversationInviteRoute() {
           params: { conversationId: conversation.id },
           replace: true,
         })
-      } catch (acceptError) {
+      } catch (joinError) {
         if (cancelled) {
           return
         }
 
-        if (acceptError instanceof APIClientError && acceptError.status === 401) {
+        if (joinError instanceof APIClientError && joinError.status === 401) {
           setIsUnauthorized(true)
-          setError('Sign in to accept this chat invite, then open the link again.')
+          setError('Sign in to join this conversation, then open the link again.')
           return
         }
 
-        setError(getErrorMessage(acceptError, 'Failed to accept chat invite.'))
+        setError(getErrorMessage(joinError, 'Failed to join conversation.'))
       }
     }
 
-    void acceptInvite()
+    void joinConversation()
 
     return () => {
       cancelled = true
     }
-  }, [acceptInviteMutation, navigate, queryClient, token])
+  }, [joinConversationMutation, navigate, queryClient, token])
 
   if (!error) {
     return (
@@ -70,7 +70,7 @@ function ConversationInviteRoute() {
           <Card className="flex min-h-[32vh] w-full items-center justify-center rounded-[2rem]">
             <span className="inline-flex items-center gap-3 text-[var(--sys-home-muted)]">
               <LoaderCircle className="h-5 w-5 animate-spin" />
-              Joining chat…
+              Joining conversation…
             </span>
           </Card>
         </div>
@@ -84,7 +84,7 @@ function ConversationInviteRoute() {
         <Card className="rounded-[2rem] p-8">
           <CardHeader>
             <CardTitle>
-              {isUnauthorized ? 'Authentication required' : 'Invite unavailable'}
+              {isUnauthorized ? 'Authentication required' : 'Link unavailable'}
             </CardTitle>
             <CardDescription>{error}</CardDescription>
           </CardHeader>

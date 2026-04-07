@@ -6,7 +6,7 @@
  * OpenAPI spec version: 0.1.0
  */
 
-/**
- * Number of trailing UTC days to include in the report.
- */
-export type DashboardDaysQueryParameter = number;
+export interface JoinConversationRequest {
+  /** Raw share link token. */
+  token: string;
+}

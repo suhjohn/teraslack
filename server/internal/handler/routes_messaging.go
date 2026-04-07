@@ -3,8 +3,10 @@ package handler
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"slices"
 	"strings"
 	"time"
@@ -53,8 +55,8 @@ func (s *Server) handleListConversations(w http.ResponseWriter, r *http.Request,
 		return
 	}
 	accessPolicy := strings.TrimSpace(r.URL.Query().Get("access_policy"))
-	if accessPolicy != "" && accessPolicy != "members" && accessPolicy != "workspace" && accessPolicy != "authenticated" {
-		s.writeAppError(w, r, validationFailed("access_policy", "invalid_value", "Must be one of members, workspace, authenticated."))
+	if accessPolicy != "" && accessPolicy != "members" && accessPolicy != "workspace" {
+		s.writeAppError(w, r, validationFailed("access_policy", "invalid_value", "Must be one of members or workspace."))
 		return
 	}
 
@@ -80,12 +82,10 @@ func (s *Server) handleListConversations(w http.ResponseWriter, r *http.Request,
 	args := []any{}
 	if workspaceID == nil {
 		query += `c.workspace_id is null
-			and (
-				c.access_policy = 'authenticated' or
-				(c.access_policy = 'members' and exists (
-					select 1 from conversation_participants cp
-					where cp.conversation_id = c.id and cp.user_id = $1
-				))
+			and c.access_policy = 'members'
+			and exists (
+				select 1 from conversation_participants cp
+				where cp.conversation_id = c.id and cp.user_id = $1
 			)`
 		args = append(args, auth.UserID)
 	} else {
@@ -130,10 +130,18 @@ func (s *Server) handleListConversations(w http.ResponseWriter, r *http.Request,
 }
 
 func (s *Server) handleCreateConversation(w http.ResponseWriter, r *http.Request, auth domain.AuthContext) {
+	if appErr := s.ensureAgentSafeWrite(auth); appErr != nil {
+		s.writeAppError(w, r, appErr)
+		return
+	}
 	var request api.CreateConversationRequest
 	if err := decodeJSON(r, &request); err != nil {
 		s.writeAppError(w, r, err)
 		return
+	}
+	request.AccessPolicy = strings.TrimSpace(request.AccessPolicy)
+	if request.AccessPolicy == "" {
+		request.AccessPolicy = "members"
 	}
 	workspaceID, err := parseOptionalUUID(request.WorkspaceID)
 	if err != nil {
@@ -146,16 +154,12 @@ func (s *Server) handleCreateConversation(w http.ResponseWriter, r *http.Request
 			return
 		}
 	}
-	if request.AccessPolicy != "members" && request.AccessPolicy != "workspace" && request.AccessPolicy != "authenticated" {
-		s.writeAppError(w, r, validationFailed("access_policy", "invalid_value", "Must be one of members, workspace, authenticated."))
+	if request.AccessPolicy != "members" && request.AccessPolicy != "workspace" {
+		s.writeAppError(w, r, validationFailed("access_policy", "invalid_value", "Must be one of members or workspace."))
 		return
 	}
 	if workspaceID == nil && request.AccessPolicy == "workspace" {
 		s.writeAppError(w, r, validationFailed("access_policy", "invalid_value", "workspace access_policy requires workspace_id."))
-		return
-	}
-	if workspaceID != nil && request.AccessPolicy == "authenticated" {
-		s.writeAppError(w, r, validationFailed("access_policy", "invalid_value", "authenticated access_policy requires a global conversation."))
 		return
 	}
 	title := trimOptionalString(request.Title)
@@ -190,6 +194,7 @@ func (s *Server) handleCreateConversation(w http.ResponseWriter, r *http.Request
 
 	var conversation conversationRow
 	var conversationID uuid.UUID
+	var shareLink *api.ConversationShareLink
 	statusCode := http.StatusCreated
 	errExec := withTransaction(r.Context(), s.db, func(tx pgx.Tx) error {
 		txQueries := s.queries.WithTx(tx)
@@ -259,6 +264,13 @@ func (s *Server) handleCreateConversation(w http.ResponseWriter, r *http.Request
 				}
 			}
 		}
+		if request.AccessPolicy == "members" && !(workspaceID == nil && len(participants) == 2) {
+			link, err := s.createConversationShareLinkTx(r.Context(), tx, conversationID, workspaceID, auth.UserID, time.Now().UTC(), "conversation.share_link.created")
+			if err != nil {
+				return err
+			}
+			shareLink = &link
+		}
 		actor := auth.UserID
 		payload := map[string]any{
 			"conversation_id": conversationID.String(),
@@ -304,7 +316,7 @@ func (s *Server) handleCreateConversation(w http.ResponseWriter, r *http.Request
 			return
 		}
 	}
-	writeJSON(w, statusCode, conversationToAPI(conversation))
+	writeJSON(w, statusCode, conversationToAPIWithShareLink(conversation, shareLink))
 }
 
 func (s *Server) handleGetConversation(w http.ResponseWriter, r *http.Request, auth domain.AuthContext) {
@@ -330,6 +342,10 @@ func (s *Server) handleGetConversation(w http.ResponseWriter, r *http.Request, a
 }
 
 func (s *Server) handlePatchConversation(w http.ResponseWriter, r *http.Request, auth domain.AuthContext) {
+	if appErr := s.ensureHumanActor(auth); appErr != nil {
+		s.writeAppError(w, r, appErr)
+		return
+	}
 	conversationID, err := parseUUIDPath(r, "conversation_id")
 	if err != nil {
 		s.writeAppError(w, r, err)
@@ -443,6 +459,10 @@ func (s *Server) handleListConversationParticipants(w http.ResponseWriter, r *ht
 }
 
 func (s *Server) handleAddConversationParticipants(w http.ResponseWriter, r *http.Request, auth domain.AuthContext) {
+	if appErr := s.ensureAgentSafeWrite(auth); appErr != nil {
+		s.writeAppError(w, r, appErr)
+		return
+	}
 	conversationID, err := parseUUIDPath(r, "conversation_id")
 	if err != nil {
 		s.writeAppError(w, r, err)
@@ -529,6 +549,10 @@ func (s *Server) handleAddConversationParticipants(w http.ResponseWriter, r *htt
 }
 
 func (s *Server) handleDeleteConversationParticipant(w http.ResponseWriter, r *http.Request, auth domain.AuthContext) {
+	if appErr := s.ensureHumanActor(auth); appErr != nil {
+		s.writeAppError(w, r, appErr)
+		return
+	}
 	conversationID, err := parseUUIDPath(r, "conversation_id")
 	if err != nil {
 		s.writeAppError(w, r, err)
@@ -601,7 +625,7 @@ func (s *Server) handleDeleteConversationParticipant(w http.ResponseWriter, r *h
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func (s *Server) handleCreateConversationInvite(w http.ResponseWriter, r *http.Request, auth domain.AuthContext) {
+func (s *Server) handleGetConversationShareLink(w http.ResponseWriter, r *http.Request, auth domain.AuthContext) {
 	conversationID, err := parseUUIDPath(r, "conversation_id")
 	if err != nil {
 		s.writeAppError(w, r, err)
@@ -620,93 +644,185 @@ func (s *Server) handleCreateConversationInvite(w http.ResponseWriter, r *http.R
 		s.writeAppError(w, r, appErr)
 		return
 	}
-	if conversation.AccessPolicy != "members" {
-		s.writeAppError(w, r, validationFailed("conversation", "invalid_value", "Invites are valid only for member-only conversations."))
+	if appErr := s.ensureConversationSupportsShareLink(r.Context(), conversation); appErr != nil {
+		s.writeAppError(w, r, appErr)
 		return
 	}
-	isDM, err := s.isDirectMessage(r.Context(), conversationID)
-	if err != nil {
+	var shareLink api.ConversationShareLink
+	if err := withTransaction(r.Context(), s.db, func(tx pgx.Tx) error {
+		link, err := s.getOrCreateConversationShareLinkTx(r.Context(), tx, conversation, auth.UserID)
+		if err != nil {
+			return err
+		}
+		shareLink = link
+		return nil
+	}); err != nil {
+		if appErr, ok := err.(*appError); ok {
+			s.writeAppError(w, r, appErr)
+			return
+		}
 		s.writeAppError(w, r, internalError(err))
 		return
 	}
-	if isDM {
-		s.writeAppError(w, r, conflict("Canonical direct messages cannot have invites."))
+	writeJSON(w, http.StatusOK, shareLink)
+}
+
+func (s *Server) handleRotateConversationShareLink(w http.ResponseWriter, r *http.Request, auth domain.AuthContext) {
+	if appErr := s.ensureAgentSafeWrite(auth); appErr != nil {
+		s.writeAppError(w, r, appErr)
 		return
 	}
-	var request api.CreateConversationInviteRequest
+	conversationID, err := parseUUIDPath(r, "conversation_id")
+	if err != nil {
+		s.writeAppError(w, r, err)
+		return
+	}
+	conversation, err := s.loadConversation(r.Context(), conversationID)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			s.writeAppError(w, r, notFound("Conversation not found."))
+			return
+		}
+		s.writeAppError(w, r, internalError(err))
+		return
+	}
+	if appErr := s.canManageConversation(r.Context(), auth, conversation); appErr != nil {
+		s.writeAppError(w, r, appErr)
+		return
+	}
+	if appErr := s.ensureConversationSupportsShareLink(r.Context(), conversation); appErr != nil {
+		s.writeAppError(w, r, appErr)
+		return
+	}
+	var shareLink api.ConversationShareLink
+	if err := withTransaction(r.Context(), s.db, func(tx pgx.Tx) error {
+		now := time.Now().UTC()
+		if _, err := s.queries.WithTx(tx).RevokeActiveConversationInvite(r.Context(), dbsqlc.RevokeActiveConversationInviteParams{
+			RevokedAt:      dbsqlc.Timestamptz(now),
+			ConversationID: conversation.ID,
+		}); err != nil {
+			return err
+		}
+		link, err := s.createConversationShareLinkTx(r.Context(), tx, conversation.ID, conversation.WorkspaceID, auth.UserID, now, "conversation.share_link.rotated")
+		if err != nil {
+			return err
+		}
+		shareLink = link
+		return nil
+	}); err != nil {
+		if appErr, ok := err.(*appError); ok {
+			s.writeAppError(w, r, appErr)
+			return
+		}
+		s.writeAppError(w, r, internalError(err))
+		return
+	}
+	writeJSON(w, http.StatusOK, shareLink)
+}
+
+func (s *Server) ensureConversationSupportsShareLink(ctx context.Context, conversation conversationRow) *appError {
+	if conversation.AccessPolicy != "members" {
+		return validationFailed("conversation", "invalid_value", "Share links are valid only for member-only conversations.")
+	}
+	isDM, err := s.isDirectMessage(ctx, conversation.ID)
+	if err != nil {
+		return internalError(err)
+	}
+	if isDM {
+		return conflict("Canonical direct messages do not have share links.")
+	}
+	return nil
+}
+
+func (s *Server) getOrCreateConversationShareLinkTx(ctx context.Context, tx pgx.Tx, conversation conversationRow, actorUserID uuid.UUID) (api.ConversationShareLink, error) {
+	row, err := s.queries.WithTx(tx).GetActiveConversationInviteForUpdate(ctx, conversation.ID)
+	switch {
+	case err == nil:
+		if row.EncryptedToken != nil && *row.EncryptedToken != "" {
+			return s.conversationShareLinkToAPI(ctx, *row.EncryptedToken)
+		}
+		now := time.Now().UTC()
+		if _, err := s.queries.WithTx(tx).RevokeActiveConversationInvite(ctx, dbsqlc.RevokeActiveConversationInviteParams{
+			RevokedAt:      dbsqlc.Timestamptz(now),
+			ConversationID: conversation.ID,
+		}); err != nil {
+			return api.ConversationShareLink{}, err
+		}
+		return s.createConversationShareLinkTx(ctx, tx, conversation.ID, conversation.WorkspaceID, actorUserID, now, "conversation.share_link.created")
+	case errors.Is(err, pgx.ErrNoRows):
+		return s.createConversationShareLinkTx(ctx, tx, conversation.ID, conversation.WorkspaceID, actorUserID, time.Now().UTC(), "conversation.share_link.created")
+	default:
+		return api.ConversationShareLink{}, err
+	}
+}
+
+func (s *Server) createConversationShareLinkTx(ctx context.Context, tx pgx.Tx, conversationID uuid.UUID, workspaceID *uuid.UUID, actorUserID uuid.UUID, now time.Time, eventType string) (api.ConversationShareLink, error) {
+	token, err := teracrypto.RandomToken(24)
+	if err != nil {
+		return api.ConversationShareLink{}, err
+	}
+	encryptedToken, err := s.protector.EncryptString(ctx, token)
+	if err != nil {
+		return api.ConversationShareLink{}, err
+	}
+	inviteID := uuid.New()
+	if err := s.queries.WithTx(tx).CreateConversationInvite(ctx, dbsqlc.CreateConversationInviteParams{
+		ID:              inviteID,
+		ConversationID:  conversationID,
+		CreatedByUserID: actorUserID,
+		TokenHash:       teracrypto.SHA256Hex(token),
+		EncryptedToken:  stringPtr(encryptedToken),
+		ExpiresAt:       dbsqlc.NullableTimestamptz(nil),
+		Mode:            "link",
+		AllowedUserIds:  nil,
+		AllowedEmails:   nil,
+		CreatedAt:       dbsqlc.Timestamptz(now),
+	}); err != nil {
+		return api.ConversationShareLink{}, err
+	}
+	if err := s.appendEvent(ctx, tx, eventType, "conversation", conversationID, workspaceID, &actorUserID, map[string]any{
+		"conversation_id": conversationID.String(),
+	}); err != nil {
+		return api.ConversationShareLink{}, err
+	}
+	return api.ConversationShareLink{
+		Token: token,
+		URL:   s.conversationShareLinkURL(token),
+	}, nil
+}
+
+func (s *Server) conversationShareLinkToAPI(ctx context.Context, encryptedToken string) (api.ConversationShareLink, error) {
+	token, err := s.protector.DecryptString(ctx, encryptedToken)
+	if err != nil {
+		return api.ConversationShareLink{}, err
+	}
+	return api.ConversationShareLink{
+		Token: token,
+		URL:   s.conversationShareLinkURL(token),
+	}, nil
+}
+
+func (s *Server) conversationShareLinkURL(token string) string {
+	baseURL := strings.TrimSpace(s.cfg.FrontendURL)
+	if baseURL == "" {
+		baseURL = strings.TrimSpace(s.cfg.BaseURL)
+	}
+	return strings.TrimRight(baseURL, "/") + "/join/conversations/" + url.PathEscape(token)
+}
+
+func (s *Server) handleJoinConversation(w http.ResponseWriter, r *http.Request, auth domain.AuthContext) {
+	if appErr := s.ensureAgentSafeWrite(auth); appErr != nil {
+		s.writeAppError(w, r, appErr)
+		return
+	}
+	var request api.JoinConversationRequest
 	if err := decodeJSON(r, &request); err != nil {
 		s.writeAppError(w, r, err)
 		return
 	}
-	if request.Mode != "link" && request.Mode != "restricted" {
-		s.writeAppError(w, r, validationFailed("mode", "invalid_value", "Mode must be link or restricted."))
-		return
-	}
-	if request.Mode == "restricted" && len(request.AllowedUserIDs) == 0 && len(request.AllowedEmails) == 0 {
-		s.writeAppError(w, r, validationFailed("mode", "invalid_value", "Restricted invites require at least one allowed user or email."))
-		return
-	}
-	expiresAt, appErr := parseTimeRFC3339(request.ExpiresAt, "expires_at")
-	if appErr != nil {
-		s.writeAppError(w, r, appErr)
-		return
-	}
-	allowedUserIDs, appErr := normalizeParticipants(request.AllowedUserIDs)
-	if appErr != nil {
-		s.writeAppError(w, r, appErr)
-		return
-	}
-	allowedEmails := make([]string, 0, len(request.AllowedEmails))
-	for _, email := range request.AllowedEmails {
-		normalized := normalizeEmail(email)
-		if normalized != "" {
-			allowedEmails = append(allowedEmails, normalized)
-		}
-	}
-	token, err := teracrypto.RandomToken(24)
-	if err != nil {
-		s.writeAppError(w, r, internalError(err))
-		return
-	}
-	allowedUserJSON, _ := json.Marshal(uuidSliceToStrings(allowedUserIDs))
-	allowedEmailJSON, _ := json.Marshal(allowedEmails)
-	inviteID := uuid.New()
-	if err := withTransaction(r.Context(), s.db, func(tx pgx.Tx) error {
-		if err := s.queries.WithTx(tx).CreateConversationInvite(r.Context(), dbsqlc.CreateConversationInviteParams{
-			ID:              inviteID,
-			ConversationID:  conversationID,
-			CreatedByUserID: auth.UserID,
-			TokenHash:       teracrypto.SHA256Hex(token),
-			ExpiresAt:       dbsqlc.NullableTimestamptz(expiresAt),
-			Mode:            request.Mode,
-			AllowedUserIds:  dbsqlc.RawMessagePtr(allowedUserJSON),
-			AllowedEmails:   dbsqlc.RawMessagePtr(allowedEmailJSON),
-			CreatedAt:       dbsqlc.Timestamptz(time.Now().UTC()),
-		}); err != nil {
-			return err
-		}
-		actor := auth.UserID
-		return s.appendEvent(r.Context(), tx, "conversation.invite.created", "conversation_invite", inviteID, conversation.WorkspaceID, &actor, map[string]any{
-			"conversation_invite_id": inviteID.String(),
-			"conversation_id":        conversationID.String(),
-			"mode":                   request.Mode,
-			"expires_at":             timePtrToStringPtr(expiresAt),
-		})
-	}); err != nil {
-		s.writeAppError(w, r, internalError(err))
-		return
-	}
-	inviteURL := strings.TrimRight(s.cfg.BaseURL, "/") + "/conversation-invites/" + token
-	writeJSON(w, http.StatusCreated, api.CreateConversationInviteResponse{
-		InviteToken: token,
-		InviteURL:   inviteURL,
-	})
-}
-
-func (s *Server) handleAcceptConversationInvite(w http.ResponseWriter, r *http.Request, auth domain.AuthContext) {
-	token := strings.TrimSpace(r.PathValue("token"))
+	token := strings.TrimSpace(request.Token)
 	if token == "" {
-		s.writeAppError(w, r, notFound("Conversation invite not found."))
+		s.writeAppError(w, r, validationFailed("token", "required", "Must not be empty."))
 		return
 	}
 	var conversation conversationRow
@@ -715,7 +831,7 @@ func (s *Server) handleAcceptConversationInvite(w http.ResponseWriter, r *http.R
 		invite, err := txQueries.GetConversationInviteByTokenHashForUpdate(r.Context(), teracrypto.SHA256Hex(token))
 		if err != nil {
 			if err == pgx.ErrNoRows {
-				return notFound("Conversation invite not found.")
+				return notFound("Conversation share link not found.")
 			}
 			return err
 		}
@@ -732,7 +848,7 @@ func (s *Server) handleAcceptConversationInvite(w http.ResponseWriter, r *http.R
 		expiresAt := dbsqlc.TimePtr(invite.ExpiresAt)
 		revokedAt := dbsqlc.TimePtr(invite.RevokedAt)
 		if revokedAt != nil || (expiresAt != nil && expiresAt.Before(time.Now().UTC())) {
-			return forbidden("Conversation invite is no longer valid.")
+			return forbidden("Conversation share link is no longer valid.")
 		}
 		var loadErr error
 		conversation, loadErr = s.loadConversation(r.Context(), conversation.ID)
@@ -740,14 +856,14 @@ func (s *Server) handleAcceptConversationInvite(w http.ResponseWriter, r *http.R
 			return loadErr
 		}
 		if conversation.AccessPolicy != "members" {
-			return conflict("Conversation invite is not valid for this conversation.")
+			return conflict("Conversation share link is not valid for this conversation.")
 		}
 		isDM, err := s.isDirectMessage(r.Context(), conversation.ID)
 		if err != nil {
 			return err
 		}
 		if isDM {
-			return conflict("Conversation invite is not valid for direct messages.")
+			return conflict("Conversation share link is not valid for direct messages.")
 		}
 		if conversation.WorkspaceID != nil {
 			if _, appErr := s.ensureWorkspaceActiveMember(r.Context(), auth, *conversation.WorkspaceID); appErr != nil {
@@ -764,7 +880,7 @@ func (s *Server) handleAcceptConversationInvite(w http.ResponseWriter, r *http.R
 			userAllowed := slices.Contains(allowedUsers, auth.UserID.String())
 			emailAllowed := user.Email != nil && slices.Contains(allowedEmails, normalizeEmail(*user.Email))
 			if !userAllowed && !emailAllowed {
-				return forbidden("This invite is not valid for the authenticated user.")
+				return forbidden("This share link is not valid for the authenticated user.")
 			}
 		}
 		rowsAffected, err := txQueries.CreateConversationParticipantIfMissing(r.Context(), dbsqlc.CreateConversationParticipantIfMissingParams{
@@ -874,6 +990,10 @@ func (s *Server) handleListMessages(w http.ResponseWriter, r *http.Request, auth
 }
 
 func (s *Server) handleCreateMessage(w http.ResponseWriter, r *http.Request, auth domain.AuthContext) {
+	if appErr := s.ensureAgentSafeWrite(auth); appErr != nil {
+		s.writeAppError(w, r, appErr)
+		return
+	}
 	conversationID, err := parseUUIDPath(r, "conversation_id")
 	if err != nil {
 		s.writeAppError(w, r, err)
@@ -945,6 +1065,10 @@ func (s *Server) handleCreateMessage(w http.ResponseWriter, r *http.Request, aut
 }
 
 func (s *Server) handlePatchMessage(w http.ResponseWriter, r *http.Request, auth domain.AuthContext) {
+	if appErr := s.ensureHumanActor(auth); appErr != nil {
+		s.writeAppError(w, r, appErr)
+		return
+	}
 	messageID, err := parseUUIDPath(r, "message_id")
 	if err != nil {
 		s.writeAppError(w, r, err)
@@ -1010,6 +1134,10 @@ func (s *Server) handlePatchMessage(w http.ResponseWriter, r *http.Request, auth
 }
 
 func (s *Server) handleDeleteMessage(w http.ResponseWriter, r *http.Request, auth domain.AuthContext) {
+	if appErr := s.ensureHumanActor(auth); appErr != nil {
+		s.writeAppError(w, r, appErr)
+		return
+	}
 	messageID, err := parseUUIDPath(r, "message_id")
 	if err != nil {
 		s.writeAppError(w, r, err)
@@ -1054,6 +1182,10 @@ func (s *Server) handleDeleteMessage(w http.ResponseWriter, r *http.Request, aut
 }
 
 func (s *Server) handlePutReadState(w http.ResponseWriter, r *http.Request, auth domain.AuthContext) {
+	if appErr := s.ensureAgentSafeWrite(auth); appErr != nil {
+		s.writeAppError(w, r, appErr)
+		return
+	}
 	conversationID, err := parseUUIDPath(r, "conversation_id")
 	if err != nil {
 		s.writeAppError(w, r, err)
@@ -1173,15 +1305,15 @@ func (s *Server) handleListEvents(w http.ResponseWriter, r *http.Request, auth d
 	visibility := repository.ExternalEventVisibilityPredicate("ee", "$1")
 	rows, err := s.db.Query(
 		r.Context(),
-		fmt.Sprintf(`select ee.id, ee.workspace_id, ee.type, ee.resource_type, ee.resource_id, ee.occurred_at, ee.payload
+		fmt.Sprintf(`select ee.id, ee.sequence_id, ee.workspace_id, ee.type, ee.resource_type, ee.resource_id, ee.occurred_at, ee.payload
 		from external_events ee
 		where %s
-		  and ee.id > $2
+		  and ee.sequence_id > $2
 		  and ($3::uuid is null or ee.workspace_id = $3)
 		  and ($4::text = '' or ee.type = $4)
 		  and ($5::text = '' or ee.resource_type = $5)
 		  and ($6::uuid is null or ee.resource_id = $6)
-		order by ee.id asc
+		order by ee.sequence_id asc
 		limit $7`, visibility),
 		auth.UserID,
 		cursorID,
@@ -1198,21 +1330,24 @@ func (s *Server) handleListEvents(w http.ResponseWriter, r *http.Request, auth d
 	defer rows.Close()
 
 	items := make([]api.ExternalEvent, 0, limit)
-	var lastSeenID int64
+	var lastSeenSequenceID int64
 	for rows.Next() {
 		var item api.ExternalEvent
+		var eventID uuid.UUID
+		var sequenceID int64
 		var workspace *uuid.UUID
 		var resourceUUID uuid.UUID
 		var payload []byte
 		var occurredAt time.Time
-		if err := rows.Scan(&item.ID, &workspace, &item.Type, &item.ResourceType, &resourceUUID, &occurredAt, &payload); err != nil {
+		if err := rows.Scan(&eventID, &sequenceID, &workspace, &item.Type, &item.ResourceType, &resourceUUID, &occurredAt, &payload); err != nil {
 			s.writeAppError(w, r, internalError(err))
 			return
 		}
-		lastSeenID = item.ID
+		lastSeenSequenceID = sequenceID
 		if len(items) >= limit {
 			continue
 		}
+		item.ID = eventID.String()
 		item.WorkspaceID = uuidPtrToStringPtr(workspace)
 		item.ResourceID = resourceUUID.String()
 		item.OccurredAt = occurredAt.Format(time.RFC3339)
@@ -1220,13 +1355,17 @@ func (s *Server) handleListEvents(w http.ResponseWriter, r *http.Request, auth d
 		items = append(items, item)
 	}
 	response := api.CollectionResponse[api.ExternalEvent]{Items: items}
-	if lastSeenID > 0 && len(items) == limit {
-		response.NextCursor = formatInt64Cursor(lastSeenID)
+	if lastSeenSequenceID > 0 && len(items) == limit {
+		response.NextCursor = formatInt64Cursor(lastSeenSequenceID)
 	}
 	writeJSON(w, http.StatusOK, response)
 }
 
 func (s *Server) handleListEventSubscriptions(w http.ResponseWriter, r *http.Request, auth domain.AuthContext) {
+	if appErr := s.ensureHumanActor(auth); appErr != nil {
+		s.writeAppError(w, r, appErr)
+		return
+	}
 	var workspaceID *uuid.UUID
 	if auth.APIKeyWorkspaceID != nil {
 		if _, appErr := s.ensureWorkspaceActiveMember(r.Context(), auth, *auth.APIKeyWorkspaceID); appErr != nil {
@@ -1251,6 +1390,10 @@ func (s *Server) handleListEventSubscriptions(w http.ResponseWriter, r *http.Req
 }
 
 func (s *Server) handleCreateEventSubscription(w http.ResponseWriter, r *http.Request, auth domain.AuthContext) {
+	if appErr := s.ensureHumanActor(auth); appErr != nil {
+		s.writeAppError(w, r, appErr)
+		return
+	}
 	var request api.CreateEventSubscriptionRequest
 	if err := decodeJSON(r, &request); err != nil {
 		s.writeAppError(w, r, err)
@@ -1359,6 +1502,10 @@ func (s *Server) handleCreateEventSubscription(w http.ResponseWriter, r *http.Re
 }
 
 func (s *Server) handlePatchEventSubscription(w http.ResponseWriter, r *http.Request, auth domain.AuthContext) {
+	if appErr := s.ensureHumanActor(auth); appErr != nil {
+		s.writeAppError(w, r, appErr)
+		return
+	}
 	subscriptionID, err := parseUUIDPath(r, "subscription_id")
 	if err != nil {
 		s.writeAppError(w, r, err)
@@ -1367,6 +1514,10 @@ func (s *Server) handlePatchEventSubscription(w http.ResponseWriter, r *http.Req
 	var request api.UpdateEventSubscriptionRequest
 	if err := decodeJSON(r, &request); err != nil {
 		s.writeAppError(w, r, err)
+		return
+	}
+	if request.Enabled == nil {
+		s.writeAppError(w, r, validationFailed("enabled", "required", "enabled is required."))
 		return
 	}
 	var subscriptionWorkspaceID *uuid.UUID
@@ -1393,7 +1544,7 @@ func (s *Server) handlePatchEventSubscription(w http.ResponseWriter, r *http.Req
 		rowsAffected, err := txQueries.UpdateEventSubscriptionEnabledByOwner(r.Context(), dbsqlc.UpdateEventSubscriptionEnabledByOwnerParams{
 			ID:          subscriptionID,
 			OwnerUserID: auth.UserID,
-			Enabled:     request.Enabled,
+			Enabled:     *request.Enabled,
 			UpdatedAt:   dbsqlc.Timestamptz(time.Now().UTC()),
 		})
 		if err != nil {
@@ -1405,7 +1556,7 @@ func (s *Server) handlePatchEventSubscription(w http.ResponseWriter, r *http.Req
 		actor := auth.UserID
 		return s.appendEvent(r.Context(), tx, "event_subscription.updated", "event_subscription", subscriptionID, subscriptionWorkspaceID, &actor, map[string]any{
 			"event_subscription_id": subscriptionID.String(),
-			"enabled":               request.Enabled,
+			"enabled":               *request.Enabled,
 		})
 	})
 	if err != nil {
@@ -1425,6 +1576,10 @@ func (s *Server) handlePatchEventSubscription(w http.ResponseWriter, r *http.Req
 }
 
 func (s *Server) handleDeleteEventSubscription(w http.ResponseWriter, r *http.Request, auth domain.AuthContext) {
+	if appErr := s.ensureHumanActor(auth); appErr != nil {
+		s.writeAppError(w, r, appErr)
+		return
+	}
 	subscriptionID, err := parseUUIDPath(r, "subscription_id")
 	if err != nil {
 		s.writeAppError(w, r, err)

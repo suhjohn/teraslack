@@ -38,8 +38,8 @@ export type HTTPStatusCodes = HTTPStatusCode1xx | HTTPStatusCode2xx | HTTPStatus
 
 
 /**
- * Runs hybrid search across the resources the caller is allowed to access.
- * @summary Search across accessible resources
+ * Runs search across the messages, conversations, workspaces, users, and events visible to the caller.
+ * @summary Search the resources you can access
  */
 export type runSearchResponse200 = {
   data: SearchResponse
@@ -115,7 +115,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type RunSearchMutationError = ErrorType<ApiErrorResponseResponse>
 
     /**
- * @summary Search across accessible resources
+ * @summary Search the resources you can access
  */
 export const useRunSearch = <TError = ErrorType<ApiErrorResponseResponse>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof runSearch>>, TError,{data: BodyType<SearchRequest>}, TContext>, request?: SecondParameter<typeof orvalFetch>}

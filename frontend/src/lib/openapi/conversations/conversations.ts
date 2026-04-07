@@ -28,10 +28,10 @@ import type {
   AddParticipantsRequest,
   ApiErrorResponseResponse,
   Conversation,
+  ConversationShareLink,
   ConversationsCollection,
-  CreateConversationInviteRequest,
-  CreateConversationInviteResponse,
   CreateConversationRequest,
+  JoinConversationRequest,
   ListConversationsParams,
   UpdateConversationRequest,
   UpdateReadStateRequest,
@@ -55,7 +55,7 @@ export type HTTPStatusCodes = HTTPStatusCode1xx | HTTPStatusCode2xx | HTTPStatus
 
 
 /**
- * Lists conversations visible to the caller. Global results include only globally visible conversations; workspace results include conversations inside one workspace.
+ * Returns conversations visible to the caller. Global results include only globally visible conversations; workspace results include conversations inside one workspace.
  * @summary List conversations
  */
 export type listConversationsResponse200 = {
@@ -180,8 +180,8 @@ export function useListConversations<TData = Awaited<ReturnType<typeof listConve
 
 
 /**
- * Creates a new conversation. For global two-person direct messages, the existing canonical conversation is returned instead of creating a duplicate.
- * @summary Create conversation
+ * Creates a conversation. For global two-person direct messages, the existing canonical conversation is returned instead of creating a duplicate.
+ * @summary Create a conversation
  */
 export type createConversationResponse200 = {
   data: Conversation
@@ -262,7 +262,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type CreateConversationMutationError = ErrorType<ApiErrorResponseResponse>
 
     /**
- * @summary Create conversation
+ * @summary Create a conversation
  */
 export const useCreateConversation = <TError = ErrorType<ApiErrorResponseResponse>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createConversation>>, TError,{data: BodyType<CreateConversationRequest>}, TContext>, request?: SecondParameter<typeof orvalFetch>}
@@ -276,7 +276,7 @@ export const useCreateConversation = <TError = ErrorType<ApiErrorResponseRespons
     }
     /**
  * Returns one conversation visible to the caller.
- * @summary Get conversation
+ * @summary Show a conversation
  */
 export type getConversationResponse200 = {
   data: Conversation
@@ -374,7 +374,7 @@ export function useGetConversation<TData = Awaited<ReturnType<typeof getConversa
  , queryClient?: QueryClient
   ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
 /**
- * @summary Get conversation
+ * @summary Show a conversation
  */
 
 export function useGetConversation<TData = Awaited<ReturnType<typeof getConversation>>, TError = ErrorType<ApiErrorResponseResponse>>(
@@ -393,8 +393,8 @@ export function useGetConversation<TData = Awaited<ReturnType<typeof getConversa
 
 
 /**
- * Updates conversation title, description, or archived state. Caller must be allowed to manage the conversation.
- * @summary Update conversation
+ * Updates a conversation title, description, or archived state. The caller must be allowed to manage the conversation.
+ * @summary Update a conversation
  */
 export type updateConversationResponse200 = {
   data: Conversation
@@ -471,7 +471,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type UpdateConversationMutationError = ErrorType<ApiErrorResponseResponse>
 
     /**
- * @summary Update conversation
+ * @summary Update a conversation
  */
 export const useUpdateConversation = <TError = ErrorType<ApiErrorResponseResponse>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateConversation>>, TError,{conversationId: string;data: BodyType<UpdateConversationRequest>}, TContext>, request?: SecondParameter<typeof orvalFetch>}
@@ -484,7 +484,304 @@ export const useUpdateConversation = <TError = ErrorType<ApiErrorResponseRespons
       return useMutation(getUpdateConversationMutationOptions(options), queryClient);
     }
     /**
- * Lists participants for a member-only conversation. Non-member conversations return an empty list.
+ * Returns the current share link for one member-only non-DM conversation. If none exists yet, one is created.
+ * @summary Show the current conversation share link
+ */
+export type getConversationShareLinkResponse200 = {
+  data: ConversationShareLink
+  status: 200
+}
+
+export type getConversationShareLinkResponseDefault = {
+  data: ApiErrorResponseResponse
+  status: Exclude<HTTPStatusCodes, 200>
+}
+
+export type getConversationShareLinkResponseSuccess = (getConversationShareLinkResponse200) & {
+  headers: Headers;
+};
+export type getConversationShareLinkResponseError = (getConversationShareLinkResponseDefault) & {
+  headers: Headers;
+};
+
+export type getConversationShareLinkResponse = (getConversationShareLinkResponseSuccess | getConversationShareLinkResponseError)
+
+export const getGetConversationShareLinkUrl = (conversationId: string,) => {
+
+
+
+
+  return `/conversations/${conversationId}/share-link`
+}
+
+export const getConversationShareLink = async (conversationId: string, options?: RequestInit): Promise<getConversationShareLinkResponse> => {
+
+  return orvalFetch<getConversationShareLinkResponse>(getGetConversationShareLinkUrl(conversationId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetConversationShareLinkQueryKey = (conversationId: string,) => {
+    return [
+    `/conversations/${conversationId}/share-link`
+    ] as const;
+    }
+
+
+export const getGetConversationShareLinkQueryOptions = <TData = Awaited<ReturnType<typeof getConversationShareLink>>, TError = ErrorType<ApiErrorResponseResponse>>(conversationId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getConversationShareLink>>, TError, TData>>, request?: SecondParameter<typeof orvalFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetConversationShareLinkQueryKey(conversationId);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getConversationShareLink>>> = ({ signal }) => getConversationShareLink(conversationId, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: !!(conversationId), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getConversationShareLink>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type GetConversationShareLinkQueryResult = NonNullable<Awaited<ReturnType<typeof getConversationShareLink>>>
+export type GetConversationShareLinkQueryError = ErrorType<ApiErrorResponseResponse>
+
+
+export function useGetConversationShareLink<TData = Awaited<ReturnType<typeof getConversationShareLink>>, TError = ErrorType<ApiErrorResponseResponse>>(
+ conversationId: string, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof getConversationShareLink>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getConversationShareLink>>,
+          TError,
+          Awaited<ReturnType<typeof getConversationShareLink>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof orvalFetch>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetConversationShareLink<TData = Awaited<ReturnType<typeof getConversationShareLink>>, TError = ErrorType<ApiErrorResponseResponse>>(
+ conversationId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getConversationShareLink>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getConversationShareLink>>,
+          TError,
+          Awaited<ReturnType<typeof getConversationShareLink>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof orvalFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetConversationShareLink<TData = Awaited<ReturnType<typeof getConversationShareLink>>, TError = ErrorType<ApiErrorResponseResponse>>(
+ conversationId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getConversationShareLink>>, TError, TData>>, request?: SecondParameter<typeof orvalFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/**
+ * @summary Show the current conversation share link
+ */
+
+export function useGetConversationShareLink<TData = Awaited<ReturnType<typeof getConversationShareLink>>, TError = ErrorType<ApiErrorResponseResponse>>(
+ conversationId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getConversationShareLink>>, TError, TData>>, request?: SecondParameter<typeof orvalFetch>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getGetConversationShareLinkQueryOptions(conversationId,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+/**
+ * Revokes the current share link for one member-only non-DM conversation and returns a replacement.
+ * @summary Rotate the conversation share link
+ */
+export type rotateConversationShareLinkResponse200 = {
+  data: ConversationShareLink
+  status: 200
+}
+
+export type rotateConversationShareLinkResponseDefault = {
+  data: ApiErrorResponseResponse
+  status: Exclude<HTTPStatusCodes, 200>
+}
+
+export type rotateConversationShareLinkResponseSuccess = (rotateConversationShareLinkResponse200) & {
+  headers: Headers;
+};
+export type rotateConversationShareLinkResponseError = (rotateConversationShareLinkResponseDefault) & {
+  headers: Headers;
+};
+
+export type rotateConversationShareLinkResponse = (rotateConversationShareLinkResponseSuccess | rotateConversationShareLinkResponseError)
+
+export const getRotateConversationShareLinkUrl = (conversationId: string,) => {
+
+
+
+
+  return `/conversations/${conversationId}/share-link/rotate`
+}
+
+export const rotateConversationShareLink = async (conversationId: string, options?: RequestInit): Promise<rotateConversationShareLinkResponse> => {
+
+  return orvalFetch<rotateConversationShareLinkResponse>(getRotateConversationShareLinkUrl(conversationId),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+export const getRotateConversationShareLinkMutationOptions = <TError = ErrorType<ApiErrorResponseResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof rotateConversationShareLink>>, TError,{conversationId: string}, TContext>, request?: SecondParameter<typeof orvalFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof rotateConversationShareLink>>, TError,{conversationId: string}, TContext> => {
+
+const mutationKey = ['rotateConversationShareLink'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof rotateConversationShareLink>>, {conversationId: string}> = (props) => {
+          const {conversationId} = props ?? {};
+
+          return  rotateConversationShareLink(conversationId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RotateConversationShareLinkMutationResult = NonNullable<Awaited<ReturnType<typeof rotateConversationShareLink>>>
+
+    export type RotateConversationShareLinkMutationError = ErrorType<ApiErrorResponseResponse>
+
+    /**
+ * @summary Rotate the conversation share link
+ */
+export const useRotateConversationShareLink = <TError = ErrorType<ApiErrorResponseResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof rotateConversationShareLink>>, TError,{conversationId: string}, TContext>, request?: SecondParameter<typeof orvalFetch>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof rotateConversationShareLink>>,
+        TError,
+        {conversationId: string},
+        TContext
+      > => {
+      return useMutation(getRotateConversationShareLinkMutationOptions(options), queryClient);
+    }
+    /**
+ * Accepts a conversation share link token for the signed-in user.
+ * @summary Join a conversation from a share link
+ */
+export type joinConversationResponse200 = {
+  data: Conversation
+  status: 200
+}
+
+export type joinConversationResponseDefault = {
+  data: ApiErrorResponseResponse
+  status: Exclude<HTTPStatusCodes, 200>
+}
+
+export type joinConversationResponseSuccess = (joinConversationResponse200) & {
+  headers: Headers;
+};
+export type joinConversationResponseError = (joinConversationResponseDefault) & {
+  headers: Headers;
+};
+
+export type joinConversationResponse = (joinConversationResponseSuccess | joinConversationResponseError)
+
+export const getJoinConversationUrl = () => {
+
+
+
+
+  return `/conversations/join`
+}
+
+export const joinConversation = async (joinConversationRequest: JoinConversationRequest, options?: RequestInit): Promise<joinConversationResponse> => {
+
+  return orvalFetch<joinConversationResponse>(getJoinConversationUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      joinConversationRequest,)
+  }
+);}
+
+
+
+
+export const getJoinConversationMutationOptions = <TError = ErrorType<ApiErrorResponseResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof joinConversation>>, TError,{data: BodyType<JoinConversationRequest>}, TContext>, request?: SecondParameter<typeof orvalFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof joinConversation>>, TError,{data: BodyType<JoinConversationRequest>}, TContext> => {
+
+const mutationKey = ['joinConversation'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof joinConversation>>, {data: BodyType<JoinConversationRequest>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  joinConversation(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type JoinConversationMutationResult = NonNullable<Awaited<ReturnType<typeof joinConversation>>>
+    export type JoinConversationMutationBody = BodyType<JoinConversationRequest>
+    export type JoinConversationMutationError = ErrorType<ApiErrorResponseResponse>
+
+    /**
+ * @summary Join a conversation from a share link
+ */
+export const useJoinConversation = <TError = ErrorType<ApiErrorResponseResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof joinConversation>>, TError,{data: BodyType<JoinConversationRequest>}, TContext>, request?: SecondParameter<typeof orvalFetch>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof joinConversation>>,
+        TError,
+        {data: BodyType<JoinConversationRequest>},
+        TContext
+      > => {
+      return useMutation(getJoinConversationMutationOptions(options), queryClient);
+    }
+    /**
+ * Returns participants for a member-only conversation. Non-member conversations return an empty list.
  * @summary List conversation participants
  */
 export type listConversationParticipantsResponse200 = {
@@ -602,7 +899,7 @@ export function useListConversationParticipants<TData = Awaited<ReturnType<typeo
 
 
 /**
- * Adds participants to a member-only conversation. Canonical direct messages cannot be mutated.
+ * Adds users to a member-only conversation. Canonical direct messages cannot be changed.
  * @summary Add conversation participants
  */
 export type addConversationParticipantsResponse200 = {
@@ -693,8 +990,8 @@ export const useAddConversationParticipants = <TError = ErrorType<ApiErrorRespon
       return useMutation(getAddConversationParticipantsMutationOptions(options), queryClient);
     }
     /**
- * Removes one participant from a member-only conversation. Canonical direct messages cannot be mutated.
- * @summary Remove conversation participant
+ * Removes one participant from a member-only conversation. Canonical direct messages cannot be changed.
+ * @summary Remove a conversation participant
  */
 export type removeConversationParticipantResponse204 = {
   data: void
@@ -771,7 +1068,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type RemoveConversationParticipantMutationError = ErrorType<ApiErrorResponseResponse>
 
     /**
- * @summary Remove conversation participant
+ * @summary Remove a conversation participant
  */
 export const useRemoveConversationParticipant = <TError = ErrorType<ApiErrorResponseResponse>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof removeConversationParticipant>>, TError,{conversationId: string;userId: string}, TContext>, request?: SecondParameter<typeof orvalFetch>}
@@ -784,188 +1081,8 @@ export const useRemoveConversationParticipant = <TError = ErrorType<ApiErrorResp
       return useMutation(getRemoveConversationParticipantMutationOptions(options), queryClient);
     }
     /**
- * Creates an invite for a member-only conversation. Restricted invites can target specific users or email addresses.
- * @summary Create conversation invite
- */
-export type createConversationInviteResponse201 = {
-  data: CreateConversationInviteResponse
-  status: 201
-}
-
-export type createConversationInviteResponseDefault = {
-  data: ApiErrorResponseResponse
-  status: Exclude<HTTPStatusCodes, 201>
-}
-
-export type createConversationInviteResponseSuccess = (createConversationInviteResponse201) & {
-  headers: Headers;
-};
-export type createConversationInviteResponseError = (createConversationInviteResponseDefault) & {
-  headers: Headers;
-};
-
-export type createConversationInviteResponse = (createConversationInviteResponseSuccess | createConversationInviteResponseError)
-
-export const getCreateConversationInviteUrl = (conversationId: string,) => {
-
-
-
-
-  return `/conversations/${conversationId}/invites`
-}
-
-export const createConversationInvite = async (conversationId: string,
-    createConversationInviteRequest: CreateConversationInviteRequest, options?: RequestInit): Promise<createConversationInviteResponse> => {
-
-  return orvalFetch<createConversationInviteResponse>(getCreateConversationInviteUrl(conversationId),
-  {
-    ...options,
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...options?.headers },
-    body: JSON.stringify(
-      createConversationInviteRequest,)
-  }
-);}
-
-
-
-
-export const getCreateConversationInviteMutationOptions = <TError = ErrorType<ApiErrorResponseResponse>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createConversationInvite>>, TError,{conversationId: string;data: BodyType<CreateConversationInviteRequest>}, TContext>, request?: SecondParameter<typeof orvalFetch>}
-): UseMutationOptions<Awaited<ReturnType<typeof createConversationInvite>>, TError,{conversationId: string;data: BodyType<CreateConversationInviteRequest>}, TContext> => {
-
-const mutationKey = ['createConversationInvite'];
-const {mutation: mutationOptions, request: requestOptions} = options ?
-      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
-      options
-      : {...options, mutation: {...options.mutation, mutationKey}}
-      : {mutation: { mutationKey, }, request: undefined};
-
-
-
-
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createConversationInvite>>, {conversationId: string;data: BodyType<CreateConversationInviteRequest>}> = (props) => {
-          const {conversationId,data} = props ?? {};
-
-          return  createConversationInvite(conversationId,data,requestOptions)
-        }
-
-
-
-
-
-
-  return  { mutationFn, ...mutationOptions }}
-
-    export type CreateConversationInviteMutationResult = NonNullable<Awaited<ReturnType<typeof createConversationInvite>>>
-    export type CreateConversationInviteMutationBody = BodyType<CreateConversationInviteRequest>
-    export type CreateConversationInviteMutationError = ErrorType<ApiErrorResponseResponse>
-
-    /**
- * @summary Create conversation invite
- */
-export const useCreateConversationInvite = <TError = ErrorType<ApiErrorResponseResponse>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createConversationInvite>>, TError,{conversationId: string;data: BodyType<CreateConversationInviteRequest>}, TContext>, request?: SecondParameter<typeof orvalFetch>}
- , queryClient?: QueryClient): UseMutationResult<
-        Awaited<ReturnType<typeof createConversationInvite>>,
-        TError,
-        {conversationId: string;data: BodyType<CreateConversationInviteRequest>},
-        TContext
-      > => {
-      return useMutation(getCreateConversationInviteMutationOptions(options), queryClient);
-    }
-    /**
- * Accepts a conversation invite token for the authenticated caller.
- * @summary Accept conversation invite
- */
-export type acceptConversationInviteResponse200 = {
-  data: Conversation
-  status: 200
-}
-
-export type acceptConversationInviteResponseDefault = {
-  data: ApiErrorResponseResponse
-  status: Exclude<HTTPStatusCodes, 200>
-}
-
-export type acceptConversationInviteResponseSuccess = (acceptConversationInviteResponse200) & {
-  headers: Headers;
-};
-export type acceptConversationInviteResponseError = (acceptConversationInviteResponseDefault) & {
-  headers: Headers;
-};
-
-export type acceptConversationInviteResponse = (acceptConversationInviteResponseSuccess | acceptConversationInviteResponseError)
-
-export const getAcceptConversationInviteUrl = (token: string,) => {
-
-
-
-
-  return `/conversation-invites/${token}/accept`
-}
-
-export const acceptConversationInvite = async (token: string, options?: RequestInit): Promise<acceptConversationInviteResponse> => {
-
-  return orvalFetch<acceptConversationInviteResponse>(getAcceptConversationInviteUrl(token),
-  {
-    ...options,
-    method: 'POST'
-
-
-  }
-);}
-
-
-
-
-export const getAcceptConversationInviteMutationOptions = <TError = ErrorType<ApiErrorResponseResponse>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof acceptConversationInvite>>, TError,{token: string}, TContext>, request?: SecondParameter<typeof orvalFetch>}
-): UseMutationOptions<Awaited<ReturnType<typeof acceptConversationInvite>>, TError,{token: string}, TContext> => {
-
-const mutationKey = ['acceptConversationInvite'];
-const {mutation: mutationOptions, request: requestOptions} = options ?
-      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
-      options
-      : {...options, mutation: {...options.mutation, mutationKey}}
-      : {mutation: { mutationKey, }, request: undefined};
-
-
-
-
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof acceptConversationInvite>>, {token: string}> = (props) => {
-          const {token} = props ?? {};
-
-          return  acceptConversationInvite(token,requestOptions)
-        }
-
-
-
-
-
-
-  return  { mutationFn, ...mutationOptions }}
-
-    export type AcceptConversationInviteMutationResult = NonNullable<Awaited<ReturnType<typeof acceptConversationInvite>>>
-
-    export type AcceptConversationInviteMutationError = ErrorType<ApiErrorResponseResponse>
-
-    /**
- * @summary Accept conversation invite
- */
-export const useAcceptConversationInvite = <TError = ErrorType<ApiErrorResponseResponse>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof acceptConversationInvite>>, TError,{token: string}, TContext>, request?: SecondParameter<typeof orvalFetch>}
- , queryClient?: QueryClient): UseMutationResult<
-        Awaited<ReturnType<typeof acceptConversationInvite>>,
-        TError,
-        {token: string},
-        TContext
-      > => {
-      return useMutation(getAcceptConversationInviteMutationOptions(options), queryClient);
-    }
-    /**
  * Marks a conversation read through one message in that conversation.
- * @summary Update conversation read state
+ * @summary Mark a conversation as read
  */
 export type markConversationReadResponse204 = {
   data: void
@@ -1042,7 +1159,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type MarkConversationReadMutationError = ErrorType<ApiErrorResponseResponse>
 
     /**
- * @summary Update conversation read state
+ * @summary Mark a conversation as read
  */
 export const useMarkConversationRead = <TError = ErrorType<ApiErrorResponseResponse>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof markConversationRead>>, TError,{conversationId: string;data: BodyType<UpdateReadStateRequest>}, TContext>, request?: SecondParameter<typeof orvalFetch>}

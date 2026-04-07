@@ -119,14 +119,14 @@ type messageRow struct {
 }
 
 type externalEventRow struct {
-	ID                    int64
+	ID                    uuid.UUID
 	WorkspaceID           *uuid.UUID
 	Type                  string
 	ResourceType          string
 	ResourceID            uuid.UUID
 	OccurredAt            time.Time
 	Payload               map[string]any
-	SourceInternalEventID *int64
+	SourceInternalEventID *uuid.UUID
 }
 
 type documentAnchor struct {
@@ -157,13 +157,13 @@ type searchDocument struct {
 type syncJobPayload struct {
 	ResourceKind  string `json:"resource_kind,omitempty"`
 	ResourceID    string `json:"resource_id,omitempty"`
-	SourceEventID int64  `json:"source_event_id,omitempty"`
+	SourceEventID string `json:"source_event_id,omitempty"`
 }
 
 type syncTarget struct {
 	ResourceKind  string
 	ResourceID    string
-	SourceEventID int64
+	SourceEventID string
 }
 
 type preparedMutation struct {

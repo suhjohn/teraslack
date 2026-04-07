@@ -17,7 +17,7 @@ import (
 )
 
 type internalEventRow struct {
-	ID          int64
+	ID          uuid.UUID
 	EventType   string
 	WorkspaceID *uuid.UUID
 	Payload     []byte
@@ -38,7 +38,7 @@ const (
 )
 
 type projectorJob struct {
-	InternalEventID int64 `json:"internal_event_id"`
+	InternalEventID string `json:"internal_event_id"`
 }
 
 func (e *projectionFailure) Error() string {
@@ -95,10 +95,10 @@ func enqueueProjectorShard(ctx context.Context, queries *dbsqlc.Queries, produce
 		return err
 	}
 
-	batchRows, err := queries.ListInternalEventsByShardAfterID(ctx, dbsqlc.ListInternalEventsByShardAfterIDParams{
-		ShardID: int32(shardID),
-		ID:      checkpoint,
-		Limit:   projectorBatchSize,
+	batchRows, err := queries.ListInternalEventsByShardAfterSequenceID(ctx, dbsqlc.ListInternalEventsByShardAfterSequenceIDParams{
+		ShardID:    int32(shardID),
+		SequenceID: checkpoint,
+		Limit:      projectorBatchSize,
 	})
 	if err != nil {
 		return err
@@ -108,9 +108,9 @@ func enqueueProjectorShard(ctx context.Context, queries *dbsqlc.Queries, produce
 	}
 
 	items := make([]queue.EnqueueItem, 0, len(batchRows))
-	lastID := checkpoint
+	lastSequenceID := checkpoint
 	for _, item := range batchRows {
-		payload, err := json.Marshal(projectorJob{InternalEventID: item.ID})
+		payload, err := json.Marshal(projectorJob{InternalEventID: item.ID.String()})
 		if err != nil {
 			return err
 		}
@@ -118,7 +118,7 @@ func enqueueProjectorShard(ctx context.Context, queries *dbsqlc.Queries, produce
 			Kind:    projectorJobKind,
 			Payload: payload,
 		})
-		lastID = item.ID
+		lastSequenceID = item.SequenceID
 	}
 
 	if err := producer.Enqueue(ctx, items...); err != nil {
@@ -126,9 +126,9 @@ func enqueueProjectorShard(ctx context.Context, queries *dbsqlc.Queries, produce
 	}
 
 	return queries.UpdateCheckpoint(ctx, dbsqlc.UpdateCheckpointParams{
-		Name:        checkpointName,
-		LastEventID: lastID,
-		UpdatedAt:   dbsqlc.Timestamptz(time.Now().UTC()),
+		Name:           checkpointName,
+		LastSequenceID: lastSequenceID,
+		UpdatedAt:      dbsqlc.Timestamptz(time.Now().UTC()),
 	})
 }
 
@@ -141,9 +141,9 @@ func loadProjectionCheckpoint(ctx context.Context, queries *dbsqlc.Queries, name
 		return 0, err
 	}
 	if err := queries.InsertCheckpointIfMissing(ctx, dbsqlc.InsertCheckpointIfMissingParams{
-		Name:        name,
-		LastEventID: 0,
-		UpdatedAt:   dbsqlc.Timestamptz(time.Now().UTC()),
+		Name:           name,
+		LastSequenceID: 0,
+		UpdatedAt:      dbsqlc.Timestamptz(time.Now().UTC()),
 	}); err != nil {
 		return 0, err
 	}
@@ -165,10 +165,14 @@ func processProjectionJob(ctx context.Context, pool *pgxpool.Pool, job queue.Cla
 	if err := json.Unmarshal(job.Payload, &payload); err != nil {
 		return err
 	}
+	internalEventID, err := uuid.Parse(payload.InternalEventID)
+	if err != nil {
+		return err
+	}
 
 	return withTransaction(ctx, pool, func(tx pgx.Tx) error {
 		txQueries := dbsqlc.New(tx)
-		item, err := txQueries.GetInternalEventForProjection(ctx, payload.InternalEventID)
+		item, err := txQueries.GetInternalEventForProjection(ctx, internalEventID)
 		if err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
 				return nil

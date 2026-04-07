@@ -7,7 +7,7 @@
  */
 
 /**
- * Visibility policy for the conversation.
+ * Visibility policy for the conversation. Defaults to members when omitted.
  */
 export type CreateConversationRequestAccessPolicy = typeof CreateConversationRequestAccessPolicy[keyof typeof CreateConversationRequestAccessPolicy];
 
@@ -15,5 +15,4 @@ export type CreateConversationRequestAccessPolicy = typeof CreateConversationReq
 export const CreateConversationRequestAccessPolicy = {
   members: 'members',
   workspace: 'workspace',
-  authenticated: 'authenticated',
 } as const;

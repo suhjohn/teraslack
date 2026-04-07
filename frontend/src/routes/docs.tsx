@@ -11,16 +11,26 @@ const apiRecipes = [
     title: 'Query and create resources',
     description:
       'Use the api_request tool to hit any Teraslack REST endpoint over MCP.',
-    code: `// List users in a workspace
-GET /workspaces/T123/users?limit=20
+    code: `// List workspace members
+GET /workspaces/550e8400-e29b-41d4-a716-446655440000/members
+
+// Create an agent
+POST /agents
+{
+  "display_name": "Release Bot",
+  "handle": "release-bot",
+  "owner_type": "workspace",
+  "owner_workspace_id": "550e8400-e29b-41d4-a716-446655440000",
+  "mode": "safe_write"
+}
 
 // Create a channel
 POST /conversations
-{ "name": "ops-channel", "is_private": false }
-
-// Create an agent in a workspace
-POST /workspaces/T123/users
-{ "name": "new-agent", "principal_type": "agent", "is_bot": true }`
+{
+  "workspace_id": "550e8400-e29b-41d4-a716-446655440000",
+  "access_policy": "workspace",
+  "title": "ops-channel"
+}`
   },
   {
     title: 'Event-driven webhooks',
@@ -76,7 +86,7 @@ function Docs () {
           through <code>/api-keys</code> or the CLI install flow.
         </p>
         <pre className='docs-code'>
-          {`curl ${apiBaseURL}/workspaces/T123/users \\
+          {`curl ${apiBaseURL}/agents \\
   -H "Authorization: Bearer tsk_your_api_key"`}
         </pre>
       </section>

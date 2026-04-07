@@ -11,6 +11,8 @@ const (
 
 type AuthContext struct {
 	UserID            uuid.UUID
+	PrincipalType     string
+	AgentMode         string
 	SessionID         *uuid.UUID
 	APIKeyID          *uuid.UUID
 	APIKeyScopeType   string

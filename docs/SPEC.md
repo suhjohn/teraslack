@@ -201,15 +201,13 @@ A `Conversation` has one access policy:
 
 - `members`
 - `workspace`
-- `authenticated`
 
 Rules:
 
 - `members` means only explicit conversation participants may access the conversation
 - `workspace` means any active member of `workspace_id` may access the conversation
-- `authenticated` means any authenticated user may access the conversation
 - `workspace` is valid only when `workspace_id IS NOT NULL`
-- `authenticated` is valid only when `workspace_id IS NULL`
+- `members` is the only valid policy when `workspace_id IS NULL`
 
 ### Derived Conversation Forms
 
@@ -221,7 +219,6 @@ Derived forms:
 - private global conversation: global conversation with `access_policy = members` that is not a canonical one-to-one direct message
 - workspace-wide channel: workspace conversation with `access_policy = workspace`
 - workspace private channel: workspace conversation with `access_policy = members`
-- global named channel: global conversation with `access_policy = authenticated`
 
 Rules:
 
@@ -237,7 +234,7 @@ A `Participant` is a user that is explicitly a member of a conversation.
 Rules:
 
 - all `members` conversations use explicit participants
-- `workspace` and `authenticated` conversations do not require participant rows for visibility
+- `workspace` conversations do not require participant rows for visibility
 
 ### Message
 
@@ -452,12 +449,6 @@ Access rule:
 
 - caller must have active membership in the workspace
 - caller must also be an explicit participant of the conversation
-
-#### global conversation with `access_policy = authenticated`
-
-Access rule:
-
-- caller must be authenticated
 
 ### Workspace Roles
 
@@ -705,7 +696,8 @@ Immutable internal event log.
 
 Fields:
 
-- `id` PK bigint sequence
+- `id` PK UUID
+- `sequence_id` unique bigint sequence
 - `event_type`
 - `aggregate_type`
 - `aggregate_id`
@@ -736,7 +728,7 @@ Durable progress for background projectors.
 Fields:
 
 - `name` PK
-- `last_event_id`
+- `last_sequence_id`
 - `updated_at`
 
 Rules:
@@ -752,7 +744,7 @@ Fields:
 
 - `id` PK
 - `workspace_id` nullable FK `workspaces.id`
-- `access_policy` enum: `members | workspace | authenticated`
+- `access_policy` enum: `members | workspace`
 - `title` nullable
 - `description` nullable
 - `created_by_user_id` FK `users.id`
@@ -763,7 +755,7 @@ Fields:
 
 Constraints:
 
-- `workspace_id IS NULL` implies `access_policy IN ('members', 'authenticated')`
+- `workspace_id IS NULL` implies `access_policy = 'members'`
 - `workspace_id IS NOT NULL` implies `access_policy IN ('members', 'workspace')`
 
 Rules:
@@ -771,7 +763,7 @@ Rules:
 - one-to-one direct-message titles are derived from the other participant
 - other conversation titles may be derived or stored directly
 - member-only conversations may be untitled
-- workspace-wide and authenticated conversations should have a stored title
+- workspace-wide conversations should have a stored title
 
 #### `conversation_pairs`
 
@@ -812,11 +804,10 @@ Rules:
 
 - required for all conversations with `access_policy = members`
 - optional and normally unused for conversations with `access_policy = workspace`
-- optional and normally unused for conversations with `access_policy = authenticated`
 
 #### `conversation_invites`
 
-Reusable invite links for member-only conversations.
+Current share-link storage for eligible member-only conversations.
 
 Fields:
 
@@ -824,24 +815,19 @@ Fields:
 - `conversation_id` FK `conversations.id`
 - `created_by_user_id` FK `users.id`
 - `token_hash` unique
-- `expires_at` nullable
-- `mode` enum: `link | restricted`
-- `allowed_user_ids` nullable JSONB
-- `allowed_emails` nullable JSONB
+- `encrypted_token` nullable
 - `revoked_at` nullable
 - `created_at`
 
 Rules:
 
-- `expires_at = null` means the invite does not expire
-- invites are reusable until they expire or are revoked
-- invites are valid only for conversations with `access_policy = members`
-- invites are invalid for canonical one-to-one direct messages
-- `mode = link` means any authenticated user with the token may join
-- `mode = restricted` means only callers matching `allowed_user_ids` or their verified email in `allowed_emails` may join
-- `mode = restricted` requires at least one allowed user id or allowed email
-- accepting an invite adds the caller to `conversation_participants`
-- accepting an invite for a workspace conversation still requires active workspace membership
+- share links are valid only for conversations with `access_policy = members`
+- share links are invalid for canonical one-to-one direct messages
+- each eligible conversation has at most one active share link
+- `token_hash` is used for accept lookups
+- `encrypted_token` stores the current raw token so managers can fetch the current share link later
+- accepting a share link adds the caller to `conversation_participants`
+- accepting a share link for a workspace conversation still requires active workspace membership
 
 #### `conversation_reads`
 
@@ -886,7 +872,8 @@ Canonical public event envelope used by `/events` and webhook delivery.
 
 Fields:
 
-- `id` PK bigint sequence
+- `id` PK UUID
+- `sequence_id` unique bigint sequence
 - `workspace_id` nullable FK `workspaces.id`
 - `type`
 - `resource_type`
@@ -979,7 +966,7 @@ Operational failure log for projector errors.
 
 Fields:
 
-- `id` PK bigint sequence
+- `id` PK UUID
 - `internal_event_id` FK `internal_events.id`
 - `error`
 - `created_at`
@@ -993,13 +980,13 @@ Fields:
 5. A workspace conversation with `access_policy = workspace` has no participant requirement for visibility.
 6. Every participant in a workspace conversation with `access_policy = members` must also be an active workspace member of the same workspace.
 7. A global conversation never has `access_policy = workspace`.
-8. A workspace conversation never has `access_policy = authenticated`.
-9. Deleting or leaving a workspace does not delete a user's global conversations.
-10. `internal_events` is append-only.
-11. `external_events` is idempotent on projection scope plus `dedupe_key`.
-12. Every event-feed row points to exactly one `external_events` row.
-13. Projector checkpoints advance monotonically.
-14. Every `conversation_invites` row references a member-only conversation that is not a canonical one-to-one direct message.
+8. Deleting or leaving a workspace does not delete a user's global conversations.
+9. `internal_events` is append-only.
+10. `external_events` is idempotent on projection scope plus `dedupe_key`.
+11. Every event-feed row points to exactly one `external_events` row.
+12. Projector checkpoints advance monotonically.
+13. Every active `conversation_invites` row references a member-only conversation that is not a canonical one-to-one direct message.
+14. An eligible conversation has at most one active share link at a time.
 
 ## Recommended Indexes
 
@@ -1016,9 +1003,10 @@ Fields:
 - `messages(conversation_id, created_at DESC)`
 - `conversation_pairs(first_user_id, second_user_id)`
 - `internal_events(id)`
-- `internal_events(aggregate_type, aggregate_id, id)`
-- `internal_events(shard_id, id)`
+- `internal_events(aggregate_type, aggregate_id, sequence_id)`
+- `internal_events(shard_id, sequence_id)`
 - `external_events(id)`
+- `external_events(sequence_id)`
 - `external_events(workspace_id, dedupe_key)`
 - `workspace_event_feed(workspace_id, external_event_id)`
 - `conversation_event_feed(conversation_id, external_event_id)`
@@ -1540,23 +1528,25 @@ Request:
 
 Behavior:
 
-- valid access policies are `members`, `workspace`, and `authenticated`
+- valid access policies are `members` and `workspace`
+- `access_policy` defaults to `members` when omitted
 - authenticated user is implicitly included when `access_policy = members`
 - conversations with `access_policy = members` must contain at least one distinct user after the caller is added
-- conversations with `access_policy = workspace` or `authenticated` must omit `participant_user_ids`
+- conversations with `access_policy = workspace` must omit `participant_user_ids`
 - `workspace_id = null` with `access_policy = members` and exactly one user creates a private global conversation with only the caller
 - `workspace_id = null` with `access_policy = members` and exactly two users returns the canonical one-to-one direct message for that pair
 - `workspace_id = null` with `access_policy = members` and three or more users creates a private global conversation
 - `workspace_id != null` with `access_policy = members` creates a workspace private conversation
 - `workspace_id != null` with `access_policy = workspace` creates a workspace-wide conversation
-- `workspace_id = null` with `access_policy = authenticated` creates a global named conversation
-- conversations with `access_policy = workspace` or `authenticated` require a stored `title`
+- `workspace_id = null` may only use `access_policy = members`
+- conversations with `access_policy = workspace` require a stored `title`
 - all participant users in a workspace conversation must already be active workspace members
 
 Response semantics:
 
 - `201` when a new conversation is created
 - `200` when the canonical one-to-one direct message for the requested pair already exists and is returned
+- successful responses for non-DM member-only conversations include the current `share_link`
 
 #### `GET /conversations/{conversation_id}`
 
@@ -1588,7 +1578,7 @@ List explicit participants in a conversation.
 Rules:
 
 - canonical participant rows exist only for conversations with `access_policy = members`
-- for `workspace` and `authenticated` conversations this route returns an empty collection because there are no explicit participant rows to list
+- for `workspace` conversations this route returns an empty collection because there are no explicit participant rows to list
 
 #### `POST /conversations/{conversation_id}/participants`
 
@@ -1618,44 +1608,41 @@ Rules:
 - invalid for canonical one-to-one direct messages
 - invalid if removal would leave the conversation with zero participants
 
-### Conversation Invites
+### Conversation Share Links
 
-#### `POST /conversations/{conversation_id}/invites`
+#### `GET /conversations/{conversation_id}/share-link`
 
-Create an invite link for a member-only conversation.
-
-Request:
-
-```json
-{
-  "expires_at": null,
-  "mode": "link",
-  "allowed_user_ids": null,
-  "allowed_emails": null
-}
-```
+Return the current share link for a member-only conversation.
 
 Rules:
 
 - valid only when `access_policy = members`
 - invalid for canonical one-to-one direct messages
-- `expires_at = null` means the invite does not expire
-- `mode = link` means any authenticated user with the token may join
-- `mode = restricted` means only callers matching `allowed_user_ids` or their verified email in `allowed_emails` may join
-- `mode = restricted` requires at least one allowed user id or allowed email
-- invite creation returns a token or invite URL that can be shared
+- manager-only
+- if no active share link exists yet, the server creates and returns it
 
-#### `POST /conversation-invites/{token}/accept`
+#### `POST /conversations/{conversation_id}/share-link/rotate`
 
-Join a conversation using an invite link.
+Rotate the current share link for a member-only conversation.
 
 Rules:
 
-- invite must exist, be unexpired, and not be revoked
-- restricted invites require the authenticated caller to match `allowed_user_ids` or their verified email in `allowed_emails`
+- valid only when `access_policy = members`
+- invalid for canonical one-to-one direct messages
+- manager-only
+- revokes the current active share link and returns the replacement
+
+#### `POST /conversations/join`
+
+Join a conversation using a share link.
+
+Rules:
+
+- share link must exist and not be revoked
+- request body must include `token`
 - if the caller is already a participant, the route may succeed idempotently
-- accepting the invite adds the caller to `conversation_participants`
-- accepting an invite for a workspace conversation still requires active workspace membership
+- accepting the share link adds the caller to `conversation_participants`
+- accepting a share link for a workspace conversation still requires active workspace membership
 - the server returns the target `Conversation` resource after access has been granted
 
 ### Messages
@@ -1823,7 +1810,7 @@ Every request resolves like this:
 1. authenticate user
 2. load conversation or workspace if required by route
 3. apply workspace access rules when the resource is workspace-scoped
-4. apply conversation access rules when the resource is member-scoped or authenticated-global
+4. apply conversation access rules when the resource is member-scoped
 
 There is no server-side concept of "selected workspace session".
 
@@ -1860,7 +1847,8 @@ The service never commits primary state without the matching internal event rows
 15. return the conversation
 16. otherwise create `conversations(...)`
 17. if `access_policy = members`, insert `conversation_participants`
-18. return the conversation
+18. if the result is a non-DM member-only conversation, get or create its current share link
+19. return the conversation
 
 ### Conversation Participant Mutation Logic
 
@@ -1872,13 +1860,33 @@ The service never commits primary state without the matching internal event rows
 
 If a caller wants to turn a one-to-one direct message into a larger private conversation, it creates a new conversation with the larger participant set.
 
-### Conversation Invite Accept Logic
+### Conversation Share Link Logic
+
+#### Fetch Current Share Link
 
 1. authenticate caller user
-2. load invite by token and ensure it is not expired or revoked
-3. load the target conversation and ensure `access_policy = members`
-4. reject the request if the conversation is a canonical one-to-one direct message
-5. if the invite is restricted, ensure the caller matches `allowed_user_ids` or their verified email in `allowed_emails`
+2. load the target conversation and ensure `access_policy = members`
+3. reject the request if the conversation is a canonical one-to-one direct message
+4. ensure the caller may manage the conversation
+5. if an active share link exists, return it
+6. otherwise create one and return it
+
+#### Rotate Current Share Link
+
+1. authenticate caller user
+2. load the target conversation and ensure `access_policy = members`
+3. reject the request if the conversation is a canonical one-to-one direct message
+4. ensure the caller may manage the conversation
+5. revoke the current active share link if one exists
+6. create and return the replacement share link
+
+### Conversation Join By Share Link Logic
+
+1. authenticate caller user
+2. require a non-empty `token` in the request body
+3. load share link by token and ensure it is not revoked
+4. load the target conversation and ensure `access_policy = members`
+5. reject the request if the conversation is a canonical one-to-one direct message
 6. if the conversation is workspace-scoped, ensure the caller has active workspace membership
 7. insert `conversation_participants` idempotently for the caller
 
@@ -1908,13 +1916,6 @@ If a caller wants to turn a one-to-one direct message into a larger private conv
 4. ensure caller has active workspace membership
 5. ensure caller is a conversation participant
 6. insert message with `author_user_id`
-
-#### global conversation with `access_policy = authenticated`
-
-1. authenticate caller user
-2. load conversation
-3. ensure `workspace_id IS NULL` and `access_policy = authenticated`
-4. insert message with `author_user_id`
 
 ### Internal Event Append Logic
 
@@ -1971,7 +1972,6 @@ Read-time filtering rules:
 - global `members` conversation visibility is based on conversation participation
 - workspace `workspace` conversation visibility is based on active workspace membership
 - workspace `members` conversation visibility is based on active workspace membership plus conversation participation
-- global `authenticated` conversation visibility is based on authentication
 
 This avoids write-time fanout to per-user inbox tables.
 
@@ -1997,7 +1997,6 @@ The global conversation query:
 
 - loads global conversations with `workspace_id IS NULL`
 - includes member-only conversations where the caller is a participant
-- includes authenticated-global conversations
 - orders by latest activity
 
 #### Workspace Conversations
@@ -2075,23 +2074,24 @@ The resulting conversation is global. It does not belong to any workspace even i
 4. If no other users were supplied, the server creates a private global conversation with only User A.
 5. If exactly one other user was supplied, the server returns the canonical one-to-one direct message for User A and that user.
 6. If two or more other users were supplied, the server creates a private global conversation for the final participant set.
-7. The caller may then read or mutate the returned conversation normally.
+7. If the result is not a canonical one-to-one direct message, the server also returns the current share link.
+8. The caller may then read or mutate the returned conversation normally.
 
 This conversation may be presented in the product as a group chat or a private channel.
 
-### Create A Conversation Invite Link
+### Fetch Or Create A Conversation Share Link
 
-1. User A is already a participant in a member-only conversation that is not a canonical one-to-one direct message.
-2. The caller sends `POST /conversations/{conversation_id}/invites`.
-3. The server validates the conversation, creates an invite token with the requested policy, and returns an invite token or invite URL.
-4. User A may distribute that token or URL through any out-of-band channel.
+1. User A can manage a member-only conversation that is not a canonical one-to-one direct message.
+2. The caller sends `GET /conversations/{conversation_id}/share-link`.
+3. The server returns the current share link, creating it first if needed.
+4. User A may distribute that URL through any out-of-band channel.
 
-### Accept A Conversation Invite As User B
+### Accept A Conversation Share Link As User B
 
-1. User B obtains a conversation invite token through any out-of-band channel.
+1. User B obtains a conversation share-link token through any out-of-band channel.
 2. If User B is not authenticated yet, User B first completes an auth flow.
-3. The caller acting for User B sends `POST /conversation-invites/{token}/accept`.
-4. The server validates the invite, checks any restriction rules, ensures any required workspace membership, and inserts User B into `conversation_participants` idempotently.
+3. The caller acting for User B sends `POST /conversations/join` with the share-link `token` in the request body.
+4. The server validates the share link, ensures any required workspace membership, and inserts User B into `conversation_participants` idempotently.
 5. The server returns the target `Conversation` resource.
 6. The caller may then send `GET /conversations/{conversation_id}/messages` or other conversation-scoped requests as User B.
 
@@ -2123,15 +2123,8 @@ This conversation may be presented in the product as a group chat or a private c
 
 1. User A has an active membership in workspace `W`.
 2. The caller sends `POST /conversations` with `workspace_id = W`, `access_policy = members`, and any initial `participant_user_ids`.
-3. The server validates that every listed user is an active member of `W`, implicitly includes User A, creates the conversation, and returns it.
+3. The server validates that every listed user is an active member of `W`, implicitly includes User A, creates the conversation, and returns it with the current share link.
 4. The caller may later add more workspace members through `POST /conversations/{conversation_id}/participants`.
-
-### Create A Global Named Conversation
-
-1. User A decides to create a global authenticated conversation.
-2. The caller sends `POST /conversations` with `workspace_id = null` and `access_policy = authenticated`.
-3. The server creates the conversation and returns it.
-4. Any authenticated caller can discover it through `GET /conversations`.
 
 ### Read A Workspace-Wide Conversation
 
@@ -2194,7 +2187,7 @@ The design is correct when all of the following are true:
 
 1. The same person or bot has one canonical `user_id` everywhere.
 2. The API can create or fetch a one-to-one direct message by user pair.
-3. One-to-one direct messages, private member-only conversations, workspace conversations, and global named conversations are all stored in one `conversations` table.
+3. One-to-one direct messages, private member-only conversations, and workspace conversations are all stored in one `conversations` table.
 4. Conversation scope is inferred from `workspace_id`.
 5. Conversation visibility is determined by `access_policy`.
 6. Workspace-wide conversations are visible to all active workspace members.
@@ -2206,5 +2199,5 @@ The design is correct when all of the following are true:
 12. `/events` reads from projected `external_events`, not directly from primary tables or the raw internal log.
 13. Event feeds and webhook deliveries can be rebuilt from `internal_events` plus projector checkpoints.
 14. Email login, Google OAuth, and GitHub OAuth all resolve to the same canonical `user_id` model.
-15. A non-DM member-only conversation can be created with only the caller as its first participant, then shared by invite.
-16. A member-only conversation invite may be open-link or restricted to specific users or emails.
+15. A non-DM member-only conversation can be created with only the caller as its first participant and immediately exposes a share link.
+16. An eligible member-only conversation has exactly one current share link that can be fetched, rotated, and accepted.

@@ -47,10 +47,15 @@ set handle = coalesce(sqlc.narg(handle), handle),
 where user_id = sqlc.arg(user_id);
 
 -- name: ListAPIKeysByUser :many
-select id, label, scope_type, scope_workspace_id, expires_at, last_used_at, revoked_at, created_at
+select id, user_id, label, scope_type, scope_workspace_id, expires_at, last_used_at, revoked_at, created_at
 from api_keys
 where user_id = sqlc.arg(user_id)
 order by created_at desc;
+
+-- name: GetAPIKeyByID :one
+select id, user_id, label, scope_type, scope_workspace_id, expires_at, last_used_at, revoked_at, created_at
+from api_keys
+where id = sqlc.arg(id);
 
 -- name: CreateAPIKey :exec
 insert into api_keys (
@@ -143,6 +148,7 @@ insert into workspace_invites (
   id,
   workspace_id,
   email,
+  invited_user_id,
   invited_by_user_id,
   token_hash,
   expires_at,
@@ -151,6 +157,7 @@ insert into workspace_invites (
   sqlc.arg(id),
   sqlc.arg(workspace_id),
   sqlc.narg(email),
+  sqlc.narg(invited_user_id),
   sqlc.arg(invited_by_user_id),
   sqlc.arg(token_hash),
   sqlc.arg(expires_at),
@@ -158,7 +165,7 @@ insert into workspace_invites (
 );
 
 -- name: GetWorkspaceInviteByTokenHashForUpdate :one
-select id, workspace_id, email, accepted_at
+select id, workspace_id, email, invited_user_id, accepted_at
 from workspace_invites
 where token_hash = sqlc.arg(token_hash)
   and expires_at > sqlc.arg(now_at)
@@ -225,9 +232,9 @@ where u.email = sqlc.arg(email);
 insert into users (id, principal_type, email, status, created_at, updated_at)
 values (
   sqlc.arg(id),
-  'human',
-  sqlc.arg(email),
-  'active',
+  sqlc.arg(principal_type),
+  sqlc.narg(email),
+  sqlc.arg(status),
   sqlc.arg(created_at),
   sqlc.arg(updated_at)
 );
@@ -241,6 +248,37 @@ values (
   sqlc.arg(created_at),
   sqlc.arg(updated_at)
 );
+
+-- name: CreateAgent :exec
+insert into agents (
+  user_id,
+  owner_user_id,
+  owner_workspace_id,
+  mode,
+  created_by_user_id,
+  created_at,
+  updated_at
+) values (
+  sqlc.arg(user_id),
+  sqlc.narg(owner_user_id),
+  sqlc.narg(owner_workspace_id),
+  sqlc.arg(mode),
+  sqlc.arg(created_by_user_id),
+  sqlc.arg(created_at),
+  sqlc.arg(updated_at)
+);
+
+-- name: UpdateAgent :exec
+update agents
+set mode = coalesce(sqlc.narg(mode), mode),
+    updated_at = sqlc.arg(updated_at)
+where user_id = sqlc.arg(user_id);
+
+-- name: UpdateUserStatus :exec
+update users
+set status = sqlc.arg(status),
+    updated_at = sqlc.arg(updated_at)
+where id = sqlc.arg(id);
 
 -- name: ListWorkspacePrivateConversationParticipantCountsForUser :many
 select c.id, count(cp_all.user_id)::int as participant_count

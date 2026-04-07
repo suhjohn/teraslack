@@ -7,6 +7,6 @@
  */
 
 /**
- * Restrict the event feed to one resource id. Requires resource_type.
+ * Only include one resource id. Requires resource_type.
  */
 export type EventResourceIDQueryParameter = string;

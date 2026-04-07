@@ -15,5 +15,4 @@ export type ConversationAccessPolicy = typeof ConversationAccessPolicy[keyof typ
 export const ConversationAccessPolicy = {
   members: 'members',
   workspace: 'workspace',
-  authenticated: 'authenticated',
 } as const;

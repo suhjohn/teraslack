@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
-import { BookMarked, Home, LoaderCircle, LogOut, ScrollText, Settings2, Users } from 'lucide-react'
+import { BookMarked, Home, LoaderCircle, LogOut, Settings2, Users } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { Badge } from '../ui/badge'
 import { Button } from '../ui/button'
@@ -111,6 +111,27 @@ export function getConversationPolicyLabel(
   }
 
   return 'Authenticated room'
+}
+
+function getConversationAudienceLabel(
+  conversation: Conversation,
+  workspaceMemberCount?: number,
+) {
+  if (conversation.access_policy === 'members') {
+    const userCount = conversation.participant_count
+    return `${userCount} ${userCount === 1 ? 'user' : 'users'}`
+  }
+
+  if (
+    conversation.access_policy === 'workspace' &&
+    workspaceMemberCount != null
+  ) {
+    return `${workspaceMemberCount} ${
+      workspaceMemberCount === 1 ? 'member' : 'members'
+    }`
+  }
+
+  return getConversationPolicyLabel(conversation.access_policy)
 }
 
 export function getUserDisplayName(
@@ -273,7 +294,7 @@ export function WorkspaceConversationRail({
   conversationsPending,
   conversationsError,
   getConversationFallbackDescription,
-  eventsLink,
+  workspaceMemberCount,
 }: {
   scope: ConversationScope
   eyebrow: string
@@ -291,7 +312,7 @@ export function WorkspaceConversationRail({
   conversationsPending: boolean
   conversationsError: string
   getConversationFallbackDescription?: (conversation: Conversation) => string
-  eventsLink?: string
+  workspaceMemberCount?: number
 }) {
   return (
     <aside className="border-b border-[var(--sys-home-border)] bg-[var(--sys-home-bg)] md:w-[320px] md:shrink-0 md:border-b-0 md:border-r">
@@ -312,15 +333,6 @@ export function WorkspaceConversationRail({
               <Badge variant="muted">{badgeLabel}</Badge>
             </div>
           </div>
-          {eventsLink ? (
-            <Link
-              to={eventsLink}
-              className="mt-3 inline-flex items-center gap-2 text-[11px] uppercase tracking-[0.06em] text-[var(--sys-home-muted)] no-underline sys-hover"
-            >
-              <ScrollText className="h-3.5 w-3.5" />
-              Events
-            </Link>
-          ) : null}
         </div>
 
         <div className="flex flex-1 flex-col overflow-y-auto p-3">
@@ -382,7 +394,12 @@ export function WorkspaceConversationRail({
                     </p>
                   </div>
                   <div className="shrink-0 text-right text-[10px] uppercase tracking-[0.06em] opacity-70">
-                    <div>{conversation.participant_count} users</div>
+                    <div>
+                      {getConversationAudienceLabel(
+                        conversation,
+                        workspaceMemberCount,
+                      )}
+                    </div>
                     <div className="mt-1">
                       {formatTimestamp(
                         conversation.last_message_at ?? conversation.updated_at,

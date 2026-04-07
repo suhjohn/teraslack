@@ -4,17 +4,14 @@ import "fmt"
 
 func ConversationVisibilityPredicate(conversationAlias string, userExpr string) string {
 	return fmt.Sprintf(`(
-		(%[1]s.workspace_id is null and %[1]s.access_policy = 'authenticated')
-		or (
-			%[1]s.workspace_id is null
-			and %[1]s.access_policy = 'members'
-			and exists (
-				select 1
-				from conversation_participants cp
-				where cp.conversation_id = %[1]s.id
-				  and cp.user_id = %[2]s
-			)
-		)
+		(%[1]s.workspace_id is null
+		and %[1]s.access_policy = 'members'
+		and exists (
+			select 1
+			from conversation_participants cp
+			where cp.conversation_id = %[1]s.id
+			  and cp.user_id = %[2]s
+		))
 		or (
 			%[1]s.workspace_id is not null
 			and exists (

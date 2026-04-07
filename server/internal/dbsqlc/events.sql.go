@@ -47,7 +47,7 @@ type InsertInternalEventParams struct {
 	CreatedAt     pgtype.Timestamptz `json:"created_at"`
 }
 
-func (q *Queries) InsertInternalEvent(ctx context.Context, arg InsertInternalEventParams) (int64, error) {
+func (q *Queries) InsertInternalEvent(ctx context.Context, arg InsertInternalEventParams) (uuid.UUID, error) {
 	row := q.db.QueryRow(ctx, insertInternalEvent,
 		arg.EventType,
 		arg.AggregateType,
@@ -58,7 +58,7 @@ func (q *Queries) InsertInternalEvent(ctx context.Context, arg InsertInternalEve
 		arg.Payload,
 		arg.CreatedAt,
 	)
-	var id int64
+	var id uuid.UUID
 	err := row.Scan(&id)
 	return id, err
 }

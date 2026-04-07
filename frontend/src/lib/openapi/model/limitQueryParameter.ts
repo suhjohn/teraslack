@@ -7,6 +7,6 @@
  */
 
 /**
- * Maximum number of items to return. Use the next_cursor from the response to continue paging.
+ * Maximum number of items to return per page.
  */
 export type LimitQueryParameter = number;

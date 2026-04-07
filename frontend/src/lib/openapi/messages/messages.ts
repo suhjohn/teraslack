@@ -50,7 +50,7 @@ export type HTTPStatusCodes = HTTPStatusCode1xx | HTTPStatusCode2xx | HTTPStatus
 
 
 /**
- * Lists messages in one conversation in reverse chronological order.
+ * Returns messages in one conversation in reverse chronological order.
  * @summary List messages
  */
 export type listMessagesResponse200 = {
@@ -183,8 +183,8 @@ export function useListMessages<TData = Awaited<ReturnType<typeof listMessages>>
 
 
 /**
- * Posts one message to a conversation visible to the caller.
- * @summary Create message
+ * Posts a message to a conversation visible to the caller.
+ * @summary Send a message
  */
 export type createMessageResponse201 = {
   data: Message
@@ -261,7 +261,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type CreateMessageMutationError = ErrorType<ApiErrorResponseResponse>
 
     /**
- * @summary Create message
+ * @summary Send a message
  */
 export const useCreateMessage = <TError = ErrorType<ApiErrorResponseResponse>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createMessage>>, TError,{conversationId: string;data: BodyType<CreateMessageRequest>}, TContext>, request?: SecondParameter<typeof orvalFetch>}
@@ -274,8 +274,8 @@ export const useCreateMessage = <TError = ErrorType<ApiErrorResponseResponse>,
       return useMutation(getCreateMessageMutationOptions(options), queryClient);
     }
     /**
- * Updates one message authored by the authenticated caller.
- * @summary Update message
+ * Updates a message authored by the signed-in user.
+ * @summary Update a message
  */
 export type updateMessageResponse200 = {
   data: Message
@@ -352,7 +352,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type UpdateMessageMutationError = ErrorType<ApiErrorResponseResponse>
 
     /**
- * @summary Update message
+ * @summary Update a message
  */
 export const useUpdateMessage = <TError = ErrorType<ApiErrorResponseResponse>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateMessage>>, TError,{messageId: string;data: BodyType<UpdateMessageRequest>}, TContext>, request?: SecondParameter<typeof orvalFetch>}
@@ -365,8 +365,8 @@ export const useUpdateMessage = <TError = ErrorType<ApiErrorResponseResponse>,
       return useMutation(getUpdateMessageMutationOptions(options), queryClient);
     }
     /**
- * Soft-deletes one message authored by the authenticated caller.
- * @summary Delete message
+ * Soft-deletes a message authored by the signed-in user.
+ * @summary Delete a message
  */
 export type deleteMessageResponse204 = {
   data: void
@@ -441,7 +441,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type DeleteMessageMutationError = ErrorType<ApiErrorResponseResponse>
 
     /**
- * @summary Delete message
+ * @summary Delete a message
  */
 export const useDeleteMessage = <TError = ErrorType<ApiErrorResponseResponse>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteMessage>>, TError,{messageId: string}, TContext>, request?: SecondParameter<typeof orvalFetch>}

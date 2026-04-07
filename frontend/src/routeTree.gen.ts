@@ -19,14 +19,10 @@ import { Route as WorkspacesIndexRouteImport } from './routes/workspaces/index'
 import { Route as SettingsIndexRouteImport } from './routes/settings/index'
 import { Route as WorkspacesMeRouteImport } from './routes/workspaces/me'
 import { Route as WorkspacesWorkspaceIdRouteImport } from './routes/workspaces/$workspaceId'
-import { Route as SettingsEventsRouteImport } from './routes/settings/events'
-import { Route as SettingsAuditRouteImport } from './routes/settings/audit'
 import { Route as SettingsApiKeysRouteImport } from './routes/settings/api-keys'
-import { Route as ConversationInvitesTokenRouteImport } from './routes/conversation-invites/$token'
 import { Route as WorkspacesMeIndexRouteImport } from './routes/workspaces/me/index'
 import { Route as WorkspacesWorkspaceIdIndexRouteImport } from './routes/workspaces/$workspaceId/index'
-import { Route as WorkspacesMeEventsRouteImport } from './routes/workspaces/me/events'
-import { Route as WorkspacesWorkspaceIdEventsRouteImport } from './routes/workspaces/$workspaceId/events'
+import { Route as JoinConversationsTokenRouteImport } from './routes/join/conversations/$token'
 import { Route as WorkspacesMeChannelsConversationIdRouteImport } from './routes/workspaces/me/channels/$conversationId'
 import { Route as WorkspacesWorkspaceIdChannelsConversationIdRouteImport } from './routes/workspaces/$workspaceId/channels/$conversationId'
 
@@ -80,27 +76,11 @@ const WorkspacesWorkspaceIdRoute = WorkspacesWorkspaceIdRouteImport.update({
   path: '/$workspaceId',
   getParentRoute: () => WorkspacesRoute,
 } as any)
-const SettingsEventsRoute = SettingsEventsRouteImport.update({
-  id: '/events',
-  path: '/events',
-  getParentRoute: () => SettingsRoute,
-} as any)
-const SettingsAuditRoute = SettingsAuditRouteImport.update({
-  id: '/audit',
-  path: '/audit',
-  getParentRoute: () => SettingsRoute,
-} as any)
 const SettingsApiKeysRoute = SettingsApiKeysRouteImport.update({
   id: '/api-keys',
   path: '/api-keys',
   getParentRoute: () => SettingsRoute,
 } as any)
-const ConversationInvitesTokenRoute =
-  ConversationInvitesTokenRouteImport.update({
-    id: '/conversation-invites/$token',
-    path: '/conversation-invites/$token',
-    getParentRoute: () => rootRouteImport,
-  } as any)
 const WorkspacesMeIndexRoute = WorkspacesMeIndexRouteImport.update({
   id: '/',
   path: '/',
@@ -112,17 +92,11 @@ const WorkspacesWorkspaceIdIndexRoute =
     path: '/',
     getParentRoute: () => WorkspacesWorkspaceIdRoute,
   } as any)
-const WorkspacesMeEventsRoute = WorkspacesMeEventsRouteImport.update({
-  id: '/events',
-  path: '/events',
-  getParentRoute: () => WorkspacesMeRoute,
+const JoinConversationsTokenRoute = JoinConversationsTokenRouteImport.update({
+  id: '/join/conversations/$token',
+  path: '/join/conversations/$token',
+  getParentRoute: () => rootRouteImport,
 } as any)
-const WorkspacesWorkspaceIdEventsRoute =
-  WorkspacesWorkspaceIdEventsRouteImport.update({
-    id: '/events',
-    path: '/events',
-    getParentRoute: () => WorkspacesWorkspaceIdRoute,
-  } as any)
 const WorkspacesMeChannelsConversationIdRoute =
   WorkspacesMeChannelsConversationIdRouteImport.update({
     id: '/channels/$conversationId',
@@ -143,16 +117,12 @@ export interface FileRoutesByFullPath {
   '/settings': typeof SettingsRouteWithChildren
   '/terms': typeof TermsRoute
   '/workspaces': typeof WorkspacesRouteWithChildren
-  '/conversation-invites/$token': typeof ConversationInvitesTokenRoute
   '/settings/api-keys': typeof SettingsApiKeysRoute
-  '/settings/audit': typeof SettingsAuditRoute
-  '/settings/events': typeof SettingsEventsRoute
   '/workspaces/$workspaceId': typeof WorkspacesWorkspaceIdRouteWithChildren
   '/workspaces/me': typeof WorkspacesMeRouteWithChildren
   '/settings/': typeof SettingsIndexRoute
   '/workspaces/': typeof WorkspacesIndexRoute
-  '/workspaces/$workspaceId/events': typeof WorkspacesWorkspaceIdEventsRoute
-  '/workspaces/me/events': typeof WorkspacesMeEventsRoute
+  '/join/conversations/$token': typeof JoinConversationsTokenRoute
   '/workspaces/$workspaceId/': typeof WorkspacesWorkspaceIdIndexRoute
   '/workspaces/me/': typeof WorkspacesMeIndexRoute
   '/workspaces/$workspaceId/channels/$conversationId': typeof WorkspacesWorkspaceIdChannelsConversationIdRoute
@@ -163,14 +133,10 @@ export interface FileRoutesByTo {
   '/docs': typeof DocsRoute
   '/privacy': typeof PrivacyRoute
   '/terms': typeof TermsRoute
-  '/conversation-invites/$token': typeof ConversationInvitesTokenRoute
   '/settings/api-keys': typeof SettingsApiKeysRoute
-  '/settings/audit': typeof SettingsAuditRoute
-  '/settings/events': typeof SettingsEventsRoute
   '/settings': typeof SettingsIndexRoute
   '/workspaces': typeof WorkspacesIndexRoute
-  '/workspaces/$workspaceId/events': typeof WorkspacesWorkspaceIdEventsRoute
-  '/workspaces/me/events': typeof WorkspacesMeEventsRoute
+  '/join/conversations/$token': typeof JoinConversationsTokenRoute
   '/workspaces/$workspaceId': typeof WorkspacesWorkspaceIdIndexRoute
   '/workspaces/me': typeof WorkspacesMeIndexRoute
   '/workspaces/$workspaceId/channels/$conversationId': typeof WorkspacesWorkspaceIdChannelsConversationIdRoute
@@ -184,16 +150,12 @@ export interface FileRoutesById {
   '/settings': typeof SettingsRouteWithChildren
   '/terms': typeof TermsRoute
   '/workspaces': typeof WorkspacesRouteWithChildren
-  '/conversation-invites/$token': typeof ConversationInvitesTokenRoute
   '/settings/api-keys': typeof SettingsApiKeysRoute
-  '/settings/audit': typeof SettingsAuditRoute
-  '/settings/events': typeof SettingsEventsRoute
   '/workspaces/$workspaceId': typeof WorkspacesWorkspaceIdRouteWithChildren
   '/workspaces/me': typeof WorkspacesMeRouteWithChildren
   '/settings/': typeof SettingsIndexRoute
   '/workspaces/': typeof WorkspacesIndexRoute
-  '/workspaces/$workspaceId/events': typeof WorkspacesWorkspaceIdEventsRoute
-  '/workspaces/me/events': typeof WorkspacesMeEventsRoute
+  '/join/conversations/$token': typeof JoinConversationsTokenRoute
   '/workspaces/$workspaceId/': typeof WorkspacesWorkspaceIdIndexRoute
   '/workspaces/me/': typeof WorkspacesMeIndexRoute
   '/workspaces/$workspaceId/channels/$conversationId': typeof WorkspacesWorkspaceIdChannelsConversationIdRoute
@@ -208,16 +170,12 @@ export interface FileRouteTypes {
     | '/settings'
     | '/terms'
     | '/workspaces'
-    | '/conversation-invites/$token'
     | '/settings/api-keys'
-    | '/settings/audit'
-    | '/settings/events'
     | '/workspaces/$workspaceId'
     | '/workspaces/me'
     | '/settings/'
     | '/workspaces/'
-    | '/workspaces/$workspaceId/events'
-    | '/workspaces/me/events'
+    | '/join/conversations/$token'
     | '/workspaces/$workspaceId/'
     | '/workspaces/me/'
     | '/workspaces/$workspaceId/channels/$conversationId'
@@ -228,14 +186,10 @@ export interface FileRouteTypes {
     | '/docs'
     | '/privacy'
     | '/terms'
-    | '/conversation-invites/$token'
     | '/settings/api-keys'
-    | '/settings/audit'
-    | '/settings/events'
     | '/settings'
     | '/workspaces'
-    | '/workspaces/$workspaceId/events'
-    | '/workspaces/me/events'
+    | '/join/conversations/$token'
     | '/workspaces/$workspaceId'
     | '/workspaces/me'
     | '/workspaces/$workspaceId/channels/$conversationId'
@@ -248,16 +202,12 @@ export interface FileRouteTypes {
     | '/settings'
     | '/terms'
     | '/workspaces'
-    | '/conversation-invites/$token'
     | '/settings/api-keys'
-    | '/settings/audit'
-    | '/settings/events'
     | '/workspaces/$workspaceId'
     | '/workspaces/me'
     | '/settings/'
     | '/workspaces/'
-    | '/workspaces/$workspaceId/events'
-    | '/workspaces/me/events'
+    | '/join/conversations/$token'
     | '/workspaces/$workspaceId/'
     | '/workspaces/me/'
     | '/workspaces/$workspaceId/channels/$conversationId'
@@ -271,7 +221,7 @@ export interface RootRouteChildren {
   SettingsRoute: typeof SettingsRouteWithChildren
   TermsRoute: typeof TermsRoute
   WorkspacesRoute: typeof WorkspacesRouteWithChildren
-  ConversationInvitesTokenRoute: typeof ConversationInvitesTokenRoute
+  JoinConversationsTokenRoute: typeof JoinConversationsTokenRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -346,33 +296,12 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof WorkspacesWorkspaceIdRouteImport
       parentRoute: typeof WorkspacesRoute
     }
-    '/settings/events': {
-      id: '/settings/events'
-      path: '/events'
-      fullPath: '/settings/events'
-      preLoaderRoute: typeof SettingsEventsRouteImport
-      parentRoute: typeof SettingsRoute
-    }
-    '/settings/audit': {
-      id: '/settings/audit'
-      path: '/audit'
-      fullPath: '/settings/audit'
-      preLoaderRoute: typeof SettingsAuditRouteImport
-      parentRoute: typeof SettingsRoute
-    }
     '/settings/api-keys': {
       id: '/settings/api-keys'
       path: '/api-keys'
       fullPath: '/settings/api-keys'
       preLoaderRoute: typeof SettingsApiKeysRouteImport
       parentRoute: typeof SettingsRoute
-    }
-    '/conversation-invites/$token': {
-      id: '/conversation-invites/$token'
-      path: '/conversation-invites/$token'
-      fullPath: '/conversation-invites/$token'
-      preLoaderRoute: typeof ConversationInvitesTokenRouteImport
-      parentRoute: typeof rootRouteImport
     }
     '/workspaces/me/': {
       id: '/workspaces/me/'
@@ -388,19 +317,12 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof WorkspacesWorkspaceIdIndexRouteImport
       parentRoute: typeof WorkspacesWorkspaceIdRoute
     }
-    '/workspaces/me/events': {
-      id: '/workspaces/me/events'
-      path: '/events'
-      fullPath: '/workspaces/me/events'
-      preLoaderRoute: typeof WorkspacesMeEventsRouteImport
-      parentRoute: typeof WorkspacesMeRoute
-    }
-    '/workspaces/$workspaceId/events': {
-      id: '/workspaces/$workspaceId/events'
-      path: '/events'
-      fullPath: '/workspaces/$workspaceId/events'
-      preLoaderRoute: typeof WorkspacesWorkspaceIdEventsRouteImport
-      parentRoute: typeof WorkspacesWorkspaceIdRoute
+    '/join/conversations/$token': {
+      id: '/join/conversations/$token'
+      path: '/join/conversations/$token'
+      fullPath: '/join/conversations/$token'
+      preLoaderRoute: typeof JoinConversationsTokenRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/workspaces/me/channels/$conversationId': {
       id: '/workspaces/me/channels/$conversationId'
@@ -421,15 +343,11 @@ declare module '@tanstack/react-router' {
 
 interface SettingsRouteChildren {
   SettingsApiKeysRoute: typeof SettingsApiKeysRoute
-  SettingsAuditRoute: typeof SettingsAuditRoute
-  SettingsEventsRoute: typeof SettingsEventsRoute
   SettingsIndexRoute: typeof SettingsIndexRoute
 }
 
 const SettingsRouteChildren: SettingsRouteChildren = {
   SettingsApiKeysRoute: SettingsApiKeysRoute,
-  SettingsAuditRoute: SettingsAuditRoute,
-  SettingsEventsRoute: SettingsEventsRoute,
   SettingsIndexRoute: SettingsIndexRoute,
 }
 
@@ -438,13 +356,11 @@ const SettingsRouteWithChildren = SettingsRoute._addFileChildren(
 )
 
 interface WorkspacesWorkspaceIdRouteChildren {
-  WorkspacesWorkspaceIdEventsRoute: typeof WorkspacesWorkspaceIdEventsRoute
   WorkspacesWorkspaceIdIndexRoute: typeof WorkspacesWorkspaceIdIndexRoute
   WorkspacesWorkspaceIdChannelsConversationIdRoute: typeof WorkspacesWorkspaceIdChannelsConversationIdRoute
 }
 
 const WorkspacesWorkspaceIdRouteChildren: WorkspacesWorkspaceIdRouteChildren = {
-  WorkspacesWorkspaceIdEventsRoute: WorkspacesWorkspaceIdEventsRoute,
   WorkspacesWorkspaceIdIndexRoute: WorkspacesWorkspaceIdIndexRoute,
   WorkspacesWorkspaceIdChannelsConversationIdRoute:
     WorkspacesWorkspaceIdChannelsConversationIdRoute,
@@ -456,13 +372,11 @@ const WorkspacesWorkspaceIdRouteWithChildren =
   )
 
 interface WorkspacesMeRouteChildren {
-  WorkspacesMeEventsRoute: typeof WorkspacesMeEventsRoute
   WorkspacesMeIndexRoute: typeof WorkspacesMeIndexRoute
   WorkspacesMeChannelsConversationIdRoute: typeof WorkspacesMeChannelsConversationIdRoute
 }
 
 const WorkspacesMeRouteChildren: WorkspacesMeRouteChildren = {
-  WorkspacesMeEventsRoute: WorkspacesMeEventsRoute,
   WorkspacesMeIndexRoute: WorkspacesMeIndexRoute,
   WorkspacesMeChannelsConversationIdRoute:
     WorkspacesMeChannelsConversationIdRoute,
@@ -495,7 +409,7 @@ const rootRouteChildren: RootRouteChildren = {
   SettingsRoute: SettingsRouteWithChildren,
   TermsRoute: TermsRoute,
   WorkspacesRoute: WorkspacesRouteWithChildren,
-  ConversationInvitesTokenRoute: ConversationInvitesTokenRoute,
+  JoinConversationsTokenRoute: JoinConversationsTokenRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

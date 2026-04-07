@@ -60,7 +60,7 @@ function RootLayout() {
     select: (state) => state.location.pathname,
   })
   const isWorkspace = pathname.startsWith('/workspaces')
-  const isConversationInvite = pathname.startsWith('/conversation-invites')
+  const isConversationJoin = pathname.startsWith('/join/conversations')
   const isSettings = pathname.startsWith('/settings')
   const isHome = pathname === '/'
   const isDocs = pathname === '/docs'
@@ -68,7 +68,7 @@ function RootLayout() {
   const isPrivacy = pathname === '/privacy'
   const hideChrome =
     isWorkspace ||
-    isConversationInvite ||
+    isConversationJoin ||
     isSettings ||
     isHome ||
     isDocs ||

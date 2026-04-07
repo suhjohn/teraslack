@@ -10,6 +10,8 @@ import type { APIKeyScopeType } from './aPIKeyScopeType';
 export interface APIKey {
   /** API key identifier. */
   id: string;
+  /** User principal authenticated by this API key. */
+  subject_user_id: string;
   /** Human-readable API key label. */
   label: string;
   /** Whether the key is user-scoped or workspace-scoped. */
