@@ -72,6 +72,7 @@ function AdminLayout() {
 
   const auth = authQuery.data ?? null
   const workspaces = workspacesQuery.data?.items ?? []
+  const authMemberships = Array.isArray(auth?.workspaces) ? auth.workspaces : []
 
   const workspaceID = useMemo(() => {
     if (
@@ -80,7 +81,7 @@ function AdminLayout() {
     ) {
       return preferredWorkspaceID
     }
-    const firstMembershipWorkspaceID = auth?.workspaces[0]?.workspace_id
+    const firstMembershipWorkspaceID = authMemberships[0]?.workspace_id
     if (
       firstMembershipWorkspaceID &&
       workspaces.some((workspace) => workspace.id === firstMembershipWorkspaceID)
@@ -88,7 +89,7 @@ function AdminLayout() {
       return firstMembershipWorkspaceID
     }
     return workspaces[0]?.id ?? ''
-  }, [preferredWorkspaceID, workspaces, auth])
+  }, [preferredWorkspaceID, workspaces, authMemberships])
 
   const activeWorkspace =
     workspaces.find((workspace) => workspace.id === workspaceID) ?? null

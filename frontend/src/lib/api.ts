@@ -134,24 +134,36 @@ export async function apiFetch<T>(
   return (await response.json()) as T
 }
 
-export function startOAuth(provider: 'github' | 'google', redirectPath = '/workspace') {
+export async function startOAuth(provider: 'github' | 'google', redirectPath = '/workspace') {
   if (typeof window === 'undefined') {
     return
   }
 
-  const redirectTo = new URL(redirectPath, window.location.origin).toString()
-  const target = new URL(`/auth/oauth/${provider}/start`, apiBaseURL)
+  const redirectTo = new URL(redirectPath, window.location.origin)
   const params = new URLSearchParams(window.location.search)
   const workspaceID = params.get('workspace_id')?.trim()
   const inviteToken = params.get('invite')?.trim()
   if (workspaceID) {
-    target.searchParams.set('workspace_id', workspaceID)
+    redirectTo.searchParams.set('workspace_id', workspaceID)
   }
   if (inviteToken) {
-    target.searchParams.set('invite', inviteToken)
+    redirectTo.searchParams.set('invite', inviteToken)
   }
-  target.searchParams.set('redirect_to', redirectTo)
-  window.location.assign(target.toString())
+
+  try {
+    const response = await apiFetch<{ auth_url: string }>(
+      `/auth/oauth/${provider}/start`,
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          redirect_uri: redirectTo.toString(),
+        }),
+      },
+    )
+    window.location.assign(response.auth_url)
+  } catch (error) {
+    console.error(`Failed to start ${provider} OAuth`, error)
+  }
 }
 
 export function getProviderLabel(provider: 'github' | 'google') {

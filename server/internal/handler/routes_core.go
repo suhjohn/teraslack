@@ -213,7 +213,7 @@ func (s *Server) handleGetMe(w http.ResponseWriter, r *http.Request, auth domain
 		return
 	}
 
-	var workspaces []api.WorkspaceMembershipSummary
+	workspaces := make([]api.WorkspaceMembershipSummary, 0, len(rows))
 	for _, row := range rows {
 		item := api.WorkspaceMembershipSummary{
 			WorkspaceID: row.WorkspaceID.String(),
