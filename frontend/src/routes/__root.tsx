@@ -59,7 +59,7 @@ function RootLayout() {
   const pathname = useRouterState({
     select: (state) => state.location.pathname,
   })
-  const isWorkspace = pathname.startsWith('/event-feed')
+  const isWorkspace = false
   const isSettings = pathname.startsWith('/settings')
   const isHome = pathname === '/'
   const isDocs = pathname === '/docs'

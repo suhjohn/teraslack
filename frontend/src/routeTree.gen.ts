@@ -12,7 +12,6 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as TermsRouteImport } from './routes/terms'
 import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as PrivacyRouteImport } from './routes/privacy'
-import { Route as EventFeedRouteImport } from './routes/event-feed'
 import { Route as DocsRouteImport } from './routes/docs'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as SettingsIndexRouteImport } from './routes/settings/index'
@@ -33,11 +32,6 @@ const SettingsRoute = SettingsRouteImport.update({
 const PrivacyRoute = PrivacyRouteImport.update({
   id: '/privacy',
   path: '/privacy',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const EventFeedRoute = EventFeedRouteImport.update({
-  id: '/event-feed',
-  path: '/event-feed',
   getParentRoute: () => rootRouteImport,
 } as any)
 const DocsRoute = DocsRouteImport.update({
@@ -74,7 +68,6 @@ const SettingsApiKeysRoute = SettingsApiKeysRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/docs': typeof DocsRoute
-  '/event-feed': typeof EventFeedRoute
   '/privacy': typeof PrivacyRoute
   '/settings': typeof SettingsRouteWithChildren
   '/terms': typeof TermsRoute
@@ -86,7 +79,6 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/docs': typeof DocsRoute
-  '/event-feed': typeof EventFeedRoute
   '/privacy': typeof PrivacyRoute
   '/terms': typeof TermsRoute
   '/settings/api-keys': typeof SettingsApiKeysRoute
@@ -98,7 +90,6 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/docs': typeof DocsRoute
-  '/event-feed': typeof EventFeedRoute
   '/privacy': typeof PrivacyRoute
   '/settings': typeof SettingsRouteWithChildren
   '/terms': typeof TermsRoute
@@ -112,7 +103,6 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/docs'
-    | '/event-feed'
     | '/privacy'
     | '/settings'
     | '/terms'
@@ -124,7 +114,6 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/docs'
-    | '/event-feed'
     | '/privacy'
     | '/terms'
     | '/settings/api-keys'
@@ -135,7 +124,6 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/docs'
-    | '/event-feed'
     | '/privacy'
     | '/settings'
     | '/terms'
@@ -148,7 +136,6 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   DocsRoute: typeof DocsRoute
-  EventFeedRoute: typeof EventFeedRoute
   PrivacyRoute: typeof PrivacyRoute
   SettingsRoute: typeof SettingsRouteWithChildren
   TermsRoute: typeof TermsRoute
@@ -175,13 +162,6 @@ declare module '@tanstack/react-router' {
       path: '/privacy'
       fullPath: '/privacy'
       preLoaderRoute: typeof PrivacyRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/event-feed': {
-      id: '/event-feed'
-      path: '/event-feed'
-      fullPath: '/event-feed'
-      preLoaderRoute: typeof EventFeedRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/docs': {
@@ -250,7 +230,6 @@ const SettingsRouteWithChildren = SettingsRoute._addFileChildren(
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   DocsRoute: DocsRoute,
-  EventFeedRoute: EventFeedRoute,
   PrivacyRoute: PrivacyRoute,
   SettingsRoute: SettingsRouteWithChildren,
   TermsRoute: TermsRoute,
