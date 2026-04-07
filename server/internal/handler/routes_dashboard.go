@@ -3,12 +3,10 @@ package handler
 import (
 	"context"
 	"fmt"
-	"math"
 	"net/http"
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
 
 	"github.com/johnsuh/teraslack/server/internal/api"
 	"github.com/johnsuh/teraslack/server/internal/domain"
@@ -33,11 +31,6 @@ func (s *Server) handleDashboardOverview(w http.ResponseWriter, r *http.Request,
 		s.writeAppError(w, r, internalError(err))
 		return
 	}
-	traffic, err := s.loadDashboardTrafficSummary(r.Context(), auth.UserID, workspaceID)
-	if err != nil {
-		s.writeAppError(w, r, internalError(err))
-		return
-	}
 	webhooks, err := s.loadDashboardWebhookSummary(r.Context(), auth.UserID, workspaceID)
 	if err != nil {
 		s.writeAppError(w, r, internalError(err))
@@ -52,30 +45,9 @@ func (s *Server) handleDashboardOverview(w http.ResponseWriter, r *http.Request,
 	writeJSON(w, http.StatusOK, api.DashboardOverview{
 		Scope:    scope,
 		APIKeys:  keys,
-		Traffic:  traffic,
 		Webhooks: webhooks,
 		Data:     data,
 	})
-}
-
-func (s *Server) handleDashboardTraffic(w http.ResponseWriter, r *http.Request, auth domain.AuthContext) {
-	workspaceID, scope, appErr := s.resolveDashboardScope(r, auth)
-	if appErr != nil {
-		s.writeAppError(w, r, appErr)
-		return
-	}
-	days, appErr := parseDashboardDaysQuery(r.URL.Query().Get("days"), 7, 90)
-	if appErr != nil {
-		s.writeAppError(w, r, appErr)
-		return
-	}
-
-	response, err := s.loadDashboardTrafficResponse(r.Context(), auth.UserID, workspaceID, scope, days)
-	if err != nil {
-		s.writeAppError(w, r, internalError(err))
-		return
-	}
-	writeJSON(w, http.StatusOK, response)
 }
 
 func (s *Server) handleDashboardWebhooks(w http.ResponseWriter, r *http.Request, auth domain.AuthContext) {
@@ -260,77 +232,6 @@ func (s *Server) loadDashboardAPIKeySummary(ctx context.Context, userID uuid.UUI
 	return summary, nil
 }
 
-func (s *Server) loadDashboardTrafficSummary(ctx context.Context, userID uuid.UUID, workspaceID *uuid.UUID) (api.DashboardTrafficSummary, error) {
-	cutoff := time.Now().UTC().Add(-7 * 24 * time.Hour)
-
-	var summary api.DashboardTrafficSummary
-	var avgDuration float64
-	var p95Duration float64
-	if workspaceID == nil {
-		err := s.db.QueryRow(ctx, `select
-			count(*) filter (where created_at >= now() - interval '24 hours')::int,
-			count(*)::int,
-			count(*) filter (where status_code < 400)::int,
-			count(*) filter (where status_code >= 400 and status_code < 500)::int,
-			count(*) filter (where status_code >= 500)::int,
-			count(*) filter (where status_code = 429)::int,
-			coalesce(avg(duration_ms), 0),
-			coalesce(percentile_cont(0.95) within group (order by duration_ms), 0)
-		from api_request_logs
-		where user_id = $1
-		  and created_at >= $2`,
-			userID,
-			cutoff,
-		).Scan(
-			&summary.Requests24h,
-			&summary.Requests7d,
-			&summary.Success7d,
-			&summary.ClientErrors7d,
-			&summary.ServerErrors7d,
-			&summary.RateLimited7d,
-			&avgDuration,
-			&p95Duration,
-		)
-		if err != nil {
-			return api.DashboardTrafficSummary{}, err
-		}
-	} else {
-		err := s.db.QueryRow(ctx, `select
-			count(*) filter (where created_at >= now() - interval '24 hours')::int,
-			count(*)::int,
-			count(*) filter (where status_code < 400)::int,
-			count(*) filter (where status_code >= 400 and status_code < 500)::int,
-			count(*) filter (where status_code >= 500)::int,
-			count(*) filter (where status_code = 429)::int,
-			coalesce(avg(duration_ms), 0),
-			coalesce(percentile_cont(0.95) within group (order by duration_ms), 0)
-		from api_request_logs
-		where user_id = $1
-		  and scope_workspace_id = $2
-		  and created_at >= $3`,
-			userID,
-			*workspaceID,
-			cutoff,
-		).Scan(
-			&summary.Requests24h,
-			&summary.Requests7d,
-			&summary.Success7d,
-			&summary.ClientErrors7d,
-			&summary.ServerErrors7d,
-			&summary.RateLimited7d,
-			&avgDuration,
-			&p95Duration,
-		)
-		if err != nil {
-			return api.DashboardTrafficSummary{}, err
-		}
-	}
-
-	summary.AvgDurationMs = roundMetric(avgDuration)
-	summary.P95DurationMs = roundMetric(p95Duration)
-	return summary, nil
-}
-
 func (s *Server) loadDashboardWebhookSummary(ctx context.Context, userID uuid.UUID, workspaceID *uuid.UUID) (api.DashboardWebhookSummary, error) {
 	var summary api.DashboardWebhookSummary
 	err := s.db.QueryRow(ctx, `select
@@ -418,302 +319,6 @@ func (s *Server) loadDashboardDataSummary(ctx context.Context, auth domain.AuthC
 	}
 
 	return summary, nil
-}
-
-func (s *Server) loadDashboardTrafficResponse(ctx context.Context, userID uuid.UUID, workspaceID *uuid.UUID, scope api.DashboardScope, days int) (api.DashboardTrafficResponse, error) {
-	cutoff := time.Now().UTC().AddDate(0, 0, -days+1)
-	cutoff = utcStartOfDay(cutoff)
-
-	response := api.DashboardTrafficResponse{
-		Scope: scope,
-		Days:  days,
-	}
-
-	var avgDuration float64
-	var p95Duration float64
-	if workspaceID == nil {
-		err := s.db.QueryRow(ctx, `select
-			count(*)::int,
-			count(*) filter (where status_code < 400)::int,
-			count(*) filter (where status_code >= 400 and status_code < 500)::int,
-			count(*) filter (where status_code >= 500)::int,
-			count(*) filter (where status_code = 429)::int,
-			count(*) filter (where auth_kind = 'session')::int,
-			count(*) filter (where auth_kind = 'api_key')::int,
-			coalesce(avg(duration_ms), 0),
-			coalesce(percentile_cont(0.95) within group (order by duration_ms), 0)
-		from api_request_logs
-		where user_id = $1
-		  and created_at >= $2`,
-			userID,
-			cutoff,
-		).Scan(
-			&response.Totals.Requests,
-			&response.Totals.Success,
-			&response.Totals.ClientErrors,
-			&response.Totals.ServerErrors,
-			&response.Totals.RateLimited,
-			&response.Totals.SessionReqs,
-			&response.Totals.APIKeyReqs,
-			&avgDuration,
-			&p95Duration,
-		)
-		if err != nil {
-			return api.DashboardTrafficResponse{}, err
-		}
-	} else {
-		err := s.db.QueryRow(ctx, `select
-			count(*)::int,
-			count(*) filter (where status_code < 400)::int,
-			count(*) filter (where status_code >= 400 and status_code < 500)::int,
-			count(*) filter (where status_code >= 500)::int,
-			count(*) filter (where status_code = 429)::int,
-			count(*) filter (where auth_kind = 'session')::int,
-			count(*) filter (where auth_kind = 'api_key')::int,
-			coalesce(avg(duration_ms), 0),
-			coalesce(percentile_cont(0.95) within group (order by duration_ms), 0)
-		from api_request_logs
-		where user_id = $1
-		  and scope_workspace_id = $2
-		  and created_at >= $3`,
-			userID,
-			*workspaceID,
-			cutoff,
-		).Scan(
-			&response.Totals.Requests,
-			&response.Totals.Success,
-			&response.Totals.ClientErrors,
-			&response.Totals.ServerErrors,
-			&response.Totals.RateLimited,
-			&response.Totals.SessionReqs,
-			&response.Totals.APIKeyReqs,
-			&avgDuration,
-			&p95Duration,
-		)
-		if err != nil {
-			return api.DashboardTrafficResponse{}, err
-		}
-	}
-	response.Totals.AvgDurationMs = roundMetric(avgDuration)
-	response.Totals.P95DurationMs = roundMetric(p95Duration)
-
-	seriesMap := make(map[string]api.DashboardTrafficPoint)
-	var rows pgx.Rows
-	var err error
-	if workspaceID == nil {
-		rows, err = s.db.Query(ctx, `select
-			date_trunc('day', created_at)::date,
-			count(*)::int,
-			count(*) filter (where status_code < 400)::int,
-			count(*) filter (where status_code >= 400 and status_code < 500)::int,
-			count(*) filter (where status_code >= 500)::int,
-			count(*) filter (where status_code = 429)::int
-		from api_request_logs
-		where user_id = $1
-		  and created_at >= $2
-		group by 1
-		order by 1 asc`,
-			userID,
-			cutoff,
-		)
-	} else {
-		rows, err = s.db.Query(ctx, `select
-			date_trunc('day', created_at)::date,
-			count(*)::int,
-			count(*) filter (where status_code < 400)::int,
-			count(*) filter (where status_code >= 400 and status_code < 500)::int,
-			count(*) filter (where status_code >= 500)::int,
-			count(*) filter (where status_code = 429)::int
-		from api_request_logs
-		where user_id = $1
-		  and scope_workspace_id = $2
-		  and created_at >= $3
-		group by 1
-		order by 1 asc`,
-			userID,
-			*workspaceID,
-			cutoff,
-		)
-	}
-	if err != nil {
-		return api.DashboardTrafficResponse{}, err
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var day time.Time
-		var point api.DashboardTrafficPoint
-		if err := rows.Scan(&day, &point.Requests, &point.Success, &point.ClientErrors, &point.ServerErrors, &point.RateLimited); err != nil {
-			return api.DashboardTrafficResponse{}, err
-		}
-		point.Date = day.UTC().Format("2006-01-02")
-		seriesMap[point.Date] = point
-	}
-	response.Series = fillTrafficSeries(seriesMap, cutoff, days)
-
-	if workspaceID == nil {
-		rows, err = s.db.Query(ctx, `select
-			method,
-			path_template,
-			count(*)::int,
-			coalesce(avg(case when status_code < 400 then 1.0 else 0.0 end), 0),
-			coalesce(avg(duration_ms), 0),
-			coalesce(percentile_cont(0.95) within group (order by duration_ms), 0),
-			max(created_at)
-		from api_request_logs
-		where user_id = $1
-		  and created_at >= $2
-		group by method, path_template
-		order by count(*) desc, max(created_at) desc
-		limit 10`,
-			userID,
-			cutoff,
-		)
-	} else {
-		rows, err = s.db.Query(ctx, `select
-			method,
-			path_template,
-			count(*)::int,
-			coalesce(avg(case when status_code < 400 then 1.0 else 0.0 end), 0),
-			coalesce(avg(duration_ms), 0),
-			coalesce(percentile_cont(0.95) within group (order by duration_ms), 0),
-			max(created_at)
-		from api_request_logs
-		where user_id = $1
-		  and scope_workspace_id = $2
-		  and created_at >= $3
-		group by method, path_template
-		order by count(*) desc, max(created_at) desc
-		limit 10`,
-			userID,
-			*workspaceID,
-			cutoff,
-		)
-	}
-	if err != nil {
-		return api.DashboardTrafficResponse{}, err
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var item api.DashboardEndpointStat
-		var avg float64
-		var p95 float64
-		var lastSeenAt *time.Time
-		if err := rows.Scan(&item.Method, &item.Path, &item.Requests, &item.SuccessRate, &avg, &p95, &lastSeenAt); err != nil {
-			return api.DashboardTrafficResponse{}, err
-		}
-		item.AvgDurationMs = roundMetric(avg)
-		item.P95DurationMs = roundMetric(p95)
-		item.LastSeenAt = timePtrToStringPtr(lastSeenAt)
-		response.ByEndpoint = append(response.ByEndpoint, item)
-	}
-
-	if workspaceID == nil {
-		rows, err = s.db.Query(ctx, `select
-			l.api_key_id,
-			k.label,
-			k.scope_type,
-			k.scope_workspace_id,
-			count(*)::int,
-			coalesce(avg(case when l.status_code < 400 then 1.0 else 0.0 end), 0),
-			max(k.last_used_at),
-			max(l.created_at)
-		from api_request_logs l
-		join api_keys k on k.id = l.api_key_id
-		where l.user_id = $1
-		  and l.created_at >= $2
-		  and l.api_key_id is not null
-		group by l.api_key_id, k.label, k.scope_type, k.scope_workspace_id
-		order by count(*) desc, max(l.created_at) desc
-		limit 10`,
-			userID,
-			cutoff,
-		)
-	} else {
-		rows, err = s.db.Query(ctx, `select
-			l.api_key_id,
-			k.label,
-			k.scope_type,
-			k.scope_workspace_id,
-			count(*)::int,
-			coalesce(avg(case when l.status_code < 400 then 1.0 else 0.0 end), 0),
-			max(k.last_used_at),
-			max(l.created_at)
-		from api_request_logs l
-		join api_keys k on k.id = l.api_key_id
-		where l.user_id = $1
-		  and l.scope_workspace_id = $2
-		  and l.created_at >= $3
-		  and l.api_key_id is not null
-		group by l.api_key_id, k.label, k.scope_type, k.scope_workspace_id
-		order by count(*) desc, max(l.created_at) desc
-		limit 10`,
-			userID,
-			*workspaceID,
-			cutoff,
-		)
-	}
-	if err != nil {
-		return api.DashboardTrafficResponse{}, err
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var apiKeyID uuid.UUID
-		var item api.DashboardKeyTrafficStat
-		var lastUsedAt *time.Time
-		var lastRequestAt *time.Time
-		var scopeWorkspaceID *uuid.UUID
-		if err := rows.Scan(&apiKeyID, &item.Label, &item.ScopeType, &scopeWorkspaceID, &item.Requests, &item.SuccessRate, &lastUsedAt, &lastRequestAt); err != nil {
-			return api.DashboardTrafficResponse{}, err
-		}
-		item.APIKeyID = apiKeyID.String()
-		item.ScopeWorkspaceID = uuidPtrToStringPtr(scopeWorkspaceID)
-		item.LastUsedAt = timePtrToStringPtr(lastUsedAt)
-		item.LastRequestAt = timePtrToStringPtr(lastRequestAt)
-		response.ByKey = append(response.ByKey, item)
-	}
-
-	if workspaceID == nil {
-		rows, err = s.db.Query(ctx, `select
-			status_code,
-			count(*)::int
-		from api_request_logs
-		where user_id = $1
-		  and created_at >= $2
-		group by status_code
-		order by count(*) desc, status_code asc
-		limit 10`,
-			userID,
-			cutoff,
-		)
-	} else {
-		rows, err = s.db.Query(ctx, `select
-			status_code,
-			count(*)::int
-		from api_request_logs
-		where user_id = $1
-		  and scope_workspace_id = $2
-		  and created_at >= $3
-		group by status_code
-		order by count(*) desc, status_code asc
-		limit 10`,
-			userID,
-			*workspaceID,
-			cutoff,
-		)
-	}
-	if err != nil {
-		return api.DashboardTrafficResponse{}, err
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var item api.DashboardStatusCodeStat
-		if err := rows.Scan(&item.StatusCode, &item.Count); err != nil {
-			return api.DashboardTrafficResponse{}, err
-		}
-		response.StatusCodes = append(response.StatusCodes, item)
-	}
-
-	return response, nil
 }
 
 func (s *Server) loadDashboardWebhooksResponse(ctx context.Context, userID uuid.UUID, workspaceID *uuid.UUID, scope api.DashboardScope, limit int) (api.DashboardWebhooksResponse, error) {
@@ -1152,19 +757,6 @@ func buildDashboardConversationVisibility(alias string, workspaceID *uuid.UUID, 
 	}
 }
 
-func fillTrafficSeries(points map[string]api.DashboardTrafficPoint, start time.Time, days int) []api.DashboardTrafficPoint {
-	items := make([]api.DashboardTrafficPoint, 0, days)
-	for offset := 0; offset < days; offset++ {
-		date := start.AddDate(0, 0, offset).Format("2006-01-02")
-		point, ok := points[date]
-		if !ok {
-			point = api.DashboardTrafficPoint{Date: date}
-		}
-		items = append(items, point)
-	}
-	return items
-}
-
 func fillDataSeries(points map[string]api.DashboardDataPoint, start time.Time, days int) []api.DashboardDataPoint {
 	items := make([]api.DashboardDataPoint, 0, days)
 	for offset := 0; offset < days; offset++ {
@@ -1176,10 +768,6 @@ func fillDataSeries(points map[string]api.DashboardDataPoint, start time.Time, d
 		items = append(items, point)
 	}
 	return items
-}
-
-func roundMetric(value float64) int {
-	return int(math.Round(value))
 }
 
 func utcStartOfDay(value time.Time) time.Time {

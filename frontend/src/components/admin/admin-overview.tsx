@@ -19,7 +19,6 @@ import {
 import {
   formatDate,
   formatNumber,
-  formatPercent,
   getDashboardWorkspaceParams,
   getErrorMessage,
   useAdmin,
@@ -70,17 +69,13 @@ export function AdminOverview() {
 
   const overview = overviewQuery.data
   const auditItems = auditQuery.data?.items ?? []
-  const successRate =
-    overview.traffic.requests_7d > 0
-      ? overview.traffic.success_7d / overview.traffic.requests_7d
-      : 0
 
   return (
     <div className="space-y-8">
       <DashboardHeader
         eyebrow="Usage"
         title="Overview"
-        description="Account or workspace health across keys, traffic, delivery state, and stored messaging activity."
+        description="Account or workspace health across keys, webhook delivery state, and stored messaging activity."
         tag="LIVE"
       />
 
@@ -89,7 +84,7 @@ export function AdminOverview() {
           workspaceName={overview.scope.workspace_name ?? null}
         />
         <Badge variant="muted">
-          Success 7d {formatPercent(successRate)}
+          Enabled subscriptions {formatNumber(overview.webhooks.enabled_subscriptions)}
         </Badge>
         {overview.api_keys.last_used_at ? (
           <Badge variant="muted">
@@ -106,10 +101,10 @@ export function AdminOverview() {
           href="/workspace/api-keys"
         />
         <DashboardMetric
-          label="Requests 24h"
-          value={formatNumber(overview.traffic.requests_24h)}
-          detail={`${formatNumber(overview.traffic.requests_7d)} over 7 days`}
-          href="/workspace/traffic"
+          label="Subscriptions"
+          value={formatNumber(overview.webhooks.enabled_subscriptions)}
+          detail={`${formatNumber(overview.webhooks.subscriptions)} configured`}
+          href="/workspace/events"
         />
         <DashboardMetric
           label="Failed deliveries"
@@ -128,7 +123,7 @@ export function AdminOverview() {
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1.1fr)_minmax(0,.9fr)]">
         <DashboardSection
           title="Operational posture"
-          description="The fastest way to spot stale credentials, traffic pressure, and delivery issues."
+          description="The fastest way to spot stale credentials, delivery pressure, and room composition."
         >
           <div className="space-y-3 px-4 py-4 text-sm text-[var(--sys-home-muted)]">
             <OverviewRow
@@ -140,18 +135,6 @@ export function AdminOverview() {
               }
             />
             <OverviewRow
-              label="Rate limits"
-              value={
-                overview.traffic.rate_limited_7d > 0
-                  ? `${formatNumber(overview.traffic.rate_limited_7d)} requests throttled`
-                  : 'No throttling observed'
-              }
-            />
-            <OverviewRow
-              label="Latency"
-              value={`avg ${formatNumber(overview.traffic.avg_duration_ms)} ms / p95 ${formatNumber(overview.traffic.p95_duration_ms)} ms`}
-            />
-            <OverviewRow
               label="Delivery queue"
               value={
                 overview.webhooks.pending_deliveries > 0
@@ -160,8 +143,20 @@ export function AdminOverview() {
               }
             />
             <OverviewRow
+              label="Delivery failures"
+              value={
+                overview.webhooks.failed24h > 0
+                  ? `${formatNumber(overview.webhooks.failed24h)} failed in 24h`
+                  : 'No recent delivery failures'
+              }
+            />
+            <OverviewRow
               label="Room mix"
               value={`${formatNumber(overview.data.member_conversations)} member-only / ${formatNumber(overview.data.broadcast_conversations)} broadcast`}
+            />
+            <OverviewRow
+              label="Recent events"
+              value={`${formatNumber(overview.data.recent_events_24h)} external events in 24h`}
             />
           </div>
         </DashboardSection>

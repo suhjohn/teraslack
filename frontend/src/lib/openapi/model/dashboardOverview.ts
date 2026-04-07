@@ -8,13 +8,11 @@
 import type { DashboardAPIKeySummary } from './dashboardAPIKeySummary';
 import type { DashboardDataSummary } from './dashboardDataSummary';
 import type { DashboardScope } from './dashboardScope';
-import type { DashboardTrafficSummary } from './dashboardTrafficSummary';
 import type { DashboardWebhookSummary } from './dashboardWebhookSummary';
 
 export interface DashboardOverview {
   scope: DashboardScope;
   api_keys: DashboardAPIKeySummary;
-  traffic: DashboardTrafficSummary;
   webhooks: DashboardWebhookSummary;
   data: DashboardDataSummary;
 }

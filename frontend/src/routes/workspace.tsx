@@ -1,7 +1,6 @@
 import { useQueryClient } from '@tanstack/react-query'
 import { createFileRoute, Link, Outlet } from '@tanstack/react-router'
 import {
-  BarChart3,
   Check,
   ChevronsUpDown,
   Database,
@@ -45,7 +44,6 @@ export const Route = createFileRoute('/workspace')({
 const navItems = [
   { to: '/workspace', label: 'Overview', icon: LayoutDashboard, exact: true },
   { to: '/workspace/api-keys', label: 'API Keys', icon: KeyRound, exact: false },
-  { to: '/workspace/traffic', label: 'Traffic', icon: BarChart3, exact: false },
   { to: '/workspace/events', label: 'Webhooks', icon: RadioTower, exact: false },
   { to: '/workspace/data-activity', label: 'Data Activity', icon: Database, exact: false },
   { to: '/workspace/audit', label: 'Audit', icon: Shield, exact: false },

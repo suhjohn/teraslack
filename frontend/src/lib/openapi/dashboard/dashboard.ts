@@ -25,12 +25,10 @@ import type {
   DashboardAuditResponse,
   DashboardDataActivityResponse,
   DashboardOverview,
-  DashboardTrafficResponse,
   DashboardWebhooksResponse,
   GetDashboardAuditParams,
   GetDashboardDataActivityParams,
   GetDashboardOverviewParams,
-  GetDashboardTrafficParams,
   GetDashboardWebhooksParams
 } from '../model';
 
@@ -51,7 +49,7 @@ export type HTTPStatusCodes = HTTPStatusCode1xx | HTTPStatusCode2xx | HTTPStatus
 
 
 /**
- * Returns the top-level key, traffic, webhook, and data summaries for the caller. Workspace-scoped API keys are restricted to their bound workspace.
+ * Returns the top-level key, webhook, and data summaries for the caller. Workspace-scoped API keys are restricted to their bound workspace.
  * @summary Get dashboard overview
  */
 export type getDashboardOverviewResponse200 = {
@@ -166,131 +164,6 @@ export function useGetDashboardOverview<TData = Awaited<ReturnType<typeof getDas
  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
 
   const queryOptions = getGetDashboardOverviewQueryOptions(params,options)
-
-  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
-
-  return { ...query, queryKey: queryOptions.queryKey };
-}
-
-
-
-
-/**
- * Returns recent request volume, latency, status code, endpoint, and API key breakdowns for the caller.
- * @summary Get dashboard traffic analytics
- */
-export type getDashboardTrafficResponse200 = {
-  data: DashboardTrafficResponse
-  status: 200
-}
-
-export type getDashboardTrafficResponseDefault = {
-  data: ApiErrorResponseResponse
-  status: Exclude<HTTPStatusCodes, 200>
-}
-
-export type getDashboardTrafficResponseSuccess = (getDashboardTrafficResponse200) & {
-  headers: Headers;
-};
-export type getDashboardTrafficResponseError = (getDashboardTrafficResponseDefault) & {
-  headers: Headers;
-};
-
-export type getDashboardTrafficResponse = (getDashboardTrafficResponseSuccess | getDashboardTrafficResponseError)
-
-export const getGetDashboardTrafficUrl = (params?: GetDashboardTrafficParams,) => {
-  const normalizedParams = new URLSearchParams();
-
-  Object.entries(params || {}).forEach(([key, value]) => {
-
-    if (value !== undefined) {
-      normalizedParams.append(key, value === null ? 'null' : value.toString())
-    }
-  });
-
-  const stringifiedParams = normalizedParams.toString();
-
-  return stringifiedParams.length > 0 ? `/dashboard/traffic?${stringifiedParams}` : `/dashboard/traffic`
-}
-
-export const getDashboardTraffic = async (params?: GetDashboardTrafficParams, options?: RequestInit): Promise<getDashboardTrafficResponse> => {
-
-  return orvalFetch<getDashboardTrafficResponse>(getGetDashboardTrafficUrl(params),
-  {
-    ...options,
-    method: 'GET'
-
-
-  }
-);}
-
-
-
-
-
-export const getGetDashboardTrafficQueryKey = (params?: GetDashboardTrafficParams,) => {
-    return [
-    `/dashboard/traffic`, ...(params ? [params] : [])
-    ] as const;
-    }
-
-
-export const getGetDashboardTrafficQueryOptions = <TData = Awaited<ReturnType<typeof getDashboardTraffic>>, TError = ErrorType<ApiErrorResponseResponse>>(params?: GetDashboardTrafficParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getDashboardTraffic>>, TError, TData>>, request?: SecondParameter<typeof orvalFetch>}
-) => {
-
-const {query: queryOptions, request: requestOptions} = options ?? {};
-
-  const queryKey =  queryOptions?.queryKey ?? getGetDashboardTrafficQueryKey(params);
-
-
-
-    const queryFn: QueryFunction<Awaited<ReturnType<typeof getDashboardTraffic>>> = ({ signal }) => getDashboardTraffic(params, { signal, ...requestOptions });
-
-
-
-
-
-   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getDashboardTraffic>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
-}
-
-export type GetDashboardTrafficQueryResult = NonNullable<Awaited<ReturnType<typeof getDashboardTraffic>>>
-export type GetDashboardTrafficQueryError = ErrorType<ApiErrorResponseResponse>
-
-
-export function useGetDashboardTraffic<TData = Awaited<ReturnType<typeof getDashboardTraffic>>, TError = ErrorType<ApiErrorResponseResponse>>(
- params: undefined |  GetDashboardTrafficParams, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof getDashboardTraffic>>, TError, TData>> & Pick<
-        DefinedInitialDataOptions<
-          Awaited<ReturnType<typeof getDashboardTraffic>>,
-          TError,
-          Awaited<ReturnType<typeof getDashboardTraffic>>
-        > , 'initialData'
-      >, request?: SecondParameter<typeof orvalFetch>}
- , queryClient?: QueryClient
-  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
-export function useGetDashboardTraffic<TData = Awaited<ReturnType<typeof getDashboardTraffic>>, TError = ErrorType<ApiErrorResponseResponse>>(
- params?: GetDashboardTrafficParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getDashboardTraffic>>, TError, TData>> & Pick<
-        UndefinedInitialDataOptions<
-          Awaited<ReturnType<typeof getDashboardTraffic>>,
-          TError,
-          Awaited<ReturnType<typeof getDashboardTraffic>>
-        > , 'initialData'
-      >, request?: SecondParameter<typeof orvalFetch>}
- , queryClient?: QueryClient
-  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
-export function useGetDashboardTraffic<TData = Awaited<ReturnType<typeof getDashboardTraffic>>, TError = ErrorType<ApiErrorResponseResponse>>(
- params?: GetDashboardTrafficParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getDashboardTraffic>>, TError, TData>>, request?: SecondParameter<typeof orvalFetch>}
- , queryClient?: QueryClient
-  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
-/**
- * @summary Get dashboard traffic analytics
- */
-
-export function useGetDashboardTraffic<TData = Awaited<ReturnType<typeof getDashboardTraffic>>, TError = ErrorType<ApiErrorResponseResponse>>(
- params?: GetDashboardTrafficParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getDashboardTraffic>>, TError, TData>>, request?: SecondParameter<typeof orvalFetch>}
- , queryClient?: QueryClient
- ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
-
-  const queryOptions = getGetDashboardTrafficQueryOptions(params,options)
 
   const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
 

@@ -16,7 +16,6 @@ func (s *Server) registerOpenAPIRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api-keys", s.requireAuth(s.handleCreateAPIKey))
 	mux.HandleFunc("DELETE /api-keys/{key_id}", s.requireAuth(s.handleDeleteAPIKey))
 	mux.HandleFunc("GET /dashboard/overview", s.requireAuth(s.handleDashboardOverview))
-	mux.HandleFunc("GET /dashboard/traffic", s.requireAuth(s.handleDashboardTraffic))
 	mux.HandleFunc("GET /dashboard/webhooks", s.requireAuth(s.handleDashboardWebhooks))
 	mux.HandleFunc("GET /dashboard/data-activity", s.requireAuth(s.handleDashboardDataActivity))
 	mux.HandleFunc("GET /dashboard/audit", s.requireAuth(s.handleDashboardAudit))

@@ -9,6 +9,10 @@ Compilation of all important info
 - Agent image build dependencies are installed natively in `agent-go/Dockerfile`.
 - Runtime sandbox prep lives in `agent-go/docker/start.sh`, and long-running services are supervised by `runit`.
 
+# Node Environment
+
+- Before running frontend commands in this repo, use `nvm use 24`.
+
 # Workspace Docs Sync Rule
 
 - Canonical workspace panel/tab architecture doc: `agent-manager-web/src/workspace/README.md`

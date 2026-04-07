@@ -173,29 +173,23 @@ func (s *Server) withCORS(next http.Handler) http.Handler {
 
 func (s *Server) requireAuth(next func(http.ResponseWriter, *http.Request, domain.AuthContext)) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		recorder := &statusRecorder{ResponseWriter: w}
-		startedAt := time.Now()
-
 		auth, err := s.authenticateRequest(r.Context(), r)
 		if err != nil {
-			s.writeAppError(recorder, r, err)
+			s.writeAppError(w, r, err)
 			return
 		}
 		if auth.APIKeyID != nil {
 			if !s.limiter.allow("auth:key:"+auth.APIKeyID.String(), 5000, time.Minute) {
-				s.writeAppError(recorder, r, rateLimited("API key rate limit exceeded."))
-				s.recordAPIAccess(auth, r, recorder.status, time.Since(startedAt))
+				s.writeAppError(w, r, rateLimited("API key rate limit exceeded."))
 				return
 			}
 		} else {
 			if !s.limiter.allow("auth:user:"+auth.UserID.String(), 1000, time.Minute) {
-				s.writeAppError(recorder, r, rateLimited("User rate limit exceeded."))
-				s.recordAPIAccess(auth, r, recorder.status, time.Since(startedAt))
+				s.writeAppError(w, r, rateLimited("User rate limit exceeded."))
 				return
 			}
 		}
-		next(recorder, r, auth)
-		s.recordAPIAccess(auth, r, recorder.status, time.Since(startedAt))
+		next(w, r, auth)
 	}
 }
 

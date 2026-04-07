@@ -15,7 +15,6 @@ import { Route as PrivacyRouteImport } from './routes/privacy'
 import { Route as DocsRouteImport } from './routes/docs'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as WorkspaceIndexRouteImport } from './routes/workspace/index'
-import { Route as WorkspaceTrafficRouteImport } from './routes/workspace/traffic'
 import { Route as WorkspaceSettingsRouteImport } from './routes/workspace/settings'
 import { Route as WorkspaceEventsRouteImport } from './routes/workspace/events'
 import { Route as WorkspaceDataActivityRouteImport } from './routes/workspace/data-activity'
@@ -50,11 +49,6 @@ const IndexRoute = IndexRouteImport.update({
 const WorkspaceIndexRoute = WorkspaceIndexRouteImport.update({
   id: '/',
   path: '/',
-  getParentRoute: () => WorkspaceRoute,
-} as any)
-const WorkspaceTrafficRoute = WorkspaceTrafficRouteImport.update({
-  id: '/traffic',
-  path: '/traffic',
   getParentRoute: () => WorkspaceRoute,
 } as any)
 const WorkspaceSettingsRoute = WorkspaceSettingsRouteImport.update({
@@ -94,7 +88,6 @@ export interface FileRoutesByFullPath {
   '/workspace/data-activity': typeof WorkspaceDataActivityRoute
   '/workspace/events': typeof WorkspaceEventsRoute
   '/workspace/settings': typeof WorkspaceSettingsRoute
-  '/workspace/traffic': typeof WorkspaceTrafficRoute
   '/workspace/': typeof WorkspaceIndexRoute
 }
 export interface FileRoutesByTo {
@@ -107,7 +100,6 @@ export interface FileRoutesByTo {
   '/workspace/data-activity': typeof WorkspaceDataActivityRoute
   '/workspace/events': typeof WorkspaceEventsRoute
   '/workspace/settings': typeof WorkspaceSettingsRoute
-  '/workspace/traffic': typeof WorkspaceTrafficRoute
   '/workspace': typeof WorkspaceIndexRoute
 }
 export interface FileRoutesById {
@@ -122,7 +114,6 @@ export interface FileRoutesById {
   '/workspace/data-activity': typeof WorkspaceDataActivityRoute
   '/workspace/events': typeof WorkspaceEventsRoute
   '/workspace/settings': typeof WorkspaceSettingsRoute
-  '/workspace/traffic': typeof WorkspaceTrafficRoute
   '/workspace/': typeof WorkspaceIndexRoute
 }
 export interface FileRouteTypes {
@@ -138,7 +129,6 @@ export interface FileRouteTypes {
     | '/workspace/data-activity'
     | '/workspace/events'
     | '/workspace/settings'
-    | '/workspace/traffic'
     | '/workspace/'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -151,7 +141,6 @@ export interface FileRouteTypes {
     | '/workspace/data-activity'
     | '/workspace/events'
     | '/workspace/settings'
-    | '/workspace/traffic'
     | '/workspace'
   id:
     | '__root__'
@@ -165,7 +154,6 @@ export interface FileRouteTypes {
     | '/workspace/data-activity'
     | '/workspace/events'
     | '/workspace/settings'
-    | '/workspace/traffic'
     | '/workspace/'
   fileRoutesById: FileRoutesById
 }
@@ -221,13 +209,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof WorkspaceIndexRouteImport
       parentRoute: typeof WorkspaceRoute
     }
-    '/workspace/traffic': {
-      id: '/workspace/traffic'
-      path: '/traffic'
-      fullPath: '/workspace/traffic'
-      preLoaderRoute: typeof WorkspaceTrafficRouteImport
-      parentRoute: typeof WorkspaceRoute
-    }
     '/workspace/settings': {
       id: '/workspace/settings'
       path: '/settings'
@@ -272,7 +253,6 @@ interface WorkspaceRouteChildren {
   WorkspaceDataActivityRoute: typeof WorkspaceDataActivityRoute
   WorkspaceEventsRoute: typeof WorkspaceEventsRoute
   WorkspaceSettingsRoute: typeof WorkspaceSettingsRoute
-  WorkspaceTrafficRoute: typeof WorkspaceTrafficRoute
   WorkspaceIndexRoute: typeof WorkspaceIndexRoute
 }
 
@@ -282,7 +262,6 @@ const WorkspaceRouteChildren: WorkspaceRouteChildren = {
   WorkspaceDataActivityRoute: WorkspaceDataActivityRoute,
   WorkspaceEventsRoute: WorkspaceEventsRoute,
   WorkspaceSettingsRoute: WorkspaceSettingsRoute,
-  WorkspaceTrafficRoute: WorkspaceTrafficRoute,
   WorkspaceIndexRoute: WorkspaceIndexRoute,
 }
 
