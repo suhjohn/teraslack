@@ -7,10 +7,31 @@ RAILWAY_CHAIN_UP_FLAGS ?= --ci
 ENV_FILE ?= .env
 COMPOSE := docker compose --env-file $(ENV_FILE)
 COMPOSE_DEV := $(COMPOSE) -f docker-compose.yml -f docker-compose.dev.yml
+SEARCH_ENV_FILE ?= .env.railway
+INTEGRATION_SEARCH_RUN ?= Search
+
+define railway_prepare_context
+tmpdir=""; \
+cleanup() { \
+	if [ -n "$$tmpdir" ]; then \
+		rm -rf "$$tmpdir"; \
+	fi; \
+}; \
+trap cleanup EXIT; \
+if [ -n "$(RAILWAY_PROJECT)" ]; then \
+	tmpdir=$$(mktemp -d); \
+	cd "$$tmpdir"; \
+	if [ -n "$(RAILWAY_ENV)" ]; then \
+		$(RAILWAY) link --project "$(RAILWAY_PROJECT)" --environment "$(RAILWAY_ENV)" >/dev/null; \
+	else \
+		$(RAILWAY) link --project "$(RAILWAY_PROJECT)" >/dev/null; \
+	fi; \
+fi;
+endef
 
 .PHONY: run build test lint migrate-up migrate-down docker-up docker-down integration_test openapi-generate openapi-check permissions-generate permissions-check \
-	dev dev-down dev-reset dev-logs railway-status railway-deploy railway-ensure-service deploy-frontend deploy-server deploy-external-event-projector \
-	deploy-webhook-producer deploy-webhook-worker deploy-core build-cli-release upload-cli-release release-cli
+		integration-search dev dev-down dev-reset dev-logs railway-status railway-deploy railway-ensure-service deploy-frontend deploy-server deploy-queue-broker deploy-indexer deploy-external-event-projector \
+		deploy-webhook-producer deploy-webhook-worker deploy-core build-cli-release upload-cli-release release-cli
 
 run build test lint migrate-up migrate-down openapi-generate openapi-check permissions-generate permissions-check:
 	$(MAKE) -C $(SERVER_DIR) $@
@@ -34,7 +55,28 @@ docker-down:
 	$(COMPOSE) -f docker-compose.yml down
 
 integration_test:
-	./integration_test
+	cd $(SERVER_DIR) && go test -count=1 -tags=integration ./internal/integration
+
+integration-search:
+	@set -eu; \
+	if [ ! -f "$(SEARCH_ENV_FILE)" ]; then \
+		echo "search env file not found: $(SEARCH_ENV_FILE)" >&2; \
+		exit 1; \
+	fi; \
+	tmp_env=$$(mktemp); \
+	trap 'rm -f "$$tmp_env"' EXIT; \
+	grep -E '^(TURBOPUFFER_API_KEY|TURBOPUFFER_REGION|TURBOPUFFER_NS_PREFIX|MODAL_SERVER_API_KEY|MODAL_EMBEDDING_SERVER_URL)=' "$(SEARCH_ENV_FILE)" \
+		| sed -E \
+			-e 's/^TURBOPUFFER_API_KEY=/INTEGRATION_TURBOPUFFER_API_KEY=/' \
+			-e 's/^TURBOPUFFER_REGION=/INTEGRATION_TURBOPUFFER_REGION=/' \
+			-e 's/^TURBOPUFFER_NS_PREFIX=/INTEGRATION_TURBOPUFFER_NS_PREFIX=/' \
+			-e 's/^MODAL_SERVER_API_KEY=/INTEGRATION_MODAL_SERVER_API_KEY=/' \
+			-e 's/^MODAL_EMBEDDING_SERVER_URL=/INTEGRATION_MODAL_EMBEDDING_SERVER_URL=/' \
+		> "$$tmp_env"; \
+	set -a; \
+	. "$$tmp_env"; \
+	set +a; \
+	cd $(SERVER_DIR) && INTEGRATION_LIVE_SEARCH=1 go test -count=1 -tags=integration ./internal/integration -run '$(INTEGRATION_SEARCH_RUN)'
 
 build-cli-release:
 	@if [ -z "$(VERSION)" ]; then \
@@ -60,18 +102,17 @@ release-cli:
 
 railway-status:
 	@set -eu; \
-	project_args=""; \
-	if [ -n "$(RAILWAY_PROJECT)" ]; then \
-		project_args="--project $(RAILWAY_PROJECT)"; \
-	fi; \
-	$(RAILWAY) status $$project_args
+	$(railway_prepare_context) \
+	$(RAILWAY) status
 
 define railway_role_for_service
 $(strip \
 $(if $(filter server,$(1)),server, \
+$(if $(filter queue-broker,$(1)),queue-broker, \
+$(if $(filter indexer,$(1)),indexer, \
 $(if $(filter external-event-projector,$(1)),external-event-projector, \
 $(if $(filter webhook-producer,$(1)),webhook-producer, \
-$(if $(filter webhook-worker,$(1)),webhook-worker, \)))))
+$(if $(filter webhook-worker,$(1)),webhook-worker, \)))))))
 endef
 
 railway-ensure-service:
@@ -80,19 +121,22 @@ railway-ensure-service:
 		exit 1; \
 	fi
 	@set -eu; \
-	project_args=""; \
-	if [ -n "$(RAILWAY_PROJECT)" ]; then \
-		project_args="--project $(RAILWAY_PROJECT)"; \
-	fi; \
-	if $(RAILWAY) status $$project_args --json | grep -Fq "\"name\": \"$(SERVICE)\""; then \
+	$(railway_prepare_context) \
+	if $(RAILWAY) status --json | grep -Eq "\"name\"[[:space:]]*:[[:space:]]*\"$(SERVICE)\""; then \
 		echo "Railway service $(SERVICE) already exists"; \
 	else \
 		echo "Creating Railway service $(SERVICE)"; \
-		if [ -n "$(RAILWAY_SERVICE_VARS)" ]; then \
-			$(RAILWAY) add $$project_args --service "$(SERVICE)" --variables "$(RAILWAY_SERVICE_VARS)"; \
-		else \
-			$(RAILWAY) add $$project_args --service "$(SERVICE)"; \
+		$(RAILWAY) add --service "$(SERVICE)"; \
+	fi; \
+	if [ -n "$(RAILWAY_SERVICE_VARS)" ]; then \
+		set -- $(RAILWAY) variable set --service "$(SERVICE)" --skip-deploys; \
+		if [ -n "$(RAILWAY_ENV)" ]; then \
+			set -- "$$@" --environment "$(RAILWAY_ENV)"; \
 		fi; \
+		for kv in $(RAILWAY_SERVICE_VARS); do \
+			set -- "$$@" "$$kv"; \
+		done; \
+		"$$@"; \
 	fi
 
 railway-deploy:
@@ -103,7 +147,7 @@ railway-deploy:
 	@set -eu; \
 	case "$(SERVICE)" in \
 		frontend) path="frontend" ;; \
-		server|external-event-projector|webhook-producer|webhook-worker) path="server" ;; \
+		server|queue-broker|indexer|external-event-projector|webhook-producer|webhook-worker) path="server" ;; \
 		*) echo "unknown Railway service: $(SERVICE)" >&2; exit 1 ;; \
 	esac; \
 	project_args=""; \
@@ -125,6 +169,14 @@ deploy-server:
 	$(MAKE) railway-ensure-service SERVICE=server RAILWAY_SERVICE_VARS="APP_ROLE=$(call railway_role_for_service,server)"
 	$(MAKE) railway-deploy SERVICE=server
 
+deploy-queue-broker:
+	$(MAKE) railway-ensure-service SERVICE=queue-broker RAILWAY_SERVICE_VARS="APP_ROLE=$(call railway_role_for_service,queue-broker)"
+	$(MAKE) railway-deploy SERVICE=queue-broker
+
+deploy-indexer:
+	$(MAKE) railway-ensure-service SERVICE=indexer RAILWAY_SERVICE_VARS="APP_ROLE=$(call railway_role_for_service,indexer)"
+	$(MAKE) railway-deploy SERVICE=indexer
+
 deploy-external-event-projector:
 	$(MAKE) railway-ensure-service SERVICE=external-event-projector RAILWAY_SERVICE_VARS="APP_ROLE=$(call railway_role_for_service,external-event-projector)"
 	$(MAKE) railway-deploy SERVICE=external-event-projector
@@ -141,6 +193,8 @@ deploy-core:
 	@set -eu; \
 	$(MAKE) railway-ensure-service SERVICE=frontend; \
 	$(MAKE) railway-ensure-service SERVICE=server RAILWAY_SERVICE_VARS="APP_ROLE=$(call railway_role_for_service,server)"; \
+	$(MAKE) railway-ensure-service SERVICE=queue-broker RAILWAY_SERVICE_VARS="APP_ROLE=$(call railway_role_for_service,queue-broker)"; \
+	$(MAKE) railway-ensure-service SERVICE=indexer RAILWAY_SERVICE_VARS="APP_ROLE=$(call railway_role_for_service,indexer)"; \
 	$(MAKE) railway-ensure-service SERVICE=external-event-projector RAILWAY_SERVICE_VARS="APP_ROLE=$(call railway_role_for_service,external-event-projector)"; \
 	$(MAKE) railway-ensure-service SERVICE=webhook-producer RAILWAY_SERVICE_VARS="APP_ROLE=$(call railway_role_for_service,webhook-producer)"; \
 	$(MAKE) railway-ensure-service SERVICE=webhook-worker RAILWAY_SERVICE_VARS="APP_ROLE=$(call railway_role_for_service,webhook-worker)"; \
@@ -148,10 +202,12 @@ deploy-core:
 	status=0; \
 	$(MAKE) railway-deploy SERVICE=frontend RAILWAY_UP_FLAGS="$$FLAGS" & pid_frontend=$$!; \
 	$(MAKE) railway-deploy SERVICE=server RAILWAY_UP_FLAGS="$$FLAGS" & pid_server=$$!; \
+	$(MAKE) railway-deploy SERVICE=queue-broker RAILWAY_UP_FLAGS="$$FLAGS" & pid_queue_broker=$$!; \
+	$(MAKE) railway-deploy SERVICE=indexer RAILWAY_UP_FLAGS="$$FLAGS" & pid_indexer=$$!; \
 	$(MAKE) railway-deploy SERVICE=external-event-projector RAILWAY_UP_FLAGS="$$FLAGS" & pid_projector=$$!; \
 	$(MAKE) railway-deploy SERVICE=webhook-producer RAILWAY_UP_FLAGS="$$FLAGS" & pid_webhook_producer=$$!; \
 	$(MAKE) railway-deploy SERVICE=webhook-worker RAILWAY_UP_FLAGS="$$FLAGS" & pid_webhook_worker=$$!; \
-	for pid in $$pid_frontend $$pid_server $$pid_projector $$pid_webhook_producer $$pid_webhook_worker; do \
+	for pid in $$pid_frontend $$pid_server $$pid_queue_broker $$pid_indexer $$pid_projector $$pid_webhook_producer $$pid_webhook_worker; do \
 		if ! wait $$pid; then status=1; fi; \
 	done; \
 	exit $$status

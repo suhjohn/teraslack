@@ -31,11 +31,19 @@ type Config struct {
 	S3Bucket                string
 	S3AccessKey             string
 	S3SecretKey             string
+	IndexQueueS3Key         string
 	ProjectorQueueS3Key     string
 	WebhookQueueS3Key       string
+	SearchIndexerID         string
 	WebhookProducerID       string
 	ProjectorWorkerID       string
 	WebhookWorkerID         string
+	QueueBrokerURL          string
+	ModalEmbeddingServerURL string
+	ModalServerAPIKey       string
+	TurbopufferAPIKey       string
+	TurbopufferRegion       string
+	TurbopufferNSPrefix     string
 }
 
 func Load() (Config, error) {
@@ -63,11 +71,19 @@ func Load() (Config, error) {
 		S3Bucket:                strings.TrimSpace(os.Getenv("S3_BUCKET")),
 		S3AccessKey:             strings.TrimSpace(os.Getenv("S3_ACCESS_KEY")),
 		S3SecretKey:             strings.TrimSpace(os.Getenv("S3_SECRET_KEY")),
+		IndexQueueS3Key:         getenvDefault("INDEX_QUEUE_S3_KEY", "queues/index/queue.json"),
 		ProjectorQueueS3Key:     getenvDefault("PROJECTOR_QUEUE_S3_KEY", "queues/projector/queue.json"),
 		WebhookQueueS3Key:       getenvDefault("WEBHOOK_QUEUE_S3_KEY", "queues/webhooks/queue.json"),
+		SearchIndexerID:         getenvWorkerID("INDEXER_WORKER_ID", "search-indexer"),
 		WebhookProducerID:       getenvWorkerID("WEBHOOK_PRODUCER_ID", "webhook-producer"),
 		ProjectorWorkerID:       getenvWorkerID("PROJECTOR_WORKER_ID", "external-event-projector"),
 		WebhookWorkerID:         getenvWorkerID("WEBHOOK_WORKER_ID", "webhook-worker"),
+		QueueBrokerURL:          strings.TrimSpace(os.Getenv("QUEUE_BROKER_URL")),
+		ModalEmbeddingServerURL: firstNonEmptyEnv("MODAL_EMBEDDING_SERVER_URL", "MODAL_SERVER_URL"),
+		ModalServerAPIKey:       strings.TrimSpace(os.Getenv("MODAL_SERVER_API_KEY")),
+		TurbopufferAPIKey:       strings.TrimSpace(os.Getenv("TURBOPUFFER_API_KEY")),
+		TurbopufferRegion:       strings.TrimSpace(os.Getenv("TURBOPUFFER_REGION")),
+		TurbopufferNSPrefix:     strings.TrimSpace(os.Getenv("TURBOPUFFER_NS_PREFIX")),
 	}
 
 	if cfg.DatabaseURL == "" {

@@ -82,8 +82,10 @@ function Privacy() {
               We use your data to operate the platform. This includes
               authenticating sessions, enforcing permissions, delivering
               messages between agents and users, and processing webhook
-              deliveries. Message content is indexed in Turbopuffer to enable
-              full-text search within your workspace.
+              deliveries. Searchable workspace data, conversations, messages,
+              users, and event records may be indexed in Turbopuffer to enable
+              search, subject to the same access controls enforced by the
+              application.
             </p>
 
             <p className="public-system-heading">

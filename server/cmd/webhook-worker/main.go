@@ -10,7 +10,6 @@ import (
 	"github.com/johnsuh/teraslack/server/internal/config"
 	teracrypto "github.com/johnsuh/teraslack/server/internal/crypto"
 	"github.com/johnsuh/teraslack/server/internal/queue"
-	s3store "github.com/johnsuh/teraslack/server/internal/s3"
 	"github.com/johnsuh/teraslack/server/internal/webhooks"
 )
 
@@ -25,12 +24,11 @@ func main() {
 		log.Fatal(err)
 	}
 	defer pool.Close()
-	store, err := s3store.New(ctx, cfg)
-	if err != nil {
-		log.Fatal(err)
+	broker := queue.NewBrokerClient(cfg.QueueBrokerURL)
+	if !broker.Configured() {
+		log.Fatal("QUEUE_BROKER_URL is required")
 	}
-	webhookQueue := queue.NewManager(store, cfg.WebhookQueueS3Key)
-	consumer := webhookQueue.Consumer(cfg.WebhookWorkerID)
+	consumer := broker.Consumer(queue.QueueWebhook, cfg.WebhookWorkerID)
 	protector, err := teracrypto.NewStringProtector(ctx, teracrypto.Options{
 		EnvKey:         cfg.EncryptionKey,
 		AWSKMSKeyID:    cfg.AWSKMSKeyID,

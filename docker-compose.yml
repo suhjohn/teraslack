@@ -14,6 +14,13 @@ x-app-env: &app-env
   S3_SECRET_KEY: ${S3_SECRET_KEY:-teraslack-secret}
   PROJECTOR_QUEUE_S3_KEY: ${PROJECTOR_QUEUE_S3_KEY:-queues/projector/queue.json}
   WEBHOOK_QUEUE_S3_KEY: ${WEBHOOK_QUEUE_S3_KEY:-queues/webhooks/queue.json}
+  INDEX_QUEUE_S3_KEY: ${INDEX_QUEUE_S3_KEY:-queues/index/queue.json}
+  QUEUE_BROKER_URL: ${QUEUE_BROKER_URL:-http://queue-broker:${QUEUE_BROKER_PORT:-38081}}
+  MODAL_SERVER_API_KEY: ${MODAL_SERVER_API_KEY:-}
+  MODAL_EMBEDDING_SERVER_URL: ${MODAL_EMBEDDING_SERVER_URL:-}
+  TURBOPUFFER_API_KEY: ${TURBOPUFFER_API_KEY:-}
+  TURBOPUFFER_REGION: ${TURBOPUFFER_REGION:-}
+  TURBOPUFFER_NS_PREFIX: ${TURBOPUFFER_NS_PREFIX:-}
   GITHUB_OAUTH_CLIENT_ID: ${GITHUB_OAUTH_CLIENT_ID:-}
   GITHUB_OAUTH_CLIENT_SECRET: ${GITHUB_OAUTH_CLIENT_SECRET:-}
   GOOGLE_OAUTH_CLIENT_ID: ${GOOGLE_OAUTH_CLIENT_ID:-}
@@ -100,16 +107,67 @@ services:
     ports:
       - "${API_PORT:-38080}:${API_PORT:-38080}"
 
+  queue-broker:
+    image: teraslack-server-local
+    build: *server-build
+    environment:
+      <<: *app-env
+      PORT: ${QUEUE_BROKER_PORT:-38081}
+    depends_on:
+      minio-setup:
+        condition: service_completed_successfully
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "${QUEUE_BROKER_PORT:-38081}:${QUEUE_BROKER_PORT:-38081}"
+    command: ["/app/queue-broker"]
+    restart: unless-stopped
+
   external-event-projector:
     <<: *app-service
+    depends_on:
+      db:
+        condition: service_healthy
+      minio-setup:
+        condition: service_completed_successfully
+      queue-broker:
+        condition: service_started
     command: ["/app/external-event-projector"]
+
+  indexer:
+    <<: *app-service
+    depends_on:
+      db:
+        condition: service_healthy
+      minio-setup:
+        condition: service_completed_successfully
+      queue-broker:
+        condition: service_started
+    command: ["/app/indexer"]
+    environment:
+      <<: *app-env
+      WORKER_ID: ${INDEXER_WORKER_ID:-indexer-1}
 
   webhook-producer:
     <<: *app-service
+    depends_on:
+      db:
+        condition: service_healthy
+      minio-setup:
+        condition: service_completed_successfully
+      queue-broker:
+        condition: service_started
     command: ["/app/webhook-producer"]
 
   webhook-worker:
     <<: *app-service
+    depends_on:
+      db:
+        condition: service_healthy
+      minio-setup:
+        condition: service_completed_successfully
+      queue-broker:
+        condition: service_started
     command: ["/app/webhook-worker"]
     environment:
       <<: *app-env

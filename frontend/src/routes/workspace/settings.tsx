@@ -1,41 +1,33 @@
 import { useQueryClient } from '@tanstack/react-query'
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
 import { LoaderCircle } from 'lucide-react'
-import { useState } from 'react'
-import type { ComponentProps } from 'react'
+import { useMemo, useState } from 'react'
 import { Alert } from '../../components/ui/alert'
 import { Badge } from '../../components/ui/badge'
 import { Button } from '../../components/ui/button'
 import { CodeBlock } from '../../components/ui/code-block'
 import { Input } from '../../components/ui/input'
-import { Select } from '../../components/ui/select'
+import { formatDate, getErrorMessage, useAdmin } from '../../lib/admin'
 import {
-  Tabs,
-  TabsContent,
-  TabsList,
-  TabsTrigger,
-} from '../../components/ui/tabs'
-import { useAdmin, formatDate, getErrorMessage } from '../../lib/admin'
-import {
-  getListWorkspacesQueryKey,
+  APIKeyScopeType,
+  WorkspaceMemberRole,
+  WorkspaceMemberStatus,
   getGetWorkspaceQueryKey,
+  getListWorkspacesQueryKey,
   useCreateWorkspace,
   useGetWorkspace,
-  useGetWorkspaceBillableInfo,
-  useGetWorkspaceBilling,
-  useGetWorkspacePreferences,
-  useListUsers,
-  useTransferPrimaryAdmin,
+  useListApiKeys,
+  useListEventSubscriptions,
+  useListEvents,
+  useListWorkspaceMembers,
   useUpdateWorkspace,
 } from '../../lib/openapi'
 import type {
-  FreeFormObject,
-  User,
-  UsersCollection,
+  APIKeysCollection,
+  EventSubscriptionsCollection,
+  ExternalEventsCollection,
   Workspace,
-  WorkspaceBillableInfoMap,
-  WorkspaceBilling,
-  WorkspaceDiscoverability,
+  WorkspaceMembersCollection,
 } from '../../lib/openapi'
 
 export const Route = createFileRoute('/workspace/settings')({
@@ -45,48 +37,34 @@ export const Route = createFileRoute('/workspace/settings')({
       search.create === 'true' ||
       search.create === '1',
   }),
-  component: WorkspaceSettingsPage,
+  component: BillingMonitorPage,
 })
 
-type WorkspaceDataTab = 'billable' | 'billing' | 'preferences'
-
-function getUserLabel(user: User) {
-  return user.display_name || user.real_name || user.name || user.email || user.id
-}
-
-function WorkspaceSettingsPage() {
+function BillingMonitorPage() {
   const navigate = useNavigate({ from: '/workspace/settings' })
   const search = Route.useSearch()
   const { workspaceID, selectWorkspace } = useAdmin()
-  const [activeDataTab, setActiveDataTab] =
-    useState<WorkspaceDataTab>('billable')
-  const isCreatingWorkspace = search.create
 
   const workspaceQuery = useGetWorkspace<Workspace>(workspaceID, {
     query: { enabled: !!workspaceID, retry: false, staleTime: 30_000 },
   })
-  const billableQuery = useGetWorkspaceBillableInfo<WorkspaceBillableInfoMap>(
+  const membersQuery = useListWorkspaceMembers<WorkspaceMembersCollection>(
     workspaceID,
-    {
-      query: { enabled: !!workspaceID, retry: false },
-    },
+    { query: { enabled: !!workspaceID, retry: false, staleTime: 30_000 } },
   )
-  const billingQuery = useGetWorkspaceBilling<WorkspaceBilling>(workspaceID, {
-    query: { enabled: !!workspaceID, retry: false },
+  const keysQuery = useListApiKeys<APIKeysCollection>({
+    query: { retry: false, staleTime: 30_000 },
   })
-  const preferencesQuery = useGetWorkspacePreferences<FreeFormObject>(
-    workspaceID,
-    {
-      query: { enabled: !!workspaceID, retry: false },
-    },
+  const subscriptionsQuery =
+    useListEventSubscriptions<EventSubscriptionsCollection>({
+      query: { retry: false, staleTime: 30_000 },
+    })
+  const eventsQuery = useListEvents<ExternalEventsCollection>(
+    { limit: 100 },
+    { query: { retry: false, staleTime: 30_000 } },
   )
 
-  const workspace = workspaceQuery.data
-
-  const hasWorkspaceData =
-    !!billableQuery.data || !!billingQuery.data || !!preferencesQuery.data
-
-  if (isCreatingWorkspace) {
+  if (search.create) {
     return (
       <CreateWorkspacePanel
         onCancel={() =>
@@ -112,30 +90,32 @@ function WorkspaceSettingsPage() {
     return (
       <div className="flex min-h-[40vh] items-center justify-center">
         <p className="text-sm text-[var(--ink-soft)]">
-          Select a workspace from the sidebar to inspect workspace settings, or{' '}
+          No workspace is selected.{' '}
           <Link
             to="/workspace/settings"
             search={{ create: true }}
             className="text-[var(--ink)] underline underline-offset-4"
           >
-            create a new workspace
-          </Link>
-          .
+            Create a workspace
+          </Link>{' '}
+          to start tracking API usage.
         </p>
       </div>
     )
   }
 
-  if (workspaceQuery.isFetching && !workspace) {
+  if (workspaceQuery.isFetching && !workspaceQuery.data) {
     return (
       <div className="flex min-h-[40vh] items-center justify-center">
         <span className="inline-flex items-center gap-2 text-sm text-[var(--ink-soft)]">
           <LoaderCircle className="h-4 w-4 animate-spin" />
-          Loading workspace…
+          Loading billing monitor…
         </span>
       </div>
     )
   }
+
+  const workspace = workspaceQuery.data
 
   if (!workspace) {
     return (
@@ -147,22 +127,286 @@ function WorkspaceSettingsPage() {
     )
   }
 
+  const members = membersQuery.data?.items ?? []
+  const keys = keysQuery.data?.items ?? []
+  const subscriptions = subscriptionsQuery.data?.items ?? []
+  const allEvents = eventsQuery.data?.items ?? []
+
+  const usage = useMemo(() => {
+    const activeMembers = members.filter(
+      (member) => member.status === WorkspaceMemberStatus.active,
+    )
+    const invitedMembers = members.filter(
+      (member) => member.status === WorkspaceMemberStatus.invited,
+    )
+    const owners = activeMembers.filter(
+      (member) => member.role === WorkspaceMemberRole.owner,
+    )
+    const admins = activeMembers.filter(
+      (member) => member.role === WorkspaceMemberRole.admin,
+    )
+    const workspaceKeys = keys.filter(
+      (key) =>
+        key.scope_type === APIKeyScopeType.workspace &&
+        key.scope_workspace_id === workspaceID,
+    )
+    const activeKeys = workspaceKeys.filter((key) => !key.revoked_at)
+    const expiringSoon = activeKeys.filter((key) => {
+      if (!key.expires_at) return false
+      const expiration = Date.parse(key.expires_at)
+      return expiration >= Date.now() && expiration <= Date.now() + 30 * 86400_000
+    })
+    const workspaceSubscriptions = subscriptions.filter(
+      (subscription) => subscription.workspace_id === workspaceID,
+    )
+    const enabledSubscriptions = workspaceSubscriptions.filter(
+      (subscription) => subscription.enabled,
+    )
+    const workspaceEvents = allEvents
+      .filter((event) => event.workspace_id === workspaceID)
+      .sort(
+        (left, right) =>
+          Date.parse(right.occurred_at) - Date.parse(left.occurred_at),
+      )
+    const eventsLast7Days = workspaceEvents.filter(
+      (event) => Date.parse(event.occurred_at) >= Date.now() - 7 * 86400_000,
+    )
+
+    return {
+      activeMembers,
+      invitedMembers,
+      owners,
+      admins,
+      workspaceKeys,
+      activeKeys,
+      expiringSoon,
+      workspaceSubscriptions,
+      enabledSubscriptions,
+      workspaceEvents,
+      eventsLast7Days,
+    }
+  }, [allEvents, keys, members, subscriptions, workspaceID])
+
   return (
     <div className="space-y-8">
-      <WorkspaceDetails key={workspace.id} workspace={workspace} />
+      <div className="sys-panel">
+        <div className="sys-panel-header">
+          <span>Billing_Monitor</span>
+          <span className="sys-tag">DERIVED_SIGNALS</span>
+        </div>
+        <div className="sys-panel-body">
+          <h1 className="text-xl font-bold uppercase tracking-[0.05em] text-[var(--sys-home-fg)]">
+            {workspace.name}
+          </h1>
+          <p className="mt-1 text-[13px] text-[var(--sys-home-muted)]">
+            Workspace usage, delivery footprint, and the inputs that matter for
+            API billing posture.
+          </p>
+        </div>
+      </div>
 
-      {hasWorkspaceData ? (
-        <WorkspaceData
-          activeTab={activeDataTab}
-          billable={billableQuery.data}
-          billing={billingQuery.data}
-          preferences={preferencesQuery.data}
-          onTabChange={(value) => setActiveDataTab(value)}
+      <Alert>
+        The current OpenAPI surface does not expose invoices, plan state, or
+        spend totals. This page tracks the usage signals that exist today.
+      </Alert>
+
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <MetricCard
+          label="Active members"
+          value={usage.activeMembers.length}
+          detail={`${usage.owners.length} owners, ${usage.admins.length} admins`}
         />
+        <MetricCard
+          label="Workspace keys"
+          value={usage.activeKeys.length}
+          detail={`${usage.expiringSoon.length} expiring in 30d`}
+        />
+        <MetricCard
+          label="Subscriptions"
+          value={usage.enabledSubscriptions.length}
+          detail={`${usage.workspaceSubscriptions.length} configured`}
+        />
+        <MetricCard
+          label="Events last 7d"
+          value={usage.eventsLast7Days.length}
+          detail={
+            usage.workspaceEvents[0]
+              ? `Latest ${formatDate(usage.workspaceEvents[0].occurred_at)}`
+              : 'No events yet'
+          }
+        />
+      </div>
+
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1.05fr)_minmax(0,.95fr)]">
+        <WorkspaceProfileCard key={workspace.id} workspace={workspace} />
+        <section className="border border-[var(--sys-home-border)] bg-[var(--sys-home-bg)] p-5">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <h2 className="text-sm font-bold uppercase tracking-[0.05em] text-[var(--sys-home-fg)]">
+                Usage snapshot
+              </h2>
+              <p className="mt-1 text-xs text-[var(--sys-home-muted)]">
+                Current billing inputs derived from the supported API.
+              </p>
+            </div>
+            <Badge variant="muted">derived</Badge>
+          </div>
+          <CodeBlock className="mt-4 text-xs">
+            {JSON.stringify(
+              {
+                workspace_id: workspace.id,
+                slug: workspace.slug,
+                active_members: usage.activeMembers.length,
+                invited_members: usage.invitedMembers.length,
+                workspace_keys: usage.activeKeys.length,
+                subscriptions_enabled: usage.enabledSubscriptions.length,
+                subscriptions_total: usage.workspaceSubscriptions.length,
+                events_last_7_days: usage.eventsLast7Days.length,
+                latest_event_at: usage.workspaceEvents[0]?.occurred_at ?? null,
+              },
+              null,
+              2,
+            )}
+          </CodeBlock>
+        </section>
+      </div>
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        <section className="border border-[var(--sys-home-border)] bg-[var(--sys-home-bg)] p-5">
+          <h2 className="text-sm font-bold uppercase tracking-[0.05em] text-[var(--sys-home-fg)]">
+            Membership footprint
+          </h2>
+          <div className="mt-4 space-y-3">
+            <FootprintRow
+              label="Owners"
+              value={usage.owners.map(getMemberLabel).join(', ') || 'None'}
+            />
+            <FootprintRow
+              label="Admins"
+              value={usage.admins.map(getMemberLabel).join(', ') || 'None'}
+            />
+            <FootprintRow
+              label="Invites pending"
+              value={String(usage.invitedMembers.length)}
+            />
+            <FootprintRow
+              label="Workspace created"
+              value={formatDate(workspace.created_at)}
+            />
+          </div>
+        </section>
+
+        <section className="border border-[var(--sys-home-border)] bg-[var(--sys-home-bg)] p-5">
+          <h2 className="text-sm font-bold uppercase tracking-[0.05em] text-[var(--sys-home-fg)]">
+            Delivery footprint
+          </h2>
+          <div className="mt-4 space-y-3">
+            <FootprintRow
+              label="Workspace-scoped keys"
+              value={String(usage.workspaceKeys.length)}
+            />
+            <FootprintRow
+              label="Enabled subscriptions"
+              value={String(usage.enabledSubscriptions.length)}
+            />
+            <FootprintRow
+              label="Recent events"
+              value={String(usage.workspaceEvents.slice(0, 20).length)}
+            />
+            <FootprintRow
+              label="Last update"
+              value={formatDate(workspace.updated_at)}
+            />
+          </div>
+        </section>
+      </div>
+    </div>
+  )
+}
+
+function WorkspaceProfileCard({ workspace }: { workspace: Workspace }) {
+  const queryClient = useQueryClient()
+  const [name, setName] = useState(workspace.name)
+  const [slug, setSlug] = useState(workspace.slug)
+  const [error, setError] = useState('')
+  const [saved, setSaved] = useState(false)
+  const updateWorkspace = useUpdateWorkspace()
+
+  async function handleSave() {
+    const trimmedName = name.trim()
+    const trimmedSlug = slug.trim()
+
+    if (!trimmedName || !trimmedSlug) {
+      setError('Workspace name and slug are required.')
+      setSaved(false)
+      return
+    }
+
+    setError('')
+    setSaved(false)
+
+    try {
+      await updateWorkspace.mutateAsync({
+        workspaceId: workspace.id,
+        data: {
+          name: trimmedName,
+          slug: trimmedSlug,
+        },
+      })
+      await queryClient.invalidateQueries({
+        queryKey: getGetWorkspaceQueryKey(workspace.id),
+      })
+      await queryClient.invalidateQueries({
+        queryKey: getListWorkspacesQueryKey(),
+      })
+      setSaved(true)
+    } catch (err) {
+      setError(getErrorMessage(err, 'Failed to update workspace.'))
+    }
+  }
+
+  return (
+    <section className="border border-[var(--sys-home-border)] bg-[var(--sys-home-bg)] p-5">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h2 className="text-sm font-bold uppercase tracking-[0.05em] text-[var(--sys-home-fg)]">
+            Workspace profile
+          </h2>
+          <p className="mt-1 text-xs text-[var(--sys-home-muted)]">
+            Keep the workspace identity used by clients and operators aligned.
+          </p>
+        </div>
+        {saved ? <Badge variant="success">saved</Badge> : null}
+      </div>
+
+      {error ? (
+        <Alert variant="destructive" className="mt-4">
+          {error}
+        </Alert>
       ) : null}
 
-      <TransferPrimaryAdmin workspaceID={workspaceID} />
-    </div>
+      <div className="mt-4 grid gap-4 md:grid-cols-2">
+        <label className="space-y-2 text-xs uppercase tracking-[0.08em] text-[var(--sys-home-muted)]">
+          <span>Name</span>
+          <Input value={name} onChange={(event) => setName(event.target.value)} />
+        </label>
+        <label className="space-y-2 text-xs uppercase tracking-[0.08em] text-[var(--sys-home-muted)]">
+          <span>Slug</span>
+          <Input value={slug} onChange={(event) => setSlug(event.target.value)} />
+        </label>
+      </div>
+
+      <div className="mt-4 flex flex-wrap items-center gap-3 text-xs text-[var(--sys-home-muted)]">
+        <span>Created {formatDate(workspace.created_at)}</span>
+        <span>Updated {formatDate(workspace.updated_at)}</span>
+      </div>
+
+      <div className="mt-5">
+        <Button onClick={() => void handleSave()} disabled={updateWorkspace.isPending}>
+          {updateWorkspace.isPending ? 'Saving…' : 'Save workspace'}
+        </Button>
+      </div>
+    </section>
   )
 }
 
@@ -175,54 +419,30 @@ function CreateWorkspacePanel({
 }) {
   const queryClient = useQueryClient()
   const [name, setName] = useState('')
-  const [domain, setDomain] = useState('')
-  const [emailDomain, setEmailDomain] = useState('')
-  const [description, setDescription] = useState('')
-  const [discoverability, setDiscoverability] =
-    useState<WorkspaceDiscoverability>('invite_only')
+  const [slug, setSlug] = useState('')
   const [error, setError] = useState('')
   const createWorkspace = useCreateWorkspace()
 
   async function handleCreate() {
     const trimmedName = name.trim()
-    const trimmedDomain = domain.trim()
-    const trimmedEmailDomain = emailDomain.trim()
-    const trimmedDescription = description.trim()
+    const trimmedSlug = slug.trim()
 
-    if (!trimmedName) {
-      setError('Workspace name is required.')
-      return
-    }
-    if (!trimmedDomain) {
-      setError('Workspace domain is required.')
+    if (!trimmedName || !trimmedSlug) {
+      setError('Workspace name and slug are required.')
       return
     }
 
     setError('')
 
     try {
-      const created = (await createWorkspace.mutateAsync({
+      const created = await createWorkspace.mutateAsync({
         data: {
           name: trimmedName,
-          domain: trimmedDomain,
-          email_domain: trimmedEmailDomain,
-          description: trimmedDescription,
-          icon: {},
-          discoverability,
-          default_channels: [],
-          preferences: {},
-          billing: {
-            plan: 'free',
-            status: 'active',
-          },
+          slug: trimmedSlug,
         },
-      })) as unknown as Workspace
-
-      await queryClient.invalidateQueries({
-        queryKey: getListWorkspacesQueryKey(),
       })
       await queryClient.invalidateQueries({
-        queryKey: getGetWorkspaceQueryKey(created.id),
+        queryKey: getListWorkspacesQueryKey(),
       })
       await onCreated(created.id)
     } catch (err) {
@@ -231,400 +451,87 @@ function CreateWorkspacePanel({
   }
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div className="min-w-0 flex-1">
-          <h1 className="text-2xl font-bold tracking-tight text-[var(--ink)]">
-            Create workspace
-          </h1>
-          <p className="mt-1 text-sm text-[var(--ink-soft)]">
-            Add a new workspace to the admin catalog.
-          </p>
+    <div className="mx-auto max-w-2xl space-y-6 py-6">
+      <section className="border border-[var(--sys-home-border)] bg-[var(--sys-home-bg)] p-6">
+        <h1 className="text-lg font-bold uppercase tracking-[0.05em] text-[var(--sys-home-fg)]">
+          Create workspace
+        </h1>
+        <p className="mt-2 text-sm text-[var(--sys-home-muted)]">
+          Start with a minimal tenant record and use the dashboard to monitor
+          API activity as it grows.
+        </p>
+
+        {error ? (
+          <Alert variant="destructive" className="mt-4">
+            {error}
+          </Alert>
+        ) : null}
+
+        <div className="mt-5 grid gap-4">
+          <label className="space-y-2 text-xs uppercase tracking-[0.08em] text-[var(--sys-home-muted)]">
+            <span>Name</span>
+            <Input value={name} onChange={(event) => setName(event.target.value)} />
+          </label>
+          <label className="space-y-2 text-xs uppercase tracking-[0.08em] text-[var(--sys-home-muted)]">
+            <span>Slug</span>
+            <Input value={slug} onChange={(event) => setSlug(event.target.value)} />
+          </label>
         </div>
-        <Button variant="outline" onClick={onCancel}>
-          Cancel
-        </Button>
-      </div>
 
-      <div className="grid gap-4 md:grid-cols-2">
-        <FieldLabel
-          label="Workspace name"
-          description="Displayed throughout the workspace."
-        >
-          <Input
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="Acme"
-          />
-        </FieldLabel>
-        <FieldLabel
-          label="Domain"
-          description="Unique workspace slug used by the backend."
-        >
-          <Input
-            value={domain}
-            onChange={(e) => setDomain(e.target.value)}
-            placeholder="acme"
-          />
-        </FieldLabel>
-        <FieldLabel
-          label="Email domain"
-          description="Optional email domain for user identities."
-        >
-          <Input
-            value={emailDomain}
-            onChange={(e) => setEmailDomain(e.target.value)}
-            placeholder="acme.com"
-          />
-        </FieldLabel>
-        <FieldLabel
-          label="Discoverability"
-          description="Controls whether users can find the workspace directly."
-        >
-          <Select
-            value={discoverability}
-            onChange={(e) =>
-              setDiscoverability(e.target.value as WorkspaceDiscoverability)
-            }
-          >
-            <option value="invite_only">Invite only</option>
-            <option value="open">Open</option>
-          </Select>
-        </FieldLabel>
-      </div>
-
-      <FieldLabel
-        label="Description"
-        description="Optional summary shown in workspace metadata."
-      >
-        <Input
-          value={description}
-          onChange={(e) => setDescription(e.target.value)}
-          placeholder="Internal engineering workspace"
-        />
-      </FieldLabel>
-
-      {error ? <Alert variant="destructive">{error}</Alert> : null}
-
-      <div className="flex flex-wrap gap-3">
-        <Button
-          onClick={() => void handleCreate()}
-          disabled={createWorkspace.isPending}
-        >
-          {createWorkspace.isPending ? 'Creating…' : 'Create workspace'}
-        </Button>
-        <Button
-          variant="outline"
-          onClick={onCancel}
-          disabled={createWorkspace.isPending}
-        >
-          Back
-        </Button>
-      </div>
-    </div>
-  )
-}
-
-function WorkspaceDetails({ workspace }: { workspace: Workspace }) {
-  const queryClient = useQueryClient()
-  const [name, setName] = useState(workspace.name)
-  const [domain, setDomain] = useState(workspace.domain || '')
-  const [error, setError] = useState('')
-  const [success, setSuccess] = useState(false)
-  const updateWorkspace = useUpdateWorkspace()
-
-  async function save() {
-    setError('')
-    setSuccess(false)
-    try {
-      await updateWorkspace.mutateAsync({
-        id: workspace.id,
-        data: {
-          name: name.trim() || undefined,
-          domain: domain.trim() || undefined,
-        },
-      })
-      await queryClient.invalidateQueries({
-        queryKey: getGetWorkspaceQueryKey(workspace.id),
-      })
-      setSuccess(true)
-    } catch (err) {
-      setError(getErrorMessage(err, 'Failed to update workspace settings.'))
-    }
-  }
-
-  return (
-    <div>
-      {/* Header with editable name */}
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div className="min-w-0 flex-1">
-          <Input
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="Workspace name"
-            aria-label="Workspace name"
-            className="h-auto border-transparent bg-transparent px-0 py-0 text-2xl font-bold tracking-tight focus-visible:outline-none"
-          />
-          <p className="mt-1 text-sm text-[var(--ink-soft)]">
-            Workspace settings and configuration.
-          </p>
+        <div className="mt-6 flex gap-3">
+          <Button onClick={() => void handleCreate()} disabled={createWorkspace.isPending}>
+            {createWorkspace.isPending ? 'Creating…' : 'Create workspace'}
+          </Button>
+          <Button variant="outline" onClick={onCancel} disabled={createWorkspace.isPending}>
+            Cancel
+          </Button>
         </div>
-        <Badge variant="muted">{workspace.discoverability}</Badge>
-      </div>
-
-      {/* Metadata row */}
-      <div className="mt-5 grid grid-cols-2 gap-px border border-[var(--line)] bg-[var(--line)] sm:grid-cols-4">
-        <MetaCell label="ID" value={workspace.id} mono />
-        <MetaCell label="Created" value={formatDate(workspace.created_at)} />
-        <MetaCell label="Updated" value={formatDate(workspace.updated_at)} />
-        <MetaCell
-          label="Default channels"
-          value={
-            workspace.default_channels.length
-              ? workspace.default_channels.join(', ')
-              : 'None'
-          }
-        />
-      </div>
-
-      {/* Domain + Save */}
-      <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:items-end">
-        <FieldLabel
-          className="min-w-0 flex-1"
-          label="Domain"
-          description="The domain associated with this workspace."
-        >
-          <Input
-            value={domain}
-            onChange={(e) => setDomain(e.target.value)}
-            placeholder="workspace-domain"
-          />
-        </FieldLabel>
-        <Button
-          onClick={() => void save()}
-          disabled={updateWorkspace.isPending}
-        >
-          {updateWorkspace.isPending ? 'Saving…' : 'Save'}
-        </Button>
-      </div>
-
-      {error ? (
-        <Alert className="mt-3">{error}</Alert>
-      ) : success ? (
-        <Alert className="mt-3">Workspace settings saved.</Alert>
-      ) : null}
+      </section>
     </div>
   )
 }
 
-function WorkspaceData({
-  activeTab,
-  billable,
-  billing,
-  preferences,
-  onTabChange,
-}: {
-  activeTab: WorkspaceDataTab
-  billable?: WorkspaceBillableInfoMap
-  billing?: WorkspaceBilling
-  preferences?: FreeFormObject
-  onTabChange: (value: WorkspaceDataTab) => void
-}) {
-  const availableTabs = [
-    billable ? { value: 'billable', label: 'Billable', data: billable } : null,
-    billing ? { value: 'billing', label: 'Billing', data: billing } : null,
-    preferences
-      ? { value: 'preferences', label: 'Preferences', data: preferences }
-      : null,
-  ].filter(Boolean) as Array<{
-    value: WorkspaceDataTab
-    label: string
-    data: unknown
-  }>
-
-  const visibleTab = availableTabs.some((tab) => tab.value === activeTab)
-    ? activeTab
-    : (availableTabs[0]?.value ?? 'billable')
-
-  return (
-    <div>
-      <div className="mb-3">
-        <h2 className="text-sm font-bold text-[var(--ink)]">Diagnostics</h2>
-        <p className="mt-0.5 text-xs text-[var(--ink-soft)]">
-          Raw billing and preference payloads for troubleshooting.
-        </p>
-      </div>
-      <Tabs
-        value={visibleTab}
-        onValueChange={(value) => onTabChange(value as WorkspaceDataTab)}
-      >
-        <TabsList className="mb-0">
-          {availableTabs.map((tab) => (
-            <TabsTrigger key={tab.value} value={tab.value}>
-              {tab.label}
-            </TabsTrigger>
-          ))}
-        </TabsList>
-        {availableTabs.map((tab) => (
-          <TabsContent key={tab.value} value={tab.value}>
-            <CodeBlock className="max-h-[400px] overflow-auto text-xs text-[var(--ink-soft)]">
-              {JSON.stringify(tab.data, null, 2)}
-            </CodeBlock>
-          </TabsContent>
-        ))}
-      </Tabs>
-    </div>
-  )
-}
-
-function TransferPrimaryAdmin({ workspaceID }: { workspaceID: string }) {
-  const queryClient = useQueryClient()
-  const [targetUserID, setTargetUserID] = useState('')
-  const [error, setError] = useState('')
-  const [success, setSuccess] = useState(false)
-  const transfer = useTransferPrimaryAdmin()
-  const usersQuery = useListUsers<UsersCollection>(
-    workspaceID,
-    { limit: 200 },
-    { query: { enabled: !!workspaceID, retry: false, staleTime: 30_000 } },
-  )
-
-  const eligibleUsers =
-    usersQuery.data?.items.filter(
-      (user) => !user.deleted && user.principal_type === 'human',
-    ) ?? []
-  const selectedUser =
-    eligibleUsers.find((user) => user.id === targetUserID) ?? null
-
-  async function handleTransfer() {
-    if (!targetUserID) return
-    setError('')
-    setSuccess(false)
-    try {
-      await transfer.mutateAsync({
-        id: workspaceID,
-        data: { user_id: targetUserID },
-      })
-      setSuccess(true)
-      setTargetUserID('')
-      await queryClient.invalidateQueries({
-        queryKey: getGetWorkspaceQueryKey(workspaceID),
-      })
-    } catch (err) {
-      setError(getErrorMessage(err, 'Failed to transfer primary admin.'))
-    }
-  }
-
-  return (
-    <div className="border-t border-[var(--line)] pt-6">
-      <div className="mb-3">
-        <h2 className="text-sm font-bold text-[#dc2626]">
-          Transfer primary admin
-        </h2>
-        <p className="mt-0.5 text-xs text-[var(--ink-soft)]">
-          Reassign the primary admin role to a different user. This cannot be
-          undone from this screen.
-        </p>
-      </div>
-
-      {error ? (
-        <Alert variant="destructive" className="mb-3">
-          {error}
-        </Alert>
-      ) : null}
-      {success ? (
-        <Alert className="mb-3">Primary admin transferred successfully.</Alert>
-      ) : null}
-
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
-        <FieldLabel
-          className="min-w-0 flex-1"
-          label="Target workspace user"
-          description="Only active human users in this workspace can receive the role."
-        >
-          <Select
-            value={targetUserID}
-            onChange={(e) => setTargetUserID(e.target.value)}
-            disabled={usersQuery.isFetching || transfer.isPending}
-          >
-            <option value="">
-              {usersQuery.isFetching
-                ? 'Loading workspace users…'
-                : eligibleUsers.length
-                  ? 'Select a workspace user'
-                  : 'No eligible users found'}
-            </option>
-            {eligibleUsers.map((user) => (
-              <option key={user.id} value={user.id}>
-                {getUserLabel(user)} ({user.id})
-              </option>
-            ))}
-          </Select>
-        </FieldLabel>
-        <Button
-          variant="destructive"
-          onClick={() => void handleTransfer()}
-          disabled={transfer.isPending || !targetUserID}
-        >
-          {transfer.isPending ? 'Transferring…' : 'Transfer'}
-        </Button>
-      </div>
-
-      {selectedUser ? (
-        <p className="text-xs text-[var(--ink-soft)]">
-          Selected: {getUserLabel(selectedUser)}
-          {selectedUser.email ? ` · ${selectedUser.email}` : ''}
-        </p>
-      ) : null}
-    </div>
-  )
-}
-
-function MetaCell({
+function MetricCard({
   label,
   value,
-  mono,
+  detail,
+}: {
+  label: string
+  value: number
+  detail: string
+}) {
+  return (
+    <section className="border border-[var(--sys-home-border)] bg-[var(--sys-home-bg)] px-4 py-4">
+      <div className="text-[11px] uppercase tracking-[0.08em] text-[var(--sys-home-muted)]">
+        {label}
+      </div>
+      <div className="mt-2 text-3xl font-bold tabular-nums text-[var(--sys-home-fg)]">
+        {value}
+      </div>
+      <div className="mt-2 text-xs text-[var(--sys-home-muted)]">{detail}</div>
+    </section>
+  )
+}
+
+function FootprintRow({
+  label,
+  value,
 }: {
   label: string
   value: string
-  mono?: boolean
 }) {
   return (
-    <div className="bg-[var(--surface-strong)] px-4 py-3">
-      <div className="text-[11px] font-semibold uppercase tracking-wide text-[var(--ink-soft)]">
+    <div className="flex items-start justify-between gap-4 border-b border-[var(--sys-home-border)] pb-3 last:border-b-0 last:pb-0">
+      <span className="text-[11px] uppercase tracking-[0.08em] text-[var(--sys-home-muted)]">
         {label}
-      </div>
-      <div
-        className={`mt-0.5 truncate text-sm text-[var(--ink)] ${mono ? 'font-mono text-xs' : ''}`}
-      >
+      </span>
+      <span className="max-w-[70%] text-right text-sm text-[var(--sys-home-fg)]">
         {value}
-      </div>
+      </span>
     </div>
   )
 }
 
-function FieldLabel({
-  label,
-  description,
-  className,
-  children,
-}: {
-  label: string
-  description?: string
-  className?: string
-  children: ComponentProps<typeof Input>['children'] | React.ReactNode
-}) {
-  return (
-    <label className={className}>
-      <span className="mb-0.5 block text-[11px] font-semibold uppercase tracking-wide text-[var(--ink-soft)]">
-        {label}
-      </span>
-      {description ? (
-        <span className="mb-1.5 block text-xs text-[var(--ink-soft)]">
-          {description}
-        </span>
-      ) : null}
-      {children}
-    </label>
-  )
+function getMemberLabel(member: WorkspaceMembersCollection['items'][number]) {
+  return member.user.profile.display_name || member.user.profile.handle || member.user_id
 }

@@ -26,6 +26,7 @@ import (
 	"github.com/johnsuh/teraslack/server/internal/dbsqlc"
 	"github.com/johnsuh/teraslack/server/internal/domain"
 	"github.com/johnsuh/teraslack/server/internal/eventsourcing"
+	searchsvc "github.com/johnsuh/teraslack/server/internal/search"
 )
 
 const sessionCookieName = "teraslack_session"
@@ -38,6 +39,7 @@ type Server struct {
 	logger     *slog.Logger
 	limiter    *rateLimiter
 	protector  *teracrypto.StringProtector
+	search     *searchsvc.Runtime
 }
 
 type appError struct {
@@ -123,6 +125,7 @@ func New(cfg config.Config, db *pgxpool.Pool, logger *slog.Logger) (*Server, err
 		logger:    logger,
 		limiter:   newRateLimiter(),
 		protector: protector,
+		search:    searchsvc.NewRuntime(cfg, db, logger),
 	}, nil
 }
 
@@ -803,6 +806,31 @@ func rateLimited(message string) *appError {
 
 func notConfigured(code string, message string) *appError {
 	return &appError{Status: http.StatusNotImplemented, Code: code, Message: message}
+}
+
+func appErrorFromSearch(err error) *appError {
+	if err == nil {
+		return nil
+	}
+	if errors.Is(err, searchsvc.ErrNotConfigured) {
+		return notConfigured("search_not_configured", "Search is not configured.")
+	}
+	var searchErr *searchsvc.Error
+	if errors.As(err, &searchErr) {
+		switch searchErr.Kind {
+		case searchsvc.ErrorKindMalformed:
+			return malformed(searchErr.Message)
+		case searchsvc.ErrorKindValidation:
+			return validationFailed(searchErr.Field, searchErr.Code, searchErr.Message)
+		case searchsvc.ErrorKindForbidden:
+			return forbidden(searchErr.Message)
+		case searchsvc.ErrorKindNotFound:
+			return notFound(searchErr.Message)
+		case searchsvc.ErrorKindUnavailable:
+			return notConfigured(searchErr.Code, searchErr.Message)
+		}
+	}
+	return internalError(err)
 }
 
 func trimOptionalString(value *string) *string {

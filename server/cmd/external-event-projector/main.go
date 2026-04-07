@@ -10,7 +10,6 @@ import (
 	"github.com/johnsuh/teraslack/server/internal/config"
 	"github.com/johnsuh/teraslack/server/internal/eventsourcing"
 	"github.com/johnsuh/teraslack/server/internal/queue"
-	s3store "github.com/johnsuh/teraslack/server/internal/s3"
 )
 
 func main() {
@@ -24,13 +23,12 @@ func main() {
 		log.Fatal(err)
 	}
 	defer pool.Close()
-	store, err := s3store.New(ctx, cfg)
-	if err != nil {
-		log.Fatal(err)
+	broker := queue.NewBrokerClient(cfg.QueueBrokerURL)
+	if !broker.Configured() {
+		log.Fatal("QUEUE_BROKER_URL is required")
 	}
-	projectorQueue := queue.NewManager(store, cfg.ProjectorQueueS3Key)
-	producer := projectorQueue.Producer()
-	consumer := projectorQueue.Consumer(cfg.ProjectorWorkerID)
+	producer := broker.Producer(queue.QueueProjector)
+	consumer := broker.Consumer(queue.QueueProjector, cfg.ProjectorWorkerID)
 	for {
 		if err := eventsourcing.ProjectExternalEventsOnce(ctx, pool, producer, consumer, cfg.ProjectorWorkerID); err != nil {
 			log.Printf("projector error: %v", err)

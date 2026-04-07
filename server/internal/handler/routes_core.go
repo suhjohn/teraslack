@@ -440,8 +440,18 @@ func (s *Server) handleDeleteAPIKey(w http.ResponseWriter, r *http.Request, auth
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request, _ domain.AuthContext) {
-	s.writeAppError(w, r, notImplemented())
+func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request, auth domain.AuthContext) {
+	var request api.SearchRequest
+	if err := decodeJSON(r, &request); err != nil {
+		s.writeAppError(w, r, err)
+		return
+	}
+	response, err := s.search.Search(r.Context(), auth, request)
+	if err != nil {
+		s.writeAppError(w, r, appErrorFromSearch(err))
+		return
+	}
+	writeJSON(w, http.StatusOK, response)
 }
 
 func (s *Server) handleListWorkspaces(w http.ResponseWriter, r *http.Request, auth domain.AuthContext) {

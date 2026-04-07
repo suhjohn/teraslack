@@ -107,6 +107,35 @@ type CreateAPIKeyResponse struct {
 	Secret string `json:"secret"`
 }
 
+type SearchRequest struct {
+	Query          string   `json:"query"`
+	Kinds          []string `json:"kinds,omitempty"`
+	WorkspaceID    *string  `json:"workspace_id,omitempty"`
+	ConversationID *string  `json:"conversation_id,omitempty"`
+	Cursor         string   `json:"cursor,omitempty"`
+	Limit          int      `json:"limit,omitempty"`
+}
+
+type SearchHit struct {
+	Kind           string         `json:"kind"`
+	ResourceID     string         `json:"resource_id"`
+	Score          float64        `json:"score"`
+	Title          *string        `json:"title,omitempty"`
+	Snippet        *string        `json:"snippet,omitempty"`
+	WorkspaceID    *string        `json:"workspace_id,omitempty"`
+	ConversationID *string        `json:"conversation_id,omitempty"`
+	Message        *Message       `json:"message,omitempty"`
+	Conversation   *Conversation  `json:"conversation,omitempty"`
+	Workspace      *Workspace     `json:"workspace,omitempty"`
+	User           *User          `json:"user,omitempty"`
+	Event          *ExternalEvent `json:"event,omitempty"`
+}
+
+type SearchResponse struct {
+	Items      []SearchHit `json:"items"`
+	NextCursor string      `json:"next_cursor,omitempty"`
+}
+
 type Workspace struct {
 	ID              string `json:"id"`
 	Slug            string `json:"slug"`

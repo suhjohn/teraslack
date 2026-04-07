@@ -15,10 +15,18 @@ Create one Railway project, then add multiple services from the same GitHub repo
   - root directory: `server`
   - builder: Dockerfile
   - env: `APP_ROLE=server`
+- `queue-broker`
+  - root directory: `server`
+  - builder: Dockerfile
+  - env: `APP_ROLE=queue-broker`
 - `external-event-projector`
   - root directory: `server`
   - builder: Dockerfile
   - env: `APP_ROLE=external-event-projector`
+- `indexer`
+  - root directory: `server`
+  - builder: Dockerfile
+  - env: `APP_ROLE=indexer`
 
 Optional workers:
 
@@ -37,7 +45,9 @@ Minimum useful deployment:
 
 - `frontend`
 - `server`
+- `queue-broker`
 - `external-event-projector`
+- `indexer`
 
 Add these if you want the corresponding features:
 
@@ -50,6 +60,8 @@ The default GitHub Actions deploy workflow bootstraps and deploys the full servi
 Deploy every Go service from the `server/` directory using `server/Dockerfile`, and set `APP_ROLE` per service.
 
 - `server`: `APP_ROLE=server`
+- `queue-broker`: `APP_ROLE=queue-broker`
+- `indexer`: `APP_ROLE=indexer`
 - `external-event-projector`: `APP_ROLE=external-event-projector`
 - `webhook-producer`: `APP_ROLE=webhook-producer`
 - `webhook-worker`: `APP_ROLE=webhook-worker`
@@ -69,13 +81,14 @@ If you prefer, you can switch the `frontend` service to Nixpacks and reuse `fron
 2. Set the GitHub Actions deploy secrets: `RAILWAY_TOKEN`, `RAILWAY_API_TOKEN`, and `RAILWAY_PROJECT_ID`.
 3. Provision or attach Postgres, then copy its connection strings into the shared env vars.
 4. Provision or attach S3-compatible object storage, then set the shared `S3_*` env vars plus any queue key overrides you want.
-5. Generate public domains for `frontend` and `server` if your workers are not on Railway private networking.
-6. Map `teraslack.ai` to `frontend` and `api.teraslack.ai` to `server`.
-7. Set `BASE_URL=https://api.teraslack.ai`.
-8. Set `FRONTEND_URL=https://teraslack.ai`.
-9. Set `VITE_API_BASE_URL=https://api.teraslack.ai`.
-10. Set `CORS_ALLOWED_ORIGINS=https://teraslack.ai,https://www.teraslack.ai`.
-11. Run the `Deploy` workflow manually once, or push to `main`. The deploy targets create any missing Railway services and deploy them from the correct repo subdirectory.
+5. Create an internal URL for `queue-broker`, then set `QUEUE_BROKER_URL` on `indexer`, `external-event-projector`, `webhook-producer`, and `webhook-worker`.
+6. Generate public domains for `frontend` and `server` if your workers are not on Railway private networking.
+7. Map `teraslack.ai` to `frontend` and `api.teraslack.ai` to `server`.
+8. Set `BASE_URL=https://api.teraslack.ai`.
+9. Set `FRONTEND_URL=https://teraslack.ai`.
+10. Set `VITE_API_BASE_URL=https://api.teraslack.ai`.
+11. Set `CORS_ALLOWED_ORIGINS=https://teraslack.ai,https://www.teraslack.ai`.
+12. Run the `Deploy` workflow manually once, or push to `main`. The deploy targets create any missing Railway services and deploy them from the correct repo subdirectory.
 
 ## Install Flow Deployment Notes
 
@@ -118,7 +131,7 @@ This repo includes two workflows:
    - triggers on push to `main`
    - can also be run manually for first-time bootstrap
    - verifies all deployed Go binaries build, runs targeted server tests, and verifies the frontend build
-   - creates missing Railway services, then deploys `frontend`, `server`, `external-event-projector`, `webhook-producer`, and `webhook-worker`
+   - creates missing Railway services, then deploys `frontend`, `server`, `queue-broker`, `indexer`, `external-event-projector`, `webhook-producer`, and `webhook-worker`
 2. [`release-cli.yml`](/Users/johnsuh/teraslack/.github/workflows/release-cli.yml)
    - triggers on tags like `cli-v0.1.0`
    - can also be run manually
@@ -133,6 +146,7 @@ GitHub Actions secrets and vars:
    - secret: `RAILWAY_API_TOKEN` if you are using an account or workspace token
    - secret: `RAILWAY_PROJECT_ID`
    - optional variable: `RAILWAY_ENVIRONMENT` (defaults to `production`)
+   - GitHub Actions environment name: `Prod`
 2. CLI release workflow:
    - secret: `S3_DOWNLOADS_BUCKET`
    - secret: `S3_DOWNLOADS_ACCOUNT_ID` or `S3_DOWNLOADS_ENDPOINT`
@@ -147,6 +161,8 @@ The repo root `Makefile` includes Railway deploy helpers:
 - `make railway-status`
 - `make deploy-frontend`
 - `make deploy-server`
+- `make deploy-queue-broker`
+- `make deploy-indexer`
 - `make deploy-external-event-projector`
 - `make deploy-webhook-producer`
 - `make deploy-webhook-worker`
@@ -159,11 +175,12 @@ For a generic target, use:
 Important:
 
 - Service-specific deploy targets now create the Railway service first if it does not already exist in the configured project:
-  `make deploy-frontend`, `make deploy-server`, `make deploy-external-event-projector`, `make deploy-webhook-producer`, and `make deploy-webhook-worker`.
-- The auto-created backend services are initialized with the matching `APP_ROLE`.
-- `make deploy-core` now bootstraps missing services first, then deploys the full service set in parallel: `frontend`, `server`, `external-event-projector`, `webhook-producer`, and `webhook-worker`.
+  `make deploy-frontend`, `make deploy-server`, `make deploy-queue-broker`, `make deploy-indexer`, `make deploy-external-event-projector`, `make deploy-webhook-producer`, and `make deploy-webhook-worker`.
+- Backend deploy targets now enforce the matching `APP_ROLE` even when the Railway service already exists.
+- `make deploy-core` now bootstraps missing services first, then deploys the full service set in parallel: `frontend`, `server`, `queue-broker`, `indexer`, `external-event-projector`, `webhook-producer`, and `webhook-worker`.
 - The generic `make railway-deploy SERVICE=...` target still expects the Railway service to already exist.
 - The `SERVICE=...` value must exactly match the Railway service name, for example `server`.
+- When `RAILWAY_PROJECT` is set, the Make targets create a temporary Railway CLI link context before running `status` or `add`, which matches the current Railway CLI behavior.
 
 Optional overrides:
 
@@ -173,6 +190,10 @@ Optional overrides:
 ## Healthcheck
 
 For the `server` service, use:
+
+- path: `/healthz`
+
+For the `queue-broker` service, use:
 
 - path: `/healthz`
 
@@ -196,6 +217,7 @@ Important notes:
   If both are set, new secrets are written with KMS and `ENCRYPTION_KEY` remains available to decrypt legacy env-key ciphertext during migration.
 - `AUTH_STATE_SECRET` is only needed if you enable OAuth login flows.
 - File uploads and webhook queues rely on S3-compatible storage.
+- Queue workers and producers should point at `QUEUE_BROKER_URL`.
 - `VITE_API_BASE_URL` should point the frontend at the API, for example `https://api.teraslack.ai`.
 - The frontend OAuth start flow does not require a `VITE_TEAM_ID`. It forwards `workspace_id` only when that query parameter is already present in the page URL.
 
@@ -208,6 +230,7 @@ Suggested key layout:
 - uploads: `S3_KEY_PREFIX=uploads`
 - projector queue: `PROJECTOR_QUEUE_S3_KEY=queues/projector/queue.json`
 - webhook queue: `WEBHOOK_QUEUE_S3_KEY=queues/webhooks/queue.json`
+- index queue: `INDEX_QUEUE_S3_KEY=queues/index/queue.json`
 
 ## PlanetScale Postgres
 
@@ -225,8 +248,9 @@ Recommended split:
 - The API server and `webhook-worker` now fail fast if neither AWS KMS nor `ENCRYPTION_KEY` is configured, because webhook secrets are always stored encrypted.
 - If production serves the frontend from multiple origins, set `CORS_ALLOWED_ORIGINS` explicitly or some browsers will fail with a missing `Access-Control-Allow-Origin` header even when the API is otherwise healthy.
 - `external-event-projector` should always be running if you depend on `/events` or webhooks.
-- Queue state is stored directly in S3-compatible storage, and each worker process uses compare-and-set writes against its queue JSON object.
-- `external-event-projector`, `webhook-producer`, and `webhook-worker` should all agree on the same queue object keys.
+- Queue state is stored in S3-compatible storage behind the `queue-broker` service.
+- Only `queue-broker` should write queue JSON objects directly.
+- `external-event-projector`, `indexer`, `webhook-producer`, and `webhook-worker` should all point to the same `QUEUE_BROKER_URL`.
 - `webhook-producer` and `webhook-worker` should be deployed together.
 - The frontend reads `VITE_API_BASE_URL`, so if that variable is missing it will try `http://localhost:8080` and fail in production.
 - `server` already has a multi-binary Dockerfile plus `APP_ROLE` switcher, so no code changes are required to deploy the backend services.

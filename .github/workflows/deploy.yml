@@ -33,7 +33,7 @@ jobs:
 
       - name: Verify deployed server binaries build
         working-directory: server
-        run: go build ./cmd/server ./cmd/external-event-projector ./cmd/webhook-producer ./cmd/webhook-worker ./cmd/teraslack-api
+        run: go build ./cmd/server ./cmd/queue-broker ./cmd/indexer ./cmd/external-event-projector ./cmd/webhook-producer ./cmd/webhook-worker ./cmd/teraslack-api
 
       - name: Verify targeted server tests
         working-directory: server
@@ -57,6 +57,8 @@ jobs:
         service:
           - frontend
           - server
+          - queue-broker
+          - indexer
           - external-event-projector
           - webhook-producer
           - webhook-worker

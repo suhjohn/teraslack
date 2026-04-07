@@ -5,6 +5,10 @@ import {
   ChevronRight,
   LoaderCircle,
   Plus,
+  RadioTower,
+  RefreshCw,
+  ToggleLeft,
+  ToggleRight,
   Trash2,
   X,
 } from 'lucide-react'
@@ -14,13 +18,16 @@ import { Badge } from '../../components/ui/badge'
 import { Button } from '../../components/ui/button'
 import { CodeBlock } from '../../components/ui/code-block'
 import { Input } from '../../components/ui/input'
-import { useAdmin, formatDate, getErrorMessage } from '../../lib/admin'
+import { Select } from '../../components/ui/select'
+import { formatDate, getErrorMessage, useAdmin } from '../../lib/admin'
 import {
+  EventResourceType,
   getListEventSubscriptionsQueryKey,
   useCreateEventSubscription,
   useDeleteEventSubscription,
   useListEventSubscriptions,
   useListEvents,
+  useUpdateEventSubscription,
 } from '../../lib/openapi'
 import type {
   EventSubscription,
@@ -37,134 +44,221 @@ function EventsPage() {
   const { workspaceID } = useAdmin()
   const queryClient = useQueryClient()
   const [showCreate, setShowCreate] = useState(false)
-  const [deleteError, setDeleteError] = useState('')
-  const deleteMutation = useDeleteEventSubscription()
+  const [error, setError] = useState('')
 
   const subscriptionsQuery =
-    useListEventSubscriptions<EventSubscriptionsCollection>(
-      { workspace_id: workspaceID },
-      { query: { enabled: !!workspaceID, retry: false } },
-    )
-
+    useListEventSubscriptions<EventSubscriptionsCollection>({
+      query: { retry: false, staleTime: 30_000 },
+    })
   const eventsQuery = useListEvents<ExternalEventsCollection>(
-    { limit: 50 },
-    { query: { retry: false } },
+    { limit: 100 },
+    { query: { retry: false, staleTime: 30_000 } },
   )
 
-  const subscriptions: EventSubscription[] =
-    subscriptionsQuery.data?.items ?? []
+  const deleteMutation = useDeleteEventSubscription()
+  const updateMutation = useUpdateEventSubscription()
+
+  const subscriptions = useMemo(
+    () =>
+      (subscriptionsQuery.data?.items ?? [])
+        .filter((subscription) => subscription.workspace_id === workspaceID)
+        .sort(
+          (left, right) =>
+            Date.parse(right.updated_at) - Date.parse(left.updated_at),
+        ),
+    [subscriptionsQuery.data?.items, workspaceID],
+  )
   const events = useMemo(
     () =>
       (eventsQuery.data?.items ?? [])
-        .filter((e) => e.workspace_id === workspaceID)
-        .sort((a, b) => Date.parse(b.occurred_at) - Date.parse(a.occurred_at)),
+        .filter((event) => event.workspace_id === workspaceID)
+        .sort(
+          (left, right) =>
+            Date.parse(right.occurred_at) - Date.parse(left.occurred_at),
+        ),
     [eventsQuery.data?.items, workspaceID],
   )
 
-  async function handleDelete(id: string) {
-    setDeleteError('')
+  const enabledSubscriptions = subscriptions.filter(
+    (subscription) => subscription.enabled,
+  )
+  const lastDayCutoff = Date.now() - 24 * 60 * 60 * 1000
+  const eventsLastDay = events.filter(
+    (event) => Date.parse(event.occurred_at) >= lastDayCutoff,
+  )
+
+  async function refreshSubscriptions() {
+    await queryClient.invalidateQueries({
+      queryKey: getListEventSubscriptionsQueryKey(),
+    })
+  }
+
+  async function handleDelete(subscriptionId: string) {
+    setError('')
+
     try {
-      await deleteMutation.mutateAsync({ id })
-      await queryClient.invalidateQueries({
-        queryKey: getListEventSubscriptionsQueryKey({
-          workspace_id: workspaceID,
-        }),
-      })
+      await deleteMutation.mutateAsync({ subscriptionId })
+      await refreshSubscriptions()
     } catch (err) {
-      setDeleteError(getErrorMessage(err, 'Failed to delete subscription.'))
+      setError(getErrorMessage(err, 'Failed to delete subscription.'))
     }
+  }
+
+  async function handleToggle(subscription: EventSubscription) {
+    setError('')
+
+    try {
+      await updateMutation.mutateAsync({
+        subscriptionId: subscription.id,
+        data: { enabled: !subscription.enabled },
+      })
+      await refreshSubscriptions()
+    } catch (err) {
+      setError(getErrorMessage(err, 'Failed to update subscription.'))
+    }
+  }
+
+  if (!workspaceID) {
+    return (
+      <div className="flex min-h-[40vh] items-center justify-center">
+        <p className="text-sm text-[var(--ink-soft)]">
+          Select a workspace to inspect deliveries and event flow.
+        </p>
+      </div>
+    )
   }
 
   return (
     <div className="space-y-8">
-      {/* Subscriptions */}
+      <div className="sys-panel">
+        <div className="sys-panel-header">
+          <span>Event_Delivery</span>
+          <span className="sys-tag">WEBHOOK_STATE</span>
+        </div>
+        <div className="sys-panel-body">
+          <h1 className="text-xl font-bold uppercase tracking-[0.05em] text-[var(--sys-home-fg)]">
+            Events
+          </h1>
+          <p className="mt-1 text-[13px] text-[var(--sys-home-muted)]">
+            Monitor webhook subscriptions and the external event feed that drives
+            downstream delivery.
+          </p>
+        </div>
+      </div>
+
+      {error ? <Alert variant="destructive">{error}</Alert> : null}
+
+      <div className="grid gap-4 md:grid-cols-3">
+        <MetricCard
+          label="Enabled subscriptions"
+          value={enabledSubscriptions.length}
+          detail={`${subscriptions.length} configured`}
+        />
+        <MetricCard
+          label="Events last 24h"
+          value={eventsLastDay.length}
+          detail={
+            events[0] ? `Latest ${formatDate(events[0].occurred_at)}` : 'No recent events'
+          }
+        />
+        <MetricCard
+          label="Tracked resources"
+          value={new Set(events.map((event) => event.resource_id)).size}
+          detail="Distinct resource IDs in the loaded feed"
+        />
+      </div>
+
       <div>
         <div className="mb-3 flex items-center justify-between">
           <div>
-            <h2 className="text-sm font-bold text-[var(--ink)]">
+            <h2 className="text-sm font-bold uppercase tracking-[0.05em] text-[var(--sys-home-fg)]">
               Subscriptions
             </h2>
-            <p className="mt-0.5 text-xs text-[var(--ink-soft)]">
-              Webhook endpoints that receive events for this workspace.
+            <p className="mt-1 text-xs text-[var(--sys-home-muted)]">
+              Signed webhook endpoints scoped to the active workspace.
             </p>
           </div>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="gap-1.5"
-            onClick={() => setShowCreate((p) => !p)}
-          >
-            {showCreate ? (
-              <X className="h-3.5 w-3.5" />
-            ) : (
-              <Plus className="h-3.5 w-3.5" />
-            )}
-            {showCreate ? 'Cancel' : 'New'}
-          </Button>
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => void refreshSubscriptions()}
+              disabled={subscriptionsQuery.isFetching}
+            >
+              <RefreshCw
+                className={`h-3.5 w-3.5 ${
+                  subscriptionsQuery.isFetching ? 'animate-spin' : ''
+                }`}
+              />
+              Refresh
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="gap-1.5"
+              onClick={() => setShowCreate((value) => !value)}
+            >
+              {showCreate ? <X className="h-3.5 w-3.5" /> : <Plus className="h-3.5 w-3.5" />}
+              {showCreate ? 'Cancel' : 'New'}
+            </Button>
+          </div>
         </div>
 
         {showCreate ? (
           <CreateSubscriptionForm
             workspaceID={workspaceID}
-            onDone={() => {
-              setShowCreate(false)
-              void queryClient.invalidateQueries({
-                queryKey: getListEventSubscriptionsQueryKey({
-                  workspace_id: workspaceID,
-                }),
-              })
-            }}
             onCancel={() => setShowCreate(false)}
+            onCreated={async () => {
+              setShowCreate(false)
+              await refreshSubscriptions()
+            }}
           />
         ) : null}
-
-        {deleteError ? <Alert className="mb-3">{deleteError}</Alert> : null}
 
         {subscriptionsQuery.isFetching && !subscriptions.length ? (
           <div className="flex items-center justify-center py-8">
             <LoaderCircle className="h-4 w-4 animate-spin text-[var(--ink-soft)]" />
           </div>
         ) : subscriptions.length ? (
-          <div className="border border-[var(--line)]">
-            {subscriptions.map((sub, index) => (
+          <div className="border border-[var(--sys-home-border)] bg-[var(--sys-home-bg)]">
+            {subscriptions.map((subscription, index) => (
               <SubscriptionRow
-                key={sub.id}
-                sub={sub}
+                key={subscription.id}
+                subscription={subscription}
                 index={index}
-                onDelete={() => void handleDelete(sub.id)}
-                deleting={deleteMutation.isPending}
+                onDelete={() => void handleDelete(subscription.id)}
+                onToggle={() => void handleToggle(subscription)}
+                mutating={deleteMutation.isPending || updateMutation.isPending}
               />
             ))}
           </div>
         ) : (
-          <p className="py-4 text-xs text-[var(--ink-soft)]">
-            No subscriptions configured. Create one to start receiving webhook
-            events.
-          </p>
+          <div className="border border-dashed border-[var(--sys-home-border)] px-4 py-6 text-xs text-[var(--sys-home-muted)]">
+            No workspace subscriptions configured.
+          </div>
         )}
       </div>
 
-      {/* Event feed */}
       <div>
         <div className="mb-3 flex items-center justify-between">
           <div>
-            <h2 className="text-sm font-bold text-[var(--ink)]">Event feed</h2>
-            <p className="mt-0.5 text-xs text-[var(--ink-soft)]">
-              Recent external events for this workspace — the source that drives
-              webhook delivery.
+            <h2 className="text-sm font-bold uppercase tracking-[0.05em] text-[var(--sys-home-fg)]">
+              Event feed
+            </h2>
+            <p className="mt-1 text-xs text-[var(--sys-home-muted)]">
+              Recent externally visible events scoped to the active workspace.
             </p>
           </div>
           <Button
-            variant="ghost"
+            variant="outline"
             size="sm"
             onClick={() => void eventsQuery.refetch()}
             disabled={eventsQuery.isFetching}
           >
-            {eventsQuery.isFetching ? (
-              <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
-            ) : (
-              'Refresh'
-            )}
+            <RefreshCw
+              className={`h-3.5 w-3.5 ${eventsQuery.isFetching ? 'animate-spin' : ''}`}
+            />
+            Refresh
           </Button>
         </div>
 
@@ -173,123 +267,268 @@ function EventsPage() {
             <LoaderCircle className="h-4 w-4 animate-spin text-[var(--ink-soft)]" />
           </div>
         ) : events.length ? (
-          <div className="border border-[var(--line)]">
+          <div className="border border-[var(--sys-home-border)] bg-[var(--sys-home-bg)]">
             {events.map((event, index) => (
               <EventRow key={event.id} event={event} index={index} />
             ))}
           </div>
         ) : (
-          <p className="py-4 text-xs text-[var(--ink-soft)]">
+          <div className="border border-dashed border-[var(--sys-home-border)] px-4 py-6 text-xs text-[var(--sys-home-muted)]">
             No events found for this workspace.
-          </p>
+          </div>
         )}
       </div>
     </div>
+  )
+}
+
+function CreateSubscriptionForm({
+  workspaceID,
+  onCancel,
+  onCreated,
+}: {
+  workspaceID: string
+  onCancel: () => void
+  onCreated: () => Promise<void>
+}) {
+  const [url, setUrl] = useState('')
+  const [secret, setSecret] = useState('')
+  const [eventType, setEventType] = useState('')
+  const [resourceType, setResourceType] = useState('')
+  const [resourceID, setResourceID] = useState('')
+  const [error, setError] = useState('')
+  const createMutation = useCreateEventSubscription()
+
+  async function handleCreate() {
+    const trimmedUrl = url.trim()
+    const trimmedSecret = secret.trim()
+    const trimmedEventType = eventType.trim()
+    const trimmedResourceType = resourceType.trim()
+    const trimmedResourceID = resourceID.trim()
+
+    if (!trimmedUrl || !trimmedSecret) {
+      setError('Webhook URL and signing secret are required.')
+      return
+    }
+
+    if (trimmedResourceID && !trimmedResourceType) {
+      setError('Choose a resource type before setting a resource ID.')
+      return
+    }
+
+    setError('')
+
+    try {
+      await createMutation.mutateAsync({
+        data: {
+          workspace_id: workspaceID,
+          url: trimmedUrl,
+          secret: trimmedSecret,
+          event_type: trimmedEventType || null,
+          resource_type: trimmedResourceType
+            ? (trimmedResourceType as EventResourceType)
+            : null,
+          resource_id: trimmedResourceID || null,
+        },
+      })
+      setUrl('')
+      setSecret('')
+      setEventType('')
+      setResourceType('')
+      setResourceID('')
+      await onCreated()
+    } catch (err) {
+      setError(getErrorMessage(err, 'Failed to create subscription.'))
+    }
+  }
+
+  return (
+    <section className="mb-4 border border-[var(--sys-home-border)] bg-[var(--sys-home-bg)] p-5">
+      <div className="grid gap-4 md:grid-cols-2">
+        <label className="space-y-2 text-xs uppercase tracking-[0.08em] text-[var(--sys-home-muted)] md:col-span-2">
+          <span>Webhook URL</span>
+          <Input value={url} onChange={(event) => setUrl(event.target.value)} />
+        </label>
+
+        <label className="space-y-2 text-xs uppercase tracking-[0.08em] text-[var(--sys-home-muted)]">
+          <span>Signing secret</span>
+          <Input value={secret} onChange={(event) => setSecret(event.target.value)} />
+        </label>
+
+        <label className="space-y-2 text-xs uppercase tracking-[0.08em] text-[var(--sys-home-muted)]">
+          <span>Event type</span>
+          <Input
+            value={eventType}
+            onChange={(event) => setEventType(event.target.value)}
+            placeholder="message.created"
+          />
+        </label>
+
+        <label className="space-y-2 text-xs uppercase tracking-[0.08em] text-[var(--sys-home-muted)]">
+          <span>Resource type</span>
+          <Select
+            value={resourceType}
+            onChange={(event) => setResourceType(event.target.value)}
+          >
+            <option value="">All resources</option>
+            {Object.values(EventResourceType).map((value) => (
+              <option key={value} value={value}>
+                {value}
+              </option>
+            ))}
+          </Select>
+        </label>
+
+        <label className="space-y-2 text-xs uppercase tracking-[0.08em] text-[var(--sys-home-muted)]">
+          <span>Resource ID</span>
+          <Input
+            value={resourceID}
+            onChange={(event) => setResourceID(event.target.value)}
+            placeholder="Optional"
+          />
+        </label>
+      </div>
+
+      {error ? (
+        <Alert variant="destructive" className="mt-4">
+          {error}
+        </Alert>
+      ) : null}
+
+      <div className="mt-5 flex gap-3">
+        <Button onClick={() => void handleCreate()} disabled={createMutation.isPending}>
+          {createMutation.isPending ? 'Creating…' : 'Create subscription'}
+        </Button>
+        <Button variant="outline" onClick={onCancel} disabled={createMutation.isPending}>
+          Cancel
+        </Button>
+      </div>
+    </section>
   )
 }
 
 function SubscriptionRow({
-  sub,
+  subscription,
   index,
   onDelete,
-  deleting,
+  onToggle,
+  mutating,
 }: {
-  sub: EventSubscription
+  subscription: EventSubscription
   index: number
   onDelete: () => void
-  deleting: boolean
+  onToggle: () => void
+  mutating: boolean
 }) {
   return (
     <div
-      className={`flex items-start gap-3 px-4 py-3 ${
-        index > 0 ? 'border-t border-[var(--line)]' : ''
+      className={`flex items-start gap-4 px-4 py-4 ${
+        index > 0 ? 'border-t border-[var(--sys-home-border)]' : ''
       }`}
     >
-      <div className="mt-0.5 flex-none">
-        {sub.enabled ? (
-          <span className="inline-block h-2 w-2 rounded-full bg-[#16a34a]" />
-        ) : (
-          <span className="inline-block h-2 w-2 rounded-full bg-[var(--line)]" />
-        )}
+      <div className="mt-0.5">
+        <RadioTower
+          className={`h-4 w-4 ${
+            subscription.enabled ? 'text-[#16a34a]' : 'text-[var(--sys-home-muted)]'
+          }`}
+        />
       </div>
-      <div className="min-w-0 flex-1 space-y-1">
-        <div className="truncate font-mono text-xs text-[var(--ink)]">
-          {sub.url}
-        </div>
-        <div className="flex flex-wrap gap-2">
-          {sub.event_type ? (
-            <span className="text-[11px] text-[var(--ink-soft)]">
-              type:{' '}
-              <span className="font-mono text-[var(--ink)]">
-                {sub.event_type}
-              </span>
-            </span>
-          ) : (
-            <span className="text-[11px] text-[var(--ink-soft)]">
-              all events
-            </span>
-          )}
-          {sub.resource_type ? (
-            <span className="text-[11px] text-[var(--ink-soft)]">
-              resource:{' '}
-              <span className="font-mono text-[var(--ink)]">
-                {sub.resource_type}
-                {sub.resource_id ? `/${sub.resource_id}` : '/*'}
-              </span>
-            </span>
-          ) : null}
-          <span className="text-[11px] text-[var(--ink-soft)]">
-            created {formatDate(sub.created_at)}
+
+      <div className="min-w-0 flex-1">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="truncate text-sm font-medium text-[var(--sys-home-fg)]">
+            {subscription.url}
           </span>
+          <Badge variant={subscription.enabled ? 'success' : 'muted'}>
+            {subscription.enabled ? 'enabled' : 'disabled'}
+          </Badge>
+          {subscription.event_type ? <Badge variant="muted">{subscription.event_type}</Badge> : null}
+          {subscription.resource_type ? (
+            <Badge variant="muted">
+              {subscription.resource_type}
+              {subscription.resource_id ? `/${subscription.resource_id}` : ''}
+            </Badge>
+          ) : null}
+        </div>
+
+        <div className="mt-2 flex flex-wrap gap-3 text-[11px] text-[var(--sys-home-muted)]">
+          <span>created {formatDate(subscription.created_at)}</span>
+          <span>updated {formatDate(subscription.updated_at)}</span>
         </div>
       </div>
-      <Button
-        variant="ghost"
-        size="icon"
-        className="h-7 w-7 flex-none text-[var(--ink-soft)] hover:text-[#dc2626]"
-        onClick={onDelete}
-        disabled={deleting}
-        title="Delete subscription"
-      >
-        <Trash2 className="h-3.5 w-3.5" />
-      </Button>
+
+      <div className="flex gap-2">
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-8 w-8"
+          onClick={onToggle}
+          disabled={mutating}
+          title={subscription.enabled ? 'Disable subscription' : 'Enable subscription'}
+        >
+          {subscription.enabled ? (
+            <ToggleRight className="h-4 w-4" />
+          ) : (
+            <ToggleLeft className="h-4 w-4" />
+          )}
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-8 w-8 text-[var(--sys-home-muted)] hover:text-[#dc2626]"
+          onClick={onDelete}
+          disabled={mutating}
+          title="Delete subscription"
+        >
+          <Trash2 className="h-3.5 w-3.5" />
+        </Button>
+      </div>
     </div>
   )
 }
 
-function EventRow({ event, index }: { event: ExternalEvent; index: number }) {
+function EventRow({
+  event,
+  index,
+}: {
+  event: ExternalEvent
+  index: number
+}) {
   const [expanded, setExpanded] = useState(false)
 
   return (
-    <div className={index > 0 ? 'border-t border-[var(--line)]' : ''}>
+    <div className={index > 0 ? 'border-t border-[var(--sys-home-border)]' : ''}>
       <button
         type="button"
-        className="flex w-full items-center gap-3 px-4 py-2.5 text-left hover:bg-[var(--accent-faint)]"
-        onClick={() => setExpanded((p) => !p)}
+        className="flex w-full items-start gap-4 px-4 py-4 text-left hover:bg-[var(--accent-faint)]"
+        onClick={() => setExpanded((value) => !value)}
       >
-        <span className="flex-none text-[var(--ink-soft)]">
+        <div className="mt-0.5">
           {expanded ? (
-            <ChevronDown className="h-3.5 w-3.5" />
+            <ChevronDown className="h-4 w-4 text-[var(--sys-home-muted)]" />
           ) : (
-            <ChevronRight className="h-3.5 w-3.5" />
+            <ChevronRight className="h-4 w-4 text-[var(--sys-home-muted)]" />
           )}
-        </span>
-        <span className="min-w-0 flex-1 truncate font-mono text-xs font-medium text-[var(--ink)]">
-          {event.type}
-        </span>
-        <Badge variant="muted" className="flex-none">
-          {event.resource_type}
-        </Badge>
-        <span className="flex-none font-mono text-[11px] text-[var(--ink-soft)]">
-          {event.resource_id}
-        </span>
-        <span className="flex-none text-[11px] text-[var(--ink-soft)]">
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-sm font-medium text-[var(--sys-home-fg)]">
+              {event.type}
+            </span>
+            <Badge variant="muted">{event.resource_type}</Badge>
+          </div>
+          <div className="mt-1 text-xs text-[var(--sys-home-muted)]">
+            {event.resource_id}
+          </div>
+        </div>
+        <div className="text-right text-[11px] text-[var(--sys-home-muted)]">
           {formatDate(event.occurred_at)}
-        </span>
+        </div>
       </button>
+
       {expanded ? (
-        <div className="border-t border-[var(--line)] bg-[var(--surface)] px-4 py-3">
-          <CodeBlock className="max-h-[320px] overflow-auto text-xs">
+        <div className="border-t border-[var(--sys-home-border)] px-4 py-4">
+          <CodeBlock className="text-xs">
             {JSON.stringify(event.payload, null, 2)}
           </CodeBlock>
         </div>
@@ -298,78 +537,24 @@ function EventRow({ event, index }: { event: ExternalEvent; index: number }) {
   )
 }
 
-function CreateSubscriptionForm({
-  workspaceID,
-  onDone,
-  onCancel,
+function MetricCard({
+  label,
+  value,
+  detail,
 }: {
-  workspaceID: string
-  onDone: () => void
-  onCancel: () => void
+  label: string
+  value: number
+  detail: string
 }) {
-  const [url, setUrl] = useState('')
-  const [secret, setSecret] = useState('')
-  const [eventType, setEventType] = useState('')
-  const [error, setError] = useState('')
-  const createMutation = useCreateEventSubscription()
-
-  async function handleCreate() {
-    if (!url.trim() || !secret.trim()) return
-    setError('')
-    try {
-      await createMutation.mutateAsync({
-        data: {
-          workspace_id: workspaceID,
-          url: url.trim(),
-          secret: secret.trim(),
-          event_type: eventType.trim() || undefined,
-        },
-      })
-      onDone()
-    } catch (err) {
-      setError(getErrorMessage(err, 'Failed to create subscription.'))
-    }
-  }
-
   return (
-    <div className="mb-3 border border-[var(--line)] bg-[var(--surface)] px-4 py-4">
-      <div className="mb-3 text-[11px] font-semibold uppercase tracking-wide text-[var(--ink-soft)]">
-        New subscription
+    <section className="border border-[var(--sys-home-border)] bg-[var(--sys-home-bg)] px-4 py-4">
+      <div className="text-[11px] uppercase tracking-[0.08em] text-[var(--sys-home-muted)]">
+        {label}
       </div>
-      {error ? <Alert className="mb-3">{error}</Alert> : null}
-      <div className="space-y-2">
-        <div className="grid gap-2 sm:grid-cols-2">
-          <Input
-            value={url}
-            onChange={(e) => setUrl(e.target.value)}
-            placeholder="Webhook URL"
-            autoFocus
-          />
-          <Input
-            value={secret}
-            onChange={(e) => setSecret(e.target.value)}
-            placeholder="Signing secret"
-            type="password"
-          />
-        </div>
-        <Input
-          value={eventType}
-          onChange={(e) => setEventType(e.target.value)}
-          placeholder="Event type filter — e.g. conversation.message.created (leave blank for all)"
-        />
-        <div className="flex gap-2 pt-1">
-          <Button
-            size="sm"
-            onClick={() => void handleCreate()}
-            disabled={createMutation.isPending || !url.trim() || !secret.trim()}
-          >
-            {createMutation.isPending ? 'Creating…' : 'Create'}
-          </Button>
-          <Button variant="ghost" size="sm" onClick={onCancel}>
-            Cancel
-          </Button>
-        </div>
+      <div className="mt-2 text-3xl font-bold tabular-nums text-[var(--sys-home-fg)]">
+        {value}
       </div>
-    </div>
+      <div className="mt-2 text-xs text-[var(--sys-home-muted)]">{detail}</div>
+    </section>
   )
 }

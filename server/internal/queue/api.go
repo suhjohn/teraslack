@@ -2,33 +2,53 @@ package queue
 
 import (
 	"context"
+	"errors"
 	"time"
 )
 
+const (
+	QueueIndex     = "index"
+	QueueProjector = "projector"
+	QueueWebhook   = "webhook"
+)
+
+var ErrNotConfigured = errors.New("queue transport is not configured")
+
 type Producer struct {
-	manager *Manager
+	enqueue func(context.Context, EnqueueRequest) error
 }
 
 type Consumer struct {
-	manager       *Manager
 	consumerID    string
 	leaseDuration time.Duration
+	claim         func(context.Context, ClaimRequest) (ClaimResponse, error)
+	heartbeat     func(context.Context, HeartbeatRequest) error
+	ack           func(context.Context, AckRequest) error
+	retry         func(context.Context, RetryRequest) error
 }
 
 func (m *Manager) Producer() *Producer {
-	return &Producer{manager: m}
+	return &Producer{
+		enqueue: m.Enqueue,
+	}
 }
 
 func (m *Manager) Consumer(consumerID string) *Consumer {
 	return &Consumer{
-		manager:       m,
 		consumerID:    consumerID,
 		leaseDuration: defaultLeaseDuration,
+		claim:         m.Claim,
+		heartbeat:     m.Heartbeat,
+		ack:           m.Ack,
+		retry:         m.Retry,
 	}
 }
 
 func (p *Producer) Enqueue(ctx context.Context, items ...Item) error {
-	return p.manager.Enqueue(ctx, EnqueueRequest{Items: items})
+	if p == nil || p.enqueue == nil {
+		return ErrNotConfigured
+	}
+	return p.enqueue(ctx, EnqueueRequest{Items: items})
 }
 
 func (c *Consumer) WithLeaseDuration(leaseDuration time.Duration) *Consumer {
@@ -40,7 +60,10 @@ func (c *Consumer) WithLeaseDuration(leaseDuration time.Duration) *Consumer {
 }
 
 func (c *Consumer) Claim(ctx context.Context, limit int) ([]ClaimedJob, error) {
-	response, err := c.manager.Claim(ctx, ClaimRequest{
+	if c == nil || c.claim == nil {
+		return nil, ErrNotConfigured
+	}
+	response, err := c.claim(ctx, ClaimRequest{
 		ConsumerID:           c.consumerID,
 		Limit:                limit,
 		LeaseDurationSeconds: int(c.leaseDuration / time.Second),
@@ -52,26 +75,35 @@ func (c *Consumer) Claim(ctx context.Context, limit int) ([]ClaimedJob, error) {
 }
 
 func (c *Consumer) Heartbeat(ctx context.Context, jobIDs ...string) error {
-	return c.manager.Heartbeat(ctx, HeartbeatRequest{
+	if c == nil || c.heartbeat == nil {
+		return ErrNotConfigured
+	}
+	return c.heartbeat(ctx, HeartbeatRequest{
 		ConsumerID: c.consumerID,
 		JobIDs:     jobIDs,
 	})
 }
 
 func (c *Consumer) Ack(ctx context.Context, jobIDs ...string) error {
-	return c.manager.Ack(ctx, AckRequest{
+	if c == nil || c.ack == nil {
+		return ErrNotConfigured
+	}
+	return c.ack(ctx, AckRequest{
 		ConsumerID: c.consumerID,
 		JobIDs:     jobIDs,
 	})
 }
 
 func (c *Consumer) Retry(ctx context.Context, delay time.Duration, cause error, jobIDs ...string) error {
+	if c == nil || c.retry == nil {
+		return ErrNotConfigured
+	}
 	var message *string
 	if cause != nil {
 		errorText := cause.Error()
 		message = &errorText
 	}
-	return c.manager.Retry(ctx, RetryRequest{
+	return c.retry(ctx, RetryRequest{
 		ConsumerID:   c.consumerID,
 		JobIDs:       jobIDs,
 		DelaySeconds: int(delay / time.Second),

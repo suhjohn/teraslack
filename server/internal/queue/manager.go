@@ -12,6 +12,11 @@ import (
 	s3store "github.com/johnsuh/teraslack/server/internal/s3"
 )
 
+const (
+	defaultGroupCommitLinger = 20 * time.Millisecond
+	maxPendingOps            = 512
+)
+
 type opResult struct {
 	value any
 	err   error
@@ -232,23 +237,24 @@ func (m *Manager) submit(ctx context.Context, apply func(*State, time.Time) (opA
 }
 
 func (m *Manager) run() {
-	for operation := range m.ops {
-		pending := []queueOp{operation}
-	collect:
-		for {
-			select {
-			case next := <-m.ops:
-				pending = append(pending, next)
-			default:
-				break collect
-			}
-		}
+	var (
+		state  State
+		etag   string
+		loaded bool
+	)
 
+	for operation := range m.ops {
+		pending := m.collectPending(operation)
 		for {
-			state, etag, err := m.load()
-			if err != nil {
-				m.replyWithError(pending, err)
-				break
+			if !loaded {
+				nextState, nextETag, err := m.load()
+				if err != nil {
+					m.replyWithError(pending, err)
+					break
+				}
+				state = nextState
+				etag = nextETag
+				loaded = true
 			}
 
 			working := cloneState(state)
@@ -273,12 +279,14 @@ func (m *Manager) run() {
 			}
 
 			if !mutated {
+				loaded = false
 				m.reply(pending, results)
 				break
 			}
 
 			nextETag, err := m.save(working, etag)
 			if errors.Is(err, s3store.ErrCASMismatch) {
+				loaded = false
 				continue
 			}
 			if err != nil {
@@ -286,11 +294,28 @@ func (m *Manager) run() {
 				break
 			}
 
-			_ = nextETag
+			state = working
+			etag = nextETag
 			m.reply(pending, results)
 			break
 		}
 	}
+}
+
+func (m *Manager) collectPending(first queueOp) []queueOp {
+	pending := []queueOp{first}
+	timer := time.NewTimer(defaultGroupCommitLinger)
+	defer timer.Stop()
+
+	for len(pending) < maxPendingOps {
+		select {
+		case next := <-m.ops:
+			pending = append(pending, next)
+		case <-timer.C:
+			return pending
+		}
+	}
+	return pending
 }
 
 func (m *Manager) load() (State, string, error) {

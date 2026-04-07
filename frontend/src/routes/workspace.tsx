@@ -1,26 +1,17 @@
 import { useQueryClient } from '@tanstack/react-query'
-import {
-  createFileRoute,
-  Link,
-  Outlet,
-  useRouterState,
-} from '@tanstack/react-router'
+import { createFileRoute, Link, Outlet } from '@tanstack/react-router'
 import {
   Building2,
-  CalendarClock,
   Check,
   ChevronsUpDown,
+  CalendarClock,
   Plus,
   KeyRound,
   LayoutDashboard,
   LoaderCircle,
   LogOut,
-  MessageSquare,
-  Shield,
-  Users,
 } from 'lucide-react'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { AdminOverview } from '../components/admin/admin-overview'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Button } from '../components/ui/button'
 import { Eyebrow } from '../components/ui/eyebrow'
 import {
@@ -41,7 +32,6 @@ import {
   useDeleteCurrentSession,
   useGetAuthMe,
   useListWorkspaces,
-  useSwitchCurrentSessionWorkspace,
 } from '../lib/openapi'
 import type { AuthMeResponse, WorkspacesCollection } from '../lib/openapi'
 
@@ -51,73 +41,13 @@ export const Route = createFileRoute('/workspace')({
 
 const navItems = [
   { to: '/workspace', label: 'Overview', icon: LayoutDashboard, exact: true },
-  { to: '/workspace/settings', label: 'Workspace', icon: Building2, exact: false },
-  { to: '/workspace/users', label: 'Users', icon: Users, exact: false },
-  {
-    to: '/workspace/conversations',
-    label: 'Conversations',
-    icon: MessageSquare,
-    exact: false,
-  },
-  { to: '/workspace/audit', label: 'Audit', icon: Shield, exact: false },
+  { to: '/workspace/settings', label: 'Billing', icon: Building2, exact: false },
   { to: '/workspace/api-keys', label: 'API Keys', icon: KeyRound, exact: false },
   { to: '/workspace/events', label: 'Events', icon: CalendarClock, exact: false },
 ]
 
 function AdminLayout() {
   const queryClient = useQueryClient()
-  const pathname = useRouterState({
-    select: (state) => state.location.pathname,
-  })
-  const isEdgeToEdgeRoute =
-    pathname === '/workspace/users' || pathname === '/workspace/conversations'
-
-  const SIDEBAR_MIN = 180
-  const SIDEBAR_MAX = 320
-  const SIDEBAR_DEFAULT = 220
-  const COLLAPSE_THRESHOLD = 120
-
-  const [sidebarWidth, setSidebarWidth] = useState(SIDEBAR_DEFAULT)
-  const [collapsed, setCollapsed] = useState(false)
-  const dragging = useRef(false)
-  const startX = useRef(0)
-  const startWidth = useRef(0)
-
-  const onDragStart = useCallback(
-    (e: React.MouseEvent) => {
-      e.preventDefault()
-      dragging.current = true
-      startX.current = e.clientX
-      startWidth.current = collapsed ? 0 : sidebarWidth
-
-      function onMouseMove(ev: MouseEvent) {
-        if (!dragging.current) return
-        const delta = ev.clientX - startX.current
-        const next = startWidth.current + delta
-
-        if (next < COLLAPSE_THRESHOLD) {
-          setCollapsed(true)
-        } else {
-          setCollapsed(false)
-          setSidebarWidth(Math.min(SIDEBAR_MAX, Math.max(SIDEBAR_MIN, next)))
-        }
-      }
-
-      function onMouseUp() {
-        dragging.current = false
-        document.removeEventListener('mousemove', onMouseMove)
-        document.removeEventListener('mouseup', onMouseUp)
-        document.body.style.cursor = ''
-        document.body.style.userSelect = ''
-      }
-
-      document.body.style.cursor = 'col-resize'
-      document.body.style.userSelect = 'none'
-      document.addEventListener('mousemove', onMouseMove)
-      document.addEventListener('mouseup', onMouseUp)
-    },
-    [collapsed, sidebarWidth],
-  )
   const [preferredWorkspaceID, setPreferredWorkspaceID] = useState(() =>
     getPreferredAdminWorkspaceID(),
   )
@@ -150,27 +80,22 @@ function AdminLayout() {
     ) {
       return preferredWorkspaceID
     }
+    const firstMembershipWorkspaceID = auth?.workspaces[0]?.workspace_id
     if (
-      auth?.workspace_id &&
-      workspaces.some((workspace) => workspace.id === auth.workspace_id)
+      firstMembershipWorkspaceID &&
+      workspaces.some((workspace) => workspace.id === firstMembershipWorkspaceID)
     ) {
-      return auth.workspace_id
+      return firstMembershipWorkspaceID
     }
     return workspaces[0]?.id ?? ''
   }, [preferredWorkspaceID, workspaces, auth])
 
   const activeWorkspace =
     workspaces.find((workspace) => workspace.id === workspaceID) ?? null
-  const switchWorkspace = useSwitchCurrentSessionWorkspace()
 
   async function selectWorkspace(nextWorkspaceID: string) {
-    await switchWorkspace.mutateAsync({
-      data: { workspace_id: nextWorkspaceID },
-    })
     setPreferredWorkspaceID(nextWorkspaceID)
     setPreferredAdminWorkspaceID(nextWorkspaceID)
-    await queryClient.invalidateQueries({ queryKey: getGetAuthMeQueryKey() })
-    await queryClient.invalidateQueries({ queryKey: getListWorkspacesQueryKey() })
   }
 
   const deleteSession = useDeleteCurrentSession()
@@ -260,79 +185,54 @@ function AdminLayout() {
     <AdminContext.Provider
       value={{ workspaceID, workspaces, activeWorkspace, auth, selectWorkspace }}
     >
-      <main className="admin-shell h-dvh overflow-hidden">
-        <div className="flex h-full min-h-0">
-          <aside
-            className="admin-rail relative min-h-0 shrink-0 overflow-y-auto"
-            style={{ width: collapsed ? 0 : sidebarWidth }}
-          >
-            {!collapsed ? (
-              <div className="flex min-h-full flex-col gap-6 px-2 py-3">
-                {workspaces.length > 0 ? (
-                  <WorkspaceSwitcher
-                    workspaces={workspaces}
-                    activeWorkspaceID={workspaceID}
-                    onSelect={selectWorkspace}
-                  />
-                ) : null}
+      <main className="admin-shell min-h-dvh bg-[var(--sys-home-bg)]">
+        <div className="mx-auto flex min-h-dvh w-full max-w-[1560px]">
+          <aside className="admin-rail hidden w-[240px] shrink-0 border-r border-[var(--sys-home-border)] lg:block">
+            <div className="flex min-h-dvh flex-col gap-6 px-3 py-4">
+              {workspaces.length > 0 ? (
+                <WorkspaceSwitcher
+                  workspaces={workspaces}
+                  activeWorkspaceID={workspaceID}
+                  onSelect={selectWorkspace}
+                />
+              ) : null}
 
-                <div className="space-y-2 px-1.5">
-                  <nav className="flex flex-col gap-1">
-                    {navItems.map((item) => (
-                      <Link
-                        key={item.to}
-                        to={item.to}
-                        activeOptions={{ exact: item.exact }}
-                        className="inline-flex items-center gap-2.5 border border-[var(--sys-home-border)] px-2 py-2 text-[12px] text-[var(--sys-home-muted)] sys-hover data-[status=active]:bg-[var(--sys-home-accent-bg)] data-[status=active]:font-bold data-[status=active]:text-[var(--sys-home-accent-fg)]"
-                      >
-                        <item.icon className="h-4 w-4" />
-                        {item.label}
-                      </Link>
-                    ))}
-                  </nav>
+              <div className="space-y-2 px-1.5">
+                <div className="px-0.5 text-[10px] font-bold uppercase tracking-[0.08em] text-[var(--sys-home-muted)]">
+                  Workspace
                 </div>
-
-                <div className="mt-auto px-1.5 pb-0">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="w-full justify-center"
-                    onClick={() => void logout()}
-                  >
-                    <LogOut className="h-3.5 w-3.5" />
-                    Sign out
-                  </Button>
-                </div>
+                <nav className="flex flex-col gap-1">
+                  {navItems.map((item) => (
+                    <Link
+                      key={item.to}
+                      to={item.to}
+                      activeOptions={{ exact: item.exact }}
+                      className="inline-flex items-center gap-2.5 border border-[var(--sys-home-border)] px-2 py-2 text-[12px] text-[var(--sys-home-muted)] sys-hover data-[status=active]:bg-[var(--sys-home-accent-bg)] data-[status=active]:font-bold data-[status=active]:text-[var(--sys-home-accent-fg)]"
+                    >
+                      <item.icon className="h-4 w-4" />
+                      {item.label}
+                    </Link>
+                  ))}
+                </nav>
               </div>
-            ) : null}
+
+              <div className="mt-auto px-1.5 pb-0">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="w-full justify-center"
+                  onClick={() => void logout()}
+                >
+                  <LogOut className="h-3.5 w-3.5" />
+                  Sign out
+                </Button>
+              </div>
+            </div>
           </aside>
 
-          {/* Drag handle */}
-          <div
-            role="separator"
-            onMouseDown={onDragStart}
-            onDoubleClick={() => {
-              setCollapsed(!collapsed)
-              if (collapsed) setSidebarWidth(SIDEBAR_DEFAULT)
-            }}
-            className="hidden w-1 shrink-0 cursor-col-resize border-r border-[var(--sys-home-border)] transition-colors hover:bg-[var(--sys-home-accent-bg)] active:bg-[var(--sys-home-accent-bg)] md:block"
-          />
-
-          <section
-            className={`admin-content min-h-0 min-w-0 flex-1 overscroll-contain ${isEdgeToEdgeRoute ? 'flex flex-col' : 'overflow-y-auto'}`}
-          >
-            <div
-              className={
-                isEdgeToEdgeRoute
-                  ? 'mx-auto flex min-h-0 w-full max-w-[1560px] flex-1 flex-col'
-                  : 'mx-auto min-h-full w-full max-w-[1560px] px-4 py-5 md:px-6 md:py-6 xl:px-8'
-              }
-            >
-              {pathname === '/workspace' || pathname === '/workspace/' ? (
-                <AdminOverview />
-              ) : (
-                <Outlet />
-              )}
+          <section className="admin-content min-w-0 flex-1 overflow-y-auto">
+            <div className="mx-auto min-h-full w-full max-w-[1320px] px-4 py-5 md:px-6 md:py-6 xl:px-8">
+              <Outlet />
             </div>
           </section>
         </div>

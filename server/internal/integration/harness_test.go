@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -21,15 +22,24 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
+	tpuf "github.com/turbopuffer/turbopuffer-go"
+	"github.com/turbopuffer/turbopuffer-go/option"
 
 	"github.com/johnsuh/teraslack/server/internal/api"
 	teracrypto "github.com/johnsuh/teraslack/server/internal/crypto"
 )
 
 const (
-	testEncryptionKey = "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff"
-	eventualTimeout   = 30 * time.Second
-	pollInterval      = 500 * time.Millisecond
+	testEncryptionKey               = "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff"
+	eventualTimeout                 = 30 * time.Second
+	searchWaitTimeout               = 60 * time.Second
+	pollInterval                    = 500 * time.Millisecond
+	liveSearchEnvFlag               = "INTEGRATION_LIVE_SEARCH"
+	integrationTurbopufferAPIKeyEnv = "INTEGRATION_TURBOPUFFER_API_KEY"
+	integrationTurbopufferRegionEnv = "INTEGRATION_TURBOPUFFER_REGION"
+	integrationTurbopufferPrefixEnv = "INTEGRATION_TURBOPUFFER_NS_PREFIX"
+	integrationModalAPIKeyEnv       = "INTEGRATION_MODAL_SERVER_API_KEY"
+	integrationModalServerURLEnv    = "INTEGRATION_MODAL_EMBEDDING_SERVER_URL"
 )
 
 var testStack *composeStack
@@ -42,6 +52,15 @@ type composeStack struct {
 	databaseURL        string
 	webhookRecorderURL string
 	pool               *pgxpool.Pool
+	liveSearch         *liveSearchConfig
+}
+
+type liveSearchConfig struct {
+	TurbopufferAPIKey string
+	TurbopufferRegion string
+	NamespacePrefix   string
+	ModalServerAPIKey string
+	ModalEmbeddingURL string
 }
 
 type workflowHarness struct {
@@ -141,8 +160,12 @@ func startComposeStack() (*composeStack, error) {
 	baseURL := fmt.Sprintf("http://127.0.0.1:%s", apiPort)
 	databaseURL := fmt.Sprintf("postgres://slackbackend:slackbackend@127.0.0.1:%s/slackbackend?sslmode=disable", dbPort)
 	webhookRecorderURL := fmt.Sprintf("http://127.0.0.1:%s", webhookRecorderPort)
+	liveSearch, err := loadLiveSearchConfig(runID)
+	if err != nil {
+		return nil, err
+	}
 
-	stateEnv := strings.Join([]string{
+	stateEnvLines := []string{
 		"DB_PORT=" + dbPort,
 		"API_PORT=" + apiPort,
 		"COMPOSE_PROJECT_NAME=" + projectName,
@@ -156,8 +179,18 @@ func startComposeStack() (*composeStack, error) {
 		"S3_BUCKET=teraslack-integration",
 		"S3_ACCESS_KEY=teraslack",
 		"S3_SECRET_KEY=teraslack-secret",
-		"",
-	}, "\n")
+	}
+	if liveSearch != nil {
+		stateEnvLines = append(stateEnvLines,
+			"MODAL_SERVER_API_KEY="+liveSearch.ModalServerAPIKey,
+			"MODAL_EMBEDDING_SERVER_URL="+liveSearch.ModalEmbeddingURL,
+			"TURBOPUFFER_API_KEY="+liveSearch.TurbopufferAPIKey,
+			"TURBOPUFFER_REGION="+liveSearch.TurbopufferRegion,
+			"TURBOPUFFER_NS_PREFIX="+liveSearch.NamespacePrefix,
+		)
+	}
+	stateEnvLines = append(stateEnvLines, "")
+	stateEnv := strings.Join(stateEnvLines, "\n")
 	if err := os.WriteFile(stateEnvPath, []byte(stateEnv), 0o644); err != nil {
 		return nil, fmt.Errorf("write integration env file: %w", err)
 	}
@@ -169,6 +202,7 @@ func startComposeStack() (*composeStack, error) {
 		baseURL:            baseURL,
 		databaseURL:        databaseURL,
 		webhookRecorderURL: webhookRecorderURL,
+		liveSearch:         liveSearch,
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
@@ -204,19 +238,28 @@ func (s *composeStack) Close() error {
 	if s == nil {
 		return nil
 	}
-	var downErr error
+	errs := make([]error, 0, 2)
 	if s.pool != nil {
 		s.pool.Close()
 	}
 	if s.rootDir != "" && s.stateEnvPath != "" {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 		defer cancel()
-		_, downErr = s.runCompose(ctx, "down", "-v", "--remove-orphans")
+		if _, err := s.runCompose(ctx, "down", "-v", "--remove-orphans"); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	if s.liveSearch != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+		if err := s.cleanupLiveSearchNamespaces(ctx); err != nil {
+			errs = append(errs, err)
+		}
 	}
 	if s.stateEnvPath != "" {
 		_ = os.Remove(s.stateEnvPath)
 	}
-	return downErr
+	return errors.Join(errs...)
 }
 
 func (s *composeStack) runCompose(ctx context.Context, args ...string) (string, error) {
@@ -304,6 +347,74 @@ func shortID() string {
 	return strings.ReplaceAll(uuid.NewString(), "-", "")[:8]
 }
 
+func loadLiveSearchConfig(runID string) (*liveSearchConfig, error) {
+	if !envTruthy(os.Getenv(liveSearchEnvFlag)) {
+		return nil, nil
+	}
+
+	required := map[string]string{
+		integrationTurbopufferAPIKeyEnv: strings.TrimSpace(os.Getenv(integrationTurbopufferAPIKeyEnv)),
+		integrationTurbopufferRegionEnv: strings.TrimSpace(os.Getenv(integrationTurbopufferRegionEnv)),
+		integrationTurbopufferPrefixEnv: strings.TrimSpace(os.Getenv(integrationTurbopufferPrefixEnv)),
+		integrationModalAPIKeyEnv:       strings.TrimSpace(os.Getenv(integrationModalAPIKeyEnv)),
+		integrationModalServerURLEnv:    strings.TrimSpace(os.Getenv(integrationModalServerURLEnv)),
+	}
+
+	missing := make([]string, 0)
+	for key, value := range required {
+		if value == "" {
+			missing = append(missing, key)
+		}
+	}
+	if len(missing) > 0 {
+		return nil, fmt.Errorf("%s requires %s", liveSearchEnvFlag, strings.Join(missing, ", "))
+	}
+
+	return &liveSearchConfig{
+		TurbopufferAPIKey: required[integrationTurbopufferAPIKeyEnv],
+		TurbopufferRegion: required[integrationTurbopufferRegionEnv],
+		NamespacePrefix:   fmt.Sprintf("%s-it-%s", required[integrationTurbopufferPrefixEnv], runID),
+		ModalServerAPIKey: required[integrationModalAPIKeyEnv],
+		ModalEmbeddingURL: required[integrationModalServerURLEnv],
+	}, nil
+}
+
+func envTruthy(raw string) bool {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "1", "true", "yes", "on":
+		return true
+	default:
+		return false
+	}
+}
+
+func (s *composeStack) cleanupLiveSearchNamespaces(ctx context.Context) error {
+	if s == nil || s.liveSearch == nil {
+		return nil
+	}
+
+	client := tpuf.NewClient(
+		option.WithAPIKey(s.liveSearch.TurbopufferAPIKey),
+		option.WithRegion(s.liveSearch.TurbopufferRegion),
+	)
+	pager := client.NamespacesAutoPaging(ctx, tpuf.NamespacesParams{
+		Prefix: tpuf.String(s.liveSearch.NamespacePrefix),
+	})
+
+	errs := make([]error, 0)
+	for pager.Next() {
+		namespace := pager.Current()
+		ns := client.Namespace(namespace.ID)
+		if _, err := ns.DeleteAll(ctx, tpuf.NamespaceDeleteAllParams{}); err != nil {
+			errs = append(errs, fmt.Errorf("delete turbopuffer namespace %s: %w", namespace.ID, err))
+		}
+	}
+	if err := pager.Err(); err != nil {
+		errs = append(errs, fmt.Errorf("list turbopuffer namespaces with prefix %s: %w", s.liveSearch.NamespacePrefix, err))
+	}
+	return errors.Join(errs...)
+}
+
 func waitForPostgres(databaseURL string, timeout time.Duration) (*pgxpool.Pool, error) {
 	deadline := time.Now().Add(timeout)
 	var lastErr error
@@ -358,14 +469,27 @@ func newWorkflowHarness(t *testing.T) *workflowHarness {
 		t.Fatalf("build string protector: %v", err)
 	}
 
+	clientTimeout := 15 * time.Second
+	if testStack != nil && testStack.liveSearch != nil {
+		clientTimeout = 60 * time.Second
+	}
+
 	return &workflowHarness{
 		t:         t,
 		pool:      testStack.pool,
-		client:    &http.Client{Timeout: 15 * time.Second},
+		client:    &http.Client{Timeout: clientTimeout},
 		baseURL:   testStack.baseURL,
 		namespace: scopedSuffix(t.Name()),
 		protector: protector,
 		stack:     testStack,
+	}
+}
+
+func (h *workflowHarness) requireLiveSearch(t *testing.T) {
+	t.Helper()
+
+	if h.stack == nil || h.stack.liveSearch == nil {
+		t.Skip("live search integration disabled; run with INTEGRATION_LIVE_SEARCH=1 and search env configured")
 	}
 }
 
@@ -470,6 +594,28 @@ func (h *workflowHarness) waitForExternalEventMatch(t *testing.T, token string, 
 			nil,
 			http.StatusOK,
 		)
+		for _, item := range response.Items {
+			if match(item) {
+				matched = item
+				return true, nil
+			}
+		}
+		return false, nil
+	})
+	return matched
+}
+
+func (h *workflowHarness) search(t *testing.T, token string, request api.SearchRequest) api.SearchResponse {
+	t.Helper()
+	return mustJSON[api.SearchResponse](t, h, http.MethodPost, "/search", token, request, http.StatusOK)
+}
+
+func (h *workflowHarness) waitForSearchHit(t *testing.T, token string, request api.SearchRequest, match func(api.SearchHit) bool) api.SearchHit {
+	t.Helper()
+
+	var matched api.SearchHit
+	waitForCondition(t, "search query "+strings.TrimSpace(request.Query), searchWaitTimeout, func() (bool, error) {
+		response := h.search(t, token, request)
 		for _, item := range response.Items {
 			if match(item) {
 				matched = item

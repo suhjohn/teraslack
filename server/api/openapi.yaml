@@ -288,10 +288,22 @@ paths:
       tags:
         - Search
       operationId: runSearch
-      summary: Search is not implemented
-      description: Placeholder endpoint. Search is currently disabled and always returns not implemented.
+      summary: Search across accessible resources
+      description: Runs hybrid search across the resources the caller is allowed to access.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SearchRequest'
       responses:
-        '501':
+        '200':
+          description: Search results.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SearchResponse'
+        default:
           $ref: '#/components/responses/ApiErrorResponse'
   /workspaces:
     get:
@@ -1319,6 +1331,103 @@ components:
         secret:
           type: string
           description: Plaintext API key secret. It is returned only once.
+    SearchRequest:
+      type: object
+      required:
+        - query
+      properties:
+        query:
+          type: string
+          description: Search query text.
+        kinds:
+          type: array
+          description: Optional resource kinds to search.
+          items:
+            type: string
+            enum:
+              - message
+              - conversation
+              - workspace
+              - user
+              - event
+        workspace_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Optional workspace scope filter.
+        conversation_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Optional conversation scope filter.
+        cursor:
+          type: string
+          description: Opaque pagination cursor from a previous response.
+        limit:
+          type: integer
+          description: Maximum number of results to return.
+    SearchHit:
+      type: object
+      required:
+        - kind
+        - resource_id
+        - score
+      properties:
+        kind:
+          type: string
+          enum:
+            - message
+            - conversation
+            - workspace
+            - user
+            - event
+        resource_id:
+          type: string
+          description: Canonical resource identifier.
+        score:
+          type: number
+          format: double
+          description: Fused ranking score.
+        title:
+          type: string
+          nullable: true
+          description: Result title.
+        snippet:
+          type: string
+          nullable: true
+          description: Short preview text.
+        workspace_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Workspace scope for the hit when applicable.
+        conversation_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Conversation scope for the hit when applicable.
+        message:
+          $ref: '#/components/schemas/Message'
+        conversation:
+          $ref: '#/components/schemas/Conversation'
+        workspace:
+          $ref: '#/components/schemas/Workspace'
+        user:
+          $ref: '#/components/schemas/User'
+        event:
+          $ref: '#/components/schemas/ExternalEvent'
+    SearchResponse:
+      type: object
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/SearchHit'
+        next_cursor:
+          type: string
+          description: Pagination cursor when additional results are available.
     Workspace:
       type: object
       required:

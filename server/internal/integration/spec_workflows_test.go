@@ -6,7 +6,9 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"net/url"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -273,6 +275,235 @@ func TestSPECWorkflows_GlobalConversationSupportsBackAndForthMessaging(t *testin
 		}
 		if messages.Items[0].AuthorUserID != beta.User.ID || messages.Items[1].AuthorUserID != alpha.User.ID {
 			t.Fatalf("message authors for user %s = [%s, %s], want [%s, %s]", actor.User.ID, messages.Items[0].AuthorUserID, messages.Items[1].AuthorUserID, beta.User.ID, alpha.User.ID)
+		}
+	}
+}
+
+func TestSPECWorkflows_SearchHybridIndexingAndACL(t *testing.T) {
+	h := newWorkflowHarness(t)
+	h.requireLiveSearch(t)
+	h.mustScaleService(t, "indexer", 2)
+
+	alpha := h.loginUser(t, "alpha@example.com")
+	beta := h.loginUser(t, "beta@example.com")
+	gamma := h.loginUser(t, "gamma@example.com")
+
+	token := strings.ReplaceAll(h.namespace, "-", "")
+	workspaceQuery := "workspace" + token
+	conversationQuery := "conversation" + token
+	userQuery := "user" + token
+	workspaceMessageQuery := "workmsg" + token
+	privateMessageQuery := "privmsg" + token
+	globalMessageQuery := "globmsg" + token
+
+	updatedBeta := mustJSON[api.User](
+		t,
+		h,
+		http.MethodPatch,
+		"/me/profile",
+		beta.Token,
+		api.UpdateProfileRequest{
+			Handle:      stringPtr("beta" + token),
+			DisplayName: stringPtr("Beta " + userQuery),
+		},
+		http.StatusOK,
+	)
+
+	workspace := mustJSON[api.Workspace](
+		t,
+		h,
+		http.MethodPost,
+		"/workspaces",
+		alpha.Token,
+		api.CreateWorkspaceRequest{
+			Name: "Workspace " + workspaceQuery,
+			Slug: h.uniqueSlug("search"),
+		},
+		http.StatusCreated,
+	)
+
+	invite := mustJSON[api.CreateWorkspaceInviteResponse](
+		t,
+		h,
+		http.MethodPost,
+		"/workspaces/"+workspace.ID+"/invites",
+		alpha.Token,
+		api.CreateWorkspaceInviteRequest{Email: &beta.Email},
+		http.StatusCreated,
+	)
+	mustJSON[api.WorkspaceMember](
+		t,
+		h,
+		http.MethodPost,
+		"/workspace-invites/"+url.PathEscape(invite.InviteToken)+"/accept",
+		beta.Token,
+		nil,
+		http.StatusOK,
+	)
+
+	workspaceConversations := mustJSON[api.CollectionResponse[api.Conversation]](
+		t,
+		h,
+		http.MethodGet,
+		"/conversations?workspace_id="+url.QueryEscape(workspace.ID),
+		alpha.Token,
+		nil,
+		http.StatusOK,
+	)
+	if len(workspaceConversations.Items) == 0 {
+		t.Fatalf("workspace %s returned no conversations", workspace.ID)
+	}
+	generalConversation := workspaceConversations.Items[0]
+
+	privateTitle := "Private " + conversationQuery
+	privateConversation := mustJSON[api.Conversation](
+		t,
+		h,
+		http.MethodPost,
+		"/conversations",
+		alpha.Token,
+		api.CreateConversationRequest{
+			WorkspaceID:        &workspace.ID,
+			AccessPolicy:       "members",
+			ParticipantUserIDs: []string{beta.User.ID},
+			Title:              &privateTitle,
+		},
+		http.StatusCreated,
+	)
+
+	globalTitle := "Global " + globalMessageQuery
+	globalConversation := mustJSON[api.Conversation](
+		t,
+		h,
+		http.MethodPost,
+		"/conversations",
+		alpha.Token,
+		api.CreateConversationRequest{
+			WorkspaceID:  nil,
+			AccessPolicy: "authenticated",
+			Title:        &globalTitle,
+		},
+		http.StatusCreated,
+	)
+
+	workspaceMessage := mustJSON[api.Message](
+		t,
+		h,
+		http.MethodPost,
+		"/conversations/"+generalConversation.ID+"/messages",
+		alpha.Token,
+		api.CreateMessageRequest{BodyText: "workspace signal " + workspaceMessageQuery},
+		http.StatusCreated,
+	)
+	privateMessage := mustJSON[api.Message](
+		t,
+		h,
+		http.MethodPost,
+		"/conversations/"+privateConversation.ID+"/messages",
+		alpha.Token,
+		api.CreateMessageRequest{BodyText: "private signal " + privateMessageQuery},
+		http.StatusCreated,
+	)
+	globalMessage := mustJSON[api.Message](
+		t,
+		h,
+		http.MethodPost,
+		"/conversations/"+globalConversation.ID+"/messages",
+		alpha.Token,
+		api.CreateMessageRequest{BodyText: "global signal " + globalMessageQuery},
+		http.StatusCreated,
+	)
+
+	workspaceHit := h.waitForSearchHit(t, alpha.Token, api.SearchRequest{
+		Query: workspaceQuery,
+		Kinds: []string{"workspace"},
+	}, func(hit api.SearchHit) bool {
+		return hit.Kind == "workspace" && hit.ResourceID == workspace.ID
+	})
+	if workspaceHit.Workspace == nil || workspaceHit.Workspace.ID != workspace.ID {
+		t.Fatalf("workspace search hit = %+v, want workspace %s", workspaceHit, workspace.ID)
+	}
+
+	conversationHit := h.waitForSearchHit(t, alpha.Token, api.SearchRequest{
+		Query: conversationQuery,
+		Kinds: []string{"conversation"},
+	}, func(hit api.SearchHit) bool {
+		return hit.Kind == "conversation" && hit.ResourceID == privateConversation.ID
+	})
+	if conversationHit.Conversation == nil || conversationHit.Conversation.ID != privateConversation.ID {
+		t.Fatalf("conversation search hit = %+v, want conversation %s", conversationHit, privateConversation.ID)
+	}
+
+	userHit := h.waitForSearchHit(t, alpha.Token, api.SearchRequest{
+		Query:       userQuery,
+		Kinds:       []string{"user"},
+		WorkspaceID: &workspace.ID,
+	}, func(hit api.SearchHit) bool {
+		return hit.Kind == "user" && hit.ResourceID == updatedBeta.ID
+	})
+	if userHit.User == nil || userHit.User.ID != updatedBeta.ID {
+		t.Fatalf("user search hit = %+v, want user %s", userHit, updatedBeta.ID)
+	}
+
+	workspaceMessageHit := h.waitForSearchHit(t, beta.Token, api.SearchRequest{
+		Query:       workspaceMessageQuery,
+		Kinds:       []string{"message"},
+		WorkspaceID: &workspace.ID,
+	}, func(hit api.SearchHit) bool {
+		return hit.Kind == "message" && hit.ResourceID == workspaceMessage.ID
+	})
+	if workspaceMessageHit.Message == nil || workspaceMessageHit.Message.ID != workspaceMessage.ID {
+		t.Fatalf("workspace message search hit = %+v, want message %s", workspaceMessageHit, workspaceMessage.ID)
+	}
+
+	privateMessageHit := h.waitForSearchHit(t, beta.Token, api.SearchRequest{
+		Query:          privateMessageQuery,
+		Kinds:          []string{"message"},
+		ConversationID: &privateConversation.ID,
+	}, func(hit api.SearchHit) bool {
+		return hit.Kind == "message" && hit.ResourceID == privateMessage.ID
+	})
+	if privateMessageHit.Message == nil || privateMessageHit.Message.ID != privateMessage.ID {
+		t.Fatalf("private message search hit = %+v, want message %s", privateMessageHit, privateMessage.ID)
+	}
+
+	globalMessageHit := h.waitForSearchHit(t, gamma.Token, api.SearchRequest{
+		Query: globalMessageQuery,
+		Kinds: []string{"message"},
+	}, func(hit api.SearchHit) bool {
+		return hit.Kind == "message" && hit.ResourceID == globalMessage.ID
+	})
+	if globalMessageHit.Message == nil || globalMessageHit.Message.ID != globalMessage.ID {
+		t.Fatalf("global message search hit = %+v, want message %s", globalMessageHit, globalMessage.ID)
+	}
+
+	forbiddenWorkspace := h.search(t, gamma.Token, api.SearchRequest{
+		Query: workspaceMessageQuery,
+		Kinds: []string{"message"},
+	})
+	for _, item := range forbiddenWorkspace.Items {
+		if item.ResourceID == workspaceMessage.ID {
+			t.Fatalf("workspace message %s leaked to non-member search response", workspaceMessage.ID)
+		}
+	}
+
+	forbiddenPrivate := h.search(t, gamma.Token, api.SearchRequest{
+		Query: privateMessageQuery,
+		Kinds: []string{"message"},
+	})
+	for _, item := range forbiddenPrivate.Items {
+		if item.ResourceID == privateMessage.ID {
+			t.Fatalf("private message %s leaked to non-participant search response", privateMessage.ID)
+		}
+	}
+
+	forbiddenWorkspaceDoc := h.search(t, gamma.Token, api.SearchRequest{
+		Query: workspaceQuery,
+		Kinds: []string{"workspace"},
+	})
+	for _, item := range forbiddenWorkspaceDoc.Items {
+		if item.ResourceID == workspace.ID {
+			t.Fatalf("workspace %s leaked to non-member search response", workspace.ID)
 		}
 	}
 }
