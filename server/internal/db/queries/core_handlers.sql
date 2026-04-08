@@ -78,6 +78,40 @@ insert into api_keys (
   sqlc.arg(created_at)
 );
 
+-- name: CreateAgentAPIKey :exec
+insert into agent_api_keys (
+  id,
+  agent_user_id,
+  created_by_user_id,
+  token_hash,
+  encrypted_token,
+  scope_type,
+  scope_workspace_id,
+  created_at
+) values (
+  sqlc.arg(id),
+  sqlc.arg(agent_user_id),
+  sqlc.arg(created_by_user_id),
+  sqlc.arg(token_hash),
+  sqlc.arg(encrypted_token),
+  sqlc.arg(scope_type),
+  sqlc.narg(scope_workspace_id),
+  sqlc.arg(created_at)
+);
+
+-- name: GetActiveAgentAPIKeyForUpdate :one
+select id, agent_user_id, encrypted_token, scope_type, scope_workspace_id, created_at
+from agent_api_keys
+where agent_user_id = sqlc.arg(agent_user_id)
+  and revoked_at is null
+for update;
+
+-- name: RevokeActiveAgentAPIKey :execrows
+update agent_api_keys
+set revoked_at = sqlc.arg(revoked_at)
+where agent_user_id = sqlc.arg(agent_user_id)
+  and revoked_at is null;
+
 -- name: RevokeAPIKeyByOwner :execrows
 update api_keys
 set revoked_at = sqlc.arg(revoked_at)

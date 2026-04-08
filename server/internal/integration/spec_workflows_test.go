@@ -765,7 +765,7 @@ func TestSPECWorkflows_AgentCreationGeneratesDisplayName(t *testing.T) {
 	h := newWorkflowHarness(t)
 	alpha := h.loginUser(t, "alpha@example.com")
 
-	agent := mustJSON[api.Agent](
+	created := mustJSON[api.CreateAgentResponse](
 		t,
 		h,
 		http.MethodPost,
@@ -776,6 +776,7 @@ func TestSPECWorkflows_AgentCreationGeneratesDisplayName(t *testing.T) {
 		},
 		http.StatusCreated,
 	)
+	agent := created.Agent
 	if agent.User.PrincipalType != "agent" {
 		t.Fatalf("created principal_type = %q, want agent", agent.User.PrincipalType)
 	}
@@ -787,6 +788,36 @@ func TestSPECWorkflows_AgentCreationGeneratesDisplayName(t *testing.T) {
 	}
 	if agent.OwnerType != "user" {
 		t.Fatalf("created agent owner_type = %q, want user", agent.OwnerType)
+	}
+	if strings.TrimSpace(created.APIKey.Token) == "" {
+		t.Fatal("created agent api_key.token is blank")
+	}
+	if created.APIKey.ScopeType != "user" {
+		t.Fatalf("created agent api_key.scope_type = %q, want user", created.APIKey.ScopeType)
+	}
+	if created.APIKey.ScopeWorkspaceID != nil {
+		t.Fatalf("created agent api_key.scope_workspace_id = %v, want nil", *created.APIKey.ScopeWorkspaceID)
+	}
+
+	currentKey := mustJSON[api.AgentAPIKey](
+		t,
+		h,
+		http.MethodGet,
+		"/agents/"+agent.User.ID+"/api-key",
+		alpha.Token,
+		nil,
+		http.StatusOK,
+	)
+	if currentKey.Token != created.APIKey.Token {
+		t.Fatalf("get agent api key token = %q, want created token %q", currentKey.Token, created.APIKey.Token)
+	}
+
+	me := mustJSON[api.MeResponse](t, h, http.MethodGet, "/me", created.APIKey.Token, nil, http.StatusOK)
+	if me.User.ID != agent.User.ID {
+		t.Fatalf("agent key authenticated as user %s, want %s", me.User.ID, agent.User.ID)
+	}
+	if me.User.PrincipalType != "agent" {
+		t.Fatalf("agent key principal_type = %q, want agent", me.User.PrincipalType)
 	}
 
 	errResponse := mustJSON[api.ErrorResponse](
@@ -803,6 +834,49 @@ func TestSPECWorkflows_AgentCreationGeneratesDisplayName(t *testing.T) {
 	)
 	if errResponse.Code != "validation_failed" {
 		t.Fatalf("explicit display_name error code = %s, want validation_failed", errResponse.Code)
+	}
+}
+
+func TestSPECWorkflows_AgentAPIKeyRotationRevokesPreviousToken(t *testing.T) {
+	h := newWorkflowHarness(t)
+	alpha := h.loginUser(t, "alpha@example.com")
+
+	created := mustJSON[api.CreateAgentResponse](
+		t,
+		h,
+		http.MethodPost,
+		"/agents",
+		alpha.Token,
+		api.CreateAgentRequest{
+			OwnerType: "user",
+		},
+		http.StatusCreated,
+	)
+
+	rotated := mustJSON[api.AgentAPIKey](
+		t,
+		h,
+		http.MethodPost,
+		"/agents/"+created.Agent.User.ID+"/api-key/rotate",
+		alpha.Token,
+		nil,
+		http.StatusOK,
+	)
+	if rotated.ID == created.APIKey.ID {
+		t.Fatalf("rotated agent api key id = %q, want a new id", rotated.ID)
+	}
+	if rotated.Token == created.APIKey.Token {
+		t.Fatalf("rotated agent api key token = %q, want a new token", rotated.Token)
+	}
+
+	errResponse := mustJSON[api.ErrorResponse](t, h, http.MethodGet, "/me", created.APIKey.Token, nil, http.StatusUnauthorized)
+	if errResponse.Code != "unauthorized" {
+		t.Fatalf("old agent api key error code = %s, want unauthorized", errResponse.Code)
+	}
+
+	me := mustJSON[api.MeResponse](t, h, http.MethodGet, "/me", rotated.Token, nil, http.StatusOK)
+	if me.User.ID != created.Agent.User.ID {
+		t.Fatalf("rotated agent api key authenticated as user %s, want %s", me.User.ID, created.Agent.User.ID)
 	}
 }
 

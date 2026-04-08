@@ -26,9 +26,11 @@ import type {
 
 import type {
   Agent,
+  AgentAPIKey,
   AgentsCollection,
   ApiErrorResponseResponse,
   CreateAgentRequest,
+  CreateAgentResponse,
   UpdateAgentRequest
 } from '../model';
 
@@ -171,7 +173,7 @@ export function useListAgents<TData = Awaited<ReturnType<typeof listAgents>>, TE
  * @summary Create an agent
  */
 export type createAgentResponse201 = {
-  data: Agent
+  data: CreateAgentResponse
   status: 201
 }
 
@@ -464,4 +466,211 @@ export const useUpdateAgent = <TError = ErrorType<ApiErrorResponseResponse>,
         TContext
       > => {
       return useMutation(getUpdateAgentMutationOptions(options), queryClient);
+    }
+    /**
+ * Returns the current API key for one manageable agent. If none exists yet, one is created.
+ * @summary Show the current agent API key
+ */
+export type getAgentApiKeyResponse200 = {
+  data: AgentAPIKey
+  status: 200
+}
+
+export type getAgentApiKeyResponseDefault = {
+  data: ApiErrorResponseResponse
+  status: Exclude<HTTPStatusCodes, 200>
+}
+
+export type getAgentApiKeyResponseSuccess = (getAgentApiKeyResponse200) & {
+  headers: Headers;
+};
+export type getAgentApiKeyResponseError = (getAgentApiKeyResponseDefault) & {
+  headers: Headers;
+};
+
+export type getAgentApiKeyResponse = (getAgentApiKeyResponseSuccess | getAgentApiKeyResponseError)
+
+export const getGetAgentApiKeyUrl = (agentId: string,) => {
+
+
+
+
+  return `/agents/${agentId}/api-key`
+}
+
+export const getAgentApiKey = async (agentId: string, options?: RequestInit): Promise<getAgentApiKeyResponse> => {
+
+  return orvalFetch<getAgentApiKeyResponse>(getGetAgentApiKeyUrl(agentId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetAgentApiKeyQueryKey = (agentId: string,) => {
+    return [
+    `/agents/${agentId}/api-key`
+    ] as const;
+    }
+
+
+export const getGetAgentApiKeyQueryOptions = <TData = Awaited<ReturnType<typeof getAgentApiKey>>, TError = ErrorType<ApiErrorResponseResponse>>(agentId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getAgentApiKey>>, TError, TData>>, request?: SecondParameter<typeof orvalFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetAgentApiKeyQueryKey(agentId);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getAgentApiKey>>> = ({ signal }) => getAgentApiKey(agentId, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: !!(agentId), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getAgentApiKey>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type GetAgentApiKeyQueryResult = NonNullable<Awaited<ReturnType<typeof getAgentApiKey>>>
+export type GetAgentApiKeyQueryError = ErrorType<ApiErrorResponseResponse>
+
+
+export function useGetAgentApiKey<TData = Awaited<ReturnType<typeof getAgentApiKey>>, TError = ErrorType<ApiErrorResponseResponse>>(
+ agentId: string, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof getAgentApiKey>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getAgentApiKey>>,
+          TError,
+          Awaited<ReturnType<typeof getAgentApiKey>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof orvalFetch>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetAgentApiKey<TData = Awaited<ReturnType<typeof getAgentApiKey>>, TError = ErrorType<ApiErrorResponseResponse>>(
+ agentId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getAgentApiKey>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getAgentApiKey>>,
+          TError,
+          Awaited<ReturnType<typeof getAgentApiKey>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof orvalFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetAgentApiKey<TData = Awaited<ReturnType<typeof getAgentApiKey>>, TError = ErrorType<ApiErrorResponseResponse>>(
+ agentId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getAgentApiKey>>, TError, TData>>, request?: SecondParameter<typeof orvalFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/**
+ * @summary Show the current agent API key
+ */
+
+export function useGetAgentApiKey<TData = Awaited<ReturnType<typeof getAgentApiKey>>, TError = ErrorType<ApiErrorResponseResponse>>(
+ agentId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getAgentApiKey>>, TError, TData>>, request?: SecondParameter<typeof orvalFetch>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getGetAgentApiKeyQueryOptions(agentId,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+/**
+ * Revokes the current API key for one manageable agent and returns a replacement.
+ * @summary Rotate the agent API key
+ */
+export type rotateAgentApiKeyResponse200 = {
+  data: AgentAPIKey
+  status: 200
+}
+
+export type rotateAgentApiKeyResponseDefault = {
+  data: ApiErrorResponseResponse
+  status: Exclude<HTTPStatusCodes, 200>
+}
+
+export type rotateAgentApiKeyResponseSuccess = (rotateAgentApiKeyResponse200) & {
+  headers: Headers;
+};
+export type rotateAgentApiKeyResponseError = (rotateAgentApiKeyResponseDefault) & {
+  headers: Headers;
+};
+
+export type rotateAgentApiKeyResponse = (rotateAgentApiKeyResponseSuccess | rotateAgentApiKeyResponseError)
+
+export const getRotateAgentApiKeyUrl = (agentId: string,) => {
+
+
+
+
+  return `/agents/${agentId}/api-key/rotate`
+}
+
+export const rotateAgentApiKey = async (agentId: string, options?: RequestInit): Promise<rotateAgentApiKeyResponse> => {
+
+  return orvalFetch<rotateAgentApiKeyResponse>(getRotateAgentApiKeyUrl(agentId),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+export const getRotateAgentApiKeyMutationOptions = <TError = ErrorType<ApiErrorResponseResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof rotateAgentApiKey>>, TError,{agentId: string}, TContext>, request?: SecondParameter<typeof orvalFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof rotateAgentApiKey>>, TError,{agentId: string}, TContext> => {
+
+const mutationKey = ['rotateAgentApiKey'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof rotateAgentApiKey>>, {agentId: string}> = (props) => {
+          const {agentId} = props ?? {};
+
+          return  rotateAgentApiKey(agentId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RotateAgentApiKeyMutationResult = NonNullable<Awaited<ReturnType<typeof rotateAgentApiKey>>>
+
+    export type RotateAgentApiKeyMutationError = ErrorType<ApiErrorResponseResponse>
+
+    /**
+ * @summary Rotate the agent API key
+ */
+export const useRotateAgentApiKey = <TError = ErrorType<ApiErrorResponseResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof rotateAgentApiKey>>, TError,{agentId: string}, TContext>, request?: SecondParameter<typeof orvalFetch>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof rotateAgentApiKey>>,
+        TError,
+        {agentId: string},
+        TContext
+      > => {
+      return useMutation(getRotateAgentApiKeyMutationOptions(options), queryClient);
     }

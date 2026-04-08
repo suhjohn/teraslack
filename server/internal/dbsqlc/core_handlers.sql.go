@@ -171,6 +171,53 @@ func (q *Queries) CreateAgent(ctx context.Context, arg CreateAgentParams) error 
 	return err
 }
 
+const createAgentAPIKey = `-- name: CreateAgentAPIKey :exec
+insert into agent_api_keys (
+  id,
+  agent_user_id,
+  created_by_user_id,
+  token_hash,
+  encrypted_token,
+  scope_type,
+  scope_workspace_id,
+  created_at
+) values (
+  $1,
+  $2,
+  $3,
+  $4,
+  $5,
+  $6,
+  $7,
+  $8
+)
+`
+
+type CreateAgentAPIKeyParams struct {
+	ID               uuid.UUID          `json:"id"`
+	AgentUserID      uuid.UUID          `json:"agent_user_id"`
+	CreatedByUserID  uuid.UUID          `json:"created_by_user_id"`
+	TokenHash        string             `json:"token_hash"`
+	EncryptedToken   string             `json:"encrypted_token"`
+	ScopeType        string             `json:"scope_type"`
+	ScopeWorkspaceID *uuid.UUID         `json:"scope_workspace_id"`
+	CreatedAt        pgtype.Timestamptz `json:"created_at"`
+}
+
+func (q *Queries) CreateAgentAPIKey(ctx context.Context, arg CreateAgentAPIKeyParams) error {
+	_, err := q.db.Exec(ctx, createAgentAPIKey,
+		arg.ID,
+		arg.AgentUserID,
+		arg.CreatedByUserID,
+		arg.TokenHash,
+		arg.EncryptedToken,
+		arg.ScopeType,
+		arg.ScopeWorkspaceID,
+		arg.CreatedAt,
+	)
+	return err
+}
+
 const createAuthSession = `-- name: CreateAuthSession :exec
 insert into auth_sessions (id, user_id, token_hash, expires_at, last_seen_at, created_at)
 values (
@@ -458,6 +505,37 @@ func (q *Queries) GetAPIKeyByID(ctx context.Context, id uuid.UUID) (GetAPIKeyByI
 		&i.ExpiresAt,
 		&i.LastUsedAt,
 		&i.RevokedAt,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const getActiveAgentAPIKeyForUpdate = `-- name: GetActiveAgentAPIKeyForUpdate :one
+select id, agent_user_id, encrypted_token, scope_type, scope_workspace_id, created_at
+from agent_api_keys
+where agent_user_id = $1
+  and revoked_at is null
+for update
+`
+
+type GetActiveAgentAPIKeyForUpdateRow struct {
+	ID               uuid.UUID          `json:"id"`
+	AgentUserID      uuid.UUID          `json:"agent_user_id"`
+	EncryptedToken   string             `json:"encrypted_token"`
+	ScopeType        string             `json:"scope_type"`
+	ScopeWorkspaceID *uuid.UUID         `json:"scope_workspace_id"`
+	CreatedAt        pgtype.Timestamptz `json:"created_at"`
+}
+
+func (q *Queries) GetActiveAgentAPIKeyForUpdate(ctx context.Context, agentUserID uuid.UUID) (GetActiveAgentAPIKeyForUpdateRow, error) {
+	row := q.db.QueryRow(ctx, getActiveAgentAPIKeyForUpdate, agentUserID)
+	var i GetActiveAgentAPIKeyForUpdateRow
+	err := row.Scan(
+		&i.ID,
+		&i.AgentUserID,
+		&i.EncryptedToken,
+		&i.ScopeType,
+		&i.ScopeWorkspaceID,
 		&i.CreatedAt,
 	)
 	return i, err
@@ -825,6 +903,26 @@ type RevokeAPIKeyByOwnerParams struct {
 
 func (q *Queries) RevokeAPIKeyByOwner(ctx context.Context, arg RevokeAPIKeyByOwnerParams) (int64, error) {
 	result, err := q.db.Exec(ctx, revokeAPIKeyByOwner, arg.RevokedAt, arg.ID, arg.UserID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const revokeActiveAgentAPIKey = `-- name: RevokeActiveAgentAPIKey :execrows
+update agent_api_keys
+set revoked_at = $1
+where agent_user_id = $2
+  and revoked_at is null
+`
+
+type RevokeActiveAgentAPIKeyParams struct {
+	RevokedAt   pgtype.Timestamptz `json:"revoked_at"`
+	AgentUserID uuid.UUID          `json:"agent_user_id"`
+}
+
+func (q *Queries) RevokeActiveAgentAPIKey(ctx context.Context, arg RevokeActiveAgentAPIKeyParams) (int64, error) {
+	result, err := q.db.Exec(ctx, revokeActiveAgentAPIKey, arg.RevokedAt, arg.AgentUserID)
 	if err != nil {
 		return 0, err
 	}

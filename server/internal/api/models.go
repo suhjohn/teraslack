@@ -98,7 +98,6 @@ type APIKey struct {
 
 type CreateAPIKeyRequest struct {
 	Label            string  `json:"label"`
-	SubjectUserID    *string `json:"subject_user_id,omitempty"`
 	ScopeType        string  `json:"scope_type"`
 	ScopeWorkspaceID *string `json:"scope_workspace_id"`
 	ExpiresAt        *string `json:"expires_at,omitempty"`
@@ -189,6 +188,19 @@ type Agent struct {
 	CreatedByUserID  string  `json:"created_by_user_id"`
 	CreatedAt        string  `json:"created_at"`
 	UpdatedAt        string  `json:"updated_at"`
+}
+
+type AgentAPIKey struct {
+	ID               string  `json:"id"`
+	Token            string  `json:"token"`
+	ScopeType        string  `json:"scope_type"`
+	ScopeWorkspaceID *string `json:"scope_workspace_id,omitempty"`
+	CreatedAt        string  `json:"created_at"`
+}
+
+type CreateAgentResponse struct {
+	Agent  Agent       `json:"agent"`
+	APIKey AgentAPIKey `json:"api_key"`
 }
 
 type CreateAgentRequest struct {

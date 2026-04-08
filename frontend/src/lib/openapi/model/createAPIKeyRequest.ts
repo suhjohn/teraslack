@@ -10,11 +10,6 @@ import type { CreateAPIKeyRequestScopeType } from './createAPIKeyRequestScopeTyp
 export interface CreateAPIKeyRequest {
   /** Human-readable API key label. */
   label: string;
-  /**
-     * Optional subject user to authenticate as. Defaults to the current user and may also reference one manageable agent.
-     * @nullable
-     */
-  subject_user_id?: string | null;
   /** Whether to create a personal key or a workspace-scoped key. */
   scope_type: CreateAPIKeyRequestScopeType;
   /**

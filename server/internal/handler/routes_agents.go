@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"strings"
@@ -10,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/johnsuh/teraslack/server/internal/api"
+	teracrypto "github.com/johnsuh/teraslack/server/internal/crypto"
 	"github.com/johnsuh/teraslack/server/internal/dbsqlc"
 	"github.com/johnsuh/teraslack/server/internal/domain"
 )
@@ -120,6 +122,7 @@ func (s *Server) handleCreateAgent(w http.ResponseWriter, r *http.Request, auth 
 
 	var createdUser userRow
 	var createdAgent agentRow
+	var createdAPIKey api.AgentAPIKey
 	err = withTransaction(r.Context(), s.db, func(tx pgx.Tx) error {
 		now := time.Now().UTC()
 		user, err := s.insertAgentWithProfile(r.Context(), tx, displayName, request.Handle, avatarURL, bio)
@@ -180,6 +183,11 @@ func (s *Server) handleCreateAgent(w http.ResponseWriter, r *http.Request, auth 
 			CreatedAt:        now,
 			UpdatedAt:        now,
 		}
+		apiKey, err := s.createAgentAPIKeyTx(r.Context(), tx, createdAgent, auth.UserID, now, "agent.api_key.created")
+		if err != nil {
+			return err
+		}
+		createdAPIKey = apiKey
 		return nil
 	})
 	if err != nil {
@@ -190,7 +198,10 @@ func (s *Server) handleCreateAgent(w http.ResponseWriter, r *http.Request, auth 
 		s.writeAppError(w, r, internalError(err))
 		return
 	}
-	writeJSON(w, http.StatusCreated, agentToAPI(createdUser, createdAgent))
+	writeJSON(w, http.StatusCreated, api.CreateAgentResponse{
+		Agent:  agentToAPI(createdUser, createdAgent),
+		APIKey: createdAPIKey,
+	})
 }
 
 func (s *Server) handleGetAgent(w http.ResponseWriter, r *http.Request, auth domain.AuthContext) {
@@ -374,4 +385,182 @@ func (s *Server) handlePatchAgent(w http.ResponseWriter, r *http.Request, auth d
 		return
 	}
 	writeJSON(w, http.StatusOK, agentToAPI(user, agent))
+}
+
+func (s *Server) handleGetAgentAPIKey(w http.ResponseWriter, r *http.Request, auth domain.AuthContext) {
+	if appErr := s.ensureHumanGlobalUserSurfaceAccess(auth); appErr != nil {
+		s.writeAppError(w, r, appErr)
+		return
+	}
+	agentUserID, err := parseUUIDPath(r, "agent_id")
+	if err != nil {
+		s.writeAppError(w, r, err)
+		return
+	}
+	agent, err := s.loadAgent(r.Context(), agentUserID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			s.writeAppError(w, r, notFound("Agent not found."))
+			return
+		}
+		s.writeAppError(w, r, internalError(err))
+		return
+	}
+	if appErr := s.ensureAgentManager(r.Context(), auth, agent); appErr != nil {
+		s.writeAppError(w, r, appErr)
+		return
+	}
+
+	var apiKey api.AgentAPIKey
+	err = withTransaction(r.Context(), s.db, func(tx pgx.Tx) error {
+		current, err := s.getOrCreateAgentAPIKeyTx(r.Context(), tx, agent, auth.UserID)
+		if err != nil {
+			return err
+		}
+		apiKey = current
+		return nil
+	})
+	if err != nil {
+		if appErr, ok := err.(*appError); ok {
+			s.writeAppError(w, r, appErr)
+			return
+		}
+		s.writeAppError(w, r, internalError(err))
+		return
+	}
+	writeJSON(w, http.StatusOK, apiKey)
+}
+
+func (s *Server) handleRotateAgentAPIKey(w http.ResponseWriter, r *http.Request, auth domain.AuthContext) {
+	if appErr := s.ensureHumanGlobalUserSurfaceAccess(auth); appErr != nil {
+		s.writeAppError(w, r, appErr)
+		return
+	}
+	agentUserID, err := parseUUIDPath(r, "agent_id")
+	if err != nil {
+		s.writeAppError(w, r, err)
+		return
+	}
+	agent, err := s.loadAgent(r.Context(), agentUserID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			s.writeAppError(w, r, notFound("Agent not found."))
+			return
+		}
+		s.writeAppError(w, r, internalError(err))
+		return
+	}
+	if appErr := s.ensureAgentManager(r.Context(), auth, agent); appErr != nil {
+		s.writeAppError(w, r, appErr)
+		return
+	}
+
+	var apiKey api.AgentAPIKey
+	err = withTransaction(r.Context(), s.db, func(tx pgx.Tx) error {
+		now := time.Now().UTC()
+		if _, err := s.queries.WithTx(tx).RevokeActiveAgentAPIKey(r.Context(), dbsqlc.RevokeActiveAgentAPIKeyParams{
+			RevokedAt:   dbsqlc.Timestamptz(now),
+			AgentUserID: agent.UserID,
+		}); err != nil {
+			return err
+		}
+		current, err := s.createAgentAPIKeyTx(r.Context(), tx, agent, auth.UserID, now, "agent.api_key.rotated")
+		if err != nil {
+			return err
+		}
+		apiKey = current
+		return nil
+	})
+	if err != nil {
+		if appErr, ok := err.(*appError); ok {
+			s.writeAppError(w, r, appErr)
+			return
+		}
+		s.writeAppError(w, r, internalError(err))
+		return
+	}
+	writeJSON(w, http.StatusOK, apiKey)
+}
+
+func (s *Server) getOrCreateAgentAPIKeyTx(ctx context.Context, tx pgx.Tx, agent agentRow, actorUserID uuid.UUID) (api.AgentAPIKey, error) {
+	row, err := s.queries.WithTx(tx).GetActiveAgentAPIKeyForUpdate(ctx, agent.UserID)
+	switch {
+	case err == nil:
+		if strings.TrimSpace(row.EncryptedToken) != "" {
+			return s.agentAPIKeyToAPI(ctx, row.ID, row.EncryptedToken, row.ScopeType, row.ScopeWorkspaceID, dbsqlc.TimeValue(row.CreatedAt))
+		}
+		now := time.Now().UTC()
+		if _, err := s.queries.WithTx(tx).RevokeActiveAgentAPIKey(ctx, dbsqlc.RevokeActiveAgentAPIKeyParams{
+			RevokedAt:   dbsqlc.Timestamptz(now),
+			AgentUserID: agent.UserID,
+		}); err != nil {
+			return api.AgentAPIKey{}, err
+		}
+		return s.createAgentAPIKeyTx(ctx, tx, agent, actorUserID, now, "agent.api_key.created")
+	case errors.Is(err, pgx.ErrNoRows):
+		return s.createAgentAPIKeyTx(ctx, tx, agent, actorUserID, time.Now().UTC(), "agent.api_key.created")
+	default:
+		return api.AgentAPIKey{}, err
+	}
+}
+
+func (s *Server) createAgentAPIKeyTx(ctx context.Context, tx pgx.Tx, agent agentRow, actorUserID uuid.UUID, now time.Time, eventType string) (api.AgentAPIKey, error) {
+	token, err := teracrypto.RandomToken(32)
+	if err != nil {
+		return api.AgentAPIKey{}, err
+	}
+	encryptedToken, err := s.protector.EncryptString(ctx, token)
+	if err != nil {
+		return api.AgentAPIKey{}, err
+	}
+	scopeType, scopeWorkspaceID := agentAPIKeyScope(agent)
+	keyID := uuid.New()
+	if err := s.queries.WithTx(tx).CreateAgentAPIKey(ctx, dbsqlc.CreateAgentAPIKeyParams{
+		ID:               keyID,
+		AgentUserID:      agent.UserID,
+		CreatedByUserID:  actorUserID,
+		TokenHash:        teracrypto.SHA256Hex(token),
+		EncryptedToken:   encryptedToken,
+		ScopeType:        scopeType,
+		ScopeWorkspaceID: scopeWorkspaceID,
+		CreatedAt:        dbsqlc.Timestamptz(now),
+	}); err != nil {
+		return api.AgentAPIKey{}, err
+	}
+	if err := s.appendEvent(ctx, tx, eventType, "agent", agent.UserID, agent.OwnerWorkspaceID, &actorUserID, map[string]any{
+		"agent_user_id":      agent.UserID.String(),
+		"agent_api_key_id":   keyID.String(),
+		"scope_type":         scopeType,
+		"scope_workspace_id": uuidPtrToStringPtr(scopeWorkspaceID),
+	}); err != nil {
+		return api.AgentAPIKey{}, err
+	}
+	return api.AgentAPIKey{
+		ID:               keyID.String(),
+		Token:            token,
+		ScopeType:        scopeType,
+		ScopeWorkspaceID: uuidPtrToStringPtr(scopeWorkspaceID),
+		CreatedAt:        now.Format(time.RFC3339),
+	}, nil
+}
+
+func (s *Server) agentAPIKeyToAPI(ctx context.Context, keyID uuid.UUID, encryptedToken string, scopeType string, scopeWorkspaceID *uuid.UUID, createdAt time.Time) (api.AgentAPIKey, error) {
+	token, err := s.protector.DecryptString(ctx, encryptedToken)
+	if err != nil {
+		return api.AgentAPIKey{}, err
+	}
+	return api.AgentAPIKey{
+		ID:               keyID.String(),
+		Token:            token,
+		ScopeType:        scopeType,
+		ScopeWorkspaceID: uuidPtrToStringPtr(scopeWorkspaceID),
+		CreatedAt:        createdAt.Format(time.RFC3339),
+	}, nil
+}
+
+func agentAPIKeyScope(agent agentRow) (string, *uuid.UUID) {
+	if agent.OwnerWorkspaceID != nil {
+		return "workspace", agent.OwnerWorkspaceID
+	}
+	return "user", nil
 }

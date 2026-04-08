@@ -20,6 +20,7 @@ left join agents a on a.user_id = u.id
 where k.secret_hash = $1
   and k.revoked_at is null
   and (k.expires_at is null or k.expires_at > $2)
+  and u.principal_type = 'human'
   and u.status = 'active'
 `
 
@@ -43,6 +44,39 @@ func (q *Queries) GetAPIKeyAuthBySecretHash(ctx context.Context, arg GetAPIKeyAu
 	err := row.Scan(
 		&i.ID,
 		&i.UserID,
+		&i.ScopeType,
+		&i.ScopeWorkspaceID,
+		&i.PrincipalType,
+		&i.AgentMode,
+	)
+	return i, err
+}
+
+const getAgentAPIKeyAuthByTokenHash = `-- name: GetAgentAPIKeyAuthByTokenHash :one
+select k.id, k.agent_user_id, k.scope_type, k.scope_workspace_id, u.principal_type, a.mode as agent_mode
+from agent_api_keys k
+join users u on u.id = k.agent_user_id
+join agents a on a.user_id = k.agent_user_id
+where k.token_hash = $1
+  and k.revoked_at is null
+  and u.status = 'active'
+`
+
+type GetAgentAPIKeyAuthByTokenHashRow struct {
+	ID               uuid.UUID  `json:"id"`
+	AgentUserID      uuid.UUID  `json:"agent_user_id"`
+	ScopeType        string     `json:"scope_type"`
+	ScopeWorkspaceID *uuid.UUID `json:"scope_workspace_id"`
+	PrincipalType    string     `json:"principal_type"`
+	AgentMode        string     `json:"agent_mode"`
+}
+
+func (q *Queries) GetAgentAPIKeyAuthByTokenHash(ctx context.Context, tokenHash string) (GetAgentAPIKeyAuthByTokenHashRow, error) {
+	row := q.db.QueryRow(ctx, getAgentAPIKeyAuthByTokenHash, tokenHash)
+	var i GetAgentAPIKeyAuthByTokenHashRow
+	err := row.Scan(
+		&i.ID,
+		&i.AgentUserID,
 		&i.ScopeType,
 		&i.ScopeWorkspaceID,
 		&i.PrincipalType,
@@ -99,6 +133,22 @@ type TouchAPIKeyLastUsedParams struct {
 
 func (q *Queries) TouchAPIKeyLastUsed(ctx context.Context, arg TouchAPIKeyLastUsedParams) error {
 	_, err := q.db.Exec(ctx, touchAPIKeyLastUsed, arg.ID, arg.LastUsedAt)
+	return err
+}
+
+const touchAgentAPIKeyLastUsed = `-- name: TouchAgentAPIKeyLastUsed :exec
+update agent_api_keys
+set last_used_at = $2
+where id = $1
+`
+
+type TouchAgentAPIKeyLastUsedParams struct {
+	ID         uuid.UUID          `json:"id"`
+	LastUsedAt pgtype.Timestamptz `json:"last_used_at"`
+}
+
+func (q *Queries) TouchAgentAPIKeyLastUsed(ctx context.Context, arg TouchAgentAPIKeyLastUsedParams) error {
+	_, err := q.db.Exec(ctx, touchAgentAPIKeyLastUsed, arg.ID, arg.LastUsedAt)
 	return err
 }
 

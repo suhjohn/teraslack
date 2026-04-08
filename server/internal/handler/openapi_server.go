@@ -16,6 +16,8 @@ func (s *Server) registerOpenAPIRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /agents", s.requireAuth(s.handleCreateAgent))
 	mux.HandleFunc("GET /agents/{agent_id}", s.requireAuth(s.handleGetAgent))
 	mux.HandleFunc("PATCH /agents/{agent_id}", s.requireAuth(s.handlePatchAgent))
+	mux.HandleFunc("GET /agents/{agent_id}/api-key", s.requireAuth(s.handleGetAgentAPIKey))
+	mux.HandleFunc("POST /agents/{agent_id}/api-key/rotate", s.requireAuth(s.handleRotateAgentAPIKey))
 	mux.HandleFunc("GET /api-keys", s.requireAuth(s.handleListAPIKeys))
 	mux.HandleFunc("POST /api-keys", s.requireAuth(s.handleCreateAPIKey))
 	mux.HandleFunc("DELETE /api-keys/{key_id}", s.requireAuth(s.handleDeleteAPIKey))

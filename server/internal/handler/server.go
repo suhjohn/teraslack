@@ -263,7 +263,25 @@ func (s *Server) authenticateRequest(ctx context.Context, r *http.Request) (doma
 		return auth, nil
 	}
 	if errors.Is(err, pgx.ErrNoRows) {
-		return domain.AuthContext{}, unauthorized("Invalid bearer token.")
+		agentKeyAuth, err := s.queries.GetAgentAPIKeyAuthByTokenHash(ctx, tokenHash)
+		if err == nil {
+			keyID := agentKeyAuth.ID
+			auth.APIKeyID = &keyID
+			auth.UserID = agentKeyAuth.AgentUserID
+			auth.PrincipalType = agentKeyAuth.PrincipalType
+			auth.AgentMode = agentKeyAuth.AgentMode
+			auth.APIKeyScopeType = agentKeyAuth.ScopeType
+			auth.APIKeyWorkspaceID = agentKeyAuth.ScopeWorkspaceID
+			_ = s.queries.TouchAgentAPIKeyLastUsed(ctx, dbsqlc.TouchAgentAPIKeyLastUsedParams{
+				ID:         keyID,
+				LastUsedAt: dbsqlc.Timestamptz(now),
+			})
+			return auth, nil
+		}
+		if errors.Is(err, pgx.ErrNoRows) {
+			return domain.AuthContext{}, unauthorized("Invalid bearer token.")
+		}
+		return domain.AuthContext{}, internalError(err)
 	}
 	return domain.AuthContext{}, internalError(err)
 }

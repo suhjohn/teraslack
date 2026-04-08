@@ -21,6 +21,19 @@ type Agent struct {
 	UpdatedAt        pgtype.Timestamptz `json:"updated_at"`
 }
 
+type AgentApiKey struct {
+	ID               uuid.UUID          `json:"id"`
+	AgentUserID      uuid.UUID          `json:"agent_user_id"`
+	CreatedByUserID  uuid.UUID          `json:"created_by_user_id"`
+	TokenHash        string             `json:"token_hash"`
+	EncryptedToken   string             `json:"encrypted_token"`
+	ScopeType        string             `json:"scope_type"`
+	ScopeWorkspaceID *uuid.UUID         `json:"scope_workspace_id"`
+	LastUsedAt       pgtype.Timestamptz `json:"last_used_at"`
+	RevokedAt        pgtype.Timestamptz `json:"revoked_at"`
+	CreatedAt        pgtype.Timestamptz `json:"created_at"`
+}
+
 type ApiKey struct {
 	ID               uuid.UUID          `json:"id"`
 	UserID           uuid.UUID          `json:"user_id"`

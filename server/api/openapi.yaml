@@ -268,7 +268,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Agent'
+                $ref: '#/components/schemas/CreateAgentResponse'
         default:
           $ref: '#/components/responses/ApiErrorResponse'
   /agents/{agent_id}:
@@ -312,18 +312,52 @@ paths:
                 $ref: '#/components/schemas/Agent'
         default:
           $ref: '#/components/responses/ApiErrorResponse'
+  /agents/{agent_id}/api-key:
+    get:
+      tags:
+        - Agents
+      operationId: getAgentApiKey
+      summary: Show the current agent API key
+      description: Returns the current API key for one manageable agent. If none exists yet, one is created.
+      parameters:
+        - $ref: '#/components/parameters/AgentIDPath'
+      responses:
+        '200':
+          description: Current agent API key.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentAPIKey'
+        default:
+          $ref: '#/components/responses/ApiErrorResponse'
+  /agents/{agent_id}/api-key/rotate:
+    post:
+      tags:
+        - Agents
+      operationId: rotateAgentApiKey
+      summary: Rotate the agent API key
+      description: Revokes the current API key for one manageable agent and returns a replacement.
+      parameters:
+        - $ref: '#/components/parameters/AgentIDPath'
+      responses:
+        '200':
+          description: Replacement agent API key.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentAPIKey'
+        default:
+          $ref: '#/components/responses/ApiErrorResponse'
   /api-keys:
     get:
       tags:
         - API Keys
       operationId: listApiKeys
       summary: List your API keys
-      description: Returns API keys owned by the current user or by one manageable agent. Workspace-scoped API keys cannot access this global user surface.
-      parameters:
-        - $ref: '#/components/parameters/SubjectUserIDQuery'
+      description: Returns API keys owned by the current human user. Workspace-scoped API keys cannot access this global user surface.
       responses:
         '200':
-          description: API keys owned by the selected subject user.
+          description: API keys owned by the current user.
           content:
             application/json:
               schema:
@@ -335,7 +369,7 @@ paths:
         - API Keys
       operationId: createApiKey
       summary: Create an API key
-      description: Creates a personal or workspace-scoped API key for the current user or one manageable agent and returns the secret once.
+      description: Creates a personal or workspace-scoped API key for the current human user and returns the secret once.
       requestBody:
         required: true
         content:
@@ -357,7 +391,7 @@ paths:
         - API Keys
       operationId: deleteApiKey
       summary: Revoke an API key
-      description: Revokes one API key owned by the current user or one manageable agent.
+      description: Revokes one API key owned by the current human user.
       parameters:
         - $ref: '#/components/parameters/KeyIDPath'
       responses:
@@ -1049,14 +1083,6 @@ components:
       schema:
         type: string
         format: uuid
-    SubjectUserIDQuery:
-      in: query
-      name: subject_user_id
-      required: false
-      description: User identifier whose API keys should be listed. Defaults to the current user.
-      schema:
-        type: string
-        format: uuid
     LimitQuery:
       in: query
       name: limit
@@ -1266,6 +1292,36 @@ components:
           type: string
           format: date-time
           description: Last metadata update time.
+    AgentAPIKey:
+      type: object
+      required:
+        - id
+        - token
+        - scope_type
+        - created_at
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Agent API key identifier.
+        token:
+          type: string
+          description: Raw bearer token for the agent. It is returned because agent keys are treated as one rotatable current credential.
+        scope_type:
+          type: string
+          enum:
+            - user
+            - workspace
+          description: Whether the agent key is user-scoped or workspace-scoped.
+        scope_workspace_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Workspace bound to the key when scope_type is workspace.
+        created_at:
+          type: string
+          format: date-time
+          description: Creation time.
     AgentsCollection:
       type: object
       required:
@@ -1278,6 +1334,16 @@ components:
         next_cursor:
           type: string
           description: Pagination cursor when additional results are available.
+    CreateAgentResponse:
+      type: object
+      required:
+        - agent
+        - api_key
+      properties:
+        agent:
+          $ref: '#/components/schemas/Agent'
+        api_key:
+          $ref: '#/components/schemas/AgentAPIKey'
     CreateAgentRequest:
       type: object
       required:
@@ -1542,11 +1608,6 @@ components:
         label:
           type: string
           description: Human-readable API key label.
-        subject_user_id:
-          type: string
-          format: uuid
-          nullable: true
-          description: Optional subject user to authenticate as. Defaults to the current user and may also reference one manageable agent.
         scope_type:
           type: string
           enum:

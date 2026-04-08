@@ -28,8 +28,7 @@ import type {
   APIKeysCollection,
   ApiErrorResponseResponse,
   CreateAPIKeyRequest,
-  CreateAPIKeyResponse,
-  ListApiKeysParams
+  CreateAPIKeyResponse
 } from '../model';
 
 import { orvalFetch } from '../../orval-mutator';
@@ -49,7 +48,7 @@ export type HTTPStatusCodes = HTTPStatusCode1xx | HTTPStatusCode2xx | HTTPStatus
 
 
 /**
- * Returns API keys owned by the current user or by one manageable agent. Workspace-scoped API keys cannot access this global user surface.
+ * Returns API keys owned by the current human user. Workspace-scoped API keys cannot access this global user surface.
  * @summary List your API keys
  */
 export type listApiKeysResponse200 = {
@@ -71,24 +70,17 @@ export type listApiKeysResponseError = (listApiKeysResponseDefault) & {
 
 export type listApiKeysResponse = (listApiKeysResponseSuccess | listApiKeysResponseError)
 
-export const getListApiKeysUrl = (params?: ListApiKeysParams,) => {
-  const normalizedParams = new URLSearchParams();
+export const getListApiKeysUrl = () => {
 
-  Object.entries(params || {}).forEach(([key, value]) => {
 
-    if (value !== undefined) {
-      normalizedParams.append(key, value === null ? 'null' : value.toString())
-    }
-  });
 
-  const stringifiedParams = normalizedParams.toString();
 
-  return stringifiedParams.length > 0 ? `/api-keys?${stringifiedParams}` : `/api-keys`
+  return `/api-keys`
 }
 
-export const listApiKeys = async (params?: ListApiKeysParams, options?: RequestInit): Promise<listApiKeysResponse> => {
+export const listApiKeys = async ( options?: RequestInit): Promise<listApiKeysResponse> => {
 
-  return orvalFetch<listApiKeysResponse>(getListApiKeysUrl(params),
+  return orvalFetch<listApiKeysResponse>(getListApiKeysUrl(),
   {
     ...options,
     method: 'GET'
@@ -101,23 +93,23 @@ export const listApiKeys = async (params?: ListApiKeysParams, options?: RequestI
 
 
 
-export const getListApiKeysQueryKey = (params?: ListApiKeysParams,) => {
+export const getListApiKeysQueryKey = () => {
     return [
-    `/api-keys`, ...(params ? [params] : [])
+    `/api-keys`
     ] as const;
     }
 
 
-export const getListApiKeysQueryOptions = <TData = Awaited<ReturnType<typeof listApiKeys>>, TError = ErrorType<ApiErrorResponseResponse>>(params?: ListApiKeysParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listApiKeys>>, TError, TData>>, request?: SecondParameter<typeof orvalFetch>}
+export const getListApiKeysQueryOptions = <TData = Awaited<ReturnType<typeof listApiKeys>>, TError = ErrorType<ApiErrorResponseResponse>>( options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listApiKeys>>, TError, TData>>, request?: SecondParameter<typeof orvalFetch>}
 ) => {
 
 const {query: queryOptions, request: requestOptions} = options ?? {};
 
-  const queryKey =  queryOptions?.queryKey ?? getListApiKeysQueryKey(params);
+  const queryKey =  queryOptions?.queryKey ?? getListApiKeysQueryKey();
 
 
 
-    const queryFn: QueryFunction<Awaited<ReturnType<typeof listApiKeys>>> = ({ signal }) => listApiKeys(params, { signal, ...requestOptions });
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listApiKeys>>> = ({ signal }) => listApiKeys({ signal, ...requestOptions });
 
 
 
@@ -131,7 +123,7 @@ export type ListApiKeysQueryError = ErrorType<ApiErrorResponseResponse>
 
 
 export function useListApiKeys<TData = Awaited<ReturnType<typeof listApiKeys>>, TError = ErrorType<ApiErrorResponseResponse>>(
- params: undefined |  ListApiKeysParams, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof listApiKeys>>, TError, TData>> & Pick<
+  options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof listApiKeys>>, TError, TData>> & Pick<
         DefinedInitialDataOptions<
           Awaited<ReturnType<typeof listApiKeys>>,
           TError,
@@ -141,7 +133,7 @@ export function useListApiKeys<TData = Awaited<ReturnType<typeof listApiKeys>>, 
  , queryClient?: QueryClient
   ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
 export function useListApiKeys<TData = Awaited<ReturnType<typeof listApiKeys>>, TError = ErrorType<ApiErrorResponseResponse>>(
- params?: ListApiKeysParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listApiKeys>>, TError, TData>> & Pick<
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listApiKeys>>, TError, TData>> & Pick<
         UndefinedInitialDataOptions<
           Awaited<ReturnType<typeof listApiKeys>>,
           TError,
@@ -151,7 +143,7 @@ export function useListApiKeys<TData = Awaited<ReturnType<typeof listApiKeys>>, 
  , queryClient?: QueryClient
   ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
 export function useListApiKeys<TData = Awaited<ReturnType<typeof listApiKeys>>, TError = ErrorType<ApiErrorResponseResponse>>(
- params?: ListApiKeysParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listApiKeys>>, TError, TData>>, request?: SecondParameter<typeof orvalFetch>}
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listApiKeys>>, TError, TData>>, request?: SecondParameter<typeof orvalFetch>}
  , queryClient?: QueryClient
   ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
 /**
@@ -159,11 +151,11 @@ export function useListApiKeys<TData = Awaited<ReturnType<typeof listApiKeys>>, 
  */
 
 export function useListApiKeys<TData = Awaited<ReturnType<typeof listApiKeys>>, TError = ErrorType<ApiErrorResponseResponse>>(
- params?: ListApiKeysParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listApiKeys>>, TError, TData>>, request?: SecondParameter<typeof orvalFetch>}
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listApiKeys>>, TError, TData>>, request?: SecondParameter<typeof orvalFetch>}
  , queryClient?: QueryClient
  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
 
-  const queryOptions = getListApiKeysQueryOptions(params,options)
+  const queryOptions = getListApiKeysQueryOptions(options)
 
   const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
 
@@ -174,7 +166,7 @@ export function useListApiKeys<TData = Awaited<ReturnType<typeof listApiKeys>>, 
 
 
 /**
- * Creates a personal or workspace-scoped API key for the current user or one manageable agent and returns the secret once.
+ * Creates a personal or workspace-scoped API key for the current human user and returns the secret once.
  * @summary Create an API key
  */
 export type createApiKeyResponse201 = {
@@ -264,7 +256,7 @@ export const useCreateApiKey = <TError = ErrorType<ApiErrorResponseResponse>,
       return useMutation(getCreateApiKeyMutationOptions(options), queryClient);
     }
     /**
- * Revokes one API key owned by the current user or one manageable agent.
+ * Revokes one API key owned by the current human user.
  * @summary Revoke an API key
  */
 export type deleteApiKeyResponse204 = {

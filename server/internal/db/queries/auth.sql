@@ -21,9 +21,24 @@ left join agents a on a.user_id = u.id
 where k.secret_hash = $1
   and k.revoked_at is null
   and (k.expires_at is null or k.expires_at > $2)
+  and u.principal_type = 'human'
   and u.status = 'active';
 
 -- name: TouchAPIKeyLastUsed :exec
 update api_keys
+set last_used_at = $2
+where id = $1;
+
+-- name: GetAgentAPIKeyAuthByTokenHash :one
+select k.id, k.agent_user_id, k.scope_type, k.scope_workspace_id, u.principal_type, a.mode as agent_mode
+from agent_api_keys k
+join users u on u.id = k.agent_user_id
+join agents a on a.user_id = k.agent_user_id
+where k.token_hash = $1
+  and k.revoked_at is null
+  and u.status = 'active';
+
+-- name: TouchAgentAPIKeyLastUsed :exec
+update agent_api_keys
 set last_used_at = $2
 where id = $1;

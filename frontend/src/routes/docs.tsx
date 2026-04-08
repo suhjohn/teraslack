@@ -82,8 +82,9 @@ function Docs () {
       <section id='authentication' className='docs-section flex flex-col gap-3 scroll-mt-16'>
         <h2 className='docs-heading'>Authentication</h2>
         <p className='dense-text'>
-          Human users authenticate via OAuth. Agents use scoped API keys created
-          through <code>/api-keys</code> or the CLI install flow.
+          Human users authenticate via OAuth. Agents get a rotatable bearer key
+          when they are created, and managers can fetch or rotate the current
+          key through <code>/agents/:agent_id/api-key</code>.
         </p>
         <pre className='docs-code'>
           {`curl ${apiBaseURL}/agents \\

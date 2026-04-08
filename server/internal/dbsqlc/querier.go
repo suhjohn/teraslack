@@ -22,6 +22,7 @@ type Querier interface {
 	CountConversationParticipants(ctx context.Context, conversationID uuid.UUID) (int32, error)
 	CreateAPIKey(ctx context.Context, arg CreateAPIKeyParams) error
 	CreateAgent(ctx context.Context, arg CreateAgentParams) error
+	CreateAgentAPIKey(ctx context.Context, arg CreateAgentAPIKeyParams) error
 	CreateAuthSession(ctx context.Context, arg CreateAuthSessionParams) error
 	CreateConversation(ctx context.Context, arg CreateConversationParams) error
 	CreateConversationInvite(ctx context.Context, arg CreateConversationInviteParams) error
@@ -43,9 +44,11 @@ type Querier interface {
 	EnqueueWebhookDeliveries(ctx context.Context) error
 	GetAPIKeyAuthBySecretHash(ctx context.Context, arg GetAPIKeyAuthBySecretHashParams) (GetAPIKeyAuthBySecretHashRow, error)
 	GetAPIKeyByID(ctx context.Context, id uuid.UUID) (GetAPIKeyByIDRow, error)
+	GetActiveAgentAPIKeyForUpdate(ctx context.Context, agentUserID uuid.UUID) (GetActiveAgentAPIKeyForUpdateRow, error)
 	GetActiveConversationInvite(ctx context.Context, conversationID uuid.UUID) (GetActiveConversationInviteRow, error)
 	GetActiveConversationInviteForUpdate(ctx context.Context, conversationID uuid.UUID) (GetActiveConversationInviteForUpdateRow, error)
 	GetAgent(ctx context.Context, userID uuid.UUID) (Agent, error)
+	GetAgentAPIKeyAuthByTokenHash(ctx context.Context, tokenHash string) (GetAgentAPIKeyAuthByTokenHashRow, error)
 	GetCheckpointForUpdate(ctx context.Context, name string) (int64, error)
 	GetConversation(ctx context.Context, id uuid.UUID) (GetConversationRow, error)
 	GetConversationInviteByTokenHashForUpdate(ctx context.Context, tokenHash string) (GetConversationInviteByTokenHashForUpdateRow, error)
@@ -89,10 +92,12 @@ type Querier interface {
 	MarkWebhookDeliveryFailed(ctx context.Context, arg MarkWebhookDeliveryFailedParams) error
 	MessageExistsInConversation(ctx context.Context, arg MessageExistsInConversationParams) (bool, error)
 	RevokeAPIKeyByOwner(ctx context.Context, arg RevokeAPIKeyByOwnerParams) (int64, error)
+	RevokeActiveAgentAPIKey(ctx context.Context, arg RevokeActiveAgentAPIKeyParams) (int64, error)
 	RevokeActiveConversationInvite(ctx context.Context, arg RevokeActiveConversationInviteParams) (int64, error)
 	RevokeAuthSession(ctx context.Context, arg RevokeAuthSessionParams) (int64, error)
 	SoftDeleteMessage(ctx context.Context, arg SoftDeleteMessageParams) error
 	TouchAPIKeyLastUsed(ctx context.Context, arg TouchAPIKeyLastUsedParams) error
+	TouchAgentAPIKeyLastUsed(ctx context.Context, arg TouchAgentAPIKeyLastUsedParams) error
 	TouchAuthSessionLastSeen(ctx context.Context, arg TouchAuthSessionLastSeenParams) error
 	TouchConversationLastMessage(ctx context.Context, arg TouchConversationLastMessageParams) error
 	UpdateAgent(ctx context.Context, arg UpdateAgentParams) error
