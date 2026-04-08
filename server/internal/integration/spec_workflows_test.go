@@ -761,6 +761,51 @@ func TestSPECWorkflows_ConversationInviteAndWebhookSubscriptionDelivery(t *testi
 	}
 }
 
+func TestSPECWorkflows_AgentCreationGeneratesDisplayName(t *testing.T) {
+	h := newWorkflowHarness(t)
+	alpha := h.loginUser(t, "alpha@example.com")
+
+	agent := mustJSON[api.Agent](
+		t,
+		h,
+		http.MethodPost,
+		"/agents",
+		alpha.Token,
+		api.CreateAgentRequest{
+			OwnerType: "user",
+		},
+		http.StatusCreated,
+	)
+	if agent.User.PrincipalType != "agent" {
+		t.Fatalf("created principal_type = %q, want agent", agent.User.PrincipalType)
+	}
+	if strings.TrimSpace(agent.User.Profile.DisplayName) == "" {
+		t.Fatalf("created agent display_name is blank")
+	}
+	if strings.TrimSpace(agent.User.Profile.Handle) == "" {
+		t.Fatalf("created agent handle is blank")
+	}
+	if agent.OwnerType != "user" {
+		t.Fatalf("created agent owner_type = %q, want user", agent.OwnerType)
+	}
+
+	errResponse := mustJSON[api.ErrorResponse](
+		t,
+		h,
+		http.MethodPost,
+		"/agents",
+		alpha.Token,
+		api.CreateAgentRequest{
+			DisplayName: stringPtr("Custom Bot"),
+			OwnerType:   "user",
+		},
+		http.StatusUnprocessableEntity,
+	)
+	if errResponse.Code != "validation_failed" {
+		t.Fatalf("explicit display_name error code = %s, want validation_failed", errResponse.Code)
+	}
+}
+
 func TestSPECWorkflows_EventSubscriptionValidation(t *testing.T) {
 	h := newWorkflowHarness(t)
 	alpha := h.loginUser(t, "alpha@example.com")

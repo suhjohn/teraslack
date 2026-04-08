@@ -9,10 +9,10 @@ import type { CreateAgentRequestMode } from './createAgentRequestMode';
 import type { CreateAgentRequestOwnerType } from './createAgentRequestOwnerType';
 
 export interface CreateAgentRequest {
-  /** Agent display name. */
-  display_name: string;
+  /** Optional. Must be omitted or empty. The server generates a random human-readable display name. */
+  display_name?: string;
   /**
-     * Optional public handle. When omitted, the server derives one from display_name.
+     * Optional public handle. When omitted, the server derives one from the generated agent name.
      * @nullable
      */
   handle?: string | null;

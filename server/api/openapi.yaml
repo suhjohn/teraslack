@@ -1281,16 +1281,15 @@ components:
     CreateAgentRequest:
       type: object
       required:
-        - display_name
         - owner_type
       properties:
         display_name:
           type: string
-          description: Agent display name.
+          description: Optional. Must be omitted or empty. The server generates a random human-readable display name.
         handle:
           type: string
           nullable: true
-          description: Optional public handle. When omitted, the server derives one from display_name.
+          description: Optional public handle. When omitted, the server derives one from the generated agent name.
         avatar_url:
           type: string
           format: uri

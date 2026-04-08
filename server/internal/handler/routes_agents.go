@@ -58,12 +58,14 @@ func (s *Server) handleCreateAgent(w http.ResponseWriter, r *http.Request, auth 
 		s.writeAppError(w, r, err)
 		return
 	}
-	request.DisplayName = strings.TrimSpace(request.DisplayName)
 	request.OwnerType = strings.TrimSpace(request.OwnerType)
 	request.Mode = strings.TrimSpace(request.Mode)
-	if request.DisplayName == "" {
-		s.writeAppError(w, r, validationFailed("display_name", "required", "Display name is required."))
-		return
+	displayName := generateRandomAgentDisplayName()
+	if request.DisplayName != nil {
+		if strings.TrimSpace(*request.DisplayName) != "" {
+			s.writeAppError(w, r, validationFailed("display_name", "invalid_value", "Display name is generated automatically. Omit this field or set it to empty."))
+			return
+		}
 	}
 	switch request.OwnerType {
 	case "user", "workspace":
@@ -120,7 +122,7 @@ func (s *Server) handleCreateAgent(w http.ResponseWriter, r *http.Request, auth 
 	var createdAgent agentRow
 	err = withTransaction(r.Context(), s.db, func(tx pgx.Tx) error {
 		now := time.Now().UTC()
-		user, err := s.insertAgentWithProfile(r.Context(), tx, request.DisplayName, request.Handle, avatarURL, bio)
+		user, err := s.insertAgentWithProfile(r.Context(), tx, displayName, request.Handle, avatarURL, bio)
 		if err != nil {
 			return err
 		}

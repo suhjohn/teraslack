@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"crypto/rand"
 	"database/sql"
 	"encoding/base64"
 	"encoding/json"
@@ -9,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"math/big"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -525,11 +527,11 @@ func (s *Server) insertAgentWithProfile(ctx context.Context, tx pgx.Tx, displayN
 	userID := uuid.New()
 	trimmedDisplayName := strings.TrimSpace(displayName)
 	if trimmedDisplayName == "" {
-		trimmedDisplayName = "Agent"
+		trimmedDisplayName = generateRandomAgentDisplayName()
 	}
 	resolvedHandle := trimOptionalString(handle)
 	if resolvedHandle == nil {
-		resolvedHandle = stringPtr(deriveHandle(trimmedDisplayName))
+		resolvedHandle = stringPtr(deriveAgentHandle(trimmedDisplayName))
 	}
 	if err := queries.CreateUser(ctx, dbsqlc.CreateUserParams{
 		ID:            userID,
@@ -793,6 +795,81 @@ func deriveDisplayName(email string) string {
 		return "User"
 	}
 	return strings.Title(local)
+}
+
+var agentNameAdjectives = []string{
+	"Amber",
+	"Bright",
+	"Calm",
+	"Cedar",
+	"Clever",
+	"Copper",
+	"Echo",
+	"Golden",
+	"Harbor",
+	"Juniper",
+	"Kind",
+	"Lunar",
+	"Maple",
+	"Mellow",
+	"North",
+	"Ocean",
+	"Quiet",
+	"River",
+	"Silver",
+	"Solar",
+	"Swift",
+	"Velvet",
+	"Willow",
+	"Winter",
+}
+
+var agentNameNouns = []string{
+	"Atlas",
+	"Beacon",
+	"Comet",
+	"Falcon",
+	"Forest",
+	"Harbor",
+	"Lantern",
+	"Meadow",
+	"Otter",
+	"Pine",
+	"Ridge",
+	"Robin",
+	"Sparrow",
+	"Stone",
+	"Summit",
+	"Talon",
+	"Vale",
+	"Voyager",
+	"Wave",
+	"Wren",
+	"Yarrow",
+	"Zephyr",
+}
+
+func generateRandomAgentDisplayName() string {
+	return randomAgentWord(agentNameAdjectives) + " " + randomAgentWord(agentNameNouns)
+}
+
+func deriveAgentHandle(displayName string) string {
+	suffix, err := teracrypto.RandomToken(3)
+	if err != nil {
+		suffix = "agent"
+	}
+	return deriveHandle(displayName) + "-" + strings.ToLower(suffix)
+}
+
+func randomAgentWord(words []string) string {
+	if len(words) == 0 {
+		return "Agent"
+	}
+	n, err := rand.Int(rand.Reader, big.NewInt(int64(len(words))))
+	if err != nil {
+		return words[0]
+	}
+	return words[n.Int64()]
 }
 
 func userToAPI(row userRow) api.User {

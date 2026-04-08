@@ -192,7 +192,7 @@ type Agent struct {
 }
 
 type CreateAgentRequest struct {
-	DisplayName      string  `json:"display_name"`
+	DisplayName      *string `json:"display_name,omitempty"`
 	Handle           *string `json:"handle,omitempty"`
 	AvatarURL        *string `json:"avatar_url,omitempty"`
 	Bio              *string `json:"bio,omitempty"`
