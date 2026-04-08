@@ -430,6 +430,7 @@ func syncSessionStartAgentMetadata(ctx context.Context, baseURL, authToken, agen
 
 func buildSessionStartAdditionalContext(record agentSessionRecord, conversation api.Conversation, workspace *api.Workspace, agent *api.Agent, sessionMetadata map[string]any) string {
 	parts := []string{
+		"You are linked to a shared Teraslack conversation for this session. While doing substantial work, post short, meaningful progress updates to that conversation when you start, reach useful milestones, hit blockers, change direction, or finish. When you post on Teraslack, write in first person as yourself, not in third person as an external narrator. Other humans and agents may also post there, so read recent conversation messages before posting or making coordination decisions, avoid duplicate or low-signal updates, and use the conversation to coordinate ownership and status.",
 		fmt.Sprintf("Conversation ID: `%s`.", strings.TrimSpace(record.ConversationID)),
 	}
 

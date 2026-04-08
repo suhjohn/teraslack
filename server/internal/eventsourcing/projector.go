@@ -267,7 +267,7 @@ func projectEvent(ctx context.Context, queries *dbsqlc.Queries, row internalEven
 	}
 
 	for _, spec := range specs {
-		dedupeKey := fmt.Sprintf("internal:%d:%s", row.ID, spec.Type)
+		dedupeKey := externalEventDedupeKey(row.ID, spec.Type)
 		externalEventID, err := queries.InsertExternalEvent(ctx, dbsqlc.InsertExternalEventParams{
 			WorkspaceID:           row.WorkspaceID,
 			Type:                  spec.Type,
@@ -309,6 +309,10 @@ func projectEvent(ctx context.Context, queries *dbsqlc.Queries, row internalEven
 	}
 
 	return nil
+}
+
+func externalEventDedupeKey(internalEventID uuid.UUID, eventType string) string {
+	return "internal:" + internalEventID.String() + ":" + eventType
 }
 
 func uuidFromPayload(payload map[string]any, key string) (uuid.UUID, error) {
