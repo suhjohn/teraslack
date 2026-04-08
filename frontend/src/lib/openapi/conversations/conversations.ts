@@ -393,7 +393,7 @@ export function useGetConversation<TData = Awaited<ReturnType<typeof getConversa
 
 
 /**
- * Updates a conversation title, description, or archived state. The caller must be allowed to manage the conversation.
+ * Updates a conversation title, description, or archived state. The caller must be allowed to manage conversation metadata.
  * @summary Update a conversation
  */
 export type updateConversationResponse200 = {
@@ -899,7 +899,7 @@ export function useListConversationParticipants<TData = Awaited<ReturnType<typeo
 
 
 /**
- * Adds users to a member-only conversation. Canonical direct messages cannot be changed.
+ * Adds users to a member-only conversation. By default, any existing participant may invite additional members. Canonical direct messages cannot be changed.
  * @summary Add conversation participants
  */
 export type addConversationParticipantsResponse200 = {
@@ -990,7 +990,7 @@ export const useAddConversationParticipants = <TError = ErrorType<ApiErrorRespon
       return useMutation(getAddConversationParticipantsMutationOptions(options), queryClient);
     }
     /**
- * Removes one participant from a member-only conversation. Canonical direct messages cannot be changed.
+ * Removes one participant from a member-only conversation. The caller must still satisfy the stricter removal policy for the conversation scope. Canonical direct messages cannot be changed.
  * @summary Remove a conversation participant
  */
 export type removeConversationParticipantResponse204 = {

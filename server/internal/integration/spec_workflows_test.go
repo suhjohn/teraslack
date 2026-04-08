@@ -761,6 +761,133 @@ func TestSPECWorkflows_ConversationInviteAndWebhookSubscriptionDelivery(t *testi
 	}
 }
 
+func TestSPECWorkflows_GlobalConversationParticipantCanInviteAdditionalMembers(t *testing.T) {
+	h := newWorkflowHarness(t)
+	alpha := h.loginUser(t, "alpha@example.com")
+	beta := h.loginUser(t, "beta@example.com")
+	gamma := h.loginUser(t, "gamma@example.com")
+	delta := h.loginUser(t, "delta@example.com")
+
+	conversation := mustJSON[api.Conversation](
+		t,
+		h,
+		http.MethodPost,
+		"/conversations",
+		alpha.Token,
+		api.CreateConversationRequest{
+			WorkspaceID:        nil,
+			AccessPolicy:       "members",
+			ParticipantUserIDs: []string{beta.User.ID, gamma.User.ID},
+		},
+		http.StatusCreated,
+	)
+
+	participants := mustJSON[api.CollectionResponse[api.User]](
+		t,
+		h,
+		http.MethodPost,
+		"/conversations/"+conversation.ID+"/participants",
+		beta.Token,
+		api.AddParticipantsRequest{
+			UserIDs: []string{delta.User.ID},
+		},
+		http.StatusOK,
+	)
+	participantIDs := make([]string, 0, len(participants.Items))
+	for _, participant := range participants.Items {
+		participantIDs = append(participantIDs, participant.ID)
+	}
+	if !slices.Contains(participantIDs, delta.User.ID) {
+		t.Fatalf("conversation participants = %v, want to include %s", participantIDs, delta.User.ID)
+	}
+
+	errResponse := mustJSON[api.ErrorResponse](
+		t,
+		h,
+		http.MethodPatch,
+		"/conversations/"+conversation.ID,
+		beta.Token,
+		api.UpdateConversationRequest{
+			Title: stringPtr("renamed-by-participant"),
+		},
+		http.StatusForbidden,
+	)
+	if errResponse.Code != "forbidden" {
+		t.Fatalf("participant metadata update error code = %s, want forbidden", errResponse.Code)
+	}
+}
+
+func TestSPECWorkflows_WorkspaceConversationParticipantCanInviteAdditionalMembers(t *testing.T) {
+	h := newWorkflowHarness(t)
+	alpha := h.loginUser(t, "alpha@example.com")
+	beta := h.loginUser(t, "beta@example.com")
+	gamma := h.loginUser(t, "gamma@example.com")
+
+	workspace := mustJSON[api.Workspace](
+		t,
+		h,
+		http.MethodPost,
+		"/workspaces",
+		alpha.Token,
+		api.CreateWorkspaceRequest{Name: "Acme", Slug: h.uniqueSlug("acme")},
+		http.StatusCreated,
+	)
+
+	for _, actor := range []actor{beta, gamma} {
+		invite := mustJSON[api.CreateWorkspaceInviteResponse](
+			t,
+			h,
+			http.MethodPost,
+			"/workspaces/"+workspace.ID+"/invites",
+			alpha.Token,
+			api.CreateWorkspaceInviteRequest{Email: stringPtr(actor.Email)},
+			http.StatusCreated,
+		)
+		mustJSON[api.WorkspaceMember](
+			t,
+			h,
+			http.MethodPost,
+			"/workspace-invites/"+url.PathEscape(invite.InviteToken)+"/accept",
+			actor.Token,
+			nil,
+			http.StatusOK,
+		)
+	}
+
+	conversation := mustJSON[api.Conversation](
+		t,
+		h,
+		http.MethodPost,
+		"/conversations",
+		alpha.Token,
+		api.CreateConversationRequest{
+			WorkspaceID:        &workspace.ID,
+			AccessPolicy:       "members",
+			ParticipantUserIDs: []string{beta.User.ID},
+		},
+		http.StatusCreated,
+	)
+
+	participants := mustJSON[api.CollectionResponse[api.User]](
+		t,
+		h,
+		http.MethodPost,
+		"/conversations/"+conversation.ID+"/participants",
+		beta.Token,
+		api.AddParticipantsRequest{
+			UserIDs: []string{gamma.User.ID},
+		},
+		http.StatusOK,
+	)
+	participantIDs := make([]string, 0, len(participants.Items))
+	for _, participant := range participants.Items {
+		participantIDs = append(participantIDs, participant.ID)
+	}
+	if !slices.Contains(participantIDs, gamma.User.ID) {
+		t.Fatalf("workspace conversation participants = %v, want to include %s", participantIDs, gamma.User.ID)
+	}
+}
+
 func TestSPECWorkflows_AgentCreationGeneratesDisplayName(t *testing.T) {
 	h := newWorkflowHarness(t)
 	alpha := h.loginUser(t, "alpha@example.com")

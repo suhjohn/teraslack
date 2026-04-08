@@ -205,6 +205,8 @@ func (c *CLI) Run(ctx context.Context, args []string, stdout, stderr io.Writer) 
 	switch rest[0] {
 	case "help":
 		return c.runHelp(rest[1:], stdout, stderr)
+	case "link":
+		return c.runLink(rest[1:], output, stdout, stderr)
 	case "routes":
 		return c.runRoutes(rest[1:], output, stdout, stderr)
 	case "signin":
@@ -241,6 +243,10 @@ func (c *CLI) Run(ctx context.Context, args []string, stdout, stderr io.Writer) 
 func (c *CLI) runHelp(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
 		c.printRootHelp(stdout)
+		return 0
+	}
+	if args[0] == "link" {
+		c.printLinkHelp(stdout)
 		return 0
 	}
 	if args[0] == "signin" {
@@ -701,6 +707,7 @@ func (c *CLI) printRootHelp(w io.Writer) {
 	fmt.Fprintln(w, "Usage:\n  teraslack [global flags] <group> <command> [command flags]")
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "Built-in commands:")
+	fmt.Fprintln(w, "  link              Link the current directory to a conversation")
 	fmt.Fprintln(w, "  signin            Start an email sign-in and save the session locally")
 	fmt.Fprintln(w, "  signout           Clear the saved session token")
 	fmt.Fprintln(w, "  me                Show your account and workspace access")

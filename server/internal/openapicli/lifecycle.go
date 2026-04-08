@@ -74,7 +74,7 @@ func (c *CLI) printLifecycleHelp(name string, w io.Writer) {
 	case "uninstall":
 		fmt.Fprintln(w, "Usage:\n  teraslack uninstall [--keep-config]")
 		fmt.Fprintln(w)
-		fmt.Fprintln(w, "Remove the installed CLI binary. By default this also deletes ~/.teraslack/config.json.")
+		fmt.Fprintln(w, "Remove the installed CLI binary. By default this also deletes saved CLI config files under TERASLACK_CONFIG_DIR (defaults to ~/.teraslack).")
 	case "signout":
 		fmt.Fprintln(w, "Usage:\n  teraslack signout")
 		fmt.Fprintln(w)
@@ -190,7 +190,7 @@ func (c *CLI) runUninstall(args []string, stdout io.Writer, stderr io.Writer) in
 
 	fs := flag.NewFlagSet("uninstall", flag.ContinueOnError)
 	fs.SetOutput(stderr)
-	fs.BoolVar(&keepConfig, "keep-config", false, "Keep ~/.teraslack/config.json.")
+	fs.BoolVar(&keepConfig, "keep-config", false, "Keep saved CLI config files under TERASLACK_CONFIG_DIR.")
 	fs.Usage = func() {
 		c.printLifecycleHelp("uninstall", stderr)
 	}
@@ -219,9 +219,19 @@ func (c *CLI) runUninstall(args []string, stdout io.Writer, stderr io.Writer) in
 		fmt.Fprintf(stderr, "resolve config path: %v\n", err)
 		return 1
 	}
+	linksPath, err := linksFilePath()
+	if err != nil {
+		fmt.Fprintf(stderr, "resolve links path: %v\n", err)
+		return 1
+	}
+	configDir, err := configDirPath()
+	if err != nil {
+		fmt.Fprintf(stderr, "resolve config dir: %v\n", err)
+		return 1
+	}
 
 	if runtime.GOOS == "windows" {
-		if err := scheduleWindowsUninstall(exePath, configPath, binDir, installRoot, keepConfig); err != nil {
+		if err := scheduleWindowsUninstall(exePath, configPath, linksPath, configDir, binDir, installRoot, keepConfig); err != nil {
 			fmt.Fprintf(stderr, "schedule uninstall: %v\n", err)
 			return 1
 		}
@@ -230,7 +240,7 @@ func (c *CLI) runUninstall(args []string, stdout io.Writer, stderr io.Writer) in
 	}
 
 	if !keepConfig {
-		_ = os.Remove(configPath)
+		removeConfigArtifacts(configPath, linksPath, configDir)
 	}
 	if err := os.Remove(exePath); err != nil && !os.IsNotExist(err) {
 		fmt.Fprintf(stderr, "remove executable: %v\n", err)
@@ -372,6 +382,17 @@ func installRootPath() (string, error) {
 	if value := strings.TrimSpace(os.Getenv("TERASLACK_INSTALL_ROOT")); value != "" {
 		return value, nil
 	}
+	return defaultConfigRootPath()
+}
+
+func configDirPath() (string, error) {
+	if value := strings.TrimSpace(os.Getenv("TERASLACK_CONFIG_DIR")); value != "" {
+		return value, nil
+	}
+	return defaultConfigRootPath()
+}
+
+func defaultConfigRootPath() (string, error) {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
 		return "", err
@@ -383,11 +404,19 @@ func configFilePath() (string, error) {
 	if value := strings.TrimSpace(os.Getenv("TERASLACK_CONFIG_FILE")); value != "" {
 		return value, nil
 	}
-	root, err := installRootPath()
+	root, err := configDirPath()
 	if err != nil {
 		return "", err
 	}
 	return filepath.Join(root, "config.json"), nil
+}
+
+func linksFilePath() (string, error) {
+	root, err := configDirPath()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(root, "links.json"), nil
 }
 
 func downloadFile(ctx context.Context, sourceURL string, destination string) error {
@@ -546,10 +575,10 @@ func scheduleWindowsReplace(sourcePath string, targetPath string) error {
 	return startWindowsPowerShell(script)
 }
 
-func scheduleWindowsUninstall(exePath string, configPath string, binDir string, installRoot string, keepConfig bool) error {
+func scheduleWindowsUninstall(exePath string, configPath string, linksPath string, configDir string, binDir string, installRoot string, keepConfig bool) error {
 	configRemoval := ""
 	if !keepConfig {
-		configRemoval = fmt.Sprintf(`if (Test-Path -LiteralPath %q) { Remove-Item -LiteralPath %q -Force -ErrorAction SilentlyContinue }`, configPath, configPath)
+		configRemoval = fmt.Sprintf(`foreach ($path in @(%q,%q)) { if ($path -and (Test-Path -LiteralPath $path)) { Remove-Item -LiteralPath $path -Force -ErrorAction SilentlyContinue } }; if (Test-Path -LiteralPath %q) { $children=Get-ChildItem -LiteralPath %q -Force -ErrorAction SilentlyContinue; if (-not $children) { Remove-Item -LiteralPath %q -Recurse -Force -ErrorAction SilentlyContinue } }`, configPath, linksPath, configDir, configDir, configDir)
 	}
 	script := fmt.Sprintf(`$binDir=%q; $installRoot=%q; %s; $currentUserPath=[Environment]::GetEnvironmentVariable("Path","User"); if ($currentUserPath) { $entries=$currentUserPath.Split(";",[System.StringSplitOptions]::RemoveEmptyEntries) | Where-Object { $_.TrimEnd("\") -ine $binDir.TrimEnd("\") }; [Environment]::SetEnvironmentVariable("Path", ($entries -join ";"), "User") }; for ($i=0; $i -lt 20; $i++) { try { if (Test-Path -LiteralPath %q) { Remove-Item -LiteralPath %q -Force -ErrorAction SilentlyContinue }; break } catch { Start-Sleep -Milliseconds 500 } }; if (Test-Path -LiteralPath $binDir) { Remove-Item -LiteralPath $binDir -Recurse -Force -ErrorAction SilentlyContinue }; if (Test-Path -LiteralPath $installRoot) { $children=Get-ChildItem -LiteralPath $installRoot -Force -ErrorAction SilentlyContinue; if (-not $children) { Remove-Item -LiteralPath $installRoot -Recurse -Force -ErrorAction SilentlyContinue } }`, binDir, installRoot, configRemoval, exePath, exePath)
 	return startWindowsPowerShell(script)
@@ -636,4 +665,10 @@ func removeDirIfEmpty(path string) {
 		return
 	}
 	_ = os.Remove(path)
+}
+
+func removeConfigArtifacts(configPath string, linksPath string, configDir string) {
+	_ = os.Remove(configPath)
+	_ = os.Remove(linksPath)
+	removeDirIfEmpty(configDir)
 }

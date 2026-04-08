@@ -1569,7 +1569,8 @@ Request:
 Rules:
 
 - metadata routes operate on all conversation forms
-- ownership and admin policy can vary by scope; in v1, workspace owner/admin may manage workspace conversations
+- conversation permissions are action-specific so metadata, invitations, removals, and share-link management may differ
+- ownership and admin policy can vary by scope; in v1, workspace owner/admin may manage workspace conversation metadata
 
 #### `GET /conversations/{conversation_id}/participants`
 
@@ -1596,6 +1597,7 @@ Rules:
 
 - valid only when `access_policy = members`
 - invalid for canonical one-to-one direct messages
+- by default, any existing participant may add more participants
 - all added users in a workspace conversation must already be active workspace members
 
 #### `DELETE /conversations/{conversation_id}/participants/{user_id}`

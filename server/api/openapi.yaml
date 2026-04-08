@@ -655,7 +655,7 @@ paths:
         - Conversations
       operationId: updateConversation
       summary: Update a conversation
-      description: Updates a conversation title, description, or archived state. The caller must be allowed to manage the conversation.
+      description: Updates a conversation title, description, or archived state. The caller must be allowed to manage conversation metadata.
       parameters:
         - $ref: '#/components/parameters/ConversationIDPath'
       requestBody:
@@ -754,7 +754,7 @@ paths:
         - Conversations
       operationId: addConversationParticipants
       summary: Add conversation participants
-      description: Adds users to a member-only conversation. Canonical direct messages cannot be changed.
+      description: Adds users to a member-only conversation. By default, any existing participant may invite additional members. Canonical direct messages cannot be changed.
       parameters:
         - $ref: '#/components/parameters/ConversationIDPath'
       requestBody:
@@ -778,7 +778,7 @@ paths:
         - Conversations
       operationId: removeConversationParticipant
       summary: Remove a conversation participant
-      description: Removes one participant from a member-only conversation. Canonical direct messages cannot be changed.
+      description: Removes one participant from a member-only conversation. The caller must still satisfy the stricter removal policy for the conversation scope. Canonical direct messages cannot be changed.
       parameters:
         - $ref: '#/components/parameters/ConversationIDPath'
         - $ref: '#/components/parameters/UserIDPath'

@@ -360,7 +360,7 @@ func (s *Server) handlePatchConversation(w http.ResponseWriter, r *http.Request,
 		s.writeAppError(w, r, internalError(err))
 		return
 	}
-	if appErr := s.canManageConversation(r.Context(), auth, conversation); appErr != nil {
+	if appErr := s.ensureConversationPermission(r.Context(), auth, conversation, conversationPermissionUpdateMetadata); appErr != nil {
 		s.writeAppError(w, r, appErr)
 		return
 	}
@@ -477,7 +477,7 @@ func (s *Server) handleAddConversationParticipants(w http.ResponseWriter, r *htt
 		s.writeAppError(w, r, internalError(err))
 		return
 	}
-	if appErr := s.canManageConversation(r.Context(), auth, conversation); appErr != nil {
+	if appErr := s.ensureConversationPermission(r.Context(), auth, conversation, conversationPermissionInviteMembers); appErr != nil {
 		s.writeAppError(w, r, appErr)
 		return
 	}
@@ -572,7 +572,7 @@ func (s *Server) handleDeleteConversationParticipant(w http.ResponseWriter, r *h
 		s.writeAppError(w, r, internalError(err))
 		return
 	}
-	if appErr := s.canManageConversation(r.Context(), auth, conversation); appErr != nil {
+	if appErr := s.ensureConversationPermission(r.Context(), auth, conversation, conversationPermissionRemoveMembers); appErr != nil {
 		s.writeAppError(w, r, appErr)
 		return
 	}
@@ -640,7 +640,7 @@ func (s *Server) handleGetConversationShareLink(w http.ResponseWriter, r *http.R
 		s.writeAppError(w, r, internalError(err))
 		return
 	}
-	if appErr := s.canManageConversation(r.Context(), auth, conversation); appErr != nil {
+	if appErr := s.ensureConversationPermission(r.Context(), auth, conversation, conversationPermissionManageShareLinks); appErr != nil {
 		s.writeAppError(w, r, appErr)
 		return
 	}
@@ -686,7 +686,7 @@ func (s *Server) handleRotateConversationShareLink(w http.ResponseWriter, r *htt
 		s.writeAppError(w, r, internalError(err))
 		return
 	}
-	if appErr := s.canManageConversation(r.Context(), auth, conversation); appErr != nil {
+	if appErr := s.ensureConversationPermission(r.Context(), auth, conversation, conversationPermissionManageShareLinks); appErr != nil {
 		s.writeAppError(w, r, appErr)
 		return
 	}
@@ -1628,24 +1628,113 @@ func (s *Server) handleDeleteEventSubscription(w http.ResponseWriter, r *http.Re
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func (s *Server) canManageConversation(ctx context.Context, auth domain.AuthContext, conversation conversationRow) *appError {
+type conversationPermissionAction string
+
+const (
+	conversationPermissionUpdateMetadata   conversationPermissionAction = "update_metadata"
+	conversationPermissionInviteMembers    conversationPermissionAction = "invite_members"
+	conversationPermissionRemoveMembers    conversationPermissionAction = "remove_members"
+	conversationPermissionManageShareLinks conversationPermissionAction = "manage_share_links"
+)
+
+type conversationPermissionRule string
+
+const (
+	conversationPermissionRuleAnyParticipant          conversationPermissionRule = "any_participant"
+	conversationPermissionRuleCreatorOnly             conversationPermissionRule = "creator_only"
+	conversationPermissionRuleWorkspaceAdminOrCreator conversationPermissionRule = "workspace_admin_or_creator"
+)
+
+type conversationPermissionSet struct {
+	UpdateMetadata   conversationPermissionRule
+	InviteMembers    conversationPermissionRule
+	RemoveMembers    conversationPermissionRule
+	ManageShareLinks conversationPermissionRule
+}
+
+type conversationPermissionPolicy struct {
+	Global    conversationPermissionSet
+	Workspace conversationPermissionSet
+}
+
+// Conversation permissions are action-specific so invite/member rules can evolve
+// independently from metadata, removal, or share-link management.
+var defaultConversationPermissionPolicy = conversationPermissionPolicy{
+	Global: conversationPermissionSet{
+		UpdateMetadata:   conversationPermissionRuleCreatorOnly,
+		InviteMembers:    conversationPermissionRuleAnyParticipant,
+		RemoveMembers:    conversationPermissionRuleCreatorOnly,
+		ManageShareLinks: conversationPermissionRuleCreatorOnly,
+	},
+	Workspace: conversationPermissionSet{
+		UpdateMetadata:   conversationPermissionRuleWorkspaceAdminOrCreator,
+		InviteMembers:    conversationPermissionRuleAnyParticipant,
+		RemoveMembers:    conversationPermissionRuleWorkspaceAdminOrCreator,
+		ManageShareLinks: conversationPermissionRuleWorkspaceAdminOrCreator,
+	},
+}
+
+func (s *Server) ensureConversationPermission(ctx context.Context, auth domain.AuthContext, conversation conversationRow, action conversationPermissionAction) *appError {
 	if appErr := s.ensureConversationAccess(ctx, auth, conversation); appErr != nil {
 		return appErr
 	}
-	if conversation.WorkspaceID != nil {
-		role, appErr := s.ensureWorkspaceActiveMember(ctx, auth, *conversation.WorkspaceID)
-		if appErr != nil {
-			return appErr
-		}
-		if role == "owner" || role == "admin" || conversation.CreatedByUserID == auth.UserID {
+	switch conversationPermissionRuleFor(conversation, action) {
+	case conversationPermissionRuleAnyParticipant:
+		return nil
+	case conversationPermissionRuleCreatorOnly:
+		if conversation.CreatedByUserID == auth.UserID {
 			return nil
 		}
-		return forbidden("You do not have access to manage this conversation.")
+	case conversationPermissionRuleWorkspaceAdminOrCreator:
+		if conversation.WorkspaceID != nil {
+			role, appErr := s.ensureWorkspaceActiveMember(ctx, auth, *conversation.WorkspaceID)
+			if appErr != nil {
+				return appErr
+			}
+			if role == "owner" || role == "admin" || conversation.CreatedByUserID == auth.UserID {
+				return nil
+			}
+			break
+		}
+		if conversation.CreatedByUserID == auth.UserID {
+			return nil
+		}
+	default:
+		return forbidden("This conversation action is not allowed.")
 	}
-	if conversation.CreatedByUserID != auth.UserID {
-		return forbidden("You do not have access to manage this conversation.")
+	return forbidden(conversationPermissionDeniedMessage(action))
+}
+
+func conversationPermissionRuleFor(conversation conversationRow, action conversationPermissionAction) conversationPermissionRule {
+	rules := defaultConversationPermissionPolicy.Global
+	if conversation.WorkspaceID != nil {
+		rules = defaultConversationPermissionPolicy.Workspace
 	}
-	return nil
+	switch action {
+	case conversationPermissionUpdateMetadata:
+		return rules.UpdateMetadata
+	case conversationPermissionInviteMembers:
+		return rules.InviteMembers
+	case conversationPermissionRemoveMembers:
+		return rules.RemoveMembers
+	case conversationPermissionManageShareLinks:
+		return rules.ManageShareLinks
+	default:
+		return ""
+	}
+}
+
+func conversationPermissionDeniedMessage(action conversationPermissionAction) string {
+	switch action {
+	case conversationPermissionInviteMembers:
+		return "You do not have access to invite members to this conversation."
+	case conversationPermissionRemoveMembers:
+		return "You do not have access to remove members from this conversation."
+	case conversationPermissionManageShareLinks:
+		return "You do not have access to manage share links for this conversation."
+	default:
+		return "You do not have access to manage this conversation."
+	}
 }
 
 func (s *Server) ensureUsersExistTx(ctx context.Context, tx pgx.Tx, userIDs []uuid.UUID) error {
