@@ -23,6 +23,7 @@ import (
 var Version = "dev"
 
 const defaultCLIManifestBaseURL = "https://downloads.teraslack.ai/teraslack/cli"
+const defaultMCPManifestBaseURL = "https://downloads.teraslack.ai/teraslack/mcp"
 
 type releaseManifest struct {
 	Version   string                     `json:"version"`
@@ -70,11 +71,11 @@ func (c *CLI) printLifecycleHelp(name string, w io.Writer) {
 	case "update":
 		fmt.Fprintln(w, "Usage:\n  teraslack update")
 		fmt.Fprintln(w)
-		fmt.Fprintln(w, "Download the latest published CLI release for this platform and replace the current binary.")
+		fmt.Fprintln(w, "Download the latest published CLI and MCP releases for this platform and replace the installed binaries.")
 	case "uninstall":
 		fmt.Fprintln(w, "Usage:\n  teraslack uninstall [--keep-config]")
 		fmt.Fprintln(w)
-		fmt.Fprintln(w, "Remove the installed CLI binary. By default this also deletes saved CLI config files under TERASLACK_CONFIG_DIR (defaults to ~/.teraslack).")
+		fmt.Fprintln(w, "Remove the installed CLI and MCP binaries and clean up managed Codex/Claude integrations. By default this also deletes saved CLI config files under TERASLACK_CONFIG_DIR (defaults to ~/.teraslack).")
 	case "signout":
 		fmt.Fprintln(w, "Usage:\n  teraslack signout")
 		fmt.Fprintln(w)
@@ -125,13 +126,23 @@ func (c *CLI) runUpdate(ctx context.Context, args []string, stdout io.Writer, st
 		return 2
 	}
 
-	manifest, artifact, platform, err := resolveLatestArtifact(ctx)
+	cliManifest, cliArtifact, mcpManifest, mcpArtifact, platform, err := resolveLatestToolArtifacts(ctx)
 	if err != nil {
 		fmt.Fprintf(stderr, "resolve release: %v\n", err)
 		return 1
 	}
-	if strings.TrimSpace(Version) == strings.TrimSpace(manifest.Version) && Version != "dev" {
-		fmt.Fprintf(stdout, "teraslack %s is already installed\n", manifest.Version)
+	if strings.TrimSpace(cliManifest.Version) != strings.TrimSpace(mcpManifest.Version) {
+		fmt.Fprintf(stderr, "release manifests are out of sync: cli=%s mcp=%s\n", strings.TrimSpace(cliManifest.Version), strings.TrimSpace(mcpManifest.Version))
+		return 1
+	}
+
+	mcpPath, err := installedMCPBinaryPathForPlatform(platform)
+	if err != nil {
+		fmt.Fprintf(stderr, "resolve mcp executable: %v\n", err)
+		return 1
+	}
+	if strings.TrimSpace(Version) == strings.TrimSpace(cliManifest.Version) && Version != "dev" && fileExists(mcpPath) {
+		fmt.Fprintf(stdout, "teraslack %s is already installed\n", cliManifest.Version)
 		return 0
 	}
 
@@ -148,40 +159,39 @@ func (c *CLI) runUpdate(ctx context.Context, args []string, stdout io.Writer, st
 	}
 	defer os.RemoveAll(tmpDir)
 
-	archivePath := filepath.Join(tmpDir, filepath.Base(strings.TrimSpace(artifact.URL)))
-	if err := downloadFile(ctx, strings.TrimSpace(artifact.URL), archivePath); err != nil {
-		fmt.Fprintf(stderr, "download release: %v\n", err)
-		return 1
-	}
-	if err := verifyFileSHA256(archivePath, artifact.SHA256); err != nil {
-		fmt.Fprintf(stderr, "verify release: %v\n", err)
-		return 1
-	}
-
-	binaryName := strings.TrimSpace(artifact.BinaryName)
-	if binaryName == "" {
-		binaryName = defaultBinaryNameForPlatform(platform)
-	}
-	extractedPath, err := extractBinaryFromArchive(archivePath, tmpDir, binaryName)
+	extractedCLIPath, err := downloadAndExtractReleaseBinary(ctx, cliArtifact, tmpDir, platform, defaultBinaryNameForPlatform(platform))
 	if err != nil {
-		fmt.Fprintf(stderr, "extract release: %v\n", err)
+		fmt.Fprintf(stderr, "download CLI release: %v\n", err)
+		return 1
+	}
+	extractedMCPPath, err := downloadAndExtractReleaseBinary(ctx, mcpArtifact, tmpDir, platform, defaultMCPBinaryNameForPlatform(platform))
+	if err != nil {
+		fmt.Fprintf(stderr, "download MCP release: %v\n", err)
 		return 1
 	}
 
 	if runtime.GOOS == "windows" {
-		if err := scheduleWindowsReplace(extractedPath, exePath); err != nil {
+		if err := scheduleWindowsReplace(extractedCLIPath, exePath); err != nil {
 			fmt.Fprintf(stderr, "schedule update: %v\n", err)
 			return 1
 		}
-		fmt.Fprintf(stdout, "scheduled update to %s; reopen teraslack after this process exits\n", manifest.Version)
+		if err := installStandaloneBinary(extractedMCPPath, mcpPath); err != nil {
+			fmt.Fprintf(stderr, "install MCP update: %v\n", err)
+			return 1
+		}
+		fmt.Fprintf(stdout, "scheduled update to %s; reopen teraslack after this process exits\n", cliManifest.Version)
 		return 0
 	}
 
-	if err := replaceExecutable(extractedPath, exePath); err != nil {
+	if err := replaceExecutable(extractedCLIPath, exePath); err != nil {
 		fmt.Fprintf(stderr, "install update: %v\n", err)
 		return 1
 	}
-	fmt.Fprintf(stdout, "updated teraslack to %s\n", manifest.Version)
+	if err := installStandaloneBinary(extractedMCPPath, mcpPath); err != nil {
+		fmt.Fprintf(stderr, "install MCP update: %v\n", err)
+		return 1
+	}
+	fmt.Fprintf(stdout, "updated teraslack and teraslack-mcp to %s\n", cliManifest.Version)
 	return 0
 }
 
@@ -202,6 +212,15 @@ func (c *CLI) runUninstall(args []string, stdout io.Writer, stderr io.Writer) in
 		return 2
 	}
 
+	if err := uninstallCodexIntegration(); err != nil {
+		fmt.Fprintf(stderr, "remove Codex integration: %v\n", err)
+		return 1
+	}
+	if err := uninstallClaudeIntegration(); err != nil {
+		fmt.Fprintf(stderr, "remove Claude integration: %v\n", err)
+		return 1
+	}
+
 	exePath, err := currentExecutablePath()
 	if err != nil {
 		fmt.Fprintf(stderr, "resolve executable: %v\n", err)
@@ -214,6 +233,21 @@ func (c *CLI) runUninstall(args []string, stdout io.Writer, stderr io.Writer) in
 		return 1
 	}
 	binDir := filepath.Join(installRoot, "bin")
+	mcpInstallRoot, err := mcpInstallRootPath()
+	if err != nil {
+		fmt.Fprintf(stderr, "resolve mcp install root: %v\n", err)
+		return 1
+	}
+	mcpBinDir, err := mcpBinDirPath()
+	if err != nil {
+		fmt.Fprintf(stderr, "resolve mcp bin dir: %v\n", err)
+		return 1
+	}
+	mcpPath, err := installedMCPBinaryPathForPlatform(runtimePlatformLabel())
+	if err != nil && runtime.GOOS != "windows" {
+		fmt.Fprintf(stderr, "resolve mcp binary path: %v\n", err)
+		return 1
+	}
 	configPath, err := configFilePath()
 	if err != nil {
 		fmt.Fprintf(stderr, "resolve config path: %v\n", err)
@@ -231,7 +265,7 @@ func (c *CLI) runUninstall(args []string, stdout io.Writer, stderr io.Writer) in
 	}
 
 	if runtime.GOOS == "windows" {
-		if err := scheduleWindowsUninstall(exePath, configPath, linksPath, configDir, binDir, installRoot, keepConfig); err != nil {
+		if err := scheduleWindowsUninstall(exePath, mcpPath, configPath, linksPath, configDir, binDir, mcpBinDir, installRoot, mcpInstallRoot, keepConfig); err != nil {
 			fmt.Fprintf(stderr, "schedule uninstall: %v\n", err)
 			return 1
 		}
@@ -246,7 +280,13 @@ func (c *CLI) runUninstall(args []string, stdout io.Writer, stderr io.Writer) in
 		fmt.Fprintf(stderr, "remove executable: %v\n", err)
 		return 1
 	}
+	if err := os.Remove(mcpPath); err != nil && !os.IsNotExist(err) {
+		fmt.Fprintf(stderr, "remove mcp executable: %v\n", err)
+		return 1
+	}
 	removeUnixInstallPathEntry(binDir)
+	removeDirIfEmpty(mcpBinDir)
+	removeDirIfEmpty(mcpInstallRoot)
 	removeDirIfEmpty(binDir)
 	removeDirIfEmpty(installRoot)
 	fmt.Fprintln(stdout, "uninstalled teraslack")
@@ -275,26 +315,40 @@ func (c *CLI) runSignout(args []string, stdout io.Writer, stderr io.Writer) int 
 	return 0
 }
 
-func resolveLatestArtifact(ctx context.Context) (*releaseManifest, releaseArtifact, string, error) {
+func resolveLatestToolArtifacts(ctx context.Context) (*releaseManifest, releaseArtifact, *releaseManifest, releaseArtifact, string, error) {
 	platform, err := detectRuntimePlatform()
 	if err != nil {
-		return nil, releaseArtifact{}, "", err
+		return nil, releaseArtifact{}, nil, releaseArtifact{}, "", err
 	}
-	manifest, err := fetchManifest(ctx, currentManifestURL())
+	cliManifest, err := fetchManifest(ctx, currentCLIManifestURL())
 	if err != nil {
-		return nil, releaseArtifact{}, "", err
+		return nil, releaseArtifact{}, nil, releaseArtifact{}, "", err
 	}
-	artifact, ok := manifest.Artifacts[platform]
+	mcpManifest, err := fetchManifest(ctx, currentMCPManifestURL())
+	if err != nil {
+		return nil, releaseArtifact{}, nil, releaseArtifact{}, "", err
+	}
+	cliArtifact, ok := cliManifest.Artifacts[platform]
 	if !ok {
-		return nil, releaseArtifact{}, "", fmt.Errorf("no release artifact for %s", platform)
+		return nil, releaseArtifact{}, nil, releaseArtifact{}, "", fmt.Errorf("no CLI release artifact for %s", platform)
 	}
-	if strings.TrimSpace(artifact.URL) == "" {
-		return nil, releaseArtifact{}, "", fmt.Errorf("manifest artifact for %s is missing a URL", platform)
+	if strings.TrimSpace(cliArtifact.URL) == "" {
+		return nil, releaseArtifact{}, nil, releaseArtifact{}, "", fmt.Errorf("CLI manifest artifact for %s is missing a URL", platform)
 	}
-	if strings.TrimSpace(artifact.SHA256) == "" {
-		return nil, releaseArtifact{}, "", fmt.Errorf("manifest artifact for %s is missing a sha256", platform)
+	if strings.TrimSpace(cliArtifact.SHA256) == "" {
+		return nil, releaseArtifact{}, nil, releaseArtifact{}, "", fmt.Errorf("CLI manifest artifact for %s is missing a sha256", platform)
 	}
-	return manifest, artifact, platform, nil
+	mcpArtifact, ok := mcpManifest.Artifacts[platform]
+	if !ok {
+		return nil, releaseArtifact{}, nil, releaseArtifact{}, "", fmt.Errorf("no MCP release artifact for %s", platform)
+	}
+	if strings.TrimSpace(mcpArtifact.URL) == "" {
+		return nil, releaseArtifact{}, nil, releaseArtifact{}, "", fmt.Errorf("MCP manifest artifact for %s is missing a URL", platform)
+	}
+	if strings.TrimSpace(mcpArtifact.SHA256) == "" {
+		return nil, releaseArtifact{}, nil, releaseArtifact{}, "", fmt.Errorf("MCP manifest artifact for %s is missing a sha256", platform)
+	}
+	return cliManifest, cliArtifact, mcpManifest, mcpArtifact, platform, nil
 }
 
 func fetchManifest(ctx context.Context, manifestURL string) (*releaseManifest, error) {
@@ -318,13 +372,27 @@ func fetchManifest(ctx context.Context, manifestURL string) (*releaseManifest, e
 	return &manifest, nil
 }
 
-func currentManifestURL() string {
+func currentCLIManifestURL() string {
 	if value := strings.TrimSpace(os.Getenv("TERASLACK_CLI_MANIFEST_URL")); value != "" {
 		return value
 	}
-	baseURL := strings.TrimSpace(os.Getenv("TERASLACK_DOWNLOAD_BASE_URL"))
+	baseURL := strings.TrimSpace(os.Getenv("TERASLACK_CLI_DOWNLOAD_BASE_URL"))
+	if baseURL == "" {
+		baseURL = strings.TrimSpace(os.Getenv("TERASLACK_DOWNLOAD_BASE_URL"))
+	}
 	if baseURL == "" {
 		baseURL = defaultCLIManifestBaseURL
+	}
+	return strings.TrimRight(baseURL, "/") + "/latest.json"
+}
+
+func currentMCPManifestURL() string {
+	if value := strings.TrimSpace(os.Getenv("TERASLACK_MCP_MANIFEST_URL")); value != "" {
+		return value
+	}
+	baseURL := strings.TrimSpace(os.Getenv("TERASLACK_MCP_DOWNLOAD_BASE_URL"))
+	if baseURL == "" {
+		baseURL = defaultMCPManifestBaseURL
 	}
 	return strings.TrimRight(baseURL, "/") + "/latest.json"
 }
@@ -363,6 +431,13 @@ func defaultBinaryNameForPlatform(platform string) string {
 	return "teraslack"
 }
 
+func defaultMCPBinaryNameForPlatform(platform string) string {
+	if strings.HasPrefix(platform, "windows-") {
+		return "teraslack-mcp.exe"
+	}
+	return "teraslack-mcp"
+}
+
 func currentExecutablePath() (string, error) {
 	path, err := os.Executable()
 	if err != nil {
@@ -382,7 +457,53 @@ func installRootPath() (string, error) {
 	if value := strings.TrimSpace(os.Getenv("TERASLACK_INSTALL_ROOT")); value != "" {
 		return value, nil
 	}
+	if exePath, err := currentExecutablePath(); err == nil {
+		binDir := filepath.Dir(exePath)
+		if filepath.Base(binDir) == "bin" {
+			return filepath.Dir(binDir), nil
+		}
+	}
 	return defaultConfigRootPath()
+}
+
+func mcpInstallRootPath() (string, error) {
+	root, err := installRootPath()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(root, "mcp"), nil
+}
+
+func mcpBinDirPath() (string, error) {
+	root, err := mcpInstallRootPath()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(root, "bin"), nil
+}
+
+func installedMCPBinaryPath() (string, error) {
+	platform, err := detectRuntimePlatform()
+	if err != nil {
+		return "", err
+	}
+	return installedMCPBinaryPathForPlatform(platform)
+}
+
+func installedMCPBinaryPathForPlatform(platform string) (string, error) {
+	dir, err := mcpBinDirPath()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, defaultMCPBinaryNameForPlatform(platform)), nil
+}
+
+func runtimePlatformLabel() string {
+	platform, err := detectRuntimePlatform()
+	if err != nil {
+		return ""
+	}
+	return platform
 }
 
 func configDirPath() (string, error) {
@@ -560,6 +681,22 @@ func replaceExecutable(sourcePath string, targetPath string) error {
 	return os.Rename(stagedPath, targetPath)
 }
 
+func installStandaloneBinary(sourcePath string, targetPath string) error {
+	if err := os.MkdirAll(filepath.Dir(targetPath), 0o755); err != nil {
+		return err
+	}
+	input, err := os.Open(sourcePath)
+	if err != nil {
+		return err
+	}
+	defer input.Close()
+	stagedPath := targetPath + ".new"
+	if err := writeExecutableFile(stagedPath, input, 0o755); err != nil {
+		return err
+	}
+	return os.Rename(stagedPath, targetPath)
+}
+
 func scheduleWindowsReplace(sourcePath string, targetPath string) error {
 	stagedPath := targetPath + ".new"
 	input, err := os.Open(sourcePath)
@@ -575,12 +712,12 @@ func scheduleWindowsReplace(sourcePath string, targetPath string) error {
 	return startWindowsPowerShell(script)
 }
 
-func scheduleWindowsUninstall(exePath string, configPath string, linksPath string, configDir string, binDir string, installRoot string, keepConfig bool) error {
+func scheduleWindowsUninstall(exePath string, mcpPath string, configPath string, linksPath string, configDir string, binDir string, mcpBinDir string, installRoot string, mcpInstallRoot string, keepConfig bool) error {
 	configRemoval := ""
 	if !keepConfig {
 		configRemoval = fmt.Sprintf(`foreach ($path in @(%q,%q)) { if ($path -and (Test-Path -LiteralPath $path)) { Remove-Item -LiteralPath $path -Force -ErrorAction SilentlyContinue } }; if (Test-Path -LiteralPath %q) { $children=Get-ChildItem -LiteralPath %q -Force -ErrorAction SilentlyContinue; if (-not $children) { Remove-Item -LiteralPath %q -Recurse -Force -ErrorAction SilentlyContinue } }`, configPath, linksPath, configDir, configDir, configDir)
 	}
-	script := fmt.Sprintf(`$binDir=%q; $installRoot=%q; %s; $currentUserPath=[Environment]::GetEnvironmentVariable("Path","User"); if ($currentUserPath) { $entries=$currentUserPath.Split(";",[System.StringSplitOptions]::RemoveEmptyEntries) | Where-Object { $_.TrimEnd("\") -ine $binDir.TrimEnd("\") }; [Environment]::SetEnvironmentVariable("Path", ($entries -join ";"), "User") }; for ($i=0; $i -lt 20; $i++) { try { if (Test-Path -LiteralPath %q) { Remove-Item -LiteralPath %q -Force -ErrorAction SilentlyContinue }; break } catch { Start-Sleep -Milliseconds 500 } }; if (Test-Path -LiteralPath $binDir) { Remove-Item -LiteralPath $binDir -Recurse -Force -ErrorAction SilentlyContinue }; if (Test-Path -LiteralPath $installRoot) { $children=Get-ChildItem -LiteralPath $installRoot -Force -ErrorAction SilentlyContinue; if (-not $children) { Remove-Item -LiteralPath $installRoot -Recurse -Force -ErrorAction SilentlyContinue } }`, binDir, installRoot, configRemoval, exePath, exePath)
+	script := fmt.Sprintf(`$binDir=%q; $mcpBinDir=%q; $installRoot=%q; $mcpInstallRoot=%q; %s; $currentUserPath=[Environment]::GetEnvironmentVariable("Path","User"); if ($currentUserPath) { $entries=$currentUserPath.Split(";",[System.StringSplitOptions]::RemoveEmptyEntries) | Where-Object { $_.TrimEnd("\") -ine $binDir.TrimEnd("\") }; [Environment]::SetEnvironmentVariable("Path", ($entries -join ";"), "User") }; foreach ($path in @(%q,%q)) { for ($i=0; $i -lt 20; $i++) { try { if ($path -and (Test-Path -LiteralPath $path)) { Remove-Item -LiteralPath $path -Force -ErrorAction SilentlyContinue }; break } catch { Start-Sleep -Milliseconds 500 } } }; foreach ($path in @($mcpBinDir,$binDir,$mcpInstallRoot,$installRoot)) { if (Test-Path -LiteralPath $path) { $children=Get-ChildItem -LiteralPath $path -Force -ErrorAction SilentlyContinue; if (-not $children) { Remove-Item -LiteralPath $path -Recurse -Force -ErrorAction SilentlyContinue } } }`, binDir, mcpBinDir, installRoot, mcpInstallRoot, configRemoval, mcpPath, exePath)
 	return startWindowsPowerShell(script)
 }
 
@@ -671,4 +808,28 @@ func removeConfigArtifacts(configPath string, linksPath string, configDir string
 	_ = os.Remove(configPath)
 	_ = os.Remove(linksPath)
 	removeDirIfEmpty(configDir)
+}
+
+func downloadAndExtractReleaseBinary(ctx context.Context, artifact releaseArtifact, tmpDir string, platform string, fallbackBinaryName string) (string, error) {
+	archivePath := filepath.Join(tmpDir, filepath.Base(strings.TrimSpace(artifact.URL)))
+	if err := downloadFile(ctx, strings.TrimSpace(artifact.URL), archivePath); err != nil {
+		return "", err
+	}
+	if err := verifyFileSHA256(archivePath, artifact.SHA256); err != nil {
+		return "", err
+	}
+
+	binaryName := strings.TrimSpace(artifact.BinaryName)
+	if binaryName == "" {
+		binaryName = fallbackBinaryName
+	}
+	return extractBinaryFromArchive(archivePath, tmpDir, binaryName)
+}
+
+func fileExists(path string) bool {
+	if strings.TrimSpace(path) == "" {
+		return false
+	}
+	info, err := os.Stat(path)
+	return err == nil && !info.IsDir()
 }

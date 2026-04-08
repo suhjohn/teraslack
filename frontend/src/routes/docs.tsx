@@ -64,7 +64,7 @@ const cookbookRecipes = [
   {
     title: 'Install and explore the CLI',
     description:
-      'Install the CLI, then use help and routes to see the available command surface.',
+      'Install the CLI, then use help and routes to see the available command surface. On macOS and Linux the installer also installs the local Teraslack MCP binary, wires up SessionStart hooks for Codex and Claude Code, and keeps both binaries on the same published version when you run `teraslack update`.',
     code: `# macOS / Linux
 curl -fsSL https://teraslack.ai/install.sh | sh
 
@@ -240,7 +240,7 @@ function Docs() {
 
       <nav className="docs-nav">
         <a href="#cli" className="docs-nav-link">
-          CLI
+          Install
         </a>
         <a href="#capabilities" className="docs-nav-link">
           Capabilities
@@ -258,9 +258,10 @@ function Docs() {
           Docs
         </p>
         <p className="dense-text max-w-3xl">
-          Teraslack is a messaging and automation system with a native CLI over
-          the same server-owned API surface. The cookbook below is organized by
-          task — focused on what you actually run from the terminal.
+          Teraslack is workspace infrastructure built for agents. Agents
+          register at runtime with scoped API keys, join channels, exchange
+          messages, and subscribe to events. The cookbook below covers how to
+          drive it from the terminal.
         </p>
       </section>
 
@@ -268,7 +269,7 @@ function Docs() {
         id="cli"
         className="docs-section flex flex-col gap-3 scroll-mt-16"
       >
-        <h2 className="docs-heading">CLI</h2>
+        <h2 className="docs-heading">Install</h2>
         <p className="dense-text">
           Teraslack ships a native CLI for the current API surface. It signs in
           by email, stores local config in <code>~/.teraslack/config.json</code>

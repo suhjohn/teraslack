@@ -55,8 +55,6 @@ type Operation struct {
 	BodyFields       []BodyField
 	RequestBody      *openapi3.SchemaRef
 	RequiresAuth     bool
-	CursorField      string
-	CursorLocation   string
 }
 
 type Parameter struct {
@@ -205,8 +203,14 @@ func (c *CLI) Run(ctx context.Context, args []string, stdout, stderr io.Writer) 
 	switch rest[0] {
 	case "help":
 		return c.runHelp(rest[1:], stdout, stderr)
+	case "hook":
+		return c.runHook(ctx, rest[1:], stdout, stderr)
+	case "integrations":
+		return c.runIntegrations(ctx, rest[1:], stdout, stderr)
 	case "link":
 		return c.runLink(rest[1:], output, stdout, stderr)
+	case "unlink":
+		return c.runUnlink(rest[1:], output, stdout, stderr)
 	case "routes":
 		return c.runRoutes(rest[1:], output, stdout, stderr)
 	case "signin":
@@ -247,6 +251,18 @@ func (c *CLI) runHelp(args []string, stdout, stderr io.Writer) int {
 	}
 	if args[0] == "link" {
 		c.printLinkHelp(stdout)
+		return 0
+	}
+	if args[0] == "unlink" {
+		c.printUnlinkHelp(stdout)
+		return 0
+	}
+	if args[0] == "hook" {
+		c.printHookHelp(stdout)
+		return 0
+	}
+	if args[0] == "integrations" {
+		c.printIntegrationsHelp(stdout)
 		return 0
 	}
 	if args[0] == "signin" {
@@ -331,14 +347,12 @@ func (c *CLI) runRoutes(args []string, output string, stdout, stderr io.Writer) 
 func (c *CLI) runOperation(ctx context.Context, op *Operation, args []string, baseURL, authToken, output string, stdout, stderr io.Writer) int {
 	var bodyText string
 	var bodyFile string
-	var allPages bool
 	var setFlags stringValues
 
 	fs := flag.NewFlagSet(op.GroupName+" "+op.Name, flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	fs.StringVar(&bodyText, "body", "", "JSON request body.")
 	fs.StringVar(&bodyFile, "body-file", "", "Path to a JSON request body file.")
-	fs.BoolVar(&allPages, "all", false, "Follow pagination until next_cursor is empty when supported.")
 	fs.Var(&setFlags, "set", "Set a request body field using key=value. Nested keys may use dot notation.")
 
 	values := map[string]*string{}
@@ -379,7 +393,7 @@ func (c *CLI) runOperation(ctx context.Context, op *Operation, args []string, ba
 		return 2
 	}
 
-	resp, err := executeOperation(ctx, op, canonicalBaseURL(baseURL), authToken, path, query, body, allPages)
+	resp, err := executeOperation(ctx, op.Method, canonicalBaseURL(baseURL), authToken, path, query, body)
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
@@ -422,20 +436,12 @@ func buildOperation(path, method string, pathItem *openapi3.PathItem, operation 
 			Required:    param.Required,
 			Schema:      param.Schema,
 		})
-		if param.In == "query" && param.Name == "cursor" {
-			op.CursorField = param.Name
-			op.CursorLocation = "query"
-		}
 	}
 
 	if operation.RequestBody != nil && operation.RequestBody.Value != nil {
 		if mediaType, ok := operation.RequestBody.Value.Content["application/json"]; ok && mediaType != nil {
 			op.RequestBody = mediaType.Schema
 			op.BodyFields = collectBodyFields(mediaType.Schema, op.Parameters)
-			if bodyHasCursor(mediaType.Schema) {
-				op.CursorField = "cursor"
-				op.CursorLocation = "body"
-			}
 		}
 	}
 
@@ -577,53 +583,8 @@ func buildRequest(op *Operation, values, bodyValues map[string]*string, bodyText
 	return path, query, body, nil
 }
 
-func executeOperation(ctx context.Context, op *Operation, baseURL, authToken, path string, query map[string]any, body any, allPages bool) (any, error) {
-	resp, err := doOperationRequest(ctx, op.Method, baseURL, authToken, path, query, body)
-	if err != nil {
-		return nil, err
-	}
-	if !allPages || op.CursorField == "" {
-		return resp, nil
-	}
-
-	combined, ok := resp.(map[string]any)
-	if !ok {
-		return resp, nil
-	}
-
-	for {
-		nextCursor := strings.TrimSpace(stringValue(combined["next_cursor"]))
-		if nextCursor == "" {
-			delete(combined, "next_cursor")
-			return combined, nil
-		}
-
-		nextQuery := cloneMap(query)
-		nextBody := cloneJSON(body)
-		switch op.CursorLocation {
-		case "query":
-			nextQuery[op.CursorField] = nextCursor
-		case "body":
-			bodyObject, ok := nextBody.(map[string]any)
-			if !ok {
-				bodyObject = map[string]any{}
-			}
-			bodyObject[op.CursorField] = nextCursor
-			nextBody = bodyObject
-		default:
-			return combined, nil
-		}
-
-		page, err := doOperationRequest(ctx, op.Method, baseURL, authToken, path, nextQuery, nextBody)
-		if err != nil {
-			return nil, err
-		}
-		pageObject, ok := page.(map[string]any)
-		if !ok {
-			return combined, nil
-		}
-		mergeCollectionPage(combined, pageObject)
-	}
+func executeOperation(ctx context.Context, method, baseURL, authToken, path string, query map[string]any, body any) (any, error) {
+	return doOperationRequest(ctx, method, baseURL, authToken, path, query, body)
 }
 
 func doOperationRequest(ctx context.Context, method, baseURL, authToken, requestPath string, query map[string]any, body any) (any, error) {
@@ -707,7 +668,10 @@ func (c *CLI) printRootHelp(w io.Writer) {
 	fmt.Fprintln(w, "Usage:\n  teraslack [global flags] <group> <command> [command flags]")
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "Built-in commands:")
+	fmt.Fprintln(w, "  integrations      Install Codex and Claude hook/MCP integration")
+	fmt.Fprintln(w, "  hook              Internal hook entrypoints used by the installer")
 	fmt.Fprintln(w, "  link              Link the current directory to a conversation")
+	fmt.Fprintln(w, "  unlink            Remove the nearest linked conversation for the current directory")
 	fmt.Fprintln(w, "  signin            Start an email sign-in and save the session locally")
 	fmt.Fprintln(w, "  signout           Clear the saved session token")
 	fmt.Fprintln(w, "  me                Show your account and workspace access")
@@ -759,9 +723,6 @@ func (c *CLI) printOperationHelp(op *Operation, w io.Writer) {
 	if op.RequestBody != nil {
 		fmt.Fprint(w, " [--body JSON | --body-file PATH | --set key=value]")
 	}
-	if op.CursorField != "" {
-		fmt.Fprint(w, " [--all]")
-	}
 	fmt.Fprintln(w)
 	fmt.Fprintln(w)
 	fmt.Fprintf(w, "Method: %s\n", op.Method)
@@ -802,9 +763,6 @@ func (c *CLI) printOperationHelp(op *Operation, w io.Writer) {
 		fmt.Fprintln(w, "  --body-file               Read the request body from a JSON file.")
 		fmt.Fprintln(w, "  --set                     Override request body fields with key=value.")
 	}
-	if op.CursorField != "" {
-		fmt.Fprintln(w, "  --all                     Keep fetching pages until next_cursor is empty.")
-	}
 }
 
 func tagDescriptionByName(tags openapi3.Tags) map[string]string {
@@ -841,15 +799,6 @@ func requiresAuth(operation *openapi3.Operation) bool {
 	return len(*operation.Security) != 0
 }
 
-func bodyHasCursor(schemaRef *openapi3.SchemaRef) bool {
-	schema := derefSchema(schemaRef)
-	if schema == nil {
-		return false
-	}
-	_, ok := schema.Properties["cursor"]
-	return ok
-}
-
 func collectBodyFields(schemaRef *openapi3.SchemaRef, params []Parameter) []BodyField {
 	schema := derefSchema(schemaRef)
 	if schema == nil || schema.Type == nil || !schema.Type.Is("object") {
@@ -863,7 +812,6 @@ func collectBodyFields(schemaRef *openapi3.SchemaRef, params []Parameter) []Body
 		"body":      {},
 		"body-file": {},
 		"set":       {},
-		"all":       {},
 	}
 	for _, param := range params {
 		reserved[param.FlagName] = struct{}{}
@@ -1349,30 +1297,6 @@ func applySet(root map[string]any, key string, value any) {
 		}
 		current = next
 	}
-}
-
-func mergeCollectionPage(combined, page map[string]any) {
-	combinedItems, _ := combined["items"].([]any)
-	pageItems, _ := page["items"].([]any)
-	if len(pageItems) > 0 {
-		combined["items"] = append(combinedItems, pageItems...)
-	}
-	if nextCursor, ok := page["next_cursor"]; ok {
-		combined["next_cursor"] = nextCursor
-	} else {
-		delete(combined, "next_cursor")
-	}
-}
-
-func cloneMap(input map[string]any) map[string]any {
-	if input == nil {
-		return map[string]any{}
-	}
-	out := make(map[string]any, len(input))
-	for key, value := range input {
-		out[key] = value
-	}
-	return out
 }
 
 func cloneJSON(value any) any {

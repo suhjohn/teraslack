@@ -3,17 +3,15 @@ set -eu
 
 VERSION="${1:-${VERSION:-}}"
 if [ -z "$VERSION" ]; then
-  echo "usage: VERSION=v0.1.0 scripts/build-cli-release.sh [version]" >&2
+  echo "usage: VERSION=v0.1.0 scripts/build-mcp-release.sh [version]" >&2
   exit 1
 fi
 
 ROOT_DIR=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
 SERVER_DIR="$ROOT_DIR/server"
-OUTPUT_DIR="${OUTPUT_DIR:-$ROOT_DIR/dist/cli-release}"
-DOWNLOAD_BASE_URL="${DOWNLOAD_BASE_URL:-https://downloads.teraslack.ai/teraslack/cli}"
-MCP_OUTPUT_DIR="${MCP_OUTPUT_DIR:-$ROOT_DIR/dist/mcp-release}"
-MCP_DOWNLOAD_BASE_URL="${MCP_DOWNLOAD_BASE_URL:-https://downloads.teraslack.ai/teraslack/mcp}"
-TMP_DIR=$(mktemp -d "${TMPDIR:-/tmp}/teraslack-cli-release.XXXXXX")
+OUTPUT_DIR="${OUTPUT_DIR:-$ROOT_DIR/dist/mcp-release}"
+DOWNLOAD_BASE_URL="${DOWNLOAD_BASE_URL:-https://downloads.teraslack.ai/teraslack/mcp}"
+TMP_DIR=$(mktemp -d "${TMPDIR:-/tmp}/teraslack-mcp-release.XXXXXX")
 
 cleanup() {
   rm -rf "$TMP_DIR"
@@ -93,11 +91,11 @@ printf '%s\n' "$targets" | while read -r goos goarch platform; do
   build_dir="$TMP_DIR/$platform"
   mkdir -p "$target_dir" "$build_dir"
 
-  binary_name="teraslack"
-  archive_name="teraslack.tar.gz"
+  binary_name="teraslack-mcp"
+  archive_name="teraslack-mcp.tar.gz"
   if [ "$goos" = "windows" ]; then
-    binary_name="teraslack.exe"
-    archive_name="teraslack.zip"
+    binary_name="teraslack-mcp.exe"
+    archive_name="teraslack-mcp.zip"
   fi
 
   binary_path="$build_dir/$binary_name"
@@ -108,7 +106,7 @@ printf '%s\n' "$targets" | while read -r goos goarch platform; do
     cd "$SERVER_DIR"
     CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch" go build \
       -ldflags "-X github.com/johnsuh/teraslack/server/internal/openapicli.Version=$VERSION" \
-      -o "$binary_path" ./cmd/teraslack-api
+      -o "$binary_path" ./cmd/teraslack-mcp
   )
 
   if [ "$goos" = "windows" ]; then
@@ -166,10 +164,3 @@ PY
 
 echo "release artifacts written to $OUTPUT_DIR"
 echo "upload $version_dir/* and $OUTPUT_DIR/latest.json to your downloads bucket"
-
-echo "building matching MCP release bundle..."
-OUTPUT_DIR="$MCP_OUTPUT_DIR" \
-DOWNLOAD_BASE_URL="$MCP_DOWNLOAD_BASE_URL" \
-  "$ROOT_DIR/scripts/build-mcp-release.sh" "$VERSION"
-
-echo "built CLI and MCP release bundles for $VERSION"

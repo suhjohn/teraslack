@@ -96,21 +96,31 @@ For the one-command installer:
 
 1. `frontend/public/install.sh` is emitted into the frontend production build for macOS and Linux and should be reachable at `https://teraslack.ai/install.sh`.
 2. `frontend/public/install.ps1` is emitted into the frontend production build for Windows and should be reachable at `https://teraslack.ai/install.ps1`.
-3. Both installers expect prebuilt CLI binaries on `https://downloads.teraslack.ai/teraslack/cli/...`.
-4. The installers write local base URL config only; users sign in afterward with `teraslack signin email --email you@example.com`.
+3. The macOS/Linux installer expects prebuilt CLI binaries on `https://downloads.teraslack.ai/teraslack/cli/...` and prebuilt MCP binaries on `https://downloads.teraslack.ai/teraslack/mcp/...`.
+4. The macOS/Linux installer downloads both manifests, requires the CLI and MCP versions to match, installs `teraslack` plus `teraslack-mcp`, and configures Codex/Claude to launch the installed MCP binary.
+5. The installers write local base URL config only; users sign in afterward with `teraslack signin email --email you@example.com`.
 
 Release bundle workflow:
 
-1. Run `make build-cli-release VERSION=v0.1.0` or `make build-cli-release bump-patch`.
+1. Run `make build-cli-release VERSION=v0.1.0` or `make build-cli-release bump-patch`. This builds both the CLI bundle under `dist/cli-release` and the matching MCP bundle under `dist/mcp-release`.
 2. Upload `dist/cli-release/latest.json`.
 3. Upload `dist/cli-release/v0.1.0/SHA256SUMS`.
-4. Upload each platform tarball under:
+4. Upload each CLI platform tarball under:
    - `teraslack/cli/v0.1.0/darwin-arm64/teraslack.tar.gz`
    - `teraslack/cli/v0.1.0/darwin-amd64/teraslack.tar.gz`
    - `teraslack/cli/v0.1.0/linux-amd64/teraslack.tar.gz`
    - `teraslack/cli/v0.1.0/linux-arm64/teraslack.tar.gz`
    - `teraslack/cli/v0.1.0/windows-amd64/teraslack.zip`
    - `teraslack/cli/v0.1.0/windows-arm64/teraslack.zip`
+5. Upload `dist/mcp-release/latest.json`.
+6. Upload `dist/mcp-release/v0.1.0/SHA256SUMS`.
+7. Upload each MCP platform tarball under:
+   - `teraslack/mcp/v0.1.0/darwin-arm64/teraslack-mcp.tar.gz`
+   - `teraslack/mcp/v0.1.0/darwin-amd64/teraslack-mcp.tar.gz`
+   - `teraslack/mcp/v0.1.0/linux-amd64/teraslack-mcp.tar.gz`
+   - `teraslack/mcp/v0.1.0/linux-arm64/teraslack-mcp.tar.gz`
+   - `teraslack/mcp/v0.1.0/windows-amd64/teraslack-mcp.zip`
+   - `teraslack/mcp/v0.1.0/windows-arm64/teraslack-mcp.zip`
 
 Automated downloads upload:
 
@@ -120,11 +130,12 @@ Automated downloads upload:
    - `S3_DOWNLOADS_ACCESS_KEY_ID=<downloads_access_key_id>`
    - `S3_DOWNLOADS_SECRET_ACCESS_KEY=<downloads_secret_access_key>`
    - optional: `S3_DOWNLOADS_PREFIX=teraslack/cli`
+   - optional: `S3_MCP_DOWNLOADS_PREFIX=teraslack/mcp`
 2. Run `make release-cli VERSION=v0.1.0`, or bump from the current local manifest with:
    - `make release-cli bump-patch`
    - `make release-cli bump-minor`
    - `make release-cli bump-major`
-3. If the bundle is already built, run `make upload-cli-release VERSION=v0.1.0` or `make upload-cli-release bump-patch`.
+3. If the bundles are already built, run `make upload-cli-release VERSION=v0.1.0` or `make upload-cli-release bump-patch`.
 
 ## GitHub Actions
 
@@ -150,12 +161,13 @@ GitHub Actions secrets and vars:
    - secret: `RAILWAY_PROJECT_ID`
    - optional variable: `RAILWAY_ENVIRONMENT` (defaults to `production`)
    - GitHub Actions environment name: `Prod`
-2. CLI release workflow:
+2. CLI/MCP release workflow:
    - secret: `S3_DOWNLOADS_BUCKET`
    - secret: `S3_DOWNLOADS_ACCOUNT_ID` or `S3_DOWNLOADS_ENDPOINT`
    - secret: `S3_DOWNLOADS_ACCESS_KEY_ID`
    - secret: `S3_DOWNLOADS_SECRET_ACCESS_KEY`
    - optional variable: `S3_DOWNLOADS_PREFIX` (defaults to `teraslack/cli`)
+   - optional variable: `S3_MCP_DOWNLOADS_PREFIX` (defaults to `teraslack/mcp`)
 
 ## Make targets
 

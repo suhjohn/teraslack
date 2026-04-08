@@ -72,6 +72,10 @@ macOS / Linux:
 Windows PowerShell:
 `powershell -ExecutionPolicy Bypass -c "irm https://teraslack.ai/install.ps1 | iex"`
 
+On macOS and Linux, the installer also configures the local Teraslack stdio MCP server plus SessionStart hooks for Codex and Claude Code.
+
+The installer places `teraslack` on your `PATH` and installs `teraslack-mcp` under a separate local install path. `teraslack update` refreshes both binaries to the same published version.
+
 Then sign in:
 `teraslack signin email --email you@example.com`
 

@@ -3,14 +3,20 @@ set -eu
 
 INSTALL_ROOT="${TERASLACK_INSTALL_ROOT:-$HOME/.teraslack}"
 BIN_DIR="$INSTALL_ROOT/bin"
+MCP_INSTALL_ROOT="$INSTALL_ROOT/mcp"
+MCP_BIN_DIR="$MCP_INSTALL_ROOT/bin"
 CONFIG_FILE="$INSTALL_ROOT/config.json"
 API_BASE_URL="${TERASLACK_INSTALL_API_URL:-${TERASLACK_API_BASE_URL:-https://api.teraslack.ai}}"
-DOWNLOAD_BASE_URL="${TERASLACK_DOWNLOAD_BASE_URL:-https://downloads.teraslack.ai/teraslack/cli}"
-MANIFEST_URL="${TERASLACK_CLI_MANIFEST_URL:-$DOWNLOAD_BASE_URL/latest.json}"
+CLI_DOWNLOAD_BASE_URL="${TERASLACK_CLI_DOWNLOAD_BASE_URL:-${TERASLACK_DOWNLOAD_BASE_URL:-https://downloads.teraslack.ai/teraslack/cli}}"
+CLI_MANIFEST_URL="${TERASLACK_CLI_MANIFEST_URL:-$CLI_DOWNLOAD_BASE_URL/latest.json}"
+MCP_DOWNLOAD_BASE_URL="${TERASLACK_MCP_DOWNLOAD_BASE_URL:-https://downloads.teraslack.ai/teraslack/mcp}"
+MCP_MANIFEST_URL="${TERASLACK_MCP_MANIFEST_URL:-$MCP_DOWNLOAD_BASE_URL/latest.json}"
 
 TMP_DIR=""
-INSTALLED_BINARY_PATH=""
-INSTALLED_BINARY_NAME=""
+INSTALLED_CLI_BINARY_PATH=""
+INSTALLED_MCP_BINARY_PATH=""
+CLI_VERSION=""
+MCP_VERSION=""
 
 cleanup() {
   if [ -n "${TMP_DIR:-}" ] && [ -d "$TMP_DIR" ]; then
@@ -112,37 +118,72 @@ verify_sha256() {
   expected="$2"
   actual=$(sha256_file "$file_path")
   if [ "$actual" != "$expected" ]; then
-    fail "SHA256 mismatch for downloaded CLI binary"
+    fail "SHA256 mismatch for downloaded binary"
   fi
 }
 
 manifest_artifact_shell_vars() {
-  platform="$1"
+  prefix="$1"
+  platform="$2"
+  default_binary_name="$3"
   manifest_json=$(cat)
   if [ -z "$manifest_json" ]; then
     fail "installer received an empty release manifest"
   fi
-  python3 - "$manifest_json" "$platform" <<'PY'
+  python3 - "$prefix" "$manifest_json" "$platform" "$default_binary_name" <<'PY'
 import json
 import shlex
 import sys
 
-data = json.loads(sys.argv[1])
-platform = sys.argv[2]
+prefix = sys.argv[1]
+data = json.loads(sys.argv[2])
+platform = sys.argv[3]
+default_binary_name = sys.argv[4]
 artifact = data.get("artifacts", {}).get(platform)
 if not artifact:
-    print("ERROR=missing_artifact")
+    print(f"{prefix}_ERROR=missing_artifact")
     raise SystemExit(0)
 
-binary_name = artifact.get("binary_name")
-if not binary_name:
-    binary_name = "teraslack.exe" if platform.startswith("windows-") else "teraslack"
+binary_name = artifact.get("binary_name") or default_binary_name
 
-print(f"VERSION={shlex.quote(str(data.get('version', 'unknown')))}")
-print(f"ARTIFACT_URL={shlex.quote(str(artifact.get('url', '')))}")
-print(f"ARTIFACT_SHA256={shlex.quote(str(artifact.get('sha256', '')))}")
-print(f"ARTIFACT_BINARY_NAME={shlex.quote(str(binary_name))}")
+print(f"{prefix}_VERSION={shlex.quote(str(data.get('version', 'unknown')))}")
+print(f"{prefix}_ARTIFACT_URL={shlex.quote(str(artifact.get('url', '')))}")
+print(f"{prefix}_ARTIFACT_SHA256={shlex.quote(str(artifact.get('sha256', '')))}")
+print(f"{prefix}_ARTIFACT_BINARY_NAME={shlex.quote(str(binary_name))}")
 PY
+}
+
+install_artifact() {
+  label="$1"
+  platform="$2"
+  artifact_url="$3"
+  artifact_sha256="$4"
+  artifact_binary_name="$5"
+  target_dir="$6"
+
+  label_lower=$(printf '%s' "$label" | tr '[:upper:]' '[:lower:]')
+  extract_dir="$TMP_DIR/extract-$label_lower"
+  archive_path="$TMP_DIR/$label_lower-$(basename "$artifact_url")"
+
+  printf '%s\n' "Downloading Teraslack $label for $platform..." >&2
+  curl -fsSL "$artifact_url" -o "$archive_path"
+  verify_sha256 "$archive_path" "$artifact_sha256"
+
+  mkdir -p "$target_dir" "$extract_dir"
+  extract_archive "$archive_path" "$extract_dir"
+
+  downloaded_binary="$extract_dir/$artifact_binary_name"
+  [ -f "$downloaded_binary" ] || fail "downloaded archive did not contain $artifact_binary_name"
+
+  installed_binary_path="$target_dir/$artifact_binary_name"
+  mv "$downloaded_binary" "$installed_binary_path"
+
+  case "$platform" in
+    windows-*) ;;
+    *) chmod 755 "$installed_binary_path" ;;
+  esac
+
+  printf '%s\n' "$installed_binary_path"
 }
 
 extract_archive() {
@@ -170,40 +211,38 @@ else:
 PY
 }
 
-build_binary() {
+build_binaries() {
   TMP_DIR=$(mktemp -d "${TMPDIR:-/tmp}/teraslack-install.XXXXXX")
   platform=$(detect_platform)
-  extract_dir="$TMP_DIR/extract"
 
   log "Resolving Teraslack CLI binary for $platform..."
-  manifest=$(curl -fsSL "$MANIFEST_URL")
-  eval "$(printf '%s' "$manifest" | manifest_artifact_shell_vars "$platform")"
+  cli_manifest=$(curl -fsSL "$CLI_MANIFEST_URL")
+  eval "$(printf '%s' "$cli_manifest" | manifest_artifact_shell_vars CLI "$platform" "teraslack")"
 
-  [ "${ERROR:-}" = "" ] || fail "no prebuilt CLI binary is available for platform $platform"
-  [ -n "${ARTIFACT_URL:-}" ] || fail "manifest did not include an artifact URL for $platform"
-  [ -n "${ARTIFACT_SHA256:-}" ] || fail "manifest did not include a SHA256 for $platform"
-  [ -n "${ARTIFACT_BINARY_NAME:-}" ] || fail "manifest did not include a binary name for $platform"
+  log "Resolving Teraslack MCP binary for $platform..."
+  mcp_manifest=$(curl -fsSL "$MCP_MANIFEST_URL")
+  eval "$(printf '%s' "$mcp_manifest" | manifest_artifact_shell_vars MCP "$platform" "teraslack-mcp")"
 
-  archive_path="$TMP_DIR/$(basename "$ARTIFACT_URL")"
+  [ "${CLI_ERROR:-}" = "" ] || fail "no prebuilt CLI binary is available for platform $platform"
+  [ "${MCP_ERROR:-}" = "" ] || fail "no prebuilt MCP binary is available for platform $platform"
+  [ -n "${CLI_ARTIFACT_URL:-}" ] || fail "CLI manifest did not include an artifact URL for $platform"
+  [ -n "${CLI_ARTIFACT_SHA256:-}" ] || fail "CLI manifest did not include a SHA256 for $platform"
+  [ -n "${CLI_ARTIFACT_BINARY_NAME:-}" ] || fail "CLI manifest did not include a binary name for $platform"
+  [ -n "${MCP_ARTIFACT_URL:-}" ] || fail "MCP manifest did not include an artifact URL for $platform"
+  [ -n "${MCP_ARTIFACT_SHA256:-}" ] || fail "MCP manifest did not include a SHA256 for $platform"
+  [ -n "${MCP_ARTIFACT_BINARY_NAME:-}" ] || fail "MCP manifest did not include a binary name for $platform"
 
-  log "Downloading Teraslack CLI $VERSION for $platform..."
-  curl -fsSL "$ARTIFACT_URL" -o "$archive_path"
-  verify_sha256 "$archive_path" "$ARTIFACT_SHA256"
+  [ -n "${CLI_VERSION:-}" ] || fail "CLI manifest did not include a version"
+  [ -n "${MCP_VERSION:-}" ] || fail "MCP manifest did not include a version"
+  [ "$CLI_VERSION" = "$MCP_VERSION" ] || fail "CLI version $CLI_VERSION does not match MCP version $MCP_VERSION"
 
-  mkdir -p "$BIN_DIR" "$extract_dir"
-  extract_archive "$archive_path" "$extract_dir"
+  INSTALLED_CLI_BINARY_PATH=$(install_artifact "CLI" "$platform" "$CLI_ARTIFACT_URL" "$CLI_ARTIFACT_SHA256" "$CLI_ARTIFACT_BINARY_NAME" "$BIN_DIR")
+  INSTALLED_MCP_BINARY_PATH=$(install_artifact "MCP" "$platform" "$MCP_ARTIFACT_URL" "$MCP_ARTIFACT_SHA256" "$MCP_ARTIFACT_BINARY_NAME" "$MCP_BIN_DIR")
+}
 
-  downloaded_binary="$extract_dir/$ARTIFACT_BINARY_NAME"
-  [ -f "$downloaded_binary" ] || fail "downloaded archive did not contain $ARTIFACT_BINARY_NAME"
-
-  INSTALLED_BINARY_PATH="$BIN_DIR/$ARTIFACT_BINARY_NAME"
-  INSTALLED_BINARY_NAME="$ARTIFACT_BINARY_NAME"
-  mv "$downloaded_binary" "$INSTALLED_BINARY_PATH"
-
-  case "$platform" in
-    windows-*) ;;
-    *) chmod 755 "$INSTALLED_BINARY_PATH" ;;
-  esac
+setup_integrations() {
+  log "Configuring Codex and Claude integrations..."
+  "$INSTALLED_CLI_BINARY_PATH" integrations install --cli-binary-path "$INSTALLED_CLI_BINARY_PATH" --mcp-binary-path "$INSTALLED_MCP_BINARY_PATH"
 }
 
 ensure_path() {
@@ -240,13 +279,15 @@ main() {
   require_command python3
 
   write_config
-  build_binary
+  build_binaries
+  setup_integrations
   ensure_path
 
   log ""
-  log "Teraslack CLI installed."
+  log "Teraslack CLI and MCP installed."
   log "Config: $CONFIG_FILE"
-  log "Binary: $INSTALLED_BINARY_PATH"
+  log "CLI Binary: $INSTALLED_CLI_BINARY_PATH"
+  log "MCP Binary: $INSTALLED_MCP_BINARY_PATH"
   log ""
   log "Open a new shell and run:"
   log "  teraslack signin email --email you@example.com"

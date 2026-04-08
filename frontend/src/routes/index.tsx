@@ -343,7 +343,7 @@ function App () {
       <section className='flex-1 lg:flex-row flex flex-col w-full'>
         <div className='w-full ws-cell hero-text-cell flex flex-col gap-8'>
           <div className='glow-point active' />
-          <h1 className='ws-hero-scramble h-[320px]'>
+          <h1 className='ws-hero-scramble'>
             <ScrambleText text='Agents need a scalable collaborative workspace.' />
           </h1>
           <div className='flex flex-col gap-4'>

@@ -32,7 +32,7 @@ endef
 
 .PHONY: run build test lint migrate-up migrate-down docker-up docker-down integration_test openapi-generate openapi-check permissions-generate permissions-check \
 		integration-search dev dev-down dev-reset dev-logs railway-status railway-deploy railway-ensure-service deploy deploy-frontend deploy-server deploy-queue-broker deploy-indexer deploy-external-event-projector \
-		deploy-webhook-producer deploy-webhook-worker deploy-core build-cli-release upload-cli-release release-cli $(CLI_RELEASE_BUMP_TARGETS)
+		deploy-webhook-producer deploy-webhook-worker deploy-core build-cli-release upload-cli-release release-cli build-mcp-release upload-mcp-release release-mcp build-tool-releases upload-tool-releases release-tool-releases $(CLI_RELEASE_BUMP_TARGETS)
 
 run build test lint migrate-up migrate-down openapi-generate openapi-check permissions-generate permissions-check:
 	$(MAKE) -C $(SERVER_DIR) $@
@@ -85,21 +85,58 @@ $(CLI_RELEASE_BUMP_TARGETS):
 build-cli-release:
 	@set -eu; \
 	version="$$(./scripts/resolve-cli-release-version.sh --version "$(VERSION)" --bump "$(BUMP)" --goals "$(MAKECMDGOALS)")"; \
-	echo "building CLI release $$version"; \
+	echo "building CLI and MCP releases $$version"; \
 	./scripts/build-cli-release.sh "$$version"
+
+build-mcp-release:
+	@set -eu; \
+	version="$$(./scripts/resolve-cli-release-version.sh --version "$(VERSION)" --bump "$(BUMP)" --goals "$(MAKECMDGOALS)")"; \
+	echo "building MCP release $$version"; \
+	./scripts/build-mcp-release.sh "$$version"
 
 upload-cli-release:
 	@set -eu; \
 	version="$$(./scripts/resolve-cli-release-version.sh --version "$(VERSION)" --bump "$(BUMP)" --goals "$(MAKECMDGOALS)")"; \
-	echo "uploading CLI release $$version"; \
+	echo "uploading CLI and MCP releases $$version"; \
 	./scripts/upload-cli-release.sh "$$version"
+
+upload-mcp-release:
+	@set -eu; \
+	version="$$(./scripts/resolve-cli-release-version.sh --version "$(VERSION)" --bump "$(BUMP)" --goals "$(MAKECMDGOALS)")"; \
+	echo "uploading MCP release $$version"; \
+	./scripts/upload-mcp-release.sh "$$version"
 
 release-cli:
 	@set -eu; \
 	version="$$(./scripts/resolve-cli-release-version.sh --version "$(VERSION)" --bump "$(BUMP)" --goals "$(MAKECMDGOALS)")"; \
-	echo "releasing CLI $$version"; \
+	echo "releasing CLI and MCP $$version"; \
 	$(MAKE) build-cli-release VERSION="$$version"; \
 	$(MAKE) upload-cli-release VERSION="$$version"
+
+release-mcp:
+	@set -eu; \
+	version="$$(./scripts/resolve-cli-release-version.sh --version "$(VERSION)" --bump "$(BUMP)" --goals "$(MAKECMDGOALS)")"; \
+	echo "releasing MCP $$version"; \
+	$(MAKE) build-mcp-release VERSION="$$version"; \
+	$(MAKE) upload-mcp-release VERSION="$$version"
+
+build-tool-releases:
+	@set -eu; \
+	version="$$(./scripts/resolve-cli-release-version.sh --version "$(VERSION)" --bump "$(BUMP)" --goals "$(MAKECMDGOALS)")"; \
+	echo "building CLI and MCP releases $$version"; \
+	$(MAKE) build-cli-release VERSION="$$version"
+
+upload-tool-releases:
+	@set -eu; \
+	version="$$(./scripts/resolve-cli-release-version.sh --version "$(VERSION)" --bump "$(BUMP)" --goals "$(MAKECMDGOALS)")"; \
+	echo "uploading CLI and MCP releases $$version"; \
+	$(MAKE) upload-cli-release VERSION="$$version"
+
+release-tool-releases:
+	@set -eu; \
+	version="$$(./scripts/resolve-cli-release-version.sh --version "$(VERSION)" --bump "$(BUMP)" --goals "$(MAKECMDGOALS)")"; \
+	echo "releasing CLI and MCP $$version"; \
+	$(MAKE) release-cli VERSION="$$version"
 
 railway-status:
 	@set -eu; \

@@ -12,6 +12,9 @@ require (
 	github.com/getkin/kin-openapi v0.127.0
 	github.com/google/uuid v1.6.0
 	github.com/jackc/pgx/v5 v5.7.2
+	github.com/pelletier/go-toml/v2 v2.3.0
+	github.com/turbopuffer/turbopuffer-go v1.20.0
+	golang.org/x/sync v0.15.0
 )
 
 require (
@@ -42,9 +45,7 @@ require (
 	github.com/tidwall/match v1.1.1 // indirect
 	github.com/tidwall/pretty v1.2.1 // indirect
 	github.com/tidwall/sjson v1.2.5 // indirect
-	github.com/turbopuffer/turbopuffer-go v1.20.0 // indirect
 	golang.org/x/crypto v0.39.0 // indirect
-	golang.org/x/sync v0.15.0 // indirect
 	golang.org/x/text v0.26.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )

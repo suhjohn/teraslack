@@ -2,6 +2,7 @@ package openapicli
 
 import (
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -42,6 +43,9 @@ func (c *CLI) runLink(args []string, output string, stdout io.Writer, stderr io.
 		c.printLinkHelp(stderr)
 	}
 	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return 0
+		}
 		return 2
 	}
 	if len(fs.Args()) != 0 {
@@ -113,6 +117,63 @@ func (c *CLI) printLinkHelp(w io.Writer) {
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "Without --conversation, show the nearest linked conversation for the current directory.")
 	fmt.Fprintln(w, "With --conversation, save or update the current directory link in TERASLACK_CONFIG_DIR (defaults to ~/.teraslack).")
+}
+
+func (c *CLI) runUnlink(args []string, output string, stdout io.Writer, stderr io.Writer) int {
+	fs := flag.NewFlagSet("unlink", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	fs.Usage = func() {
+		c.printUnlinkHelp(stderr)
+	}
+	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return 0
+		}
+		return 2
+	}
+	if len(fs.Args()) != 0 {
+		fs.Usage()
+		return 2
+	}
+
+	currentPath, err := canonicalWorkingDirectory()
+	if err != nil {
+		fmt.Fprintf(stderr, "resolve current directory: %v\n", err)
+		return 1
+	}
+
+	link, ok, err := removeDirectoryLink(currentPath)
+	if err != nil {
+		fmt.Fprintf(stderr, "remove link: %v\n", err)
+		return 1
+	}
+	if !ok {
+		fmt.Fprintf(stderr, "no linked conversation for %s\n", currentPath)
+		return 1
+	}
+
+	response := linkCommandResponse{
+		CurrentPath:    currentPath,
+		LinkedPath:     link.Path,
+		ConversationID: link.ConversationID,
+		LinkedAt:       link.LinkedAt,
+	}
+	if output == "json" {
+		if err := writeOutput(stdout, response, output); err != nil {
+			fmt.Fprintf(stderr, "write output: %v\n", err)
+			return 1
+		}
+		return 0
+	}
+
+	fmt.Fprintf(stdout, "unlinked %s from conversation %s\n", response.LinkedPath, response.ConversationID)
+	return 0
+}
+
+func (c *CLI) printUnlinkHelp(w io.Writer) {
+	fmt.Fprintln(w, "Usage:\n  teraslack unlink")
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, "Remove the nearest linked conversation for the current directory from TERASLACK_CONFIG_DIR (defaults to ~/.teraslack).")
 }
 
 func loadDirectoryLinks() (directoryLinksFile, error) {
@@ -189,6 +250,37 @@ func upsertDirectoryLink(path string, conversationID string, linkedAt time.Time)
 		return directoryLink{}, err
 	}
 	return entry, nil
+}
+
+func removeDirectoryLink(path string) (directoryLink, bool, error) {
+	link, ok, err := resolveDirectoryLink(path)
+	if err != nil || !ok {
+		return directoryLink{}, ok, err
+	}
+
+	links, err := loadDirectoryLinks()
+	if err != nil {
+		return directoryLink{}, false, err
+	}
+
+	filtered := make([]directoryLink, 0, len(links.Links))
+	removed := false
+	for _, entry := range links.Links {
+		if entry.Path == link.Path {
+			removed = true
+			continue
+		}
+		filtered = append(filtered, entry)
+	}
+	if !removed {
+		return directoryLink{}, false, nil
+	}
+
+	links.Links = filtered
+	if err := saveDirectoryLinks(links); err != nil {
+		return directoryLink{}, false, err
+	}
+	return link, true, nil
 }
 
 func resolveDirectoryLink(path string) (directoryLink, bool, error) {
