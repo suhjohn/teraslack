@@ -289,6 +289,7 @@ insert into agents (
   owner_user_id,
   owner_workspace_id,
   mode,
+  metadata,
   created_by_user_id,
   created_at,
   updated_at
@@ -297,6 +298,7 @@ insert into agents (
   sqlc.narg(owner_user_id),
   sqlc.narg(owner_workspace_id),
   sqlc.arg(mode),
+  sqlc.arg(metadata),
   sqlc.arg(created_by_user_id),
   sqlc.arg(created_at),
   sqlc.arg(updated_at)
@@ -305,6 +307,7 @@ insert into agents (
 -- name: UpdateAgent :exec
 update agents
 set mode = coalesce(sqlc.narg(mode), mode),
+    metadata = coalesce(sqlc.arg(metadata)::jsonb, metadata),
     updated_at = sqlc.arg(updated_at)
 where user_id = sqlc.arg(user_id);
 

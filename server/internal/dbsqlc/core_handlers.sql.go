@@ -7,6 +7,7 @@ package dbsqlc
 
 import (
 	"context"
+	"encoding/json"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -134,6 +135,7 @@ insert into agents (
   owner_user_id,
   owner_workspace_id,
   mode,
+  metadata,
   created_by_user_id,
   created_at,
   updated_at
@@ -144,7 +146,8 @@ insert into agents (
   $4,
   $5,
   $6,
-  $7
+  $7,
+  $8
 )
 `
 
@@ -153,6 +156,7 @@ type CreateAgentParams struct {
 	OwnerUserID      *uuid.UUID         `json:"owner_user_id"`
 	OwnerWorkspaceID *uuid.UUID         `json:"owner_workspace_id"`
 	Mode             string             `json:"mode"`
+	Metadata         *json.RawMessage   `json:"metadata"`
 	CreatedByUserID  uuid.UUID          `json:"created_by_user_id"`
 	CreatedAt        pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt        pgtype.Timestamptz `json:"updated_at"`
@@ -164,6 +168,7 @@ func (q *Queries) CreateAgent(ctx context.Context, arg CreateAgentParams) error 
 		arg.OwnerUserID,
 		arg.OwnerWorkspaceID,
 		arg.Mode,
+		arg.Metadata,
 		arg.CreatedByUserID,
 		arg.CreatedAt,
 		arg.UpdatedAt,
@@ -952,18 +957,25 @@ func (q *Queries) RevokeAuthSession(ctx context.Context, arg RevokeAuthSessionPa
 const updateAgent = `-- name: UpdateAgent :exec
 update agents
 set mode = coalesce($1, mode),
-    updated_at = $2
-where user_id = $3
+    metadata = coalesce($2::jsonb, metadata),
+    updated_at = $3
+where user_id = $4
 `
 
 type UpdateAgentParams struct {
 	Mode      *string            `json:"mode"`
+	Metadata  json.RawMessage    `json:"metadata"`
 	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
 	UserID    uuid.UUID          `json:"user_id"`
 }
 
 func (q *Queries) UpdateAgent(ctx context.Context, arg UpdateAgentParams) error {
-	_, err := q.db.Exec(ctx, updateAgent, arg.Mode, arg.UpdatedAt, arg.UserID)
+	_, err := q.db.Exec(ctx, updateAgent,
+		arg.Mode,
+		arg.Metadata,
+		arg.UpdatedAt,
+		arg.UserID,
+	)
 	return err
 }
 

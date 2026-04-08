@@ -9,10 +9,7 @@ import { EmptyState } from '../ui/empty-state'
 import { Eyebrow } from '../ui/eyebrow'
 import { getErrorMessage } from '../../lib/admin'
 import { cn } from '../../lib/utils'
-import {
-  useWorkspaceApp,
-  useWorkspaceRoute,
-} from '../../lib/workspace-context'
+import { useWorkspaceApp, useWorkspaceRoute } from '../../lib/workspace-context'
 import {
   ConversationAccessPolicy,
   getListConversationParticipantsQueryKey,
@@ -47,6 +44,11 @@ const timeFormatter = new Intl.DateTimeFormat(undefined, {
   hour: 'numeric',
   minute: '2-digit',
 })
+
+type MessageMetadataEntry = {
+  key: string
+  value: string
+}
 
 type WorkspaceChannelViewContentProps = {
   selectedConversation: Conversation | null
@@ -106,7 +108,9 @@ export function WorkspaceChannelViewContent({
   const participantsQuery = useQuery<UsersCollection>({
     queryKey: getListConversationParticipantsQueryKey(conversationID),
     queryFn: async () =>
-      (await listConversationParticipants(conversationID)) as unknown as UsersCollection,
+      (await listConversationParticipants(
+        conversationID,
+      )) as unknown as UsersCollection,
     enabled:
       !!conversationID &&
       selectedConversation?.access_policy === ConversationAccessPolicy.members,
@@ -118,7 +122,10 @@ export function WorkspaceChannelViewContent({
   const markConversationReadMutation = useMarkConversationRead()
 
   const participantUsersByID = useMemo(
-    () => new Map((participantsQuery.data?.items ?? []).map((user) => [user.id, user])),
+    () =>
+      new Map(
+        (participantsQuery.data?.items ?? []).map((user) => [user.id, user]),
+      ),
     [participantsQuery.data?.items],
   )
 
@@ -198,7 +205,9 @@ export function WorkspaceChannelViewContent({
   if (!selectedConversation) {
     return (
       <div className="flex h-full min-h-[56vh] items-center justify-center p-6">
-        <Alert variant="destructive">The selected conversation could not be found.</Alert>
+        <Alert variant="destructive">
+          The selected conversation could not be found.
+        </Alert>
       </div>
     )
   }
@@ -232,7 +241,10 @@ export function WorkspaceChannelViewContent({
               participantsPending={participantsQuery.isFetching}
               participantsError={
                 participantsQuery.isError
-                  ? getErrorMessage(participantsQuery.error, 'Failed to load participants.')
+                  ? getErrorMessage(
+                      participantsQuery.error,
+                      'Failed to load participants.',
+                    )
                   : ''
               }
               workspaceMembers={workspaceMembers}
@@ -247,10 +259,12 @@ export function WorkspaceChannelViewContent({
             ) : null}
           </div>
         </div>
-
       </header>
 
-      <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-4 md:px-6 md:py-5">
+      <div
+        ref={scrollRef}
+        className="flex-1 overflow-y-auto px-4 py-4 md:px-6 md:py-5"
+      >
         {messagesQuery.status === 'pending' ? (
           <div className="flex h-full min-h-[32vh] items-center justify-center">
             <span className="inline-flex items-center gap-3 text-[12px] uppercase tracking-[0.06em] text-[var(--sys-home-muted)]">
@@ -291,7 +305,9 @@ export function WorkspaceChannelViewContent({
                     <div className="flex items-center gap-3 py-3">
                       <div className="h-px flex-1 bg-[var(--sys-home-border)]" />
                       <span className="text-[10px] font-bold uppercase tracking-[0.08em] text-[var(--sys-home-muted)]">
-                        {dayDividerFormatter.format(new Date(message.created_at))}
+                        {dayDividerFormatter.format(
+                          new Date(message.created_at),
+                        )}
                       </span>
                       <div className="h-px flex-1 bg-[var(--sys-home-border)]" />
                     </div>
@@ -315,8 +331,12 @@ export function WorkspaceChannelViewContent({
                         <span className="text-[11px] text-[var(--sys-home-muted)]">
                           {timeFormatter.format(new Date(message.created_at))}
                         </span>
-                        {message.edited_at ? <Badge variant="muted">Edited</Badge> : null}
+                        {message.edited_at ? (
+                          <Badge variant="muted">Edited</Badge>
+                        ) : null}
                       </div>
+
+                      <MessageMetadataSummary metadata={message.metadata} />
 
                       <p className="mt-1 whitespace-pre-wrap break-words text-[13px] leading-6 text-[var(--sys-home-fg)]">
                         {message.deleted_at
@@ -351,7 +371,9 @@ export function WorkspaceChannelViewContent({
               event.preventDefault()
               void handleSubmit()
             }}
-            disabled={selectedConversation.archived || createMessageMutation.isPending}
+            disabled={
+              selectedConversation.archived || createMessageMutation.isPending
+            }
             rows={3}
             placeholder={
               selectedConversation.archived
@@ -394,6 +416,109 @@ function isSameDay(left: string, right: string) {
   return new Date(left).toDateString() === new Date(right).toDateString()
 }
 
+function MessageMetadataSummary({
+  metadata,
+}: {
+  metadata?: Record<string, unknown> | null
+}) {
+  const entries = getMessageMetadataEntries(metadata)
+
+  if (entries.length === 0) {
+    return null
+  }
+
+  return (
+    <div className="mt-1">
+      <div className="group relative inline-flex max-w-full">
+        <div
+          tabIndex={0}
+          className="inline-flex max-w-full flex-wrap gap-x-3 gap-y-1 text-[10px] leading-4 text-[var(--sys-home-muted)] outline-none"
+        >
+          {entries.map((entry) => (
+            <span
+              key={entry.key}
+              className="max-w-40 cursor-help truncate font-[family-name:var(--font-mono)]"
+            >
+              {entry.value}
+            </span>
+          ))}
+        </div>
+
+        <div className="pointer-events-none absolute left-0 top-full z-20 mt-2 hidden min-w-60 max-w-[32rem] border border-[var(--sys-home-border)] bg-[var(--sys-home-bg)] shadow-[0_14px_40px_rgba(0,0,0,0.28)] group-hover:block group-focus-within:block">
+          <div className="border-b border-[var(--sys-home-border)] px-3 py-2 text-[9px] font-bold uppercase tracking-[0.08em] text-[var(--sys-home-muted)]">
+            Metadata
+          </div>
+          <div className="grid gap-y-2 px-3 py-3">
+            {entries.map((entry) => (
+              <div
+                key={entry.key}
+                className="grid grid-cols-[max-content_minmax(0,1fr)] gap-x-3"
+              >
+                <span className="text-[9px] font-bold uppercase tracking-[0.08em] text-[var(--sys-home-muted)]">
+                  {entry.key}
+                </span>
+                <span className="min-w-0 break-words font-[family-name:var(--font-mono)] text-[11px] leading-5 text-[var(--sys-home-fg)]">
+                  {entry.value}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function getMessageMetadataEntries(
+  metadata?: Record<string, unknown> | null,
+): MessageMetadataEntry[] {
+  if (!metadata) {
+    return []
+  }
+
+  return Object.entries(metadata)
+    .map(([key, value]) => {
+      const formattedValue = formatMessageMetadataValue(value)
+      if (!formattedValue) {
+        return null
+      }
+
+      return {
+        key,
+        value: formattedValue,
+      }
+    })
+    .filter((entry): entry is MessageMetadataEntry => entry !== null)
+}
+
+function formatMessageMetadataValue(value: unknown) {
+  if (typeof value === 'string') {
+    return value.replace(/\s+/g, ' ').trim()
+  }
+
+  if (
+    typeof value === 'number' ||
+    typeof value === 'boolean' ||
+    typeof value === 'bigint'
+  ) {
+    return String(value)
+  }
+
+  if (value === null) {
+    return 'null'
+  }
+
+  if (value === undefined) {
+    return ''
+  }
+
+  try {
+    return JSON.stringify(value)
+  } catch {
+    return String(value)
+  }
+}
+
 function ConversationMembersDropdown({
   conversation,
   currentUserID,
@@ -430,7 +555,11 @@ function ConversationMembersDropdown({
           aria-label="Show conversation members"
         >
           <span>{memberCountLabel}</span>
-          {(isPrivateConversation ? participantsPending : workspaceMembersPending) ? (
+          {(
+            isPrivateConversation
+              ? participantsPending
+              : workspaceMembersPending
+          ) ? (
             <LoaderCircle className="h-3 w-3 animate-spin" />
           ) : (
             <ChevronDown className="h-3 w-3" />
@@ -456,7 +585,9 @@ function ConversationMembersDropdown({
             <div className="px-3 py-4 text-[11px] leading-6 text-[#dc2626]">
               {workspaceMembersError}
             </div>
-          ) : isPrivateConversation && participantsPending && participants.length === 0 ? (
+          ) : isPrivateConversation &&
+            participantsPending &&
+            participants.length === 0 ? (
             <div className="flex items-center gap-2 px-3 py-4 text-[11px] text-[var(--sys-home-muted)]">
               <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
               Loading members…
@@ -492,7 +623,9 @@ function ConversationMembersDropdown({
                           {getUserDisplayName(user, user.id)}
                         </div>
                         <div className="mt-1 truncate text-[10px] text-[var(--sys-home-muted)]">
-                          {user.profile.handle ? `@${user.profile.handle}` : user.id}
+                          {user.profile.handle
+                            ? `@${user.profile.handle}`
+                            : user.id}
                         </div>
                       </div>
                       {user.id === currentUserID ? (
@@ -522,7 +655,11 @@ function ConversationMembersDropdown({
                       </div>
                       <div className="shrink-0 text-right text-[10px] font-bold uppercase tracking-[0.08em] text-[var(--sys-home-muted)]">
                         <div>{member.role}</div>
-                        <div>{member.user_id === currentUserID ? 'You' : member.status}</div>
+                        <div>
+                          {member.user_id === currentUserID
+                            ? 'You'
+                            : member.status}
+                        </div>
                       </div>
                     </div>
                   ))}

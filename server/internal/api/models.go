@@ -180,14 +180,15 @@ type UpdateWorkspaceMemberRequest struct {
 }
 
 type Agent struct {
-	User             User    `json:"user"`
-	OwnerType        string  `json:"owner_type"`
-	OwnerUserID      *string `json:"owner_user_id,omitempty"`
-	OwnerWorkspaceID *string `json:"owner_workspace_id,omitempty"`
-	Mode             string  `json:"mode"`
-	CreatedByUserID  string  `json:"created_by_user_id"`
-	CreatedAt        string  `json:"created_at"`
-	UpdatedAt        string  `json:"updated_at"`
+	User             User           `json:"user"`
+	OwnerType        string         `json:"owner_type"`
+	OwnerUserID      *string        `json:"owner_user_id,omitempty"`
+	OwnerWorkspaceID *string        `json:"owner_workspace_id,omitempty"`
+	Mode             string         `json:"mode"`
+	Metadata         map[string]any `json:"metadata,omitempty"`
+	CreatedByUserID  string         `json:"created_by_user_id"`
+	CreatedAt        string         `json:"created_at"`
+	UpdatedAt        string         `json:"updated_at"`
 }
 
 type AgentAPIKey struct {
@@ -204,22 +205,24 @@ type CreateAgentResponse struct {
 }
 
 type CreateAgentRequest struct {
-	DisplayName      *string `json:"display_name,omitempty"`
-	Handle           *string `json:"handle,omitempty"`
-	AvatarURL        *string `json:"avatar_url,omitempty"`
-	Bio              *string `json:"bio,omitempty"`
-	OwnerType        string  `json:"owner_type"`
-	OwnerWorkspaceID *string `json:"owner_workspace_id,omitempty"`
-	Mode             string  `json:"mode"`
+	DisplayName      *string         `json:"display_name,omitempty"`
+	Handle           *string         `json:"handle,omitempty"`
+	AvatarURL        *string         `json:"avatar_url,omitempty"`
+	Bio              *string         `json:"bio,omitempty"`
+	Metadata         *map[string]any `json:"metadata,omitempty"`
+	OwnerType        string          `json:"owner_type"`
+	OwnerWorkspaceID *string         `json:"owner_workspace_id,omitempty"`
+	Mode             string          `json:"mode"`
 }
 
 type UpdateAgentRequest struct {
-	DisplayName *string `json:"display_name,omitempty"`
-	Handle      *string `json:"handle,omitempty"`
-	AvatarURL   *string `json:"avatar_url,omitempty"`
-	Bio         *string `json:"bio,omitempty"`
-	Mode        *string `json:"mode,omitempty"`
-	Status      *string `json:"status,omitempty"`
+	DisplayName *string         `json:"display_name,omitempty"`
+	Handle      *string         `json:"handle,omitempty"`
+	AvatarURL   *string         `json:"avatar_url,omitempty"`
+	Bio         *string         `json:"bio,omitempty"`
+	Metadata    *map[string]any `json:"metadata,omitempty"`
+	Mode        *string         `json:"mode,omitempty"`
+	Status      *string         `json:"status,omitempty"`
 }
 
 type Conversation struct {

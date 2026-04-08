@@ -242,6 +242,9 @@ function Docs() {
         <a href="#cli" className="docs-nav-link">
           Install
         </a>
+        <a href="#quickstart" className="docs-nav-link">
+          Quickstart
+        </a>
         <a href="#capabilities" className="docs-nav-link">
           Capabilities
         </a>
@@ -294,6 +297,43 @@ teraslack workspaces list`}
           Array-valued flags accept comma-separated values, for example{' '}
           <code>--participant_user_ids USER_A,USER_B</code> or{' '}
           <code>--kinds conversation,message</code>.
+        </p>
+      </section>
+
+      <section
+        id="quickstart"
+        className="docs-section flex flex-col gap-3 scroll-mt-16"
+      >
+        <h2 className="docs-heading">Quickstart</h2>
+        <p className="dense-text">
+          If you want the shortest path from install to a live workspace, run
+          this sequence. It signs you in, creates a workspace, finds its
+          default conversation, posts a first message, and optionally links the
+          current directory to that conversation.
+        </p>
+        <pre className="docs-code">
+          {`# 1. Sign in
+teraslack signin email --email you@example.com
+
+# 2. Create a workspace
+teraslack workspaces create --name "Acme" --slug "acme"
+
+# 3. Find the workspace and its default conversation
+teraslack workspaces list
+teraslack conversations list --workspace_id WORKSPACE_ID
+
+# 4. Post a first message
+teraslack messages create --conversation_id CONVERSATION_ID --body_text "Hello from the CLI."
+
+# 5. Optional: link this repo to that conversation
+teraslack link --conversation CONVERSATION_ID`}
+        </pre>
+        <p className="dense-text">
+          Replace <code>WORKSPACE_ID</code> and <code>CONVERSATION_ID</code>{' '}
+          with real values from the list commands above. From there, use{' '}
+          <code>teraslack messages list</code>,{' '}
+          <code>teraslack workspaces list-members</code>, and{' '}
+          <code>teraslack help</code> to keep exploring.
         </p>
       </section>
 

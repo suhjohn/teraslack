@@ -10,10 +10,13 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/johnsuh/teraslack/server/internal/api"
 )
 
 func TestInitializeAgentSessionFromHookCreatesRecordAndPIDBridge(t *testing.T) {
 	t.Setenv("TERASLACK_CONFIG_DIR", t.TempDir())
+	t.Setenv("SHELL", "/bin/zsh")
 
 	repoDir := filepath.Join(t.TempDir(), "repo")
 	if err := os.MkdirAll(repoDir, 0o755); err != nil {
@@ -26,6 +29,9 @@ func TestInitializeAgentSessionFromHookCreatesRecordAndPIDBridge(t *testing.T) {
 
 	var createdAgentRequest map[string]any
 	var addedParticipantsRequest map[string]any
+	var updatedAgentRequest api.UpdateAgentRequest
+	var currentAgentMetadata map[string]any
+	patchAgentCalls := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if got := r.Header.Get("Authorization"); got != "Bearer human-session-token" {
 			t.Fatalf("Authorization header = %q", got)
@@ -82,6 +88,36 @@ func TestInitializeAgentSessionFromHookCreatesRecordAndPIDBridge(t *testing.T) {
 				},
 			})
 		case r.Method == http.MethodGet && r.URL.Path == "/agents/agent-user-1":
+			payload := map[string]any{
+				"user": map[string]any{
+					"id":             "agent-user-1",
+					"principal_type": "agent",
+					"status":         "active",
+					"profile": map[string]any{
+						"handle":       "agent-user-1",
+						"display_name": "Agent User",
+					},
+				},
+				"owner_type":         "workspace",
+				"owner_workspace_id": "workspace-1",
+				"mode":               "safe_write",
+				"created_by_user_id": "human-1",
+				"created_at":         "2026-04-07T00:00:00Z",
+				"updated_at":         "2026-04-07T00:00:00Z",
+			}
+			if currentAgentMetadata != nil {
+				payload["metadata"] = currentAgentMetadata
+			}
+			writeJSONResponse(t, w, payload)
+		case r.Method == http.MethodPatch && r.URL.Path == "/agents/agent-user-1":
+			patchAgentCalls++
+			if err := json.NewDecoder(r.Body).Decode(&updatedAgentRequest); err != nil {
+				t.Fatalf("decode patch agent body: %v", err)
+			}
+			if updatedAgentRequest.Metadata == nil {
+				t.Fatal("expected patch request metadata")
+			}
+			currentAgentMetadata = *updatedAgentRequest.Metadata
 			writeJSONResponse(t, w, map[string]any{
 				"user": map[string]any{
 					"id":             "agent-user-1",
@@ -95,6 +131,7 @@ func TestInitializeAgentSessionFromHookCreatesRecordAndPIDBridge(t *testing.T) {
 				"owner_type":         "workspace",
 				"owner_workspace_id": "workspace-1",
 				"mode":               "safe_write",
+				"metadata":           currentAgentMetadata,
 				"created_by_user_id": "human-1",
 				"created_at":         "2026-04-07T00:00:00Z",
 				"updated_at":         "2026-04-07T00:00:00Z",
@@ -116,6 +153,10 @@ func TestInitializeAgentSessionFromHookCreatesRecordAndPIDBridge(t *testing.T) {
 		UserID:       "human-1",
 	}); err != nil {
 		t.Fatalf("saveFileConfig() error = %v", err)
+	}
+	canonicalRepoDir, err := canonicalLinkPath(repoDir)
+	if err != nil {
+		t.Fatalf("canonicalLinkPath() error = %v", err)
 	}
 
 	output, err := initializeAgentSessionFromHook(context.Background(), "codex", sessionStartHookInput{
@@ -144,11 +185,36 @@ func TestInitializeAgentSessionFromHookCreatesRecordAndPIDBridge(t *testing.T) {
 	if !strings.Contains(output.AdditionalContext, "Agent profile: ID `agent-user-1`, type `agent`, display name \"Agent User\", handle `agent-user-1`, status `active`.") {
 		t.Fatalf("expected agent profile in additional context, got %q", output.AdditionalContext)
 	}
+	if !strings.Contains(output.AdditionalContext, "Agent metadata:") || !strings.Contains(output.AdditionalContext, "session ID `session-1`") || !strings.Contains(output.AdditionalContext, "client `codex`") || !strings.Contains(output.AdditionalContext, "cwd `"+canonicalRepoDir+"`") {
+		t.Fatalf("expected session metadata in additional context, got %q", output.AdditionalContext)
+	}
 	if strings.Contains(output.AdditionalContext, "Access policy:") {
 		t.Fatalf("did not expect access policy in additional context, got %q", output.AdditionalContext)
 	}
 	if strings.Contains(output.AdditionalContext, "Use the Teraslack MCP tools") {
 		t.Fatalf("did not expect generic MCP guidance in additional context, got %q", output.AdditionalContext)
+	}
+	if patchAgentCalls != 1 {
+		t.Fatalf("patchAgentCalls = %d, want 1", patchAgentCalls)
+	}
+	createdMetadata, _ := createdAgentRequest["metadata"].(map[string]any)
+	sessionMetadata, _ := createdMetadata["teraslack_session"].(map[string]any)
+	if sessionMetadata["session_id"] != "session-1" {
+		t.Fatalf("create agent metadata session_id = %#v", sessionMetadata["session_id"])
+	}
+	if sessionMetadata["client"] != "codex" {
+		t.Fatalf("create agent metadata client = %#v", sessionMetadata["client"])
+	}
+	if sessionMetadata["cwd"] != canonicalRepoDir {
+		t.Fatalf("create agent metadata cwd = %#v", sessionMetadata["cwd"])
+	}
+	if hostname, err := os.Hostname(); err == nil && strings.TrimSpace(hostname) != "" {
+		if sessionMetadata["hostname"] != strings.TrimSpace(hostname) {
+			t.Fatalf("create agent metadata hostname = %#v", sessionMetadata["hostname"])
+		}
+		if !strings.Contains(output.AdditionalContext, "host `"+strings.TrimSpace(hostname)+"`") {
+			t.Fatalf("expected hostname in additional context, got %q", output.AdditionalContext)
+		}
 	}
 
 	record, ok, err := loadAgentSessionRecord("codex", "session-1")
@@ -190,6 +256,7 @@ func TestInitializeAgentSessionFromHookCreatesRecordAndPIDBridge(t *testing.T) {
 
 func TestInitializeAgentSessionFromHookReusesAgentOnResume(t *testing.T) {
 	t.Setenv("TERASLACK_CONFIG_DIR", t.TempDir())
+	t.Setenv("SHELL", "/bin/zsh")
 
 	repoDir := filepath.Join(t.TempDir(), "repo")
 	if err := os.MkdirAll(repoDir, 0o755); err != nil {
@@ -201,6 +268,8 @@ func TestInitializeAgentSessionFromHookReusesAgentOnResume(t *testing.T) {
 	}
 
 	createAgentCalls := 0
+	patchAgentCalls := 0
+	var currentAgentMetadata map[string]any
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if got := r.Header.Get("Authorization"); got != "Bearer human-session-token" {
 			t.Fatalf("Authorization header = %q", got)
@@ -254,6 +323,37 @@ func TestInitializeAgentSessionFromHookReusesAgentOnResume(t *testing.T) {
 				},
 			})
 		case r.Method == http.MethodGet && r.URL.Path == "/agents/agent-user-1":
+			payload := map[string]any{
+				"user": map[string]any{
+					"id":             "agent-user-1",
+					"principal_type": "agent",
+					"status":         "active",
+					"profile": map[string]any{
+						"handle":       "agent-user-1",
+						"display_name": "Agent User",
+					},
+				},
+				"owner_type":         "workspace",
+				"owner_workspace_id": "workspace-1",
+				"mode":               "safe_write",
+				"created_by_user_id": "human-1",
+				"created_at":         "2026-04-07T00:00:00Z",
+				"updated_at":         "2026-04-07T00:00:00Z",
+			}
+			if currentAgentMetadata != nil {
+				payload["metadata"] = currentAgentMetadata
+			}
+			writeJSONResponse(t, w, payload)
+		case r.Method == http.MethodPatch && r.URL.Path == "/agents/agent-user-1":
+			patchAgentCalls++
+			var request api.UpdateAgentRequest
+			if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+				t.Fatalf("decode patch agent body: %v", err)
+			}
+			if request.Metadata == nil {
+				t.Fatal("expected patch request metadata")
+			}
+			currentAgentMetadata = *request.Metadata
 			writeJSONResponse(t, w, map[string]any{
 				"user": map[string]any{
 					"id":             "agent-user-1",
@@ -267,6 +367,7 @@ func TestInitializeAgentSessionFromHookReusesAgentOnResume(t *testing.T) {
 				"owner_type":         "workspace",
 				"owner_workspace_id": "workspace-1",
 				"mode":               "safe_write",
+				"metadata":           currentAgentMetadata,
 				"created_by_user_id": "human-1",
 				"created_at":         "2026-04-07T00:00:00Z",
 				"updated_at":         "2026-04-07T00:00:00Z",
@@ -283,6 +384,10 @@ func TestInitializeAgentSessionFromHookReusesAgentOnResume(t *testing.T) {
 		UserID:       "human-1",
 	}); err != nil {
 		t.Fatalf("saveFileConfig() error = %v", err)
+	}
+	canonicalRepoDir, err := canonicalLinkPath(repoDir)
+	if err != nil {
+		t.Fatalf("canonicalLinkPath() error = %v", err)
 	}
 
 	firstOutput, err := initializeAgentSessionFromHook(context.Background(), "codex", sessionStartHookInput{
@@ -307,6 +412,9 @@ func TestInitializeAgentSessionFromHookReusesAgentOnResume(t *testing.T) {
 	}
 	if !strings.Contains(firstOutput.AdditionalContext, "Agent profile: ID `agent-user-1`, type `agent`, display name \"Agent User\", handle `agent-user-1`, status `active`.") {
 		t.Fatalf("expected agent profile in first additional context, got %q", firstOutput.AdditionalContext)
+	}
+	if !strings.Contains(firstOutput.AdditionalContext, "session ID `session-1`") || !strings.Contains(firstOutput.AdditionalContext, "cwd `"+canonicalRepoDir+"`") {
+		t.Fatalf("expected session metadata in first additional context, got %q", firstOutput.AdditionalContext)
 	}
 
 	recordBeforeResume, ok, err := loadAgentSessionRecord("codex", "session-1")
@@ -340,6 +448,9 @@ func TestInitializeAgentSessionFromHookReusesAgentOnResume(t *testing.T) {
 	if !strings.Contains(secondOutput.AdditionalContext, "Agent profile: ID `agent-user-1`, type `agent`, display name \"Agent User\", handle `agent-user-1`, status `active`.") {
 		t.Fatalf("expected agent profile in resume additional context, got %q", secondOutput.AdditionalContext)
 	}
+	if !strings.Contains(secondOutput.AdditionalContext, "session ID `session-1`") || !strings.Contains(secondOutput.AdditionalContext, "cwd `"+canonicalRepoDir+"`") {
+		t.Fatalf("expected session metadata in resume additional context, got %q", secondOutput.AdditionalContext)
+	}
 
 	recordAfterResume, ok, err := loadAgentSessionRecord("codex", "session-1")
 	if err != nil {
@@ -350,6 +461,9 @@ func TestInitializeAgentSessionFromHookReusesAgentOnResume(t *testing.T) {
 	}
 	if createAgentCalls != 1 {
 		t.Fatalf("createAgentCalls = %d, want 1", createAgentCalls)
+	}
+	if patchAgentCalls != 1 {
+		t.Fatalf("patchAgentCalls = %d, want 1", patchAgentCalls)
 	}
 	if recordAfterResume.AgentID != recordBeforeResume.AgentID {
 		t.Fatalf("AgentID changed across resume: before=%q after=%q", recordBeforeResume.AgentID, recordAfterResume.AgentID)

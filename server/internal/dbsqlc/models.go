@@ -19,6 +19,7 @@ type Agent struct {
 	CreatedByUserID  uuid.UUID          `json:"created_by_user_id"`
 	CreatedAt        pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt        pgtype.Timestamptz `json:"updated_at"`
+	Metadata         *json.RawMessage   `json:"metadata"`
 }
 
 type AgentApiKey struct {

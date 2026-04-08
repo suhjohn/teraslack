@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"strings"
@@ -28,6 +29,10 @@ func (s *Server) handleListAgents(w http.ResponseWriter, r *http.Request, auth d
 	}
 	items := make([]api.Agent, 0, len(rows))
 	for _, row := range rows {
+		var metadata []byte
+		if row.Metadata != nil {
+			metadata = append(metadata, (*row.Metadata)...)
+		}
 		items = append(items, agentToAPI(userRow{
 			ID:            row.UserID,
 			PrincipalType: row.PrincipalType,
@@ -42,6 +47,7 @@ func (s *Server) handleListAgents(w http.ResponseWriter, r *http.Request, auth d
 			OwnerUserID:      row.OwnerUserID,
 			OwnerWorkspaceID: row.OwnerWorkspaceID,
 			Mode:             row.Mode,
+			Metadata:         readJSONMap(metadata),
 			CreatedByUserID:  row.CreatedByUserID,
 			CreatedAt:        dbsqlc.TimeValue(row.CreatedAt),
 			UpdatedAt:        dbsqlc.TimeValue(row.UpdatedAt),
@@ -109,6 +115,15 @@ func (s *Server) handleCreateAgent(w http.ResponseWriter, r *http.Request, auth 
 		}
 	}
 	bio := trimOptionalString(request.Bio)
+	var metadata []byte
+	if request.Metadata != nil {
+		encoded, err := json.Marshal(*request.Metadata)
+		if err != nil {
+			s.writeAppError(w, r, validationFailed("metadata", "invalid_value", "Must be a valid JSON object."))
+			return
+		}
+		metadata = encoded
+	}
 	var ownerUserID *uuid.UUID
 	if request.OwnerType == "user" {
 		ownerUserID = &auth.UserID
@@ -134,6 +149,7 @@ func (s *Server) handleCreateAgent(w http.ResponseWriter, r *http.Request, auth 
 			OwnerUserID:      ownerUserID,
 			OwnerWorkspaceID: ownerWorkspaceID,
 			Mode:             request.Mode,
+			Metadata:         dbsqlc.RawMessagePtr(metadata),
 			CreatedByUserID:  auth.UserID,
 			CreatedAt:        dbsqlc.Timestamptz(now),
 			UpdatedAt:        dbsqlc.Timestamptz(now),
@@ -179,6 +195,7 @@ func (s *Server) handleCreateAgent(w http.ResponseWriter, r *http.Request, auth 
 			OwnerUserID:      ownerUserID,
 			OwnerWorkspaceID: ownerWorkspaceID,
 			Mode:             request.Mode,
+			Metadata:         mapValue(request.Metadata),
 			CreatedByUserID:  auth.UserID,
 			CreatedAt:        now,
 			UpdatedAt:        now,
@@ -277,7 +294,7 @@ func (s *Server) handlePatchAgent(w http.ResponseWriter, r *http.Request, auth d
 		s.writeAppError(w, r, err)
 		return
 	}
-	if request.DisplayName == nil && request.Handle == nil && request.AvatarURL == nil && request.Bio == nil && request.Mode == nil && request.Status == nil {
+	if request.DisplayName == nil && request.Handle == nil && request.AvatarURL == nil && request.Bio == nil && request.Metadata == nil && request.Mode == nil && request.Status == nil {
 		s.writeAppError(w, r, validationFailed("body", "required", "At least one field must be provided."))
 		return
 	}
@@ -331,6 +348,17 @@ func (s *Server) handlePatchAgent(w http.ResponseWriter, r *http.Request, auth d
 	if request.Bio != nil {
 		bio = trimOptionalString(request.Bio)
 	}
+	metadata := agent.Metadata
+	var encodedMetadata []byte
+	if request.Metadata != nil {
+		encoded, err := json.Marshal(*request.Metadata)
+		if err != nil {
+			s.writeAppError(w, r, validationFailed("metadata", "invalid_value", "Must be a valid JSON object."))
+			return
+		}
+		encodedMetadata = encoded
+		metadata = mapValue(request.Metadata)
+	}
 
 	err = withTransaction(r.Context(), s.db, func(tx pgx.Tx) error {
 		now := time.Now().UTC()
@@ -357,6 +385,7 @@ func (s *Server) handlePatchAgent(w http.ResponseWriter, r *http.Request, auth d
 		if err := s.queries.WithTx(tx).UpdateAgent(r.Context(), dbsqlc.UpdateAgentParams{
 			UserID:    agentUserID,
 			Mode:      request.Mode,
+			Metadata:  json.RawMessage(encodedMetadata),
 			UpdatedAt: dbsqlc.Timestamptz(now),
 		}); err != nil {
 			return err
@@ -367,6 +396,9 @@ func (s *Server) handlePatchAgent(w http.ResponseWriter, r *http.Request, auth d
 		user.Bio = bio
 		if request.Mode != nil {
 			agent.Mode = *request.Mode
+		}
+		if request.Metadata != nil {
+			agent.Metadata = metadata
 		}
 		agent.UpdatedAt = now
 		actor := auth.UserID
@@ -556,6 +588,13 @@ func (s *Server) agentAPIKeyToAPI(ctx context.Context, keyID uuid.UUID, encrypte
 		ScopeWorkspaceID: uuidPtrToStringPtr(scopeWorkspaceID),
 		CreatedAt:        createdAt.Format(time.RFC3339),
 	}, nil
+}
+
+func mapValue(value *map[string]any) map[string]any {
+	if value == nil {
+		return nil
+	}
+	return *value
 }
 
 func agentAPIKeyScope(agent agentRow) (string, *uuid.UUID) {

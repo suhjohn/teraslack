@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"time"
 
@@ -16,6 +17,7 @@ import (
 
 const (
 	agentSessionStoreVersion = 1
+	sessionStartMetadataKey  = "teraslack_session"
 )
 
 type sessionStartHookInput struct {
@@ -192,13 +194,14 @@ func initializeAgentSessionFromHook(ctx context.Context, client string, payload 
 	if strings.TrimSpace(humanToken) == "" {
 		return sessionStartHookOutput{}, fmt.Errorf("linked directory %s is not signed in; run `teraslack signin email --email <email>` first", link.Path)
 	}
+	sessionMetadata := buildSessionStartAgentMetadata(client, payload, canonicalCwd)
 
 	conversation, err := getConversationForSessionStart(ctx, baseURL, humanToken, link.ConversationID)
 	if err != nil {
 		return sessionStartHookOutput{}, fmt.Errorf("load linked conversation %s: %w", link.ConversationID, err)
 	}
 
-	record, err := ensureAgentSessionRecord(ctx, client, payload, cfg, baseURL, humanToken, canonicalCwd, link, conversation)
+	record, err := ensureAgentSessionRecord(ctx, client, payload, cfg, baseURL, humanToken, canonicalCwd, link, conversation, sessionMetadata)
 	if err != nil {
 		return sessionStartHookOutput{}, err
 	}
@@ -220,14 +223,14 @@ func initializeAgentSessionFromHook(ctx context.Context, client string, payload 
 	}
 
 	workspace := loadSessionStartWorkspace(ctx, baseURL, humanToken, record.ConversationWorkspaceID)
-	agent := loadSessionStartAgent(ctx, baseURL, humanToken, record.AgentID)
+	agent := syncSessionStartAgentMetadata(ctx, baseURL, humanToken, record.AgentID, sessionMetadata)
 
 	return sessionStartHookOutput{
-		AdditionalContext: buildSessionStartAdditionalContext(record, conversation, workspace, agent),
+		AdditionalContext: buildSessionStartAdditionalContext(record, conversation, workspace, agent, sessionMetadata),
 	}, nil
 }
 
-func ensureAgentSessionRecord(ctx context.Context, client string, payload sessionStartHookInput, cfg fileConfig, baseURL, humanToken, canonicalCwd string, link directoryLink, conversation api.Conversation) (agentSessionRecord, error) {
+func ensureAgentSessionRecord(ctx context.Context, client string, payload sessionStartHookInput, cfg fileConfig, baseURL, humanToken, canonicalCwd string, link directoryLink, conversation api.Conversation, sessionMetadata map[string]any) (agentSessionRecord, error) {
 	ownerType := "user"
 	ownerWorkspaceID := ""
 	if conversation.WorkspaceID != nil && strings.TrimSpace(*conversation.WorkspaceID) != "" {
@@ -243,7 +246,7 @@ func ensureAgentSessionRecord(ctx context.Context, client string, payload sessio
 
 	now := time.Now().UTC()
 	if !ok || !canReuseAgentSessionRecord(record, client, sessionID, cfg.UserID, baseURL, link, conversation, ownerType, ownerWorkspaceID) {
-		record, err = createAgentSessionRecord(ctx, client, sessionID, cfg.UserID, baseURL, humanToken, ownerType, ownerWorkspaceID)
+		record, err = createAgentSessionRecord(ctx, client, sessionID, cfg.UserID, baseURL, humanToken, ownerType, ownerWorkspaceID, sessionMetadata)
 		if err != nil {
 			return agentSessionRecord{}, err
 		}
@@ -308,13 +311,17 @@ func canReuseAgentSessionRecord(record agentSessionRecord, client, sessionID, us
 	return true
 }
 
-func createAgentSessionRecord(ctx context.Context, client, sessionID, userID, baseURL, humanToken, ownerType, ownerWorkspaceID string) (agentSessionRecord, error) {
+func createAgentSessionRecord(ctx context.Context, client, sessionID, userID, baseURL, humanToken, ownerType, ownerWorkspaceID string, sessionMetadata map[string]any) (agentSessionRecord, error) {
 	request := api.CreateAgentRequest{
 		OwnerType: ownerType,
 		Mode:      "safe_write",
 	}
 	if strings.TrimSpace(ownerWorkspaceID) != "" {
 		request.OwnerWorkspaceID = stringPtr(ownerWorkspaceID)
+	}
+	if len(sessionMetadata) > 0 {
+		metadata := mergedAgentMetadata(nil, sessionMetadata)
+		request.Metadata = &metadata
 	}
 
 	var response api.CreateAgentResponse
@@ -360,6 +367,18 @@ func getAgentForSessionStart(ctx context.Context, baseURL, authToken, agentID st
 	return agent, nil
 }
 
+func patchAgentForSessionStart(ctx context.Context, baseURL, authToken, agentID string, metadata map[string]any) (api.Agent, error) {
+	request := api.UpdateAgentRequest{
+		Metadata: &metadata,
+	}
+
+	var agent api.Agent
+	if err := doJSONRequest(ctx, "PATCH", fmt.Sprintf("%s/agents/%s", baseURL, strings.TrimSpace(agentID)), request, authToken, &agent); err != nil {
+		return api.Agent{}, err
+	}
+	return agent, nil
+}
+
 func addConversationParticipantsForSessionStart(ctx context.Context, baseURL, authToken, conversationID string, userIDs []string) error {
 	return doJSONRequest(ctx, "POST", fmt.Sprintf("%s/conversations/%s/participants", baseURL, strings.TrimSpace(conversationID)), api.AddParticipantsRequest{
 		UserIDs: userIDs,
@@ -390,7 +409,26 @@ func loadSessionStartAgent(ctx context.Context, baseURL, authToken, agentID stri
 	return &agent
 }
 
-func buildSessionStartAdditionalContext(record agentSessionRecord, conversation api.Conversation, workspace *api.Workspace, agent *api.Agent) string {
+func syncSessionStartAgentMetadata(ctx context.Context, baseURL, authToken, agentID string, sessionMetadata map[string]any) *api.Agent {
+	agent := loadSessionStartAgent(ctx, baseURL, authToken, agentID)
+	if agent == nil {
+		return nil
+	}
+
+	currentSessionMetadata, _ := agent.Metadata[sessionStartMetadataKey].(map[string]any)
+	if reflect.DeepEqual(currentSessionMetadata, sessionMetadata) {
+		return agent
+	}
+
+	mergedMetadata := mergedAgentMetadata(agent.Metadata, sessionMetadata)
+	patched, err := patchAgentForSessionStart(ctx, baseURL, authToken, agentID, mergedMetadata)
+	if err != nil {
+		return agent
+	}
+	return &patched
+}
+
+func buildSessionStartAdditionalContext(record agentSessionRecord, conversation api.Conversation, workspace *api.Workspace, agent *api.Agent, sessionMetadata map[string]any) string {
 	parts := []string{
 		fmt.Sprintf("Conversation ID: `%s`.", strings.TrimSpace(record.ConversationID)),
 	}
@@ -427,7 +465,59 @@ func buildSessionStartAdditionalContext(record agentSessionRecord, conversation 
 	}
 	parts = append(parts, "Agent profile: "+strings.Join(profileParts, ", ")+".")
 
+	renderedSessionMetadata := sessionMetadata
+	if agent != nil {
+		if agentSessionMetadata, ok := agent.Metadata[sessionStartMetadataKey].(map[string]any); ok && len(agentSessionMetadata) > 0 {
+			renderedSessionMetadata = agentSessionMetadata
+		}
+	}
+	sessionParts := []string{}
+	if sessionID, ok := renderedSessionMetadata["session_id"].(string); ok && strings.TrimSpace(sessionID) != "" {
+		sessionParts = append(sessionParts, fmt.Sprintf("session ID `%s`", strings.TrimSpace(sessionID)))
+	}
+	if client, ok := renderedSessionMetadata["client"].(string); ok && strings.TrimSpace(client) != "" {
+		sessionParts = append(sessionParts, fmt.Sprintf("client `%s`", strings.TrimSpace(client)))
+	}
+	if hostname, ok := renderedSessionMetadata["hostname"].(string); ok && strings.TrimSpace(hostname) != "" {
+		sessionParts = append(sessionParts, fmt.Sprintf("host `%s`", strings.TrimSpace(hostname)))
+	}
+	if cwd, ok := renderedSessionMetadata["cwd"].(string); ok && strings.TrimSpace(cwd) != "" {
+		sessionParts = append(sessionParts, fmt.Sprintf("cwd `%s`", strings.TrimSpace(cwd)))
+	}
+	if len(sessionParts) > 0 {
+		parts = append(parts, "Agent metadata: "+strings.Join(sessionParts, ", ")+".")
+	}
+
 	return strings.Join(parts, " ")
+}
+
+func buildSessionStartAgentMetadata(client string, payload sessionStartHookInput, canonicalCwd string) map[string]any {
+	metadata := map[string]any{
+		"client":     strings.TrimSpace(client),
+		"session_id": strings.TrimSpace(payload.SessionID),
+	}
+	if hostname, err := os.Hostname(); err == nil {
+		if hostname = strings.TrimSpace(hostname); hostname != "" {
+			metadata["hostname"] = hostname
+		}
+	}
+	if cwd := strings.TrimSpace(canonicalCwd); cwd != "" {
+		metadata["cwd"] = cwd
+	}
+	return metadata
+}
+
+func mergedAgentMetadata(existingMetadata map[string]any, sessionMetadata map[string]any) map[string]any {
+	merged := map[string]any{}
+	for key, value := range existingMetadata {
+		merged[key] = value
+	}
+	sessionMetadataCopy := map[string]any{}
+	for key, value := range sessionMetadata {
+		sessionMetadataCopy[key] = value
+	}
+	merged[sessionStartMetadataKey] = sessionMetadataCopy
+	return merged
 }
 
 func optionalStringValue(value *string) string {

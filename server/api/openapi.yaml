@@ -1280,6 +1280,11 @@ components:
             - read_only
             - safe_write
           description: Effective write mode for API-key-authenticated agent actions.
+        metadata:
+          type: object
+          nullable: true
+          additionalProperties: true
+          description: Optional opaque JSON metadata for app-owned or runtime-owned agent context.
         created_by_user_id:
           type: string
           format: uuid
@@ -1365,6 +1370,11 @@ components:
           type: string
           nullable: true
           description: Optional profile bio.
+        metadata:
+          type: object
+          nullable: true
+          additionalProperties: true
+          description: Optional opaque JSON metadata to store on the agent.
         owner_type:
           type: string
           enum:
@@ -1401,6 +1411,11 @@ components:
           type: string
           nullable: true
           description: Updated bio or null to clear it.
+        metadata:
+          type: object
+          nullable: true
+          additionalProperties: true
+          description: Replacement opaque JSON metadata for the agent.
         mode:
           type: string
           enum:

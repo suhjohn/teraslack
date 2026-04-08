@@ -5,7 +5,7 @@ join user_profiles p on p.user_id = u.id
 where u.id = $1;
 
 -- name: GetAgent :one
-select user_id, owner_user_id, owner_workspace_id, mode, created_by_user_id, created_at, updated_at
+select user_id, owner_user_id, owner_workspace_id, mode, metadata, created_by_user_id, created_at, updated_at
 from agents
 where user_id = $1;
 
@@ -15,6 +15,7 @@ select
   a.owner_user_id,
   a.owner_workspace_id,
   a.mode,
+  a.metadata,
   a.created_by_user_id,
   a.created_at,
   a.updated_at,

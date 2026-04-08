@@ -74,6 +74,7 @@ type agentRow struct {
 	OwnerUserID      *uuid.UUID
 	OwnerWorkspaceID *uuid.UUID
 	Mode             string
+	Metadata         map[string]any
 	CreatedByUserID  uuid.UUID
 	CreatedAt        time.Time
 	UpdatedAt        time.Time
@@ -308,11 +309,16 @@ func (s *Server) loadAgent(ctx context.Context, userID uuid.UUID) (agentRow, err
 	if err != nil {
 		return agentRow{}, err
 	}
+	var metadata []byte
+	if row.Metadata != nil {
+		metadata = append(metadata, (*row.Metadata)...)
+	}
 	return agentRow{
 		UserID:           row.UserID,
 		OwnerUserID:      row.OwnerUserID,
 		OwnerWorkspaceID: row.OwnerWorkspaceID,
 		Mode:             row.Mode,
+		Metadata:         readJSONMap(metadata),
 		CreatedByUserID:  row.CreatedByUserID,
 		CreatedAt:        dbsqlc.TimeValue(row.CreatedAt),
 		UpdatedAt:        dbsqlc.TimeValue(row.UpdatedAt),
@@ -919,6 +925,7 @@ func agentToAPI(user userRow, agent agentRow) api.Agent {
 		OwnerUserID:      uuidPtrToStringPtr(agent.OwnerUserID),
 		OwnerWorkspaceID: uuidPtrToStringPtr(agent.OwnerWorkspaceID),
 		Mode:             agent.Mode,
+		Metadata:         agent.Metadata,
 		CreatedByUserID:  agent.CreatedByUserID.String(),
 		CreatedAt:        agent.CreatedAt.Format(time.RFC3339),
 		UpdatedAt:        agent.UpdatedAt.Format(time.RFC3339),

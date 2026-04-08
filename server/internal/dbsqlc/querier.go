@@ -47,7 +47,7 @@ type Querier interface {
 	GetActiveAgentAPIKeyForUpdate(ctx context.Context, agentUserID uuid.UUID) (GetActiveAgentAPIKeyForUpdateRow, error)
 	GetActiveConversationInvite(ctx context.Context, conversationID uuid.UUID) (GetActiveConversationInviteRow, error)
 	GetActiveConversationInviteForUpdate(ctx context.Context, conversationID uuid.UUID) (GetActiveConversationInviteForUpdateRow, error)
-	GetAgent(ctx context.Context, userID uuid.UUID) (Agent, error)
+	GetAgent(ctx context.Context, userID uuid.UUID) (GetAgentRow, error)
 	GetAgentAPIKeyAuthByTokenHash(ctx context.Context, tokenHash string) (GetAgentAPIKeyAuthByTokenHashRow, error)
 	GetCheckpointForUpdate(ctx context.Context, name string) (int64, error)
 	GetConversation(ctx context.Context, id uuid.UUID) (GetConversationRow, error)

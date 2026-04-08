@@ -964,6 +964,96 @@ func TestSPECWorkflows_AgentCreationGeneratesDisplayName(t *testing.T) {
 	}
 }
 
+func TestSPECWorkflows_AgentMetadataRoundTripsThroughAPI(t *testing.T) {
+	h := newWorkflowHarness(t)
+	alpha := h.loginUser(t, "alpha@example.com")
+
+	createMetadata := map[string]any{
+		"role":       "session-agent",
+		"session_id": "session-123",
+	}
+	created := mustJSON[api.CreateAgentResponse](
+		t,
+		h,
+		http.MethodPost,
+		"/agents",
+		alpha.Token,
+		api.CreateAgentRequest{
+			OwnerType: "user",
+			Metadata:  &createMetadata,
+		},
+		http.StatusCreated,
+	)
+	if created.Agent.Metadata["role"] != "session-agent" {
+		t.Fatalf("created agent metadata role = %#v", created.Agent.Metadata["role"])
+	}
+	if created.Agent.Metadata["session_id"] != "session-123" {
+		t.Fatalf("created agent metadata session_id = %#v", created.Agent.Metadata["session_id"])
+	}
+
+	listed := mustJSON[api.CollectionResponse[api.Agent]](
+		t,
+		h,
+		http.MethodGet,
+		"/agents",
+		alpha.Token,
+		nil,
+		http.StatusOK,
+	)
+	var listedAgent *api.Agent
+	for idx := range listed.Items {
+		if listed.Items[idx].User.ID == created.Agent.User.ID {
+			listedAgent = &listed.Items[idx]
+			break
+		}
+	}
+	if listedAgent == nil {
+		t.Fatalf("list agents did not include %s", created.Agent.User.ID)
+	}
+	if listedAgent.Metadata["session_id"] != "session-123" {
+		t.Fatalf("listed agent metadata session_id = %#v", listedAgent.Metadata["session_id"])
+	}
+
+	updateMetadata := map[string]any{
+		"role":       "session-agent",
+		"session_id": "session-456",
+		"shell":      "zsh",
+	}
+	updated := mustJSON[api.Agent](
+		t,
+		h,
+		http.MethodPatch,
+		"/agents/"+created.Agent.User.ID,
+		alpha.Token,
+		api.UpdateAgentRequest{
+			Metadata: &updateMetadata,
+		},
+		http.StatusOK,
+	)
+	if updated.Metadata["session_id"] != "session-456" {
+		t.Fatalf("updated agent metadata session_id = %#v", updated.Metadata["session_id"])
+	}
+	if updated.Metadata["shell"] != "zsh" {
+		t.Fatalf("updated agent metadata shell = %#v", updated.Metadata["shell"])
+	}
+
+	fetched := mustJSON[api.Agent](
+		t,
+		h,
+		http.MethodGet,
+		"/agents/"+created.Agent.User.ID,
+		alpha.Token,
+		nil,
+		http.StatusOK,
+	)
+	if fetched.Metadata["session_id"] != "session-456" {
+		t.Fatalf("fetched agent metadata session_id = %#v", fetched.Metadata["session_id"])
+	}
+	if fetched.Metadata["shell"] != "zsh" {
+		t.Fatalf("fetched agent metadata shell = %#v", fetched.Metadata["shell"])
+	}
+}
+
 func TestSPECWorkflows_AgentAPIKeyRotationRevokesPreviousToken(t *testing.T) {
 	h := newWorkflowHarness(t)
 	alpha := h.loginUser(t, "alpha@example.com")

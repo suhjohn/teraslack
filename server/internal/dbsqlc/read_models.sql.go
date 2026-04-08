@@ -7,6 +7,7 @@ package dbsqlc
 
 import (
 	"context"
+	"encoding/json"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -46,19 +47,31 @@ func (q *Queries) CountActiveWorkspaceMembersByIDs(ctx context.Context, arg Coun
 }
 
 const getAgent = `-- name: GetAgent :one
-select user_id, owner_user_id, owner_workspace_id, mode, created_by_user_id, created_at, updated_at
+select user_id, owner_user_id, owner_workspace_id, mode, metadata, created_by_user_id, created_at, updated_at
 from agents
 where user_id = $1
 `
 
-func (q *Queries) GetAgent(ctx context.Context, userID uuid.UUID) (Agent, error) {
+type GetAgentRow struct {
+	UserID           uuid.UUID          `json:"user_id"`
+	OwnerUserID      *uuid.UUID         `json:"owner_user_id"`
+	OwnerWorkspaceID *uuid.UUID         `json:"owner_workspace_id"`
+	Mode             string             `json:"mode"`
+	Metadata         *json.RawMessage   `json:"metadata"`
+	CreatedByUserID  uuid.UUID          `json:"created_by_user_id"`
+	CreatedAt        pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt        pgtype.Timestamptz `json:"updated_at"`
+}
+
+func (q *Queries) GetAgent(ctx context.Context, userID uuid.UUID) (GetAgentRow, error) {
 	row := q.db.QueryRow(ctx, getAgent, userID)
-	var i Agent
+	var i GetAgentRow
 	err := row.Scan(
 		&i.UserID,
 		&i.OwnerUserID,
 		&i.OwnerWorkspaceID,
 		&i.Mode,
+		&i.Metadata,
 		&i.CreatedByUserID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
@@ -262,6 +275,7 @@ select
   a.owner_user_id,
   a.owner_workspace_id,
   a.mode,
+  a.metadata,
   a.created_by_user_id,
   a.created_at,
   a.updated_at,
@@ -294,6 +308,7 @@ type ListAgentsManagedByUserRow struct {
 	OwnerUserID      *uuid.UUID         `json:"owner_user_id"`
 	OwnerWorkspaceID *uuid.UUID         `json:"owner_workspace_id"`
 	Mode             string             `json:"mode"`
+	Metadata         *json.RawMessage   `json:"metadata"`
 	CreatedByUserID  uuid.UUID          `json:"created_by_user_id"`
 	CreatedAt        pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt        pgtype.Timestamptz `json:"updated_at"`
@@ -321,6 +336,7 @@ func (q *Queries) ListAgentsManagedByUser(ctx context.Context, ownerUserID *uuid
 			&i.OwnerUserID,
 			&i.OwnerWorkspaceID,
 			&i.Mode,
+			&i.Metadata,
 			&i.CreatedByUserID,
 			&i.CreatedAt,
 			&i.UpdatedAt,
