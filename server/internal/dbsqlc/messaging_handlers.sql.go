@@ -505,23 +505,25 @@ func (q *Queries) GetEventSubscriptionWorkspaceForOwnerForUpdate(ctx context.Con
 }
 
 const listConversationParticipants = `-- name: ListConversationParticipants :many
-select u.id, u.principal_type, u.status, u.email, p.handle, p.display_name, p.avatar_url, p.bio
+select u.id, u.principal_type, u.status, u.email, p.handle, p.display_name, p.avatar_url, p.bio, a.metadata
 from conversation_participants cp
 join users u on u.id = cp.user_id
 join user_profiles p on p.user_id = u.id
+left join agents a on a.user_id = u.id
 where cp.conversation_id = $1
 order by p.display_name asc
 `
 
 type ListConversationParticipantsRow struct {
-	ID            uuid.UUID `json:"id"`
-	PrincipalType string    `json:"principal_type"`
-	Status        string    `json:"status"`
-	Email         *string   `json:"email"`
-	Handle        string    `json:"handle"`
-	DisplayName   string    `json:"display_name"`
-	AvatarUrl     *string   `json:"avatar_url"`
-	Bio           *string   `json:"bio"`
+	ID            uuid.UUID        `json:"id"`
+	PrincipalType string           `json:"principal_type"`
+	Status        string           `json:"status"`
+	Email         *string          `json:"email"`
+	Handle        string           `json:"handle"`
+	DisplayName   string           `json:"display_name"`
+	AvatarUrl     *string          `json:"avatar_url"`
+	Bio           *string          `json:"bio"`
+	Metadata      *json.RawMessage `json:"metadata"`
 }
 
 func (q *Queries) ListConversationParticipants(ctx context.Context, conversationID uuid.UUID) ([]ListConversationParticipantsRow, error) {
@@ -542,6 +544,7 @@ func (q *Queries) ListConversationParticipants(ctx context.Context, conversation
 			&i.DisplayName,
 			&i.AvatarUrl,
 			&i.Bio,
+			&i.Metadata,
 		); err != nil {
 			return nil, err
 		}

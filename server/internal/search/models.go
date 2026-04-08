@@ -75,6 +75,7 @@ type userRow struct {
 	PrincipalType string
 	Status        string
 	Email         *string
+	Metadata      map[string]any
 	Handle        string
 	DisplayName   string
 	AvatarURL     *string

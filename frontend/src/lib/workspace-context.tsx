@@ -8,8 +8,10 @@ import type {
 } from './openapi'
 
 export type WorkspaceAppContextValue = {
-  auth: AuthMeResponse
+  auth: AuthMeResponse | null
+  authPending: boolean
   workspaces: Workspace[]
+  workspacesPending: boolean
   preferredWorkspaceID: string
   selectWorkspace: (workspaceID: string) => Promise<void>
   logout: () => Promise<void>
@@ -52,6 +54,18 @@ export function useWorkspaceApp() {
   }
 
   return context
+}
+
+export function useReadyWorkspaceApp() {
+  const context = useWorkspaceApp()
+  if (context.auth == null) {
+    throw new Error('useReadyWorkspaceApp requires an active workspace session')
+  }
+
+  return {
+    ...context,
+    auth: context.auth,
+  }
 }
 
 export function useWorkspaceRoute() {

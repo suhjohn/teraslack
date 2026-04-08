@@ -1244,6 +1244,11 @@ components:
           format: email
           nullable: true
           description: Primary email address when available.
+        metadata:
+          type: object
+          nullable: true
+          additionalProperties: true
+          description: Optional agent metadata when the user record is backed by an agent principal.
         profile:
           $ref: '#/components/schemas/UserProfile'
     Agent:

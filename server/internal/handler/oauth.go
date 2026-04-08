@@ -324,11 +324,16 @@ func (s *Server) resolveOrCreateOAuthUserTx(ctx context.Context, tx pgx.Tx, prov
 		ProviderUserID: providerUserID,
 	})
 	if err == nil {
+		var metadata []byte
+		if row.Metadata != nil {
+			metadata = append(metadata, (*row.Metadata)...)
+		}
 		return userRow{
 			ID:            row.ID,
 			PrincipalType: row.PrincipalType,
 			Status:        row.Status,
 			Email:         row.Email,
+			Metadata:      readJSONMap(metadata),
 			Handle:        row.Handle,
 			DisplayName:   row.DisplayName,
 			AvatarURL:     row.AvatarUrl,

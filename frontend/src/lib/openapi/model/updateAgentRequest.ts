@@ -5,6 +5,7 @@
  * Canonical HTTP API contract for the Teraslack server.
  * OpenAPI spec version: 0.1.0
  */
+import type { UpdateAgentRequestMetadata } from './updateAgentRequestMetadata';
 import type { UpdateAgentRequestMode } from './updateAgentRequestMode';
 import type { UpdateAgentRequestStatus } from './updateAgentRequestStatus';
 
@@ -23,6 +24,11 @@ export interface UpdateAgentRequest {
      * @nullable
      */
   bio?: string | null;
+  /**
+     * Replacement opaque JSON metadata for the agent.
+     * @nullable
+     */
+  metadata?: UpdateAgentRequestMetadata;
   /** Updated write mode. */
   mode?: UpdateAgentRequestMode;
   /** Updated user status for the agent. */

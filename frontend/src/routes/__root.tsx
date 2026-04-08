@@ -97,7 +97,7 @@ function RootDocument({ children }: { children: ReactNode }) {
         <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
         <HeadContent />
       </head>
-      <body className="font-sans antialiased [overflow-wrap:anywhere] selection:bg-[rgba(0,0,0,0.12)]">
+      <body className="font-sans antialiased [overflow-wrap:anywhere]">
         {children}
         {import.meta.env.DEV ? (
           <TanStackDevtools

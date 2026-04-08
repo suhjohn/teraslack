@@ -575,21 +575,23 @@ func (q *Queries) GetEmailLoginChallengeForVerification(ctx context.Context, arg
 }
 
 const getUserByEmail = `-- name: GetUserByEmail :one
-select u.id, u.principal_type, u.status, u.email, p.handle, p.display_name, p.avatar_url, p.bio
+select u.id, u.principal_type, u.status, u.email, p.handle, p.display_name, p.avatar_url, p.bio, a.metadata
 from users u
 join user_profiles p on p.user_id = u.id
+left join agents a on a.user_id = u.id
 where u.email = $1
 `
 
 type GetUserByEmailRow struct {
-	ID            uuid.UUID `json:"id"`
-	PrincipalType string    `json:"principal_type"`
-	Status        string    `json:"status"`
-	Email         *string   `json:"email"`
-	Handle        string    `json:"handle"`
-	DisplayName   string    `json:"display_name"`
-	AvatarUrl     *string   `json:"avatar_url"`
-	Bio           *string   `json:"bio"`
+	ID            uuid.UUID        `json:"id"`
+	PrincipalType string           `json:"principal_type"`
+	Status        string           `json:"status"`
+	Email         *string          `json:"email"`
+	Handle        string           `json:"handle"`
+	DisplayName   string           `json:"display_name"`
+	AvatarUrl     *string          `json:"avatar_url"`
+	Bio           *string          `json:"bio"`
+	Metadata      *json.RawMessage `json:"metadata"`
 }
 
 func (q *Queries) GetUserByEmail(ctx context.Context, email *string) (GetUserByEmailRow, error) {
@@ -604,6 +606,7 @@ func (q *Queries) GetUserByEmail(ctx context.Context, email *string) (GetUserByE
 		&i.DisplayName,
 		&i.AvatarUrl,
 		&i.Bio,
+		&i.Metadata,
 	)
 	return i, err
 }
@@ -755,27 +758,29 @@ func (q *Queries) ListActiveWorkspacesByUser(ctx context.Context, userID uuid.UU
 
 const listWorkspaceMembers = `-- name: ListWorkspaceMembers :many
 select wm.workspace_id, wm.user_id, wm.role, wm.status,
-       u.id, u.principal_type, u.status, u.email, p.handle, p.display_name, p.avatar_url, p.bio
+       u.id, u.principal_type, u.status, u.email, p.handle, p.display_name, p.avatar_url, p.bio, a.metadata
 from workspace_memberships wm
 join users u on u.id = wm.user_id
 join user_profiles p on p.user_id = u.id
+left join agents a on a.user_id = u.id
 where wm.workspace_id = $1
 order by p.display_name asc
 `
 
 type ListWorkspaceMembersRow struct {
-	WorkspaceID   uuid.UUID `json:"workspace_id"`
-	UserID        uuid.UUID `json:"user_id"`
-	Role          string    `json:"role"`
-	Status        string    `json:"status"`
-	ID            uuid.UUID `json:"id"`
-	PrincipalType string    `json:"principal_type"`
-	Status_2      string    `json:"status_2"`
-	Email         *string   `json:"email"`
-	Handle        string    `json:"handle"`
-	DisplayName   string    `json:"display_name"`
-	AvatarUrl     *string   `json:"avatar_url"`
-	Bio           *string   `json:"bio"`
+	WorkspaceID   uuid.UUID        `json:"workspace_id"`
+	UserID        uuid.UUID        `json:"user_id"`
+	Role          string           `json:"role"`
+	Status        string           `json:"status"`
+	ID            uuid.UUID        `json:"id"`
+	PrincipalType string           `json:"principal_type"`
+	Status_2      string           `json:"status_2"`
+	Email         *string          `json:"email"`
+	Handle        string           `json:"handle"`
+	DisplayName   string           `json:"display_name"`
+	AvatarUrl     *string          `json:"avatar_url"`
+	Bio           *string          `json:"bio"`
+	Metadata      *json.RawMessage `json:"metadata"`
 }
 
 func (q *Queries) ListWorkspaceMembers(ctx context.Context, workspaceID uuid.UUID) ([]ListWorkspaceMembersRow, error) {
@@ -800,6 +805,7 @@ func (q *Queries) ListWorkspaceMembers(ctx context.Context, workspaceID uuid.UUI
 			&i.DisplayName,
 			&i.AvatarUrl,
 			&i.Bio,
+			&i.Metadata,
 		); err != nil {
 			return nil, err
 		}

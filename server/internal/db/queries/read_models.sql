@@ -1,7 +1,8 @@
 -- name: GetUser :one
-select u.id, u.principal_type, u.status, u.email, p.handle, p.display_name, p.avatar_url, p.bio
+select u.id, u.principal_type, u.status, u.email, p.handle, p.display_name, p.avatar_url, p.bio, a.metadata
 from users u
 join user_profiles p on p.user_id = u.id
+left join agents a on a.user_id = u.id
 where u.id = $1;
 
 -- name: GetAgent :one

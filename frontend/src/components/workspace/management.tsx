@@ -17,7 +17,10 @@ import { FormField } from '../ui/form-field'
 import { Input } from '../ui/input'
 import { Select } from '../ui/select'
 import { getErrorMessage } from '../../lib/admin'
-import { useWorkspaceApp } from '../../lib/workspace-context'
+import {
+  useReadyWorkspaceApp,
+  useWorkspaceApp
+} from '../../lib/workspace-context'
 import {
   ConversationAccessPolicy,
   CreateConversationRequestAccessPolicy,
@@ -357,7 +360,7 @@ export function CreateChannelDialogButton({
 }) {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
-  const { auth } = useWorkspaceApp()
+  const { auth } = useReadyWorkspaceApp()
   const createConversationMutation = useCreateConversation()
 
   const [open, setOpen] = useState(false)
@@ -905,6 +908,76 @@ export function CreateConversationShareLinkDialogButton({
   )
 }
 
+export function ConversationArchiveButton({
+  conversation,
+  children,
+  className,
+  title,
+  variant,
+  size = 'sm',
+}: {
+  conversation: Conversation
+  children?: ReactNode
+  className?: string
+  title?: string
+  variant?: TriggerVariant
+  size?: TriggerSize
+}) {
+  const queryClient = useQueryClient()
+  const updateConversationMutation = useUpdateConversation()
+  const [error, setError] = useState('')
+
+  async function handleArchiveToggle() {
+    setError('')
+
+    try {
+      const updated = unwrapData<Conversation>(
+        await updateConversationMutation.mutateAsync({
+          conversationId: conversation.id,
+          data: {
+            archived: !conversation.archived,
+          },
+        }),
+      )
+
+      queryClient.setQueryData(getGetConversationQueryKey(updated.id), updated)
+      replaceConversationInCachedLists(queryClient, updated)
+      void queryClient.invalidateQueries({ queryKey: ['/conversations'] })
+    } catch (updateError) {
+      setError(
+        getErrorMessage(
+          updateError,
+          conversation.archived
+            ? 'Failed to restore conversation.'
+            : 'Failed to archive conversation.',
+        ),
+      )
+    }
+  }
+
+  return (
+    <div className="space-y-2">
+      <Button
+        variant={variant ?? (conversation.archived ? 'outline' : 'destructive')}
+        size={size}
+        className={className}
+        title={title}
+        onClick={() => void handleArchiveToggle()}
+        disabled={updateConversationMutation.isPending}
+      >
+        {updateConversationMutation.isPending
+          ? conversation.archived
+            ? 'Restoring…'
+            : 'Archiving…'
+          : (children ??
+            (conversation.archived ? 'Restore conversation' : 'Archive conversation'))}
+      </Button>
+
+      {error ? <Alert variant="destructive">{error}</Alert> : null}
+    </div>
+  )
+}
+
 export function ManageConversationDialogButton({
   workspaceID,
   conversation,
@@ -1077,12 +1150,12 @@ function normalizeWorkspaceSlug(value: string) {
     .replace(/^-+|-+$/g, '')
 }
 
-function unwrapData<T>(value: { data: T } | T) {
+function unwrapData<T>(value: unknown): T {
   if (value && typeof value === 'object' && 'data' in value) {
-    return value.data
+    return value.data as T
   }
 
-  return value
+  return value as T
 }
 
 function upsertConversationList(
@@ -1101,6 +1174,29 @@ function upsertConversationList(
   )
 }
 
+function replaceConversationInCachedLists(
+  queryClient: ReturnType<typeof useQueryClient>,
+  conversation: Conversation,
+) {
+  queryClient.setQueriesData<ConversationsCollection>(
+    { queryKey: getListConversationsQueryKey() },
+    (current) => {
+      if (!current) {
+        return current
+      }
+
+      return {
+        ...current,
+        items: sortConversations(
+          current.items.map((item) =>
+            item.id === conversation.id ? conversation : item,
+          ),
+        ),
+      }
+    },
+  )
+}
+
 function upsertWorkspaceConversation(
   queryClient: ReturnType<typeof useQueryClient>,
   workspaceID: string,
@@ -1114,15 +1210,9 @@ function upsertWorkspaceConversation(
 }
 
 function getConversationVisibilityLabel(conversation: Conversation) {
-  if (conversation.access_policy === CreateConversationRequestAccessPolicy.members) {
-    return 'Private room'
-  }
-
-  if (conversation.access_policy === CreateConversationRequestAccessPolicy.workspace) {
-    return 'Workspace room'
-  }
-
-  return 'Room'
+  return conversation.access_policy === CreateConversationRequestAccessPolicy.members
+    ? 'Private room'
+    : 'Workspace room'
 }
 
 function getConversationShareURL(shareLink: ConversationShareLink) {

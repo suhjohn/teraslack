@@ -5,6 +5,7 @@
  * Canonical HTTP API contract for the Teraslack server.
  * OpenAPI spec version: 0.1.0
  */
+import type { AgentMetadata } from './agentMetadata';
 import type { AgentMode } from './agentMode';
 import type { AgentOwnerType } from './agentOwnerType';
 import type { User } from './user';
@@ -25,6 +26,11 @@ export interface Agent {
   owner_workspace_id?: string | null;
   /** Effective write mode for API-key-authenticated agent actions. */
   mode: AgentMode;
+  /**
+     * Optional opaque JSON metadata for app-owned or runtime-owned agent context.
+     * @nullable
+     */
+  metadata?: AgentMetadata;
   /** User who created the agent. */
   created_by_user_id: string;
   /** Creation time. */

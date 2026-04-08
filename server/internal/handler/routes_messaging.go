@@ -444,11 +444,16 @@ func (s *Server) handleListConversationParticipants(w http.ResponseWriter, r *ht
 	}
 	items := make([]api.User, 0)
 	for _, row := range rows {
+		var metadata []byte
+		if row.Metadata != nil {
+			metadata = append(metadata, (*row.Metadata)...)
+		}
 		items = append(items, userToAPI(userRow{
 			ID:            row.ID,
 			PrincipalType: row.PrincipalType,
 			Status:        row.Status,
 			Email:         row.Email,
+			Metadata:      readJSONMap(metadata),
 			Handle:        row.Handle,
 			DisplayName:   row.DisplayName,
 			AvatarURL:     row.AvatarUrl,

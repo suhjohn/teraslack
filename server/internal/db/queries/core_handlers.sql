@@ -170,10 +170,11 @@ where id = sqlc.arg(id);
 
 -- name: ListWorkspaceMembers :many
 select wm.workspace_id, wm.user_id, wm.role, wm.status,
-       u.id, u.principal_type, u.status, u.email, p.handle, p.display_name, p.avatar_url, p.bio
+       u.id, u.principal_type, u.status, u.email, p.handle, p.display_name, p.avatar_url, p.bio, a.metadata
 from workspace_memberships wm
 join users u on u.id = wm.user_id
 join user_profiles p on p.user_id = u.id
+left join agents a on a.user_id = u.id
 where wm.workspace_id = sqlc.arg(workspace_id)
 order by p.display_name asc;
 
@@ -257,9 +258,10 @@ values (
 );
 
 -- name: GetUserByEmail :one
-select u.id, u.principal_type, u.status, u.email, p.handle, p.display_name, p.avatar_url, p.bio
+select u.id, u.principal_type, u.status, u.email, p.handle, p.display_name, p.avatar_url, p.bio, a.metadata
 from users u
 join user_profiles p on p.user_id = u.id
+left join agents a on a.user_id = u.id
 where u.email = sqlc.arg(email);
 
 -- name: CreateUser :exec

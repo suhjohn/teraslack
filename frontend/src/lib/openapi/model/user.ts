@@ -5,6 +5,7 @@
  * Canonical HTTP API contract for the Teraslack server.
  * OpenAPI spec version: 0.1.0
  */
+import type { UserMetadata } from './userMetadata';
 import type { UserProfile } from './userProfile';
 
 export interface User {
@@ -19,5 +20,10 @@ export interface User {
      * @nullable
      */
   email?: string | null;
+  /**
+     * Optional agent metadata when the user record is backed by an agent principal.
+     * @nullable
+     */
+  metadata?: UserMetadata;
   profile: UserProfile;
 }

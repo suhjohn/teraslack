@@ -63,6 +63,7 @@ type userRow struct {
 	PrincipalType string
 	Status        string
 	Email         *string
+	Metadata      map[string]any
 	Handle        string
 	DisplayName   string
 	AvatarURL     *string
@@ -292,11 +293,16 @@ func (s *Server) loadUser(ctx context.Context, userID uuid.UUID) (userRow, error
 	if err != nil {
 		return userRow{}, err
 	}
+	var metadata []byte
+	if row.Metadata != nil {
+		metadata = append(metadata, (*row.Metadata)...)
+	}
 	return userRow{
 		ID:            row.ID,
 		PrincipalType: row.PrincipalType,
 		Status:        row.Status,
 		Email:         row.Email,
+		Metadata:      readJSONMap(metadata),
 		Handle:        row.Handle,
 		DisplayName:   row.DisplayName,
 		AvatarURL:     row.AvatarUrl,
@@ -902,6 +908,7 @@ func userToAPI(row userRow) api.User {
 		PrincipalType: row.PrincipalType,
 		Status:        row.Status,
 		Email:         row.Email,
+		Metadata:      row.Metadata,
 		Profile: api.UserProfile{
 			Handle:      row.Handle,
 			DisplayName: row.DisplayName,
@@ -919,8 +926,10 @@ func agentOwnerType(row agentRow) string {
 }
 
 func agentToAPI(user userRow, agent agentRow) api.Agent {
+	apiUser := userToAPI(user)
+	apiUser.Metadata = nil
 	return api.Agent{
-		User:             userToAPI(user),
+		User:             apiUser,
 		OwnerType:        agentOwnerType(agent),
 		OwnerUserID:      uuidPtrToStringPtr(agent.OwnerUserID),
 		OwnerWorkspaceID: uuidPtrToStringPtr(agent.OwnerWorkspaceID),

@@ -5,6 +5,7 @@
  * Canonical HTTP API contract for the Teraslack server.
  * OpenAPI spec version: 0.1.0
  */
+import type { CreateAgentRequestMetadata } from './createAgentRequestMetadata';
 import type { CreateAgentRequestMode } from './createAgentRequestMode';
 import type { CreateAgentRequestOwnerType } from './createAgentRequestOwnerType';
 
@@ -26,6 +27,11 @@ export interface CreateAgentRequest {
      * @nullable
      */
   bio?: string | null;
+  /**
+     * Optional opaque JSON metadata to store on the agent.
+     * @nullable
+     */
+  metadata?: CreateAgentRequestMetadata;
   /** Ownership model for the new agent. */
   owner_type: CreateAgentRequestOwnerType;
   /**

@@ -7,6 +7,7 @@ package dbsqlc
 
 import (
 	"context"
+	"encoding/json"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -82,10 +83,11 @@ func (q *Queries) GetOAuthStateByHash(ctx context.Context, arg GetOAuthStateByHa
 }
 
 const getUserByOAuthAccount = `-- name: GetUserByOAuthAccount :one
-select u.id, u.principal_type, u.status, u.email, p.handle, p.display_name, p.avatar_url, p.bio
+select u.id, u.principal_type, u.status, u.email, p.handle, p.display_name, p.avatar_url, p.bio, a.metadata
 from oauth_accounts oa
 join users u on u.id = oa.user_id
 join user_profiles p on p.user_id = u.id
+left join agents a on a.user_id = u.id
 where oa.provider = $1
   and oa.provider_user_id = $2
 `
@@ -96,14 +98,15 @@ type GetUserByOAuthAccountParams struct {
 }
 
 type GetUserByOAuthAccountRow struct {
-	ID            uuid.UUID `json:"id"`
-	PrincipalType string    `json:"principal_type"`
-	Status        string    `json:"status"`
-	Email         *string   `json:"email"`
-	Handle        string    `json:"handle"`
-	DisplayName   string    `json:"display_name"`
-	AvatarUrl     *string   `json:"avatar_url"`
-	Bio           *string   `json:"bio"`
+	ID            uuid.UUID        `json:"id"`
+	PrincipalType string           `json:"principal_type"`
+	Status        string           `json:"status"`
+	Email         *string          `json:"email"`
+	Handle        string           `json:"handle"`
+	DisplayName   string           `json:"display_name"`
+	AvatarUrl     *string          `json:"avatar_url"`
+	Bio           *string          `json:"bio"`
+	Metadata      *json.RawMessage `json:"metadata"`
 }
 
 func (q *Queries) GetUserByOAuthAccount(ctx context.Context, arg GetUserByOAuthAccountParams) (GetUserByOAuthAccountRow, error) {
@@ -118,6 +121,7 @@ func (q *Queries) GetUserByOAuthAccount(ctx context.Context, arg GetUserByOAuthA
 		&i.DisplayName,
 		&i.AvatarUrl,
 		&i.Bio,
+		&i.Metadata,
 	)
 	return i, err
 }

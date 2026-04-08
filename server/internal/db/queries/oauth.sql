@@ -21,10 +21,11 @@ delete from oauth_states
 where id = sqlc.arg(id);
 
 -- name: GetUserByOAuthAccount :one
-select u.id, u.principal_type, u.status, u.email, p.handle, p.display_name, p.avatar_url, p.bio
+select u.id, u.principal_type, u.status, u.email, p.handle, p.display_name, p.avatar_url, p.bio, a.metadata
 from oauth_accounts oa
 join users u on u.id = oa.user_id
 join user_profiles p on p.user_id = u.id
+left join agents a on a.user_id = u.id
 where oa.provider = sqlc.arg(provider)
   and oa.provider_user_id = sqlc.arg(provider_user_id);
 

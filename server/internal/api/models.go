@@ -31,11 +31,12 @@ type UserProfile struct {
 }
 
 type User struct {
-	ID            string      `json:"id"`
-	PrincipalType string      `json:"principal_type"`
-	Status        string      `json:"status"`
-	Email         *string     `json:"email,omitempty"`
-	Profile       UserProfile `json:"profile"`
+	ID            string         `json:"id"`
+	PrincipalType string         `json:"principal_type"`
+	Status        string         `json:"status"`
+	Email         *string        `json:"email,omitempty"`
+	Metadata      map[string]any `json:"metadata,omitempty"`
+	Profile       UserProfile    `json:"profile"`
 }
 
 type WorkspaceMembershipSummary struct {

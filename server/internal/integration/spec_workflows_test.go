@@ -1054,6 +1054,68 @@ func TestSPECWorkflows_AgentMetadataRoundTripsThroughAPI(t *testing.T) {
 	}
 }
 
+func TestSPECWorkflows_ConversationParticipantsIncludeAgentMetadata(t *testing.T) {
+	h := newWorkflowHarness(t)
+	alpha := h.loginUser(t, "alpha@example.com")
+
+	createMetadata := map[string]any{
+		"role":       "session-agent",
+		"session_id": "session-789",
+	}
+	created := mustJSON[api.CreateAgentResponse](
+		t,
+		h,
+		http.MethodPost,
+		"/agents",
+		alpha.Token,
+		api.CreateAgentRequest{
+			OwnerType: "user",
+			Metadata:  &createMetadata,
+		},
+		http.StatusCreated,
+	)
+
+	conversation := mustJSON[api.Conversation](
+		t,
+		h,
+		http.MethodPost,
+		"/conversations",
+		alpha.Token,
+		api.CreateConversationRequest{
+			AccessPolicy:       "members",
+			ParticipantUserIDs: []string{created.Agent.User.ID},
+		},
+		http.StatusCreated,
+	)
+
+	participants := mustJSON[api.CollectionResponse[api.User]](
+		t,
+		h,
+		http.MethodGet,
+		"/conversations/"+conversation.ID+"/participants",
+		alpha.Token,
+		nil,
+		http.StatusOK,
+	)
+
+	var agentParticipant *api.User
+	for idx := range participants.Items {
+		if participants.Items[idx].ID == created.Agent.User.ID {
+			agentParticipant = &participants.Items[idx]
+			break
+		}
+	}
+	if agentParticipant == nil {
+		t.Fatalf("participants did not include agent %s", created.Agent.User.ID)
+	}
+	if agentParticipant.Metadata["role"] != "session-agent" {
+		t.Fatalf("participant metadata role = %#v", agentParticipant.Metadata["role"])
+	}
+	if agentParticipant.Metadata["session_id"] != "session-789" {
+		t.Fatalf("participant metadata session_id = %#v", agentParticipant.Metadata["session_id"])
+	}
+}
+
 func TestSPECWorkflows_AgentAPIKeyRotationRevokesPreviousToken(t *testing.T) {
 	h := newWorkflowHarness(t)
 	alpha := h.loginUser(t, "alpha@example.com")

@@ -291,6 +291,7 @@ func userToAPI(row userRow) api.User {
 		PrincipalType: row.PrincipalType,
 		Status:        row.Status,
 		Email:         row.Email,
+		Metadata:      row.Metadata,
 		Profile: api.UserProfile{
 			Handle:      row.Handle,
 			DisplayName: row.DisplayName,

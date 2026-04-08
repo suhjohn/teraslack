@@ -61,10 +61,11 @@ set title = coalesce(sqlc.narg(title), title),
 where id = sqlc.arg(id);
 
 -- name: ListConversationParticipants :many
-select u.id, u.principal_type, u.status, u.email, p.handle, p.display_name, p.avatar_url, p.bio
+select u.id, u.principal_type, u.status, u.email, p.handle, p.display_name, p.avatar_url, p.bio, a.metadata
 from conversation_participants cp
 join users u on u.id = cp.user_id
 join user_profiles p on p.user_id = u.id
+left join agents a on a.user_id = u.id
 where cp.conversation_id = sqlc.arg(conversation_id)
 order by p.display_name asc;
 

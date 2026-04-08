@@ -691,6 +691,10 @@ func (s *Server) handleListWorkspaceMembers(w http.ResponseWriter, r *http.Reque
 	}
 	items := make([]api.WorkspaceMember, 0)
 	for _, row := range rows {
+		var metadata []byte
+		if row.Metadata != nil {
+			metadata = append(metadata, (*row.Metadata)...)
+		}
 		item := api.WorkspaceMember{
 			WorkspaceID: row.WorkspaceID.String(),
 			UserID:      row.UserID.String(),
@@ -701,6 +705,7 @@ func (s *Server) handleListWorkspaceMembers(w http.ResponseWriter, r *http.Reque
 				PrincipalType: row.PrincipalType,
 				Status:        row.Status_2,
 				Email:         row.Email,
+				Metadata:      readJSONMap(metadata),
 				Handle:        row.Handle,
 				DisplayName:   row.DisplayName,
 				AvatarURL:     row.AvatarUrl,
@@ -1103,11 +1108,16 @@ func (s *Server) createSessionTx(ctx context.Context, tx pgx.Tx, userID uuid.UUI
 func (s *Server) resolveOrCreateUserByEmailTx(ctx context.Context, tx pgx.Tx, email string) (userRow, bool, error) {
 	row, err := s.queries.WithTx(tx).GetUserByEmail(ctx, stringPtr(email))
 	if err == nil {
+		var metadata []byte
+		if row.Metadata != nil {
+			metadata = append(metadata, (*row.Metadata)...)
+		}
 		return userRow{
 			ID:            row.ID,
 			PrincipalType: row.PrincipalType,
 			Status:        row.Status,
 			Email:         row.Email,
+			Metadata:      readJSONMap(metadata),
 			Handle:        row.Handle,
 			DisplayName:   row.DisplayName,
 			AvatarURL:     row.AvatarUrl,

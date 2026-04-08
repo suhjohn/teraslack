@@ -158,21 +158,23 @@ func (q *Queries) GetMessage(ctx context.Context, id uuid.UUID) (Message, error)
 }
 
 const getUser = `-- name: GetUser :one
-select u.id, u.principal_type, u.status, u.email, p.handle, p.display_name, p.avatar_url, p.bio
+select u.id, u.principal_type, u.status, u.email, p.handle, p.display_name, p.avatar_url, p.bio, a.metadata
 from users u
 join user_profiles p on p.user_id = u.id
+left join agents a on a.user_id = u.id
 where u.id = $1
 `
 
 type GetUserRow struct {
-	ID            uuid.UUID `json:"id"`
-	PrincipalType string    `json:"principal_type"`
-	Status        string    `json:"status"`
-	Email         *string   `json:"email"`
-	Handle        string    `json:"handle"`
-	DisplayName   string    `json:"display_name"`
-	AvatarUrl     *string   `json:"avatar_url"`
-	Bio           *string   `json:"bio"`
+	ID            uuid.UUID        `json:"id"`
+	PrincipalType string           `json:"principal_type"`
+	Status        string           `json:"status"`
+	Email         *string          `json:"email"`
+	Handle        string           `json:"handle"`
+	DisplayName   string           `json:"display_name"`
+	AvatarUrl     *string          `json:"avatar_url"`
+	Bio           *string          `json:"bio"`
+	Metadata      *json.RawMessage `json:"metadata"`
 }
 
 func (q *Queries) GetUser(ctx context.Context, id uuid.UUID) (GetUserRow, error) {
@@ -187,6 +189,7 @@ func (q *Queries) GetUser(ctx context.Context, id uuid.UUID) (GetUserRow, error)
 		&i.DisplayName,
 		&i.AvatarUrl,
 		&i.Bio,
+		&i.Metadata,
 	)
 	return i, err
 }

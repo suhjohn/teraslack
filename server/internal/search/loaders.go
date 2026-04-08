@@ -15,11 +15,13 @@ import (
 
 func (r *Runtime) loadUser(ctx context.Context, userID uuid.UUID) (userRow, error) {
 	row := r.db.QueryRow(ctx, `
-		select u.id, u.principal_type, u.status, u.email, p.handle, p.display_name, p.avatar_url, p.bio, u.created_at, greatest(u.updated_at, p.updated_at)
+		select u.id, u.principal_type, u.status, u.email, p.handle, p.display_name, p.avatar_url, p.bio, a.metadata, u.created_at, greatest(u.updated_at, p.updated_at, coalesce(a.updated_at, u.updated_at))
 		from users u
 		join user_profiles p on p.user_id = u.id
+		left join agents a on a.user_id = u.id
 		where u.id = $1`, userID)
 	var user userRow
+	var metadata []byte
 	if err := row.Scan(
 		&user.ID,
 		&user.PrincipalType,
@@ -29,11 +31,13 @@ func (r *Runtime) loadUser(ctx context.Context, userID uuid.UUID) (userRow, erro
 		&user.DisplayName,
 		&user.AvatarURL,
 		&user.Bio,
+		&metadata,
 		&user.CreatedAt,
 		&user.UpdatedAt,
 	); err != nil {
 		return userRow{}, err
 	}
+	user.Metadata = readJSONMap(metadata)
 	user.CreatedAt = user.CreatedAt.UTC()
 	user.UpdatedAt = user.UpdatedAt.UTC()
 	return user, nil
