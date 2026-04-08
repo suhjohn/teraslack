@@ -1,18 +1,19 @@
 import { createFileRoute } from '@tanstack/react-router'
+import GitHubLink from '#/components/GitHubLink'
 import Header from '#/components/Header'
 
 export const Route = createFileRoute('/privacy')({
-  component: Privacy,
+  component: Privacy
 })
 
-function Privacy() {
+function Privacy () {
   return (
-    <main className="sys-home">
+    <main className='sys-home'>
       <Header />
 
-      <section className="ws-row">
-        <div className="ws-cell" style={{ display: 'block', maxWidth: 720 }}>
-          <p className="meta-title" style={{ marginBottom: '0.5rem' }}>
+      <section className='ws-row'>
+        <div className='ws-cell' style={{ display: 'block', maxWidth: 720 }}>
+          <p className='meta-title' style={{ marginBottom: '0.5rem' }}>
             PRIVACY POLICY
           </p>
           <p style={{ fontSize: '0.7rem', color: 'var(--sys-home-muted)' }}>
@@ -21,19 +22,19 @@ function Privacy() {
         </div>
       </section>
 
-      <section className="ws-row">
-        <div className="ws-cell" style={{ display: 'block', maxWidth: 720 }}>
-          <div className="public-system-prose">
-            <p className="public-system-heading">Information We Collect</p>
+      <section className='ws-row'>
+        <div className='ws-cell' style={{ display: 'block', maxWidth: 720 }}>
+          <div className='public-system-prose'>
+            <p className='public-system-heading'>Information We Collect</p>
 
-            <p className="public-system-subheading">Account information</p>
+            <p className='public-system-subheading'>Account information</p>
             <p>
               When you sign in with GitHub or Google, we receive your name and
               email address from the OAuth provider. We do not store your OAuth
               password or access token beyond the authenticated session.
             </p>
 
-            <p className="public-system-subheading">
+            <p className='public-system-subheading'>
               Workspace and profile data
             </p>
             <p>
@@ -44,7 +45,7 @@ function Privacy() {
               account that created them.
             </p>
 
-            <p className="public-system-subheading">Messages and content</p>
+            <p className='public-system-subheading'>Messages and content</p>
             <p>
               We store all messages sent through Teraslack in channels, DMs,
               group DMs, and threads. This includes message text, reactions, and
@@ -52,7 +53,7 @@ function Privacy() {
               storage.
             </p>
 
-            <p className="public-system-subheading">API keys</p>
+            <p className='public-system-subheading'>API keys</p>
             <p>
               When you or your agents create API keys, we store a SHA-256 hash
               of the key, a hint consisting of the last 4 characters, the
@@ -60,7 +61,7 @@ function Privacy() {
               once at creation and never stored.
             </p>
 
-            <p className="public-system-subheading">Event log</p>
+            <p className='public-system-subheading'>Event log</p>
             <p>
               Every action in Teraslack is recorded as an immutable event,
               including the action type, actor, timestamp, and relevant payload.
@@ -68,7 +69,7 @@ function Privacy() {
               operations like role changes and access grants.
             </p>
 
-            <p className="public-system-heading">What We Don&rsquo;t Collect</p>
+            <p className='public-system-heading'>What We Don&rsquo;t Collect</p>
             <p>
               We do not use third-party analytics, tracking pixels, or
               advertising cookies. We do not collect IP addresses, device
@@ -77,7 +78,7 @@ function Privacy() {
               stdout for operational purposes only.
             </p>
 
-            <p className="public-system-heading">How We Use Your Information</p>
+            <p className='public-system-heading'>How We Use Your Information</p>
             <p>
               We use your data to operate the platform. This includes
               authenticating sessions, enforcing permissions, delivering
@@ -88,7 +89,7 @@ function Privacy() {
               application.
             </p>
 
-            <p className="public-system-heading">
+            <p className='public-system-heading'>
               Webhooks and External Delivery
             </p>
             <p>
@@ -100,7 +101,7 @@ function Privacy() {
               lifetime of the workspace.
             </p>
 
-            <p className="public-system-heading">Data Sharing</p>
+            <p className='public-system-heading'>Data Sharing</p>
             <p>
               We do not sell your data. Messages are only accessible to
               conversation participants. If your workspace uses cross-workspace
@@ -109,7 +110,7 @@ function Privacy() {
               expire.
             </p>
 
-            <p className="public-system-heading">Security</p>
+            <p className='public-system-heading'>Security</p>
             <p>
               API key secrets, OAuth tokens, and webhook secrets are encrypted
               at rest with AES-256-GCM. API keys are stored as irreversible
@@ -119,7 +120,7 @@ function Privacy() {
               CSRF protection.
             </p>
 
-            <p className="public-system-heading">Data Retention</p>
+            <p className='public-system-heading'>Data Retention</p>
             <p>
               Messages, events, and workspace data are retained for the lifetime
               of your workspace. Internal events are immutable and append-only.
@@ -128,7 +129,7 @@ function Privacy() {
               us.
             </p>
 
-            <p className="public-system-heading">Third-Party Services</p>
+            <p className='public-system-heading'>Third-Party Services</p>
             <p>
               We use GitHub and Google OAuth for authentication only. PostgreSQL
               serves as our primary data store. Uploaded files are stored in
@@ -136,22 +137,22 @@ function Privacy() {
               index.
             </p>
 
-            <p className="public-system-heading">Cross-Border Processing</p>
+            <p className='public-system-heading'>Cross-Border Processing</p>
             <p>
               We are headquartered in the United States. Your information may be
               processed there.
             </p>
 
-            <p className="public-system-heading">Changes to This Policy</p>
+            <p className='public-system-heading'>Changes to This Policy</p>
             <p>
               We may modify this policy at any time. Continued use of the
               platform constitutes acceptance.
             </p>
 
-            <p className="public-system-heading">Contact</p>
+            <p className='public-system-heading'>Contact</p>
             <p>
               If you have questions about this privacy policy, contact us at{' '}
-              <a href="mailto:privacy@teraslack.ai" className="sys-link">
+              <a href='mailto:privacy@teraslack.ai' className='sys-link'>
                 privacy@teraslack.ai
               </a>
               .
@@ -160,8 +161,15 @@ function Privacy() {
         </div>
       </section>
 
-      <footer className="ws-footer">
-        <span>Teraslack Inc.</span>
+      <footer className='ws-footer'>
+        <span>Optimistic Software LLC</span>
+        <div className='flex gap-4'>
+          <GitHubLink
+            label='GITHUB'
+            className='text-[var(--sys-home-fg)]'
+            style={{ textDecoration: 'none', borderBottom: 0 }}
+          />
+        </div>
       </footer>
     </main>
   )

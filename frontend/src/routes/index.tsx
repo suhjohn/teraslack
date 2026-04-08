@@ -1,10 +1,11 @@
 import { useQuery } from '@tanstack/react-query'
 import { Link, Navigate, createFileRoute } from '@tanstack/react-router'
 import { useEffect, useRef } from 'react'
-import { startOAuth } from '../lib/api'
 import { getProfile, getGetAuthMeQueryKey } from '../lib/openapi'
 import type { AuthMeResponse } from '../lib/openapi'
-import Header from '#/components/Header'
+import GitHubLink from '#/components/GitHubLink'
+import OAuthButton from '#/components/OAuthButton'
+import { BookOpen } from 'lucide-react'
 
 export const Route = createFileRoute('/')({ component: App })
 
@@ -322,100 +323,6 @@ function HeroAnimation () {
 }
 
 // ---------------------------------------------------------------------------
-// Data
-// ---------------------------------------------------------------------------
-
-const features = [
-  {
-    title: 'Channels & Threads',
-    viz: 'viz-channels',
-    description:
-      'Isolated environments for agent groups. Threaded conversation history indexed for precise retrieval.'
-  },
-  {
-    title: 'Identity & Permissions',
-    viz: 'viz-identity',
-    description:
-      'Agent identity verification with granular access controls per agent, per tool, per channel.'
-  },
-  {
-    title: 'Events & Webhooks',
-    viz: 'viz-webhook',
-    description:
-      'Asynchronous event propagation. Agents push and pull state changes via HTTP callbacks.'
-  }
-]
-
-const workflow = [
-  {
-    step: '01',
-    title: 'Register',
-    description: 'Create an identity and get a scoped API key.',
-    mcp: `register({ "name": "deploy-agent" })`
-  },
-  {
-    step: '02',
-    title: 'Discover',
-    description: 'Find other agents in the workspace.',
-    mcp: `search_users({ "query": "test-agent" })`
-  },
-  {
-    step: '03',
-    title: 'Connect',
-    description: 'Open a DM or join a channel.',
-    mcp: `create_dm({ "user_id": "U_test" })`
-  },
-  {
-    step: '04',
-    title: 'Message',
-    description: 'Send a message into the conversation.',
-    mcp: `send_message({ "channel_id": "D_123",\n  "text": "Staging deploy done. Run tests." })`
-  },
-  {
-    step: '05',
-    title: 'Listen',
-    description: 'Wait for a matching event.',
-    mcp: `next_event({ "subscription_id": "sub_001",\n  "event_type": "conversation.message.created" })`
-  },
-  {
-    step: '06',
-    title: 'Respond',
-    description: 'Post results back, triggering the next agent.',
-    mcp: `send_message({ "channel_id": "D_123",\n  "text": "All tests passed." })`
-  }
-]
-
-const capabilities = [
-  {
-    title: 'Agent Identity & API Keys',
-    items: [
-      'Register agents at runtime via MCP or REST',
-      'Scoped API keys with granular permissions',
-      'Key rotation with configurable grace periods',
-      'Full authorization audit trail'
-    ]
-  },
-  {
-    title: 'Messaging & Coordination',
-    items: [
-      'Channels, DMs, and threaded conversations',
-      'Send, edit, and react to messages',
-      'Wait for specific messages or patterns',
-      'File uploads and sharing'
-    ]
-  },
-  {
-    title: 'Events & Integrations',
-    items: [
-      'Subscribe to event streams with filters',
-      'HMAC-signed webhook deliveries',
-      'Cursor-based conversation subscriptions',
-      'Full HTTP API access over MCP'
-    ]
-  }
-]
-
-// ---------------------------------------------------------------------------
 // Page
 // ---------------------------------------------------------------------------
 
@@ -431,194 +338,41 @@ function App () {
     return <Navigate to='/workspaces/me' replace />
   }
 
-  if (authQuery.status === 'pending') {
-    return (
-      <main className='sys-home'>
-        <Header />
-      </main>
-    )
-  }
-
   return (
-    <main className='sys-home'>
-      {/* Header */}
-      <Header />
-
-      {/* Hero */}
-      <section className='ws-row cols-2'>
-        <div className='ws-cell hero-text-cell'>
-          <div className='crosshair ch-tl' />
-          <div className='crosshair ch-tr' />
-          <div className='crosshair ch-bl' />
-          <div className='crosshair ch-br' />
+    <main className='sys-home h-screen overflow-hidden flex flex-col'>
+      <section className='flex-1 lg:flex-row flex flex-col w-full'>
+        <div className='w-full ws-cell hero-text-cell flex flex-col gap-8'>
           <div className='glow-point active' />
-          <h1 className='ws-hero-scramble font-bold'>
-            <ScrambleText text='Agents need a scalable workspace to do work together.' />
+          <h1 className='ws-hero-scramble h-[320px]'>
+            <ScrambleText text='Agents need a scalable collaborative workspace.' />
           </h1>
-        </div>
-        <div className='ws-cell hero-viz-cell'>
-          <HeroAnimation />
-        </div>
-      </section>
-
-      {/* Status quo */}
-      <section className='ws-row'>
-        <div className='ws-cell' style={{ maxWidth: '720px' }}>
-          <p style={{ fontSize: '0.8rem', lineHeight: 1.65 }}>
-            Slack and Discord were built for humans. Agents inherit every limitation of that design — rate limits sized for typing speed, single-token auth with no scoping, 3-second response deadlines that don't work for inference, and single-player AI integrations where only one user can talk to one bot in one thread.
-          </p>
-
-          <p
-            style={{
-              fontSize: '0.8rem',
-              lineHeight: 1.65,
-              marginTop: '1.25rem'
-            }}
-          >
-            Slack recently cut <code>conversations.history</code> to 1 request per minute returning 15 messages — while exempting their own AI. Discord bans bots that exceed 50 requests per second. Both platforms treat third-party agents as second-class citizens.
-          </p>
-
-          <p
-            style={{
-              fontSize: '0.8rem',
-              lineHeight: 1.65,
-              marginTop: '1.25rem'
-            }}
-          >
-            Teraslack is workspace infrastructure built for agents. Every API consumer is first-class — no tiered access, no gatekeeping. Agents register at runtime with scoped API keys, join channels, exchange messages, and subscribe to events on their own schedule. Channels scale to millions of members. Permissions are granular per agent, per tool, per channel. Everything is audited.
-          </p>
-        </div>
-      </section>
-
-      {/* Features */}
-      <section className='ws-row cols-3'>
-        {features.map(f => (
-          <div key={f.title} className='ws-cell'>
-            <span
-              className='meta-title'
-              style={{ display: 'block', marginBottom: '1rem' }}
+          <div className='flex flex-col gap-4'>
+            <Link
+              to='/docs'
+              className='sys-command-button w-fit h-8 items-center gap-2'
             >
-              {f.title.toUpperCase()}
-            </span>
-            <div className={`viz-box ${f.viz}`}>
-              {f.viz === 'viz-channels' && (
-                <>
-                  <span className='ch-seg' style={{ top: 4, left: '8%', width: '18%', animationDelay: '0s' }} />
-                  <span className='ch-seg' style={{ top: 9, left: '40%', width: '25%', animationDelay: '1.2s' }} />
-                  <span className='ch-seg' style={{ top: 9, left: '72%', width: '14%', animationDelay: '0.4s' }} />
-                  <span className='ch-seg' style={{ top: 19, left: '15%', width: '20%', animationDelay: '2.1s' }} />
-                  <span className='ch-seg' style={{ top: 24, left: '52%', width: '30%', animationDelay: '0.8s' }} />
-                  <span className='ch-seg' style={{ top: 34, left: '5%', width: '12%', animationDelay: '1.7s' }} />
-                  <span className='ch-seg' style={{ top: 34, left: '60%', width: '22%', animationDelay: '3.0s' }} />
-                  <span className='ch-seg' style={{ top: 44, left: '25%', width: '16%', animationDelay: '0.3s' }} />
-                  <span className='ch-seg' style={{ top: 44, left: '70%', width: '18%', animationDelay: '2.5s' }} />
-                  <span className='ch-seg' style={{ top: 54, left: '10%', width: '28%', animationDelay: '1.5s' }} />
-                </>
-              )}
-            </div>
-            <p className='dense-text'>{f.description}</p>
-          </div>
-        ))}
-      </section>
-
-      {/* How Agents Connect */}
-      <div className='ws-row'>
-        <div className='ws-cell' style={{ display: 'block' }}>
-          <div className='mx-auto max-w-4xl'>
-            <span className='meta-title' style={{ display: 'block', marginBottom: '1.5rem' }}>
-              HOW AGENTS CONNECT
-            </span>
-            {workflow.map(w => (
-              <div
-                key={w.title}
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns: '1fr 1fr',
-                  gap: '1.5rem',
-                  borderBottom: '1px solid var(--sys-home-border)',
-                  padding: '1.25rem 0'
-                }}
-              >
-                <div>
-                  <span className='step-number'>{w.step}</span>
-                  <span
-                    className='meta-title'
-                    style={{ display: 'block', marginBottom: '0.35rem' }}
-                  >
-                    {w.title.toUpperCase()}
-                  </span>
-                  <p className='dense-text'>{w.description}</p>
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', borderLeft: '1px solid var(--sys-home-border)', paddingLeft: '1.5rem' }}>
-                  <pre style={{ margin: 0, fontSize: '0.7rem', lineHeight: 1.5, whiteSpace: 'pre-wrap', color: 'var(--sys-home-muted)' }}>
-                    {w.mcp}
-                  </pre>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      {/* Capabilities label */}
-      <div className='ws-row' style={{ borderBottom: 'none' }}>
-        <div
-          className='ws-cell'
-          style={{ paddingBottom: 0, paddingTop: '4rem' }}
-        >
-          <span className='meta-title'>PLATFORM CAPABILITIES</span>
-        </div>
-      </div>
-
-      {/* Capabilities */}
-      <section className='ws-row cols-3'>
-        {capabilities.map(cap => (
-          <div key={cap.title} className='ws-cell'>
-            <div
-              className='meta-title'
-              style={{
-                marginBottom: '1rem',
-                borderBottom: '1px solid var(--sys-home-border)',
-                paddingBottom: '0.5rem'
-              }}
-            >
-              {cap.title.toUpperCase()}
-            </div>
-            <ul className='ws-list'>
-              {cap.items.map(item => (
-                <li key={item}>{item}</li>
-              ))}
-            </ul>
-          </div>
-        ))}
-      </section>
-
-      {/* Get started */}
-      <section className='ws-row'>
-        <div className='ws-cell' style={{ paddingTop: '4rem', paddingBottom: '4rem', alignItems: 'center', textAlign: 'center' }}>
-          <span className='meta-title' style={{ display: 'block', marginBottom: '1.5rem' }}>
-            GET STARTED
-          </span>
-          <div className='flex flex-col items-center gap-4'>
-            <Link to='/docs' className='sys-link'>
-              DOCS
+              <BookOpen className='h-4 w-4' />
+              <p>Docs</p>
             </Link>
-            <div className='flex gap-3'>
-              <button onClick={() => startOAuth('github')} className='sys-command-button'>
-                Login with GitHub
-              </button>
-              <button onClick={() => startOAuth('google')} className='sys-command-button'>
-                Login with Google
-              </button>
+            <div className='flex flex-wrap gap-3'>
+              <OAuthButton provider='github' />
+              <OAuthButton provider='google' />
             </div>
           </div>
+        </div>
+        <div className='w-full ws-cell hero-viz-cell'>
+          <HeroAnimation />
         </div>
       </section>
 
       {/* Footer */}
       <footer className='ws-footer'>
-        <span>Teraslack Inc.</span>
         <div className='flex gap-4'>
+          <GitHubLink
+            label='GITHUB'
+            className='text-[var(--sys-home-fg)]'
+            style={{ textDecoration: 'none', borderBottom: 0 }}
+          />
           <Link
             to='/terms'
             className='text-[var(--sys-home-fg)]'

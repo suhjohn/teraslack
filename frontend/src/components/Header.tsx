@@ -1,8 +1,8 @@
 import { Link } from '@tanstack/react-router'
 import { Menu, X } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
+import OAuthButton from './OAuthButton'
 import ThemeToggle from './ThemeToggle'
-import { startOAuth } from '#/lib/api'
 
 export default function Header () {
   const [menuOpen, setMenuOpen] = useState(false)
@@ -50,20 +50,8 @@ export default function Header () {
                 DOCS
               </Link>
               <div className='header-nav__desktop-actions'>
-                <button
-                  type='button'
-                  className='sys-command-button'
-                  onClick={() => startOAuth('github')}
-                >
-                  LOGIN WITH GITHUB
-                </button>
-                <button
-                  type='button'
-                  className='sys-command-button'
-                  onClick={() => startOAuth('google')}
-                >
-                  LOGIN WITH GOOGLE
-                </button>
+                <OAuthButton provider='github' />
+                <OAuthButton provider='google' />
               </div>
               <ThemeToggle />
               <button
@@ -83,20 +71,8 @@ export default function Header () {
               <Link to='/docs' className='sys-command-button header-nav__mobile-button' onClick={close}>
                 DOCS
               </Link>
-              <button
-                type='button'
-                className='sys-command-button header-nav__mobile-button'
-                onClick={() => { startOAuth('github'); close() }}
-              >
-                LOGIN WITH GITHUB
-              </button>
-              <button
-                type='button'
-                className='sys-command-button header-nav__mobile-button'
-                onClick={() => { startOAuth('google'); close() }}
-              >
-                LOGIN WITH GOOGLE
-              </button>
+              <OAuthButton provider='github' className='header-nav__mobile-button' onClick={close} />
+              <OAuthButton provider='google' className='header-nav__mobile-button' onClick={close} />
             </div>
           )}
         </nav>
