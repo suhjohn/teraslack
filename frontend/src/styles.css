@@ -354,7 +354,7 @@ h2 {
   --sys-home-fg: #1a1a1a;
   --sys-home-border: #1a1a1a;
   --sys-home-grid: rgba(26, 26, 26, 0.08);
-  --sys-home-muted: rgba(26, 26, 26, 0.62);
+  --sys-home-muted: rgba(26, 26, 26, 0.74);
   --sys-home-accent-bg: #1a1a1a;
   --sys-home-accent-fg: #eae6df;
   --sys-home-hover-bg: rgba(26, 26, 26, 0.08);
@@ -369,7 +369,7 @@ h2 {
   --sys-home-fg: #dcdad5;
   --sys-home-border: #4a4a4a;
   --sys-home-grid: rgba(220, 218, 213, 0.05);
-  --sys-home-muted: rgba(220, 218, 213, 0.54);
+  --sys-home-muted: rgba(220, 218, 213, 0.68);
   --sys-home-accent-bg: #dcdad5;
   --sys-home-accent-fg: #151516;
   --sys-home-hover-bg: rgba(220, 218, 213, 0.1);
@@ -382,7 +382,7 @@ h2 {
     --sys-home-fg: #dcdad5;
     --sys-home-border: #4a4a4a;
     --sys-home-grid: rgba(220, 218, 213, 0.05);
-    --sys-home-muted: rgba(220, 218, 213, 0.54);
+    --sys-home-muted: rgba(220, 218, 213, 0.68);
     --sys-home-accent-bg: #dcdad5;
     --sys-home-accent-fg: #151516;
     --sys-home-hover-bg: rgba(220, 218, 213, 0.1);
@@ -1604,6 +1604,7 @@ a {
   border-bottom: none;
   letter-spacing: 0.04em;
   transition: color 120ms ease;
+  white-space: nowrap;
 }
 
 .docs-nav-link:hover {
@@ -1615,6 +1616,7 @@ a {
   padding: 1.5rem;
   border-bottom: 1px solid var(--sys-home-border);
   width: 100%;
+  overflow-x: hidden;
 }
 
 .docs-heading {
@@ -1648,6 +1650,7 @@ a {
   font-size: 0.75rem;
   line-height: 1.6;
   color: var(--sys-home-fg);
+  max-width: 100%;
 }
 
 .docs-table {
@@ -1754,6 +1757,10 @@ a {
 }
 
 @media (max-width: 768px) {
+  .sys-home {
+    line-height: 1.6;
+  }
+
   .ws-row.cols-2,
   .ws-row.cols-3 {
     grid-template-columns: 1fr;
@@ -1775,6 +1782,7 @@ a {
   .docs-nav {
     overflow-x: auto;
     gap: 1rem;
+    -webkit-overflow-scrolling: touch;
   }
 
   .docs-table th:nth-child(2),
@@ -1784,6 +1792,126 @@ a {
 
   .docs-section {
     padding: 2rem 1rem;
+  }
+
+  .dense-text {
+    font-size: 0.85rem;
+    line-height: 1.65;
+  }
+
+  .docs-heading {
+    font-size: 0.8rem;
+  }
+
+  .docs-subheading {
+    font-size: 0.8rem;
+  }
+
+  .docs-table {
+    font-size: 0.8rem;
+    line-height: 1.6;
+  }
+
+  .docs-table th {
+    font-size: 0.7rem;
+  }
+
+  .docs-recipe {
+    padding: 1rem;
+  }
+
+  .docs-code {
+    font-size: 0.75rem;
+    line-height: 1.7;
+    padding: 0.75rem;
+  }
+
+  .docs-recipe .docs-code {
+    font-size: 0.7rem;
+    padding: 0.5rem 0.75rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .docs-nav {
+    gap: 0.75rem;
+    padding: 0.75rem 1rem;
+  }
+
+  .docs-section {
+    padding: 1.5rem 0.75rem;
+  }
+
+  .docs-table thead {
+    display: none;
+  }
+
+  .docs-table,
+  .docs-table tbody,
+  .docs-table tr,
+  .docs-table td {
+    display: block;
+    width: 100%;
+  }
+
+  .docs-table tr {
+    padding: 0.75rem 0;
+    border-bottom: 1px solid var(--sys-home-border);
+  }
+
+  .docs-table tbody tr:last-child {
+    border-bottom: none;
+  }
+
+  .docs-table td {
+    padding: 0.15rem 0;
+    border-bottom: none;
+  }
+
+  .docs-table td:first-child {
+    font-weight: bold;
+    padding-bottom: 0.25rem;
+  }
+
+  .docs-table td:nth-child(2) {
+    display: block;
+  }
+
+  .docs-table td:nth-child(3) {
+    color: var(--sys-home-muted);
+    font-size: 0.75rem;
+    line-height: 1.6;
+  }
+
+  .docs-recipe {
+    padding: 0.75rem;
+  }
+
+  .docs-code {
+    font-size: 0.7rem;
+    line-height: 1.65;
+    padding: 0.5rem;
+  }
+
+  .docs-recipe .docs-code {
+    font-size: 0.65rem;
+    padding: 0.5rem;
+  }
+
+  .dense-text {
+    text-align: left;
+    font-size: 0.85rem;
+    line-height: 1.7;
+  }
+
+  .sys-home code {
+    word-break: break-all;
+  }
+
+  .ws-footer {
+    flex-direction: column;
+    gap: 0.75rem;
+    padding: 1.5rem 0.75rem;
   }
 }
 

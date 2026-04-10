@@ -433,7 +433,7 @@ Send hi on teraslack
           href={openAPISpecURL}
           target="_blank"
           rel="noopener noreferrer"
-          className="sys-outline-link inline-block w-fit border-b-0 no-underline"
+          className="sys-outline-link inline-block w-fit border-b-0 no-underline break-all"
         >
           {openAPISpecURL}
         </a>
