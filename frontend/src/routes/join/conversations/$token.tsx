@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Card, CardDescription, CardHeader, CardTitle } from '../../../components/ui/card'
 import { APIClientError } from '../../../lib/api'
 import { getErrorMessage } from '../../../lib/admin'
-import { joinConversation } from '../../../lib/openapi'
+import { joinConversation as acceptConversationInvite } from '../../../lib/openapi'
 import type { Conversation } from '../../../lib/openapi'
 
 export const Route = createFileRoute('/join/conversations/$token')({
@@ -35,9 +35,13 @@ export function JoinConversationPage({ token }: { token: string }) {
 
     async function joinConversation() {
       try {
-        const conversation = unwrapData<Conversation>(
-          await joinConversation({ token }),
+        const conversation = unwrapData<unknown>(
+          await acceptConversationInvite({ token }),
         )
+
+        if (!isConversation(conversation)) {
+          throw new Error('Join response did not include a conversation id.')
+        }
 
         await queryClient.invalidateQueries({ queryKey: ['/conversations'] })
 
@@ -119,4 +123,12 @@ function unwrapData<T>(value: { data: T } | T) {
   }
 
   return value
+}
+
+function isConversation(value: unknown): value is Conversation {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    typeof (value as Partial<Conversation>).id === 'string'
+  )
 }
