@@ -1,11 +1,11 @@
 import { useQueryClient } from '@tanstack/react-query'
 import { Link, createFileRoute, useNavigate } from '@tanstack/react-router'
 import { LoaderCircle } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Card, CardDescription, CardHeader, CardTitle } from '../../../components/ui/card'
 import { APIClientError } from '../../../lib/api'
 import { getErrorMessage } from '../../../lib/admin'
-import { useJoinConversation } from '../../../lib/openapi'
+import { joinConversation } from '../../../lib/openapi'
 import type { Conversation } from '../../../lib/openapi'
 
 export const Route = createFileRoute('/join/conversations/$token')({
@@ -14,20 +14,29 @@ export const Route = createFileRoute('/join/conversations/$token')({
 
 function JoinConversationRoute() {
   const { token } = Route.useParams()
+  return <JoinConversationPage token={token} />
+}
+
+export function JoinConversationPage({ token }: { token: string }) {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
-  const joinConversationMutation = useJoinConversation()
+  const joinedTokenRef = useRef<string | null>(null)
 
   const [error, setError] = useState('')
   const [isUnauthorized, setIsUnauthorized] = useState(false)
 
   useEffect(() => {
+    if (joinedTokenRef.current === token) {
+      return
+    }
+
+    joinedTokenRef.current = token
     let cancelled = false
 
     async function joinConversation() {
       try {
         const conversation = unwrapData<Conversation>(
-          await joinConversationMutation.mutateAsync({ data: { token } }),
+          await joinConversation({ token }),
         )
 
         await queryClient.invalidateQueries({ queryKey: ['/conversations'] })
@@ -61,7 +70,7 @@ function JoinConversationRoute() {
     return () => {
       cancelled = true
     }
-  }, [joinConversationMutation, navigate, queryClient, token])
+  }, [navigate, queryClient, token])
 
   if (!error) {
     return (

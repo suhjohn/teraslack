@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -29,14 +30,9 @@ func main() {
 		log.Fatal(err)
 	}
 	ctx := context.Background()
-	pool, err := pgxpool.New(ctx, cfg.MigrationDatabaseURL)
-	if err != nil {
-		log.Fatal(err)
-	}
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+	pool, err := migratePool(ctx, cfg, logger)
 	defer pool.Close()
-	if err := db.Migrate(ctx, pool); err != nil {
-		log.Fatal(err)
-	}
 	if migrateOnly {
 		return
 	}
@@ -48,7 +44,6 @@ func main() {
 	}
 	defer pool.Close()
 
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 	httpHandler, err := handler.New(cfg, pool, logger)
 	if err != nil {
 		log.Fatal(err)
@@ -78,4 +73,45 @@ func main() {
 			log.Fatal(err)
 		}
 	}
+}
+
+func migratePool(ctx context.Context, cfg config.Config, logger *slog.Logger) (*pgxpool.Pool, error) {
+	pool, err := pgxpool.New(ctx, cfg.MigrationDatabaseURL)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := db.Migrate(ctx, pool); err == nil {
+		return pool, nil
+	} else {
+		pool.Close()
+		if cfg.DatabaseURL == cfg.MigrationDatabaseURL || !isConnectionSlotExhaustion(err) {
+			return nil, err
+		}
+
+		logger.Warn(
+			"direct migration database exhausted connection slots; retrying migrations with pooled database url",
+			"error", err.Error(),
+		)
+	}
+
+	pool, err = pgxpool.New(ctx, cfg.DatabaseURL)
+	if err != nil {
+		return nil, err
+	}
+	if err := db.Migrate(ctx, pool); err != nil {
+		pool.Close()
+		return nil, err
+	}
+	return pool, nil
+}
+
+func isConnectionSlotExhaustion(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	message := err.Error()
+	return strings.Contains(message, "SQLSTATE 53300") ||
+		strings.Contains(message, "remaining connection slots")
 }
